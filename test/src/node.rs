@@ -408,14 +408,14 @@ impl Node {
     // Convenient way to construct an uncle block
     pub fn construct_uncle(&self) -> (BlockView, BlockView) {
         let block = self.new_block_without_uncles(None, None, None);
-        // Make sure the uncle block timestamp is different from
-        // the next block timestamp in main fork.
-        // Firstly construct uncle block which timestamp
-        // is less than the current time, and then generate
-        // the new block in main fork which timestamp is greater than
-        // or equal to the current time.
-        let timestamp = block.timestamp();
-        let uncle = block.as_advanced_builder().timestamp(timestamp - 1).build();
+        // The template already has the minimum valid timestamp. Subtracting
+        // one can cross the median-time boundary when blocks are mined quickly.
+        // Keep that valid timestamp for the uncle and advance its sibling.
+        let uncle = block.clone();
+        let block = block
+            .as_advanced_builder()
+            .timestamp(block.timestamp().checked_add(1).unwrap())
+            .build();
         (block, uncle)
     }
 

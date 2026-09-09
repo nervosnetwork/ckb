@@ -164,12 +164,17 @@ impl Spec for BlockSyncDuplicatedAndReconnect {
         sync_header(&net, node, &block);
         should_receive_get_blocks_message(&net, node, block.hash());
 
-        // Sync duplicated header again, `node` should discard the duplicated one.
-        // So we will not receive any response messages
+        // Sync duplicated header again. Independent sync traffic remains legal, but this exact
+        // header must not produce another GetBlocks request.
         sync_header(&net, node, &block);
+        let duplicated_request = net
+            .receive_matching_timeout(node, Duration::from_secs(10), |data| {
+                is_get_blocks_message_for(data, &block.hash())
+            })
+            .expect("sync connection must remain live while observing the duplicate header");
         assert!(
-            net.receive_timeout(node, Duration::new(10, 0)).is_err(),
-            "node should discard duplicated sync headers",
+            duplicated_request.is_none(),
+            "a duplicated sync header must not produce another GetBlocks request",
         );
 
         // Disconnect and reconnect node, and then sync the same header
@@ -543,15 +548,19 @@ fn sync_get_blocks(net: &Net, node: &Node, hashes: &[Byte32]) {
 
 fn should_receive_get_blocks_message(net: &Net, node: &Node, last_block_hash: Byte32) {
     let ret = net.should_receive(node, |data: &Bytes| {
-        SyncMessage::from_slice(data)
-            .map(|message| match message.to_enum() {
-                packed::SyncMessageUnion::GetBlocks(get_blocks) => {
-                    let block_hashes = get_blocks.block_hashes();
-                    block_hashes.get(block_hashes.len() - 1).unwrap() == last_block_hash
-                }
-                _ => false,
-            })
-            .unwrap_or(false)
+        is_get_blocks_message_for(data, &last_block_hash)
     });
     assert!(ret, "Test node should receive GetBlocks message from node");
+}
+
+fn is_get_blocks_message_for(data: &Bytes, block_hash: &Byte32) -> bool {
+    SyncMessage::from_slice(data)
+        .map(|message| match message.to_enum() {
+            packed::SyncMessageUnion::GetBlocks(get_blocks) => get_blocks
+                .block_hashes()
+                .into_iter()
+                .any(|requested| requested == *block_hash),
+            _ => false,
+        })
+        .unwrap_or(false)
 }

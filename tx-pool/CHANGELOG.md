@@ -7,6 +7,38 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Add `verify_ordering`, defaulting to `fee_rate`, with explicit `arrival_time`
+  selection also supported. Selection order does not promise completion order.
+- Add local active VM-time and initial-load policies, independent of consensus
+  cycle accounting and block verification.
+
+### Changed
+
+- Use immutable transaction owners and keyed coupled commits for admission,
+  replacement, chain reconciliation and administration. Independent ordinary
+  transactions can commit concurrently; required effects publish afterward.
+- Intentionally change the public Rust API: fallible builder construction returns
+  the controller and sole verification-result receiver; callbacks receive
+  immutable snapshots and the old mutable TxPool export is removed. This requires
+  a SemVer-major release relative to the prior published crate. See the
+  [migration guide](docs/MAINTENANCE.md#integrating-callers-and-stored-data).
+- Replace the fragmented pre-pool queues with one charged transaction
+  authority and atomic Plan/Apply transitions. In-flight retained transactions
+  are visible through `get_transaction` as `pending` rather than `unknown`.
+- Narrow `get_raw_tx_pool.conflicted` to successfully displaced accepted
+  victims retained as replacement history. Failed replacement candidates use
+  the recent-reject surface.
+- Write tx-pool persistence v2 while accepting legacy v1 files as migration
+  input. Every restored transaction re-enters validation. Node downgrade and
+  reverse persistence migration are not supported.
+- Existing tx-pool configuration files remain accepted on node upgrades;
+  `max_tx_pool_size` keeps its serialized-byte meaning. Internal accepted and
+  pipeline memory ceilings scale with larger serialized capacities while retaining
+  execution room for small pools. Obsolete released fields remain accepted and
+  ignored. See [configuration and capacity](docs/MAINTENANCE.md#configuration-and-capacity).
+
 ## [1.3.0](https://github.com/nervosnetwork/ckb/compare/ckb-tx-pool-v1.2.2...ckb-tx-pool-v1.3.0) - 2026-07-28
 
 ### Added

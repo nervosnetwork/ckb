@@ -17,8 +17,12 @@ fn mkdir() -> tempfile::TempDir {
 #[test]
 fn test_bundled_config_files() {
     let resource = Resource::bundled_ckb_config();
-    CKBAppConfig::load_from_slice(&resource.get().expect("read bundled file"))
+    let config = CKBAppConfig::load_from_slice(&resource.get().expect("read bundled file"))
         .expect("deserialize config");
+    assert_eq!(
+        config.tx_pool.verify_ordering,
+        crate::VerifyOrdering::FeeRate
+    );
 
     let resource = Resource::bundled_miner_config();
     MinerAppConfig::load_from_slice(&resource.get().expect("read bundled file"))

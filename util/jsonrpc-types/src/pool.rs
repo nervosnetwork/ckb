@@ -21,7 +21,7 @@ pub struct TxPoolInfo {
     pub tip_number: BlockNumber,
     /// Count of transactions in the pending state.
     ///
-    /// The pending transactions must be proposed in a new block first.
+    /// These accepted transactions have no proposal eligible for the next block.
     pub pending: Uint64,
     /// Count of transactions in the proposed state.
     ///
@@ -30,12 +30,11 @@ pub struct TxPoolInfo {
     pub proposed: Uint64,
     /// Count of orphan transactions.
     ///
-    /// An orphan transaction has an input cell from the transaction which is neither in the chain
-    /// nor in the transaction pool.
+    /// These transactions are waiting for missing cells or headers.
     pub orphan: Uint64,
-    /// Total size of transactions bytes in the pool of all the different kinds of states (excluding orphan transactions).
+    /// Total serialized bytes of accepted transactions.
     pub total_tx_size: Uint64,
-    /// Total consumed VM cycles of all the transactions in the pool (excluding orphan transactions).
+    /// Total consumed VM cycles of accepted transactions.
     pub total_tx_cycles: Uint64,
     /// Fee rate threshold. The pool rejects transactions which fee rate is below this threshold.
     ///
@@ -59,7 +58,7 @@ pub struct TxPoolInfo {
     /// Total limit on the size of transactions in the tx-pool
     pub max_tx_pool_size: Uint64,
 
-    /// verify_queue size
+    /// Transactions queued for resolution or script verification; excludes active jobs.
     pub verify_queue_size: Uint64,
 }
 
@@ -187,7 +186,8 @@ pub struct TxPoolEntries {
     pub pending: HashMap<H256, TxPoolEntry>,
     /// Proposed tx verbose info
     pub proposed: HashMap<H256, TxPoolEntry>,
-    /// Conflicted tx hash vec
+    /// Successfully displaced accepted transaction hashes retained as replacement history.
+    /// Failed replacement candidates are reported through recent-reject status instead.
     pub conflicted: Vec<H256>,
 }
 
@@ -259,7 +259,7 @@ pub struct PoolTxDetailInfo {
     pub timestamp: Uint64,
     /// The detailed status in tx-pool, `pending`, `gap`, `proposed`
     pub entry_status: String,
-    /// The rank in pending, starting from 0
+    /// The one-based rank among pending and gap entries; zero for proposed or unknown.
     pub rank_in_pending: Uint64,
     /// The pending(`pending` and `gap`) count
     pub pending_count: Uint64,
@@ -315,6 +315,9 @@ pub enum PoolTransactionReject {
     /// Declared wrong cycles
     DeclaredWrongCycles(String),
 
+    /// Verification exceeded this node's local tx-pool time limit
+    ExcessiveVerifyTime(String),
+
     /// Resolve failed
     Resolve(String),
 
@@ -329,6 +332,9 @@ pub enum PoolTransactionReject {
 
     /// Invalidated rejected
     Invalidated(String),
+
+    /// Internal error
+    Internal(String),
 }
 
 impl From<Reject> for PoolTransactionReject {
@@ -345,11 +351,13 @@ impl From<Reject> for PoolTransactionReject {
             Reject::Duplicated(_) => Self::Duplicated(format!("{reject}")),
             Reject::Malformed(_, _) => Self::Malformed(format!("{reject}")),
             Reject::DeclaredWrongCycles(..) => Self::DeclaredWrongCycles(format!("{reject}")),
+            Reject::ExcessiveVerifyTime => Self::ExcessiveVerifyTime(format!("{reject}")),
             Reject::Resolve(_) => Self::Resolve(format!("{reject}")),
             Reject::Verification(_) => Self::Verification(format!("{reject}")),
             Reject::Expiry(_) => Self::Expiry(format!("{reject}")),
             Reject::RBFRejected(_) => Self::RBFRejected(format!("{reject}")),
             Reject::Invalidated(_) => Self::Invalidated(format!("{reject}")),
+            Reject::Internal(_) => Self::Internal(format!("{reject}")),
         }
     }
 }

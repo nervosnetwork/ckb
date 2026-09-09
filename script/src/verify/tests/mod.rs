@@ -2,6 +2,7 @@
 // in order to reuse the test cases
 #![allow(clippy::duplicate_mod)]
 
+mod active_budget;
 pub(crate) mod utils;
 
 mod ckb_2019;

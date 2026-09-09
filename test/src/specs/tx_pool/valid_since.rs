@@ -97,7 +97,8 @@ impl ValidSince {
         node.mine_until_out_bootstrap_period();
         let old_median_time: u64 = node.rpc_client().get_blockchain_info().median_time.into();
         node.mine(1);
-        let cellbase = node.get_tip_block().transactions()[0].clone();
+        let source_block = node.get_tip_block();
+        let cellbase = source_block.transactions()[0].clone();
         sleep(Duration::from_secs(2));
 
         node.mine(median_time_block_count);
@@ -118,8 +119,20 @@ impl ValidSince {
         timestamps.sort_unstable();
         let median_time = timestamps[timestamps.len() >> 1];
 
-        // Absolute since timestamp in seconds
-        let median_time_seconds = (median_time - old_median_time) / 1000;
+        // RFC 0028 starts relative timestamp since at the source block's
+        // timestamp. The prior median is the pre-hardfork rule; fast mining
+        // can make their difference look harmless until a boundary is tested.
+        let base_time = if node
+            .consensus()
+            .hardfork_switch()
+            .ckb2021
+            .is_block_ts_as_relative_since_start_enabled(node.get_tip_block().epoch().number())
+        {
+            source_block.timestamp()
+        } else {
+            old_median_time
+        };
+        let median_time_seconds = (median_time - base_time) / 1000;
         {
             let since = since_from_relative_timestamp(median_time_seconds + 1);
             let transaction = node.new_transaction_with_since(cellbase.hash(), since);
@@ -132,11 +145,12 @@ impl ValidSince {
         {
             let since = since_from_relative_timestamp(median_time_seconds - 1);
             let transaction = node.new_transaction_with_since(cellbase.hash(), since);
+            let result = node
+                .rpc_client()
+                .send_transaction_result(transaction.data().into());
             assert!(
-                node.rpc_client()
-                    .send_transaction_result(transaction.data().into())
-                    .is_ok(),
-                "transaction's since is greater than tip's median time",
+                result.is_ok(),
+                "relative since is below the canonical boundary: {result:?}"
             );
         }
     }

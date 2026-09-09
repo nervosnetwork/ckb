@@ -45,6 +45,12 @@ pub enum Reject {
     #[error("Declared wrong cycles {0}, actual {1}")]
     DeclaredWrongCycles(Cycle, Cycle),
 
+    /// Verification exceeded this node's cumulative active CKB-VM work limit.
+    /// Queueing and non-script checks are excluded. This is a transient local
+    /// capacity outcome, not consensus invalidity.
+    #[error("Transaction verification exceeded the local tx-pool time limit")]
+    ExcessiveVerifyTime,
+
     /// Resolve failed
     #[error("Resolve failed {0}")]
     Resolve(OutPointError),
@@ -64,22 +70,21 @@ pub enum Reject {
     /// Invalidated by cell consuming Tx
     #[error("Invalidated: {0}")]
     Invalidated(String),
+
+    /// Internal error that should not occur during normal operation.
+    #[error("Internal error: {0}")]
+    Internal(String),
 }
 
 fn is_malformed_from_verification(error: &Error) -> bool {
     match error.kind() {
         ErrorKind::Transaction => error
             .downcast_ref::<TransactionError>()
-            .expect("error kind checked")
-            .is_malformed_tx(),
+            .is_some_and(TransactionError::is_malformed_tx),
         ErrorKind::Script => !format!("{}", error).contains(ARGV_TOO_LONG_TEXT),
-        ErrorKind::Internal => {
-            error
-                .downcast_ref::<InternalError>()
-                .expect("error kind checked")
-                .kind()
-                == InternalErrorKind::CapacityOverflow
-        }
+        ErrorKind::Internal => error
+            .downcast_ref::<InternalError>()
+            .is_some_and(|internal| internal.kind() == InternalErrorKind::CapacityOverflow),
         _ => false,
     }
 }
@@ -88,28 +93,62 @@ impl Reject {
     /// Returns true if the reject reason is malformed tx.
     pub fn is_malformed_tx(&self) -> bool {
         match self {
-            Reject::Malformed(_, _) => true,
-            Reject::DeclaredWrongCycles(..) => true,
-            Reject::Verification(err) => is_malformed_from_verification(err),
-            Reject::Resolve(OutPointError::OverMaxDepExpansionLimit) => true,
-            _ => false,
+            Self::Malformed(..) | Self::DeclaredWrongCycles(..) => true,
+            Self::Verification(error) => is_malformed_from_verification(error),
+            Self::Resolve(error) => matches!(error, OutPointError::OverMaxDepExpansionLimit),
+            Self::LowFeeRate(..)
+            | Self::ExceededMaximumAncestorsCount
+            | Self::ExceededTransactionSizeLimit(..)
+            | Self::Full(..)
+            | Self::Duplicated(..)
+            | Self::ExcessiveVerifyTime
+            | Self::Expiry(..)
+            | Self::RBFRejected(..)
+            | Self::Invalidated(..)
+            | Self::Internal(..) => false,
         }
     }
 
-    /// Returns true if the reject should be recorded.
+    /// Returns true when the rejection should appear in recent-rejection status.
+    ///
+    /// `Full` and `ExcessiveVerifyTime` are transient local resource outcomes;
+    /// `Duplicated` leaves the existing transaction status intact. Recent records
+    /// answer status queries and do not gate transaction admission.
     pub fn should_recorded(&self) -> bool {
-        !matches!(self, Reject::Duplicated(..))
+        match self {
+            Self::Duplicated(..) | Self::Full(..) | Self::ExcessiveVerifyTime => false,
+            Self::LowFeeRate(..)
+            | Self::ExceededMaximumAncestorsCount
+            | Self::ExceededTransactionSizeLimit(..)
+            | Self::Malformed(..)
+            | Self::DeclaredWrongCycles(..)
+            | Self::Resolve(..)
+            | Self::Verification(..)
+            | Self::Expiry(..)
+            | Self::RBFRejected(..)
+            | Self::Invalidated(..)
+            | Self::Internal(..) => true,
+        }
     }
 
-    /// Returns true if tx can be resubmitted, allowing relay
-    /// * Declared wrong cycles should allow relay with the correct cycles
-    /// * Reject but is not malformed and the fee rate reached the threshold,
-    ///   it may be due to double spending
-    ///   or temporary limitations of the pool resources,
-    ///   and expired clearing
+    /// Returns true if tx can be resubmitted, allowing relay.
+    /// Wrong declared cycles may be corrected; non-malformed conflicts and local
+    /// resource outcomes may become admissible later. Low fees do not qualify.
     pub fn is_allowed_relay(&self) -> bool {
-        matches!(self, Reject::DeclaredWrongCycles(..))
-            || (!matches!(self, Reject::LowFeeRate(..)) && !self.is_malformed_tx())
+        match self {
+            Self::LowFeeRate(..) | Self::Malformed(..) => false,
+            Self::Resolve(..) | Self::Verification(..) => !self.is_malformed_tx(),
+            Self::ExceededMaximumAncestorsCount
+            | Self::ExceededTransactionSizeLimit(..)
+            | Self::Full(..)
+            | Self::Duplicated(..)
+            | Self::DeclaredWrongCycles(..)
+            | Self::ExcessiveVerifyTime
+            | Self::Expiry(..)
+            | Self::RBFRejected(..)
+            | Self::Invalidated(..)
+            | Self::Internal(..) => true,
+        }
     }
 }
 
@@ -118,17 +157,17 @@ impl_error_conversion_with_kind!(Reject, ErrorKind::SubmitTransaction, Error);
 /// Tx-pool transaction status
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum TxStatus {
-    /// Status "pending". The transaction is in the pool, and not proposed yet.
+    /// Status "pending". Accepted by the pool, with no proposal eligible for the next block.
     Pending,
-    /// Status "proposed". The transaction is in the pool and has been proposed.
+    /// Status "proposed". Accepted by the pool, with a proposal eligible for the next block.
     Proposed,
     /// Status "committed". The transaction has been committed to the canonical chain.
     Committed(BlockNumber, H256, u32),
-    /// Status "unknown". The node has not seen the transaction,
-    /// or it should be rejected but was cleared due to storage limitations.
+    /// Status "unknown". No committed transaction, accepted pool entry or retained
+    /// rejection was found within the query scope.
     Unknown,
-    /// Status "rejected". The transaction has been recently removed from the pool.
-    /// Due to storage limitations, the node can only hold the most recently removed transactions.
+    /// Status "rejected". A recent rejection reason is retained by the node.
+    /// The transaction need not have been accepted into the pool.
     Rejected(String),
 }
 
@@ -320,7 +359,7 @@ pub struct TxPoolInfo {
     pub tip_number: BlockNumber,
     /// Count of transactions in the pending state.
     ///
-    /// The pending transactions must be proposed in a new block first.
+    /// These accepted transactions have no proposal eligible for the next block.
     pub pending_size: usize,
     /// Count of transactions in the proposed state.
     ///
@@ -329,12 +368,11 @@ pub struct TxPoolInfo {
     pub proposed_size: usize,
     /// Count of orphan transactions.
     ///
-    /// An orphan transaction has an input cell from the transaction which is neither in the chain
-    /// nor in the transaction pool.
+    /// These transactions are waiting for missing cells or headers.
     pub orphan_size: usize,
-    /// Total count of transactions in the pool of all the different kinds of states.
+    /// Total serialized bytes of accepted transactions.
     pub total_tx_size: usize,
-    /// Total consumed VM cycles of all the transactions in the pool.
+    /// Total consumed VM cycles of accepted transactions.
     pub total_tx_cycles: Cycle,
     /// Fee rate threshold. The pool rejects transactions which fee rate is below this threshold.
     ///
@@ -358,7 +396,7 @@ pub struct TxPoolInfo {
     /// Total limit on the size of transactions in the tx-pool
     pub max_tx_pool_size: u64,
 
-    /// verify queue number
+    /// Transactions queued for resolution or script verification; excludes active jobs.
     pub verify_queue_size: usize,
 }
 
@@ -382,7 +420,7 @@ pub struct PoolTxDetailInfo {
     pub timestamp: u64,
     /// The detailed status in tx-pool, `Pending`, `Gap`, `Proposed`
     pub entry_status: String,
-    /// The rank in pending, starting from 0
+    /// The one-based rank among Pending and Gap entries; zero for Proposed or unknown.
     pub rank_in_pending: usize,
     /// The pending(`Pending` and `Gap`) count
     pub pending_count: usize,
@@ -428,4 +466,108 @@ pub struct PoolTransactionEntry {
     pub fee: Capacity,
     /// The unix timestamp when entering the Txpool, unit: Millisecond
     pub timestamp: u64,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn rejection_policies_preserve_recording_relay_and_peer_penalty_decisions() {
+        let cases = [
+            (
+                Reject::LowFeeRate(FeeRate::from_u64(1), 1, 0),
+                (false, true, false),
+            ),
+            (Reject::ExceededMaximumAncestorsCount, (false, true, true)),
+            (
+                Reject::ExceededTransactionSizeLimit(2, 1),
+                (false, true, true),
+            ),
+            (Reject::Full("pressure".into()), (false, false, true)),
+            (Reject::Duplicated(Default::default()), (false, false, true)),
+            (
+                Reject::Malformed("fixture".into(), "invalid".into()),
+                (true, true, false),
+            ),
+            (Reject::DeclaredWrongCycles(2, 1), (true, true, true)),
+            (Reject::ExcessiveVerifyTime, (false, false, true)),
+            (
+                Reject::Resolve(OutPointError::Unknown(Default::default())),
+                (false, true, true),
+            ),
+            (
+                Reject::Resolve(OutPointError::OverMaxDepExpansionLimit),
+                (true, true, false),
+            ),
+            (
+                Reject::Verification(TransactionError::Immature { index: 0 }.into()),
+                (false, true, true),
+            ),
+            (Reject::Expiry(0), (false, true, true)),
+            (
+                Reject::RBFRejected("replacement".into()),
+                (false, true, true),
+            ),
+            (Reject::Invalidated("spent".into()), (false, true, true)),
+            (Reject::Internal("fixture".into()), (false, true, true)),
+        ];
+        for (reject, expected) in cases {
+            assert_eq!(
+                (
+                    reject.is_malformed_tx(),
+                    reject.should_recorded(),
+                    reject.is_allowed_relay()
+                ),
+                expected,
+                "{reject:?}",
+            );
+        }
+    }
+
+    #[test]
+    fn verification_policy_preserves_dynamic_error_classification() {
+        use ckb_error::OtherError;
+        let cases: [(Error, bool); 7] = [
+            (
+                TransactionError::OutputsSumOverflow {
+                    inputs_sum: Capacity::zero(),
+                    outputs_sum: Capacity::shannons(1),
+                }
+                .into(),
+                true,
+            ),
+            (TransactionError::Immature { index: 0 }.into(), false),
+            (
+                ErrorKind::Script.because(OtherError::new("script failure")),
+                true,
+            ),
+            (
+                ErrorKind::Script.because(OtherError::new(ARGV_TOO_LONG_TEXT)),
+                false,
+            ),
+            (
+                InternalErrorKind::CapacityOverflow
+                    .because(OtherError::new("overflow"))
+                    .into(),
+                true,
+            ),
+            (
+                InternalErrorKind::System
+                    .because(OtherError::new("system"))
+                    .into(),
+                false,
+            ),
+            (
+                ErrorKind::Transaction.because(OtherError::new("untyped failure")),
+                false,
+            ),
+        ];
+        for (error, malformed) in cases {
+            let reject = Reject::Verification(error);
+            assert_eq!(reject.is_malformed_tx(), malformed, "{reject:?}");
+            assert_eq!(reject.is_allowed_relay(), !malformed, "{reject:?}");
+            assert!(reject.should_recorded());
+        }
+    }
 }

@@ -25,6 +25,9 @@ ckb-build-info.workspace = true
 ckb-build-info.workspace = true
 ckb-bin.workspace = true
 console-subscriber = { workspace = true, optional = true }
+humantime = { workspace = true, optional = true }
+tokio = { workspace = true, features = ["net", "rt", "time"], optional = true }
+tracing-subscriber = { workspace = true, optional = true }
 
 [target.'cfg(target_env = "msvc")'.dependencies]
 winreg = "0.55"
@@ -213,6 +216,7 @@ ckb-vm = { version = "=0.24.15", default-features = false }
 clap = "=4.4"
 console = ">=0.9.1, <1.0.0"
 console-subscriber = "0.4.0"
+tonic = { version = "0.12", default-features = false, features = ["transport"] }
 criterion = "0.5"
 crossbeam = "0.8.2"
 crossbeam-channel = "0.5.1"
@@ -232,6 +236,7 @@ fs2 = "0.4.3"
 futures = "0.3"
 futures-util = "0.3.21"
 golomb-coded-set = "0.2.0"
+humantime = "2.3"
 governor = { version = "0.10", default-features = false, features = [
   "std",
   "jitter",
@@ -248,6 +253,7 @@ include_dir = "0.7"
 includedir = "0.6.0"
 includedir_codegen = "0.6.0"
 indicatif = { version = "0.18", features = ["rayon"] }
+imbl = "=7.0.1"
 ipnetwork = "0.20"
 is-terminal = "0.4.7"
 is_sorted = "0.1.1"
@@ -262,7 +268,6 @@ memchr = "2.7"
 merkle-cbt = "0.3"
 minstant = "0.1.4"
 molecule = { version = "0.9.0", default-features = false }
-multi_index_map = "0.15.0"
 multiaddr = { version = "0.3.7", package = "tentacle-multiaddr" }
 num_cpus = "1.16.0"
 numext-fixed-uint = "0.1"
@@ -283,7 +288,6 @@ regex = "1.1.6"
 reqwest = { version = "0.12", features = ["blocking", "json"] }
 rhai = "1.16.0"
 rocksdb = { version = "=0.21.1", package = "ckb-rocksdb", default-features = false }
-rustc-hash = "1.1"
 secio = { version = "0.6.8", package = "tentacle-secio" }
 secp256k1 = "0.30"
 sentry = "0.34.0"
@@ -291,7 +295,6 @@ sha2 = "0.10"
 serde = "1.0"
 serde_json = "1.0"
 serde_plain = "0.3.0"
-slab = "0.4"
 sled = "0.34.7"
 snap = "1"
 sql-builder = "3.1"
@@ -305,6 +308,8 @@ tiny-keccak = "2.0"
 tokio = "1.35.0"
 tokio-util = "0.7.8"
 toml = "0.5"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", default-features = false, features = ["fmt", "registry"] }
 tower-http = "0.6"
 ubyte = "0.10"
 url = "2.2.2"
@@ -334,7 +339,11 @@ default = []
 deadlock_detection = ["ckb-bin/deadlock_detection"]
 with_sentry = ["ckb-bin/with_sentry"]
 with_dns_seeding = ["ckb-bin/with_dns_seeding"]
-profiling = ["tikv-jemallocator/profiling", "ckb-bin/profiling"]
+profiling = [
+  "tikv-jemallocator/profiling",
+  "ckb-bin/profiling",
+  "tracing-subscriber",
+]
 portable = ["ckb-bin/portable"]
 march-native = ["ckb-bin/march-native"]
-tokio-trace = ["console-subscriber"]
+tokio-trace = ["console-subscriber", "humantime", "tokio", "tracing-subscriber"]

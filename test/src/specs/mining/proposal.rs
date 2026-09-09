@@ -6,11 +6,11 @@ use crate::{Node, Spec};
 pub struct AvoidDuplicatedProposalsWithUncles;
 
 impl Spec for AvoidDuplicatedProposalsWithUncles {
-    // Case: This is not a validation rule, but just an improvement for miner
-    //       filling proposals: Don't re-propose the transactions which
-    //       has already been proposed within the uncles.
-    //    1. Submit `tx` into mempool, and `uncle` which proposed `tx` as an candidate uncle
-    //    2. Get block template, expect empty proposals cause we already proposed `tx` within `uncle`
+    // A candidate uncle is optional, while a pending transaction must retain a
+    // path into the proposal window. If both contain the same proposal ID,
+    // proposal selection wins and the conflicting uncle is omitted. Keeping
+    // the uncle instead would strand a reorg-recovered transaction until the
+    // uncle expires from the candidate set.
 
     fn run(&self, nodes: &mut Vec<Node>) {
         let node = &nodes[0];
@@ -29,19 +29,11 @@ impl Spec for AvoidDuplicatedProposalsWithUncles {
         node.submit_block(&uncle);
         node.submit_transaction(&tx);
 
-        let block = node.new_block_with_blocking(|template| template.uncles.is_empty());
-        assert_eq!(
-            vec![uncle.hash()],
-            block
-                .uncles()
-                .into_iter()
-                .map(|u| u.hash())
-                .collect::<Vec<_>>()
-        );
+        let block = node.new_block_with_blocking(|template| template.proposals.is_empty());
         assert!(
-            block.get_proposal_tx_ids().is_empty(),
-            "expect empty proposals, actual: {:?}",
-            block.get_proposal_tx_ids()
+            block.uncles().into_iter().next().is_none(),
+            "a conflicting optional uncle must not suppress a pending proposal"
         );
+        assert_eq!(vec![tx.proposal_short_id()], block.get_proposal_tx_ids());
     }
 }

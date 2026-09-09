@@ -1,5 +1,5 @@
 use crate::Node;
-use crate::utils::{TempPathBuf, find_available_port, message_name, wait_until};
+use crate::utils::{TempPathBuf, find_available_port, message_name};
 use ckb_app_config::NetworkConfig;
 use ckb_async_runtime::{Runtime, new_global_runtime};
 use ckb_chain_spec::consensus::Consensus;
@@ -13,9 +13,32 @@ use ckb_network::{
 use ckb_util::Mutex;
 use std::collections::HashMap;
 use std::sync::Arc;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 pub type NetMessage = (PeerIndex, ProtocolId, Bytes);
+
+fn receive_matching_until<Message, Predicate>(
+    receiver: &Receiver<Message>,
+    timeout: Duration,
+    predicate: Predicate,
+) -> Result<Option<Message>, RecvTimeoutError>
+where
+    Predicate: Fn(&Message) -> bool,
+{
+    let started = Instant::now();
+    loop {
+        let elapsed = started.elapsed();
+        if elapsed >= timeout {
+            return Ok(None);
+        }
+        match receiver.recv_timeout(timeout.saturating_sub(elapsed)) {
+            Ok(message) if predicate(&message) => return Ok(Some(message)),
+            Ok(_) => {}
+            Err(RecvTimeoutError::Timeout) => return Ok(None),
+            Err(RecvTimeoutError::Disconnected) => return Err(RecvTimeoutError::Disconnected),
+        }
+    }
+}
 
 pub struct Net {
     p2p_port: u16,
@@ -166,16 +189,37 @@ impl Net {
         Ok(net_message)
     }
 
+    pub fn receive_matching_timeout<Predicate>(
+        &self,
+        node: &Node,
+        timeout: Duration,
+        predicate: Predicate,
+    ) -> Result<Option<NetMessage>, RecvTimeoutError>
+    where
+        Predicate: Fn(&Bytes) -> bool,
+    {
+        let node_id = node.node_id();
+        let (peer_index, receiver) = self
+            .receivers
+            .get(&node_id)
+            .unwrap_or_else(|| panic!("not connected peer {}", node.p2p_address()));
+        receive_matching_until(receiver, timeout, |net_message| {
+            info!(
+                "Net received from peer-{}, message_name: {}",
+                peer_index,
+                message_name(&net_message.2)
+            );
+            predicate(&net_message.2)
+        })
+    }
+
     pub fn should_receive<Predicate>(&self, node: &Node, predicate: Predicate) -> bool
     where
         Predicate: Fn(&Bytes) -> bool,
     {
-        let timeout = Duration::from_secs(30);
-        wait_until(30, || {
-            self.receive_timeout(node, timeout)
-                .map(|(_, _, data)| predicate(&data))
-                .unwrap_or(false)
-        })
+        self.receive_matching_timeout(node, Duration::from_secs(30), predicate)
+            .map(|message| message.is_some())
+            .unwrap_or(false)
     }
 }
 
@@ -243,5 +287,35 @@ impl CKBProtocolHandler for DummyProtocolHandler {
         if let Some(sender) = self.senders.lock().get(&peer_index) {
             let _ = sender.send((peer_index, nc.protocol_id(), data)).unwrap();
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::receive_matching_until;
+    use ckb_channel::unbounded;
+    use std::time::Duration;
+
+    #[test]
+    fn matching_receive_ignores_allowed_prefix_and_returns_the_match() {
+        let (sender, receiver) = unbounded();
+        sender.send(1).unwrap();
+        sender.send(2).unwrap();
+
+        let received =
+            receive_matching_until(&receiver, Duration::from_secs(1), |value| *value == 2).unwrap();
+
+        assert_eq!(received, Some(2));
+    }
+
+    #[test]
+    fn matching_receive_distinguishes_deadline_from_disconnect() {
+        let (sender, receiver) = unbounded::<u8>();
+        let received =
+            receive_matching_until(&receiver, Duration::from_millis(1), |_| true).unwrap();
+        assert_eq!(received, None);
+
+        drop(sender);
+        assert!(receive_matching_until(&receiver, Duration::from_secs(1), |_| true).is_err());
     }
 }

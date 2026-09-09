@@ -2,7 +2,7 @@ use crate::synchronizer::{
     IBD_BLOCK_FETCH_TOKEN, NOT_IBD_BLOCK_FETCH_TOKEN, SEND_GET_HEADERS_TOKEN,
     TIMEOUT_EVICTION_TOKEN,
 };
-use crate::tests::TestNode;
+use crate::tests::{TestNode, util::disable_tx_pool_and_take_relay_receiver};
 use crate::{SyncShared, Synchronizer};
 use ckb_chain::ChainServiceScope;
 use ckb_chain_spec::consensus::ConsensusBuilder;
@@ -118,6 +118,7 @@ fn setup_node(height: u64) -> (TestNode, Shared, ChainServiceScope) {
         .consensus(consensus)
         .build()
         .unwrap();
+    let relay_receiver = disable_tx_pool_and_take_relay_receiver(&mut pack);
 
     let chain = ChainServiceScope::new(pack.take_chain_services_builder());
 
@@ -201,7 +202,7 @@ fn setup_node(height: u64) -> (TestNode, Shared, ChainServiceScope) {
     let sync_shared = Arc::new(SyncShared::new(
         shared.clone(),
         Default::default(),
-        pack.take_relay_tx_receiver(),
+        relay_receiver,
     ));
     let synchronizer = Synchronizer::new(chain.chain_controller().clone(), sync_shared);
     let mut node = TestNode::new();

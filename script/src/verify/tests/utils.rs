@@ -297,6 +297,62 @@ impl TransactionScriptsVerifierWithEnv {
             .await
     }
 
+    pub(crate) async fn verify_with_budget_async(
+        &self,
+        version: ScriptVersion,
+        rtx: &ResolvedTransaction,
+        command_rx: &mut tokio::sync::watch::Receiver<ChunkCommand>,
+        active_time_limit: std::time::Duration,
+    ) -> Result<ResumableVerificationOutcome, Error> {
+        self.verify_with_budget_and_initial_load_limit_async(
+            version,
+            rtx,
+            command_rx,
+            active_time_limit,
+            crate::InitialProgramLoadLimit::new(u64::MAX).expect("the test load limit is non-zero"),
+        )
+        .await
+    }
+
+    pub(crate) async fn verify_with_budget_and_initial_load_limit_async(
+        &self,
+        version: ScriptVersion,
+        rtx: &ResolvedTransaction,
+        command_rx: &mut tokio::sync::watch::Receiver<ChunkCommand>,
+        active_time_limit: std::time::Duration,
+        initial_load_limit: crate::InitialProgramLoadLimit,
+    ) -> Result<ResumableVerificationOutcome, Error> {
+        self.build_verifier(version, rtx)
+            .resumable_verify_with_signal_and_budget(
+                Cycle::MAX,
+                command_rx,
+                active_time_limit,
+                initial_load_limit,
+                TxPoolVmExecutionMode::Inline,
+            )
+            .await
+    }
+
+    pub(crate) async fn verify_with_budget_mode_async(
+        &self,
+        version: ScriptVersion,
+        rtx: &ResolvedTransaction,
+        command_rx: &mut tokio::sync::watch::Receiver<ChunkCommand>,
+        active_time_limit: std::time::Duration,
+        execution_mode: TxPoolVmExecutionMode,
+    ) -> Result<ResumableVerificationOutcome, Error> {
+        self.build_verifier(version, rtx)
+            .resumable_verify_with_signal_and_budget(
+                Cycle::MAX,
+                command_rx,
+                active_time_limit,
+                crate::InitialProgramLoadLimit::new(u64::MAX)
+                    .expect("the test load limit is non-zero"),
+                execution_mode,
+            )
+            .await
+    }
+
     pub(crate) fn verify_map<R, F>(
         &self,
         version: ScriptVersion,

@@ -1,6 +1,8 @@
+use crate::util::fee_rate_cross_product;
 use ckb_types::core::{
     Capacity, FeeRate, tx_pool::AncestorsScoreSortKey as CoreAncestorsScoreSortKey,
 };
+use ckb_types::packed::ProposalShortId;
 use std::cmp::Ordering;
 
 /// A struct to use as a sorted key
@@ -15,9 +17,9 @@ pub struct AncestorsScoreSortKey {
 impl AncestorsScoreSortKey {
     /// compare tx fee rate with ancestors fee rate and return the min one
     pub(crate) fn min_fee_and_weight(&self) -> (Capacity, u64) {
-        // avoid division a_fee/a_weight > b_fee/b_weight
-        let tx_weight = u128::from(self.fee.as_u64()) * u128::from(self.ancestors_weight);
-        let ancestors_weight = u128::from(self.ancestors_fee.as_u64()) * u128::from(self.weight);
+        // Avoid division a_fee/a_weight > b_fee/b_weight.
+        let tx_weight = fee_rate_cross_product(self.fee.as_u64(), self.ancestors_weight);
+        let ancestors_weight = fee_rate_cross_product(self.ancestors_fee.as_u64(), self.weight);
 
         if tx_weight < ancestors_weight {
             (self.fee, self.weight)
@@ -38,8 +40,8 @@ impl Ord for AncestorsScoreSortKey {
         // avoid division a_fee/a_weight > b_fee/b_weight
         let (fee, weight) = self.min_fee_and_weight();
         let (other_fee, other_weight) = other.min_fee_and_weight();
-        let self_weight = u128::from(fee.as_u64()) * u128::from(other_weight);
-        let other_weight = u128::from(other_fee.as_u64()) * u128::from(weight);
+        let self_weight = fee_rate_cross_product(fee.as_u64(), other_weight);
+        let other_weight = fee_rate_cross_product(other_fee.as_u64(), weight);
         if self_weight == other_weight {
             // if fee rate weight is same, then compare with ancestor weight
             self.ancestors_weight.cmp(&other.ancestors_weight)
@@ -73,14 +75,14 @@ impl std::fmt::Display for AncestorsScoreSortKey {
     }
 }
 
-/// First compare fee_rate, select the smallest fee_rate,
-/// and then select the latest timestamp, for eviction,
-/// the latest timestamp which also means that the fewer descendants may exist.
+/// Eviction picks the *smallest* key: the lowest fee rate first, then the
+/// fewest descendants (cheap to evict), then the *oldest* timestamp.
 #[derive(Eq, PartialEq, Clone, Debug)]
 pub struct EvictKey {
     pub fee_rate: FeeRate,
     pub timestamp: u64,
     pub descendants_count: usize,
+    pub id: ProposalShortId,
 }
 
 impl PartialOrd for EvictKey {
@@ -93,7 +95,9 @@ impl Ord for EvictKey {
     fn cmp(&self, other: &Self) -> Ordering {
         if self.fee_rate == other.fee_rate {
             if self.descendants_count == other.descendants_count {
-                self.timestamp.cmp(&other.timestamp)
+                self.timestamp
+                    .cmp(&other.timestamp)
+                    .then_with(|| self.id.cmp(&other.id))
             } else {
                 self.descendants_count.cmp(&other.descendants_count)
             }

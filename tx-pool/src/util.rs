@@ -1,181 +1,125 @@
-use crate::error::Reject;
-use crate::pool::TxPool;
-use ckb_chain_spec::consensus::Consensus;
-use ckb_dao::DaoCalculator;
-use ckb_script::ChunkCommand;
-use ckb_snapshot::Snapshot;
-use ckb_store::ChainStore;
-use ckb_store::data_loader_wrapper::AsDataLoader;
-use ckb_types::core::{
-    Capacity, Cycle, TransactionView, cell::ResolvedTransaction, tx_pool::TRANSACTION_SIZE_LIMIT,
+//! Shared packed-value residency, fee arithmetic and blocking-runtime adapters.
+
+use ckb_types::prelude::Entity;
+use ckb_types::{
+    bytes::Bytes,
+    packed::{Byte32, OutPoint, ProposalShortId},
 };
-use ckb_verification::{
-    ContextualTransactionVerifier, DaoScriptSizeVerifier, NonContextualTransactionVerifier,
-    TimeRelativeTransactionVerifier, TxVerifyEnv,
-    cache::{CachedScriptCycles, Completed},
-};
-use std::sync::Arc;
-use tokio::{sync::watch, task::block_in_place};
+use tokio::{runtime::Handle, task::block_in_place};
 
-pub(crate) fn check_duplicate_proposal_id(
-    tx_pool: &TxPool,
-    tx: &TransactionView,
-) -> Result<(), Reject> {
-    let short_id = tx.proposal_short_id();
-    if tx_pool.contains_proposal_id(&short_id) {
-        return Err(Reject::Duplicated(tx.hash()));
-    }
-    Ok(())
+/// Closed compile-time set of Molecule entities whose encoded length is
+/// independent of hostile input.
+pub(crate) trait FixedSizePackedEntity: Entity {}
+
+impl FixedSizePackedEntity for Byte32 {}
+impl FixedSizePackedEntity for OutPoint {}
+impl FixedSizePackedEntity for ProposalShortId {}
+
+/// Copy a packed entity into an allocation that contains only that entity.
+///
+/// Generated molecule accessors are cheap views into their parent's `Bytes`.
+/// Storing such a view as a long-lived hash-map key can therefore retain an
+/// entire transaction or block after the authority that paid for the parent
+/// payload has gone away. Persistent indexes must compact packed keys at
+/// their ownership boundary so their resident charge matches what they keep.
+pub(crate) fn compact_packed<T: FixedSizePackedEntity>(value: &T) -> T {
+    // `value` is already a verified `T`, and copying its complete byte slice
+    // preserves that representation exactly. Molecule's constructor is named
+    // `new_unchecked` because it also accepts arbitrary bytes; this wrapper's
+    // typed input makes arbitrary bytes unrepresentable at every call site.
+    T::new_unchecked(ckb_types::bytes::Bytes::copy_from_slice(value.as_slice()))
 }
 
-pub(crate) fn check_tx_fee(
-    tx_pool: &TxPool,
-    snapshot: &Snapshot,
-    rtx: &ResolvedTransaction,
-    tx_size: usize,
-) -> Result<Capacity, Reject> {
-    let fee = DaoCalculator::new(snapshot.consensus(), &snapshot.borrow_as_data_loader())
-        .transaction_fee(rtx)
-        .map_err(|err| {
-            Reject::Malformed(
-                format!("{err}"),
-                "expect (outputs capacity) <= (inputs capacity)".to_owned(),
-            )
-        })?;
-    // Theoretically we cannot use size as weight directly to calculate fee_rate,
-    // here min fee rate is used as a cheap check,
-    // so we will use size to calculate fee_rate directly
-    let min_fee = tx_pool.config.min_fee_rate.fee(tx_size as u64);
-    // reject txs which fee lower than min fee rate
-    if fee < min_fee {
-        let reject =
-            Reject::LowFeeRate(tx_pool.config.min_fee_rate, min_fee.as_u64(), fee.as_u64());
-        ckb_logger::debug!("Reject tx {}", reject);
-        return Err(reject);
-    }
-    Ok(fee)
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum FixedPackedSequenceError {
+    Arithmetic,
+    Allocation,
 }
 
-pub(crate) fn non_contextual_verify(
-    consensus: &Consensus,
-    tx: &TransactionView,
-) -> Result<(), Reject> {
-    NonContextualTransactionVerifier::new(tx, consensus)
-        .verify()
-        .map_err(Reject::Verification)?;
+/// Copy a finite fixed-size packed sequence into one shared exact backing
+/// buffer. Copying every entity independently would turn one bounded query
+/// into `O(n)` allocator calls; retaining caller entities could keep `n`
+/// unrelated envelopes alive. This is the sole fallible sequence residency
+/// mechanism for both full transaction hashes and proposal IDs.
+fn try_compact_fixed_packed<T: FixedSizePackedEntity + Default>(
+    values: impl ExactSizeIterator<Item = T>,
+) -> Result<Vec<T>, FixedPackedSequenceError> {
+    let count = values.len();
+    let item_bytes = T::default().as_slice().len();
+    let total_bytes = count
+        .checked_mul(item_bytes)
+        .ok_or(FixedPackedSequenceError::Arithmetic)?;
 
-    // The ckb consensus does not limit the size of a single transaction,
-    // but if the size of the transaction is close to the limit of the block,
-    // it may cause the transaction to fail to be packed
-    let tx_size = tx.data().serialized_size_in_block() as u64;
-    if tx_size > TRANSACTION_SIZE_LIMIT {
-        return Err(Reject::ExceededTransactionSizeLimit(
-            tx_size,
-            TRANSACTION_SIZE_LIMIT,
-        ));
-    }
-    // cellbase is only valid in a block, not as a loose transaction
-    if tx.is_cellbase() {
-        return Err(Reject::Malformed(
-            "cellbase like".to_owned(),
-            Default::default(),
-        ));
-    }
-
-    Ok(())
-}
-
-fn verify_dao_script_size(
-    snapshot: &Snapshot,
-    rtx: Arc<ResolvedTransaction>,
-) -> Result<(), ckb_error::Error> {
-    DaoScriptSizeVerifier::new(
-        Arc::clone(&rtx),
-        snapshot.cloned_consensus(),
-        snapshot.borrow_as_data_loader(),
-    )
-    .verify()
-}
-
-pub(crate) async fn verify_rtx(
-    snapshot: Arc<Snapshot>,
-    rtx: Arc<ResolvedTransaction>,
-    tx_env: Arc<TxVerifyEnv>,
-    cache_entry: &Option<CachedScriptCycles>,
-    max_tx_verify_cycles: Cycle,
-    command_rx: Option<&mut watch::Receiver<ChunkCommand>>,
-) -> Result<Completed, Reject> {
-    let consensus = snapshot.cloned_consensus();
-    let data_loader = snapshot.as_data_loader();
-
-    let cached_script_cycles = cache_entry.map(|entry| entry.cycles);
-
-    if let Some(command_rx) = command_rx {
-        ContextualTransactionVerifier::new_with_cached_script_cycles(
-            Arc::clone(&rtx),
-            consensus,
-            data_loader,
-            Arc::clone(&tx_env),
-            cached_script_cycles,
-        )
-        .verify_with_pause(max_tx_verify_cycles, command_rx)
-        .await
-        .and_then(|result| {
-            verify_dao_script_size(&snapshot, rtx)?;
-            Ok(result)
-        })
-        .map_err(Reject::Verification)
-    } else {
-        block_in_place(|| {
-            ContextualTransactionVerifier::new_with_cached_script_cycles(
-                Arc::clone(&rtx),
-                consensus,
-                data_loader,
-                tx_env,
-                cached_script_cycles,
-            )
-            .verify(max_tx_verify_cycles, false)
-            .and_then(|result| {
-                verify_dao_script_size(&snapshot, rtx)?;
-                Ok(result)
-            })
-            .map_err(Reject::Verification)
-        })
-    }
-}
-
-pub(crate) fn time_relative_verify(
-    snapshot: Arc<Snapshot>,
-    rtx: Arc<ResolvedTransaction>,
-    tx_env: TxVerifyEnv,
-) -> Result<(), Reject> {
-    let consensus = snapshot.cloned_consensus();
-    TimeRelativeTransactionVerifier::new(
-        rtx,
-        consensus,
-        snapshot.as_data_loader(),
-        Arc::new(tx_env),
-    )
-    .verify()
-    .map_err(Reject::Verification)
-}
-
-pub(crate) fn is_missing_input(reject: &Reject) -> bool {
-    matches!(reject, Reject::Resolve(out_point_err) if out_point_err.is_unknown())
-}
-
-/// Unwraps a result or propagates its error with snapshot.
-#[macro_export]
-macro_rules! try_or_return_with_snapshot {
-    ($expr:expr, $snapshot:expr) => {
-        match $expr {
-            core::result::Result::Ok(val) => val,
-            core::result::Result::Err(err) => {
-                return Some((
-                    core::result::Result::Err(core::convert::From::from(err)),
-                    $snapshot,
-                ));
-            }
+    let mut backing = Vec::new();
+    backing
+        .try_reserve_exact(total_bytes)
+        .map_err(|_| FixedPackedSequenceError::Allocation)?;
+    for value in values {
+        if value.as_slice().len() != item_bytes {
+            return Err(FixedPackedSequenceError::Arithmetic);
         }
-    };
+        backing.extend_from_slice(value.as_slice());
+    }
+    if backing.len() != total_bytes {
+        return Err(FixedPackedSequenceError::Arithmetic);
+    }
+
+    let backing = Bytes::from(backing);
+    let mut compact = Vec::new();
+    compact
+        .try_reserve_exact(count)
+        .map_err(|_| FixedPackedSequenceError::Allocation)?;
+    let mut start = 0usize;
+    for _ in 0..count {
+        let end = start
+            .checked_add(item_bytes)
+            .ok_or(FixedPackedSequenceError::Arithmetic)?;
+        if end > backing.len() {
+            return Err(FixedPackedSequenceError::Arithmetic);
+        }
+        compact.push(T::new_unchecked(backing.slice(start..end)));
+        start = end;
+    }
+    Ok(compact)
 }
+
+pub(crate) fn try_compact_proposal_ids(
+    ids: impl ExactSizeIterator<Item = ProposalShortId>,
+) -> Result<Vec<ProposalShortId>, FixedPackedSequenceError> {
+    try_compact_fixed_packed(ids)
+}
+
+pub(crate) fn try_compact_transaction_hashes(
+    hashes: impl ExactSizeIterator<Item = Byte32>,
+) -> Result<Vec<Byte32>, FixedPackedSequenceError> {
+    try_compact_fixed_packed(hashes)
+}
+
+/// Exact cross-product term for comparing two `u64` fee/weight ratios.
+#[inline]
+#[allow(
+    clippy::arithmetic_side_effects,
+    reason = "the product of two u64 values is representable in u128"
+)]
+pub(crate) fn fee_rate_cross_product(fee: u64, weight: u64) -> u128 {
+    u128::from(fee) * u128::from(weight)
+}
+
+/// Run a blocking operation off the async executor when running on a
+/// multi-threaded tokio runtime (all production paths), or inline otherwise
+/// (e.g. current-thread test runtimes, plain sync tests).
+///
+/// Used for operations that can hit disk, such as RocksDB access or the
+/// snapshot data loader, which must not run directly on the async executor.
+pub(crate) fn block_offload<T>(f: impl FnOnce() -> T) -> T {
+    match Handle::try_current() {
+        Ok(handle) if handle.runtime_flavor() == tokio::runtime::RuntimeFlavor::MultiThread => {
+            block_in_place(f)
+        }
+        _ => f(),
+    }
+}
+
+#[cfg(test)]
+#[path = "tests/util.rs"]
+mod util_tests;

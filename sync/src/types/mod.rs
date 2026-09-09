@@ -7,7 +7,6 @@ use ckb_app_config::SyncConfig;
 use ckb_chain::VerifyResult;
 use ckb_chain::{ChainController, RemoteBlock};
 use ckb_chain_spec::consensus::{Consensus, MAX_BLOCK_INTERVAL, MIN_BLOCK_INTERVAL};
-use ckb_channel::Receiver;
 use ckb_constant::sync::{
     BLOCK_DOWNLOAD_TIMEOUT, HEADERS_DOWNLOAD_HEADERS_PER_SECOND, HEADERS_DOWNLOAD_INSPECT_WINDOW,
     HEADERS_DOWNLOAD_TOLERABLE_BIAS_FOR_SINGLE_SAMPLE, INIT_BLOCKS_IN_TRANSIT_PER_PEER,
@@ -26,7 +25,7 @@ use ckb_shared::{
 use ckb_store::{ChainDB, ChainStore};
 use ckb_systemtime::unix_time_as_millis;
 use ckb_traits::{HeaderFields, HeaderFieldsProvider};
-use ckb_tx_pool::service::TxVerificationResult;
+use ckb_tx_pool::service::{TxVerificationResult, TxVerificationResultReceiver};
 use ckb_types::BlockNumberAndHash;
 use ckb_types::{
     U256,
@@ -353,6 +352,10 @@ impl<T: Eq + Hash + Clone> TtlFilter<T> {
 
     pub fn remove(&mut self, item: &T) -> bool {
         self.inner.pop(item).is_some()
+    }
+
+    pub fn clear(&mut self) {
+        self.inner.clear();
     }
 
     /// Removes expired items.
@@ -998,7 +1001,7 @@ impl SyncShared {
     pub fn new(
         shared: Shared,
         sync_config: SyncConfig,
-        tx_relay_receiver: Receiver<TxVerificationResult>,
+        tx_relay_receiver: TxVerificationResultReceiver,
     ) -> SyncShared {
         let (total_difficulty, header) = {
             let snapshot = shared.snapshot();
@@ -1017,6 +1020,7 @@ impl SyncShared {
             shared_best_header,
             tx_filter: Mutex::new(TtlFilter::default()),
             unknown_tx_hashes: Mutex::new(KeyedPriorityQueue::new()),
+            pending_relay_txs: Mutex::new(LruCache::new(FILTER_SIZE)),
             peers: Peers::default(),
             pending_get_block_proposals: DashMap::new(),
             pending_compact_blocks: tokio::sync::Mutex::new(HashMap::default()),
@@ -1323,6 +1327,14 @@ pub struct SyncState {
     // The priority is ordering by timestamp (reversed), means do not ask the tx before this timestamp (timeout).
     unknown_tx_hashes: Mutex<KeyedPriorityQueue<Byte32, UnknownTxHashPriority>>,
 
+    /// Accepted hashes whose one-shot relay opportunity is waiting for a
+    /// usable peer. This projection shares the known-filter's fixed 50k bound,
+    /// coalesces by hash, is removed by Reject/reset and drains in
+    /// protocol-sized slices. Relay remains best-effort beyond that bound,
+    /// while endpoint absence can never create unbounded memory or block the
+    /// tx-pool's committed-effect sink.
+    pending_relay_txs: Mutex<LruCache<Byte32, Option<PeerIndex>>>,
+
     /* Status relevant to peers */
     peers: Peers,
 
@@ -1336,7 +1348,7 @@ pub struct SyncState {
     inflight_blocks: RwLock<InflightBlocks>,
 
     /* cached for sending bulk */
-    tx_relay_receiver: Receiver<TxVerificationResult>,
+    tx_relay_receiver: TxVerificationResultReceiver,
     min_chain_work: U256,
 }
 
@@ -1384,28 +1396,11 @@ impl SyncState {
     }
 
     pub fn take_relay_tx_verify_results(&self, limit: usize) -> Vec<TxVerificationResult> {
-        let results = self.tx_relay_receiver.try_iter().take(limit).collect();
-        self.update_relay_tx_verify_result_queue_size();
-        results
+        self.tx_relay_receiver.drain(limit)
     }
 
-    pub(crate) fn trim_relay_tx_verify_results(&self, limit: usize) -> usize {
-        if self.tx_relay_receiver.len() <= limit {
-            return 0;
-        }
-        let excess = self.tx_relay_receiver.len().saturating_sub(limit);
-        let dropped = self.tx_relay_receiver.try_iter().take(excess).count();
-        self.update_relay_tx_verify_result_queue_size();
-        dropped
-    }
-
-    fn update_relay_tx_verify_result_queue_size(&self) {
-        if let Some(metrics) = ckb_metrics::handle() {
-            let queue_size = i64::try_from(self.tx_relay_receiver.len()).unwrap_or(i64::MAX);
-            metrics
-                .ckb_relay_tx_verify_result_queue_size
-                .set(queue_size);
-        }
+    pub async fn wait_relay_tx_verify_results(&self) {
+        self.tx_relay_receiver.wait_for_drain().await;
     }
 
     pub fn shared_best_header(&self) -> HeaderIndexView {
@@ -1456,6 +1451,36 @@ impl SyncState {
 
     pub fn remove_from_known_txs(&self, hash: &Byte32) {
         self.tx_filter.lock().remove(hash);
+    }
+
+    pub fn reset_known_txs(&self) {
+        self.tx_filter.lock().clear();
+    }
+
+    pub fn record_accepted_tx(&self, hash: Byte32, original_peer: Option<PeerIndex>) {
+        // A remote Ok after GenerationReset must restore the filter entry even
+        // though ingress originally marked it before reset was consumed.
+        self.mark_as_known_tx(hash.clone());
+        self.inflight_proposals
+            .remove(&packed::ProposalShortId::from_tx_hash(&hash));
+        self.pending_relay_txs.lock().put(hash, original_peer);
+    }
+
+    pub fn reject_pending_relay_tx(&self, hash: &Byte32) {
+        self.remove_from_known_txs(hash);
+        self.pending_relay_txs.lock().pop(hash);
+    }
+
+    pub fn reset_tx_pool_relay_projection(&self) {
+        self.reset_known_txs();
+        self.pending_relay_txs.lock().clear();
+    }
+
+    pub fn take_pending_relay_txs(&self, limit: usize) -> Vec<(Byte32, Option<PeerIndex>)> {
+        let mut pending = self.pending_relay_txs.lock();
+        std::iter::from_fn(|| pending.pop_lru())
+            .take(limit)
+            .collect()
     }
 
     // maybe someday we can use
@@ -1526,8 +1551,9 @@ impl SyncState {
             }
         }
 
-        // Always enforce per-peer cap on total unknown tx hash registrations,
-        // regardless of the number of unique unknown hashes in the queue.
+        // Enforce the per-peer registration bound independently of the
+        // number of distinct hashes. Repeated announcements of one hash must
+        // neither duplicate the peer nor bypass this bound.
         {
             let mut peer_unknown_counter = 0;
             for (_hash, priority) in unknown_tx_hashes.iter() {
@@ -1542,7 +1568,8 @@ impl SyncState {
             }
         }
 
-        // Check global unique-hash limit after inserting the arrival `tx_hashes`
+        // The global bound counts unique hashes after per-peer multiplicity
+        // has been normalized above.
         if unknown_tx_hashes.len() >= MAX_UNKNOWN_TX_HASHES_SIZE
             || unknown_tx_hashes.len()
                 >= self.peers.state.len() * MAX_UNKNOWN_TX_HASHES_SIZE_PER_PEER

@@ -89,9 +89,41 @@ fn print_proposals_in_window(node: &Node) {
 }
 
 pub fn assert_new_block_committed(node: &Node, committed: &[TransactionView]) {
+    // A matching pool tip precedes asynchronous recovery verification and
+    // template publication. Wait for the promised contents, not a fixed delay.
+    let expected: Vec<_> = committed.iter().map(TransactionView::hash).collect();
+    let ready = crate::utils::wait_until(5, || {
+        let template = node.rpc_client().get_block_template(None, None, None);
+        template
+            .transactions
+            .iter()
+            .map(|tx| tx.hash.clone())
+            .collect::<Vec<_>>()
+            == expected.iter().cloned().map(Into::into).collect::<Vec<_>>()
+    });
     let block = node.new_block(None, None, None);
-    if committed != &block.transactions()[1..] {
+    if !ready || committed != &block.transactions()[1..] {
         print_proposals_in_window(node);
         assert_eq!(committed, &block.transactions()[1..]);
+    }
+}
+
+/// Poll until the node's tx-pool has exactly `expected` pending txs.
+///
+/// In the pipeline model, dependent txs recovered after a reorg are first
+/// routed to the ordered resolve queue and only become `pending` once their
+/// ancestors have been verified and submitted. Tests that assert on the
+/// recovered pool size must therefore wait briefly instead of checking
+/// immediately.
+pub fn wait_for_pending_count(node: &Node, expected: u64) {
+    let ok = crate::utils::wait_until(30, || {
+        node.rpc_client().tx_pool_info().pending.value() == expected
+    });
+    if !ok {
+        let actual = node.rpc_client().tx_pool_info().pending.value();
+        panic!(
+            "timeout waiting for pending count: expected {}, got {}",
+            expected, actual
+        );
     }
 }

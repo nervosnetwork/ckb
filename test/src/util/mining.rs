@@ -98,7 +98,11 @@ impl Node {
                 panic!("mine_with_blocking timeout");
             }
         }
-        let block = packed::Block::from(template).as_advanced_builder().build();
+        let nonce = u128::from(template.work_id.value());
+        let block = packed::Block::from(template)
+            .as_advanced_builder()
+            .nonce(nonce)
+            .build();
         let number = block.number();
         self.rpc_client()
             .submit_block("".to_owned(), block.data().into())
@@ -123,8 +127,10 @@ impl Node {
         }
         // uncles are not included by default,
         // because uncles' proposals can have an impact on the assertions of some tests
+        let nonce = u128::from(template.work_id.value());
         let block = packed::Block::from(template)
             .as_advanced_builder()
+            .nonce(nonce)
             .set_uncles(vec![])
             .build();
         let number = block.number();
@@ -171,7 +177,12 @@ impl Node {
     {
         for _ in 0..count {
             let template = self.rpc_client().get_block_template(None, None, None);
-            let builder = packed::Block::from(template).as_advanced_builder();
+            // A fresh template after truncate can share the previous timestamp
+            // floor. Its work ID distinguishes the new block from stored history.
+            let nonce = u128::from(template.work_id.value());
+            let builder = packed::Block::from(template)
+                .as_advanced_builder()
+                .nonce(nonce);
             let block = with(builder);
             self.rpc_client()
                 .submit_block("".to_owned(), block.data().into())
@@ -209,7 +220,12 @@ impl Node {
             }
 
             let template = self.rpc_client().get_block_template(None, None, None);
-            let builder = packed::Block::from(template).as_advanced_builder();
+            // A fresh template after truncate can share the previous timestamp
+            // floor. Its work ID distinguishes the new block from stored history.
+            let nonce = u128::from(template.work_id.value());
+            let builder = packed::Block::from(template)
+                .as_advanced_builder()
+                .nonce(nonce);
             let block = with(builder);
             self.rpc_client()
                 .submit_block("".to_owned(), block.data().into())

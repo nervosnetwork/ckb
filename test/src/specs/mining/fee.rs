@@ -151,12 +151,16 @@ impl Spec for FeeOfMultipleMaxBlockProposalsLimit {
             node.submit_transaction(tx);
         });
         (0..multiple).for_each(|_| {
-            let block = node.new_block_with_blocking(|template| template.proposals.is_empty());
+            let expected_number = node.get_tip_block_number() + 1;
+            let block = node.new_block_with_blocking(|template| {
+                template.number.value() != expected_number
+                    || template.proposals.len() != max_block_proposals_limit as usize
+            });
             node.submit_block(&block);
             assert_eq!(
                 max_block_proposals_limit as usize,
-                block.union_proposal_ids_iter().count(),
-                "block should contain {max_block_proposals_limit} blocks in proposal zone"
+                block.data().proposals().len(),
+                "block should contain {max_block_proposals_limit} transactions in its proposal zone"
             );
         });
         node.mine(2 * FINALIZATION_DELAY_LENGTH);
