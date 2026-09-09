@@ -33,7 +33,9 @@ impl Entry {
             tx,
             peer,
             cycle,
-            expires_at: ckb_systemtime::unix_time().as_secs() + ORPHAN_TX_EXPIRE_TIME,
+            expires_at: ckb_systemtime::unix_time()
+                .as_secs()
+                .saturating_add(ORPHAN_TX_EXPIRE_TIME),
         }
     }
 }

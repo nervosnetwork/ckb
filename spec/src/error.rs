@@ -20,6 +20,10 @@ pub enum SpecError {
         /// The actual calculated hash
         actual: Byte32,
     },
+
+    /// The chain specification contains invalid consensus parameters.
+    #[error("InvalidParams: {0}")]
+    InvalidParams(String),
 }
 
 impl From<SpecError> for Error {

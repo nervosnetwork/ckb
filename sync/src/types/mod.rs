@@ -101,7 +101,8 @@ impl ChainSyncState {
     fn tip_synced(&mut self) {
         let now = unix_time_as_millis();
         let avg_interval = (MAX_BLOCK_INTERVAL + MIN_BLOCK_INTERVAL) / 2;
-        self.headers_sync_state = HeadersSyncState::TipSynced(now + avg_interval * 1000);
+        self.headers_sync_state =
+            HeadersSyncState::TipSynced(now.saturating_add(avg_interval.saturating_mul(1000)));
     }
 
     fn started(&self) -> bool {
@@ -301,7 +302,7 @@ impl PeerState {
 
     fn suspend_sync(&mut self, suspend_time: u64) {
         let now = unix_time_as_millis();
-        self.chain_sync.suspend(now + suspend_time);
+        self.chain_sync.suspend(now.saturating_add(suspend_time));
         self.headers_sync_controller = None;
     }
 
@@ -362,7 +363,7 @@ impl<T: Eq + Hash + Clone> TtlFilter<T> {
             .inner
             .iter()
             .filter_map(|(key, time)| {
-                if *time + self.ttl < now {
+                if now.saturating_sub(*time) > self.ttl {
                     Some(key)
                 } else {
                     None
@@ -658,12 +659,12 @@ impl InflightBlocks {
         // we don't have to worry about missing points, and we don't need to
         // iterate through all the data each time, just check within tip + 20,
         // with the checkpoint marking possible blocking points, it's enough
-        let end = tip + 20;
+        let end = tip.saturating_add(20);
         for (key, value) in states.iter() {
             if key.number > end {
                 break;
             }
-            if value.timestamp + BLOCK_DOWNLOAD_TIMEOUT < now {
+            if now.saturating_sub(value.timestamp) > BLOCK_DOWNLOAD_TIMEOUT {
                 if let Some(set) = download_schedulers.get_mut(&value.peer) {
                     set.hashes.remove(key);
                     if should_punish && adjustment {
@@ -1365,7 +1366,7 @@ impl SyncState {
         pending.is_empty()
             || pending
                 .get(hash)
-                .map(|(_, _, time)| now > time + 2000)
+                .map(|(_, _, time)| now.saturating_sub(*time) > 2000)
                 .unwrap_or(true)
     }
 
@@ -1958,7 +1959,12 @@ impl ActiveChain {
             .write()
             .get(&(peer, block_number_and_hash.hash()))
         {
-            if Instant::now() < *last_time + GET_HEADERS_TIMEOUT {
+            let now = Instant::now();
+            if last_time
+                .checked_add(GET_HEADERS_TIMEOUT)
+                .map(|deadline| now < deadline)
+                .unwrap_or(true)
+            {
                 debug!(
                     "Last get_headers request to peer {} is less than {:?}; Ignore it.",
                     peer, GET_HEADERS_TIMEOUT,
