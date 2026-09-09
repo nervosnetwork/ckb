@@ -12,6 +12,7 @@ pub enum Module {
     Experiment,
     Stats,
     IntegrationTest,
+    /// Deprecated. The alert RPC module has been removed and this value is ignored.
     Alert,
     Subscription,
     Debug,
@@ -99,11 +100,6 @@ impl Config {
     /// Checks whether the IntegrationTest module is enabled.
     pub fn integration_test_enable(&self) -> bool {
         self.modules.contains(&Module::IntegrationTest)
-    }
-
-    /// Checks whether the Alert module is enabled.
-    pub fn alert_enable(&self) -> bool {
-        self.modules.contains(&Module::Alert)
     }
 
     /// Checks whether the Debug module is enabled.

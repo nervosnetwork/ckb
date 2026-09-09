@@ -7,20 +7,23 @@ pub struct Config {
     ///
     /// The script is called with the block hash as the argument.
     pub new_block_notify_script: Option<String>,
-    /// An executable script to be called whenever there's a new network alert received.
-    ///
-    /// The script is called with the alert message as the argument.
+    /// Legacy network alert notify script option. Ignored since the alert protocol was removed.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub network_alert_notify_script: Option<String>,
 
     /// Notify tx timeout in milliseconds
     #[serde(default, deserialize_with = "at_least_100")]
     pub notify_tx_timeout: Option<u64>,
 
-    /// Notify alert timeout in milliseconds
-    #[serde(default, deserialize_with = "at_least_100")]
+    /// Legacy network alert notify timeout in milliseconds. Ignored since the alert protocol was removed.
+    #[serde(
+        default,
+        deserialize_with = "at_least_100",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub notify_alert_timeout: Option<u64>,
 
-    /// Notify alert timeout in milliseconds
+    /// Notify script timeout in milliseconds
     #[serde(default, deserialize_with = "at_least_100")]
     pub script_timeout: Option<u64>,
 }
@@ -50,7 +53,6 @@ mod tests {
     fn test_deserialize() {
         let s = r#"
         new_block_notify_script = "dasd"
-        network_alert_notify_script = "dasd"
         script_timeout = 1
         "#;
 
@@ -59,7 +61,6 @@ mod tests {
 
         let s = r#"
         new_block_notify_script = "dasd"
-        network_alert_notify_script = "dasd"
         script_timeout = 100
         "#;
         let ret = toml::from_str::<Config>(s);

@@ -5,9 +5,9 @@ mod error;
 
 use ckb_error::AnyError;
 use ckb_jsonrpc_types::{
-    Alert, BannedAddr, Block, BlockEconomicState, BlockFilter, BlockNumber, BlockTemplate,
-    BlockView, Capacity, CellWithStatus, ChainInfo, EpochNumber, EpochView, EstimateCycles,
-    HeaderView, LocalNode, OutPoint, PoolTxDetailInfo, RawTxPool, RemoteNode, SyncState, Timestamp,
+    BannedAddr, Block, BlockEconomicState, BlockFilter, BlockNumber, BlockTemplate, BlockView,
+    Capacity, CellWithStatus, ChainInfo, EpochNumber, EpochView, EstimateCycles, HeaderView,
+    LocalNode, OutPoint, PoolTxDetailInfo, RawTxPool, RemoteNode, SyncState, Timestamp,
     Transaction, TransactionAndWitnessProof, TransactionProof, TransactionWithStatusResponse,
     TxPoolInfo, Uint32, Uint64, Version,
 };
@@ -257,10 +257,6 @@ impl RpcClient {
             .expect("rpc call estimate_cycles")
     }
 
-    pub fn send_alert(&self, alert: Alert) {
-        self.inner.send_alert(alert).expect("rpc call send_alert")
-    }
-
     pub fn tx_pool_info(&self) -> TxPoolInfo {
         self.inner.tx_pool_info().expect("rpc call tx_pool_info")
     }
@@ -379,8 +375,6 @@ jsonrpc!(
     pub fn remove_transaction(&self, tx_hash: H256) -> bool;
     pub fn tx_pool_info(&self) -> TxPoolInfo;
     pub fn get_raw_tx_pool(&self, verbose: Option<bool>) -> RawTxPool;
-
-    pub fn send_alert(&self, alert: Alert) -> ();
 
     pub fn add_node(&self, peer_id: String, address: String) -> ();
     pub fn remove_node(&self, peer_id: String) -> ();

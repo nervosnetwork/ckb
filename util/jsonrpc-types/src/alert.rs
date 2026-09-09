@@ -60,7 +60,7 @@ pub struct Alert {
     pub signatures: Vec<JsonBytes>,
 }
 
-/// An alert sent by RPC `send_alert`.
+/// Legacy alert message.
 #[derive(Clone, Default, Serialize, Deserialize, PartialEq, Eq, Hash, Debug, JsonSchema)]
 pub struct AlertMessage {
     /// The unique alert ID.

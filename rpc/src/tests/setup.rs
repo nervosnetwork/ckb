@@ -2,16 +2,13 @@ use crate::{
     RpcServer, ServiceBuilder,
     tests::{always_success_transaction, next_block},
 };
-use ckb_app_config::{
-    BlockAssemblerConfig, NetworkAlertConfig, NetworkConfig, RpcConfig, RpcModule,
-};
+use ckb_app_config::{BlockAssemblerConfig, NetworkConfig, RpcConfig, RpcModule};
 use ckb_async_runtime::new_global_runtime;
 use ckb_chain::ChainServiceScope;
 use ckb_chain_spec::consensus::{Consensus, ConsensusBuilder};
 use ckb_chain_spec::versionbits::{ActiveMode, Deployment, DeploymentPos};
 use ckb_dao_utils::genesis_dao_data;
 use ckb_network::{Flags, NetworkService, NetworkState, network::TransportType};
-use ckb_network_alert::alert_relayer::AlertRelayer;
 use ckb_notify::NotifyService;
 use ckb_shared::SharedBuilder;
 use ckb_sync::SyncShared;
@@ -23,9 +20,7 @@ use std::{thread::sleep, time::Duration};
 
 use ckb_types::{
     core::{BlockBuilder, Capacity, EpochNumberWithFraction, Ratio},
-    h256,
-    packed::{self, AlertBuilder, RawAlertBuilder},
-    prelude::*,
+    h256, packed,
 };
 
 use super::RpcTestSuite;
@@ -34,8 +29,6 @@ const GENESIS_TIMESTAMP: u64 = 1_557_310_743;
 const GENESIS_TARGET: u32 = 0x2001_0000;
 const EPOCH_REWARD: u64 = 125_000_000_000_000;
 const CELLBASE_MATURITY: u64 = 0;
-const ALERT_UNTIL_TIMESTAMP: u64 = 2_524_579_200;
-
 // Construct `Consensus` with an always-success cell
 pub(crate) fn always_success_consensus() -> Consensus {
     let always_success_tx = always_success_transaction();
@@ -150,33 +143,8 @@ pub(crate) fn setup_rpc_test_suite(height: u64, consensus: Option<Consensus>) ->
         pack.take_relay_tx_receiver(),
     ));
 
-    let notify_controller =
+    let _notify_controller =
         NotifyService::new(Default::default(), shared.async_handle().clone()).start();
-    let (alert_notifier, alert_verifier) = {
-        let alert_relayer = AlertRelayer::new(
-            "0.1.0".to_string(),
-            notify_controller,
-            NetworkAlertConfig::default(),
-        );
-        let alert_notifier = alert_relayer.notifier();
-        let alert = AlertBuilder::default()
-            .raw(
-                RawAlertBuilder::default()
-                    .id(42u32)
-                    .min_version(Some("0.0.1".to_string()))
-                    .max_version(Some("1.0.0".to_string()))
-                    .priority(1u32)
-                    .notice_until(ALERT_UNTIL_TIMESTAMP * 1000)
-                    .message("An example alert message!")
-                    .build(),
-            )
-            .build();
-        alert_notifier.lock().add(&alert);
-        (
-            Arc::clone(alert_notifier),
-            Arc::clone(alert_relayer.verifier()),
-        )
-    };
 
     // Start rpc services
     let rpc_config = RpcConfig {
@@ -195,7 +163,6 @@ pub(crate) fn setup_rpc_test_suite(height: u64, consensus: Option<Consensus>) ->
             RpcModule::Experiment,
             RpcModule::Stats,
             RpcModule::IntegrationTest,
-            RpcModule::Alert,
             RpcModule::Subscription,
             RpcModule::Debug,
         ],
@@ -220,22 +187,16 @@ pub(crate) fn setup_rpc_test_suite(height: u64, consensus: Option<Consensus>) ->
             sync_shared,
             Arc::new(chain_controller.clone()),
         )
-        .enable_stats(shared.clone(), Arc::clone(&alert_notifier))
+        .enable_stats(shared.clone())
         .enable_experiment(shared.clone())
         .enable_integration_test(
             shared.clone(),
-            network_controller.clone(),
+            network_controller,
             chain_controller.clone(),
             vec![],
             vec![],
         )
-        .enable_debug()
-        .enable_alert(
-            alert_verifier,
-            alert_notifier,
-            network_controller,
-            shared.clone(),
-        );
+        .enable_debug();
 
     let io_handler = builder.build();
     let shared_clone = shared.clone();

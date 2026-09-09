@@ -45,9 +45,6 @@ pub enum SupportProtocols {
     RelayV3,
     /// Time: A protocol used for node pairing that warns if there is a large gap between the local time and the remote node.
     Time,
-    /// Alert: A protocol reserved by the Nervos Foundation to publish network-wide announcements.
-    /// Any information sent from the protocol is verified by multi-signature
-    Alert,
     /// LightClient: A protocol used for light client.
     LightClient,
     /// Filter: A protocol used for client side block data filtering.
@@ -68,7 +65,6 @@ impl SupportProtocols {
             SupportProtocols::Sync => 100,
             SupportProtocols::RelayV3 => 101,
             SupportProtocols::Time => 102,
-            SupportProtocols::Alert => 110,
             SupportProtocols::LightClient => 120,
             SupportProtocols::Filter => 121,
             SupportProtocols::HolePunching => 130,
@@ -87,7 +83,6 @@ impl SupportProtocols {
             SupportProtocols::Sync => "/ckb/syn",
             SupportProtocols::RelayV3 => "/ckb/relay3",
             SupportProtocols::Time => "/ckb/tim",
-            SupportProtocols::Alert => "/ckb/alt",
             SupportProtocols::LightClient => "/ckb/lightclient",
             SupportProtocols::Filter => "/ckb/filter",
             SupportProtocols::HolePunching => "/ckb/holepunching",
@@ -110,7 +105,6 @@ impl SupportProtocols {
             }
             SupportProtocols::Sync => vec![LASTEST_VERSION.to_owned()],
             SupportProtocols::Time => vec![LASTEST_VERSION.to_owned()],
-            SupportProtocols::Alert => vec![LASTEST_VERSION.to_owned()],
             SupportProtocols::RelayV3 => vec![LASTEST_VERSION.to_owned()],
             SupportProtocols::LightClient => vec![LASTEST_VERSION.to_owned()],
             SupportProtocols::Filter => vec![LASTEST_VERSION.to_owned()],
@@ -129,7 +123,6 @@ impl SupportProtocols {
             SupportProtocols::Sync => 2 * 1024 * 1024,        // 2   MB
             SupportProtocols::RelayV3 => 4 * 1024 * 1024,     // 4   MB
             SupportProtocols::Time => 1024,                   // 1   KB
-            SupportProtocols::Alert => 128 * 1024,            // 128 KB
             SupportProtocols::LightClient => 2 * 1024 * 1024, // 2 MB
             SupportProtocols::Filter => 2 * 1024 * 1024,      // 2   MB
             SupportProtocols::HolePunching => 512 * 1024,     // 512 KB

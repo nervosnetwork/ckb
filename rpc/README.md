@@ -33,9 +33,6 @@ The crate `ckb-rpc`'s minimum supported rustc version is 1.71.1.
 
 * [RPC Methods](#rpc-methods)
 
-    * [Module Alert](#module-alert) [👉 OpenRPC spec](http://playground.open-rpc.org/?uiSchema[appBar][ui:title]=CKB-Alert&uiSchema[appBar][ui:splitView]=false&uiSchema[appBar][ui:examplesDropdown]=false&uiSchema[appBar][ui:logoUrl]=https://raw.githubusercontent.com/nervosnetwork/ckb-rpc-resources/develop/ckb-logo.jpg&schemaUrl=https://raw.githubusercontent.com/nervosnetwork/ckb-rpc-resources/develop/json/alert_rpc_doc.json)
-
-        * [Method `send_alert`](#alert-send_alert)
     * [Module Chain](#module-chain) [👉 OpenRPC spec](http://playground.open-rpc.org/?uiSchema[appBar][ui:title]=CKB-Chain&uiSchema[appBar][ui:splitView]=false&uiSchema[appBar][ui:examplesDropdown]=false&uiSchema[appBar][ui:logoUrl]=https://raw.githubusercontent.com/nervosnetwork/ckb-rpc-resources/develop/ckb-logo.jpg&schemaUrl=https://raw.githubusercontent.com/nervosnetwork/ckb-rpc-resources/develop/json/chain_rpc_doc.json)
 
         * [Method `get_block`](#chain-get_block)
@@ -133,7 +130,6 @@ The crate `ckb-rpc`'s minimum supported rustc version is 1.71.1.
         * [Method `get_overview`](#terminal-get_overview)
 * [RPC Types](#rpc-types)
 
-    * [Type `Alert`](#type-alert)
     * [Type `AlertId`](#type-alertid)
     * [Type `AlertId`](#type-alertid)
     * [Type `AlertMessage`](#type-alertmessage)
@@ -263,73 +259,6 @@ The crate `ckb-rpc`'s minimum supported rustc version is 1.71.1.
 * [RPC Errors](#rpc-errors)
 
 ## RPC Modules
-
-### Module `Alert`
-- [👉 OpenRPC spec](http://playground.open-rpc.org/?uiSchema[appBar][ui:title]=CKB-Alert&uiSchema[appBar][ui:splitView]=false&uiSchema[appBar][ui:examplesDropdown]=false&uiSchema[appBar][ui:logoUrl]=https://raw.githubusercontent.com/nervosnetwork/ckb-rpc-resources/develop/ckb-logo.jpg&schemaUrl=https://raw.githubusercontent.com/nervosnetwork/ckb-rpc-resources/develop/json/alert_rpc_doc.json)
-
-
-RPC Module Alert for network alerts.
-
-An alert is a message about critical problems to be broadcast to all nodes via the p2p network.
-
-The alerts must be signed by 2-of-4 signatures, where the public keys are hard-coded in the source code
-and belong to early CKB developers.
-
-<a id="alert-send_alert"></a>
-#### Method `send_alert`
-* `send_alert(alert)`
-    * `alert`: [`Alert`](#type-alert)
-* result: `null`
-
-Sends an alert.
-
-This RPC returns `null` on success.
-
-###### Errors
-
-* [`AlertFailedToVerifySignatures (-1000)`](../enum.RPCError.html#variant.AlertFailedToVerifySignatures) - Some signatures in the request are invalid.
-* [`P2PFailedToBroadcast (-101)`](../enum.RPCError.html#variant.P2PFailedToBroadcast) - Alert is saved locally but has failed to broadcast to the P2P network.
-* `InvalidParams (-32602)` - The time specified in `alert.notice_until` must be in the future.
-
-###### Examples
-
-Request
-
-```json
-{
-  "jsonrpc": "2.0",
-  "method": "send_alert",
-  "params": [
-    {
-      "id": "0x1",
-      "cancel": "0x0",
-      "priority": "0x1",
-      "message": "An example alert message!",
-      "notice_until": "0x24bcca57c00",
-      "signatures": [
-        "0xbd07059aa9a3d057da294c2c4d96fa1e67eeb089837c87b523f124239e18e9fc7d11bb95b720478f7f937d073517d0e4eb9a91d12da5c88a05f750362f4c214dd0",
-        "0x0242ef40bb64fe3189284de91f981b17f4d740c5e24a3fc9b70059db6aa1d198a2e76da4f84ab37549880d116860976e0cf81cd039563c452412076ebffa2e4453"
-      ]
-    }
-  ],
-  "id": 42
-}
-```
-
-Response
-
-```json
-{
-  "error": {
-    "code": -1000,
-    "data": "SigNotEnough",
-    "message":"AlertFailedToVerifySignatures: The count of sigs is less than threshold."
-  },
-  "jsonrpc": "2.0",
-  "result": null,
-  "id": 42
-}
-```
 
 ### Module `Chain`
 - [👉 OpenRPC spec](http://playground.open-rpc.org/?uiSchema[appBar][ui:title]=CKB-Chain&uiSchema[appBar][ui:splitView]=false&uiSchema[appBar][ui:examplesDropdown]=false&uiSchema[appBar][ui:logoUrl]=https://raw.githubusercontent.com/nervosnetwork/ckb-rpc-resources/develop/ckb-logo.jpg&schemaUrl=https://raw.githubusercontent.com/nervosnetwork/ckb-rpc-resources/develop/json/chain_rpc_doc.json)
@@ -5174,14 +5103,7 @@ Response
   "id": 42,
   "jsonrpc": "2.0",
   "result": {
-    "alerts": [
-      {
-        "id": "0x2a",
-        "message": "An example alert message!",
-        "notice_until": "0x24bcca57c00",
-        "priority": "0x1"
-      }
-    ],
+    "alerts": [],
     "chain": "ckb",
     "difficulty": "0x1f4003",
     "epoch": "0x7080018000001",
@@ -5593,45 +5515,6 @@ Response
 
 ## RPC Types
 
-### Type `Alert`
-An alert is a message about critical problems to be broadcast to all nodes via the p2p network.
-
-###### Examples
-
-An example in JSON
-
-```json
-{
-  "id": "0x1",
-  "cancel": "0x0",
-  "min_version": "0.1.0",
-  "max_version": "1.0.0",
-  "priority": "0x1",
-  "message": "An example alert message!",
-  "notice_until": "0x24bcca57c00",
-  "signatures": [
-    "0xbd07059aa9a3d057da294c2c4d96fa1e67eeb089837c87b523f124239e18e9fc7d11bb95b720478f7f937d073517d0e4eb9a91d12da5c88a05f750362f4c214dd0",
-    "0x0242ef40bb64fe3189284de91f981b17f4d740c5e24a3fc9b70059db6aa1d198a2e76da4f84ab37549880d116860976e0cf81cd039563c452412076ebffa2e4453"
-  ]
-}
-```
-
-#### Fields
-
-`Alert` is a JSON object with the following fields.
-
-* `cancel`: [`Uint32`](#type-uint32) - Cancel a previous sent alert.
-
-* `id`: [`Uint32`](#type-uint32) - The identifier of the alert. Clients use id to filter duplicated alerts.
-
-* `message`: `string` - Alert message.
-
-* `notice_until`: [`Uint64`](#type-uint64) - The alert is expired after this timestamp.
-
-* `priority`: [`Uint32`](#type-uint32) - Alerts are sorted by priority, highest first.
-
-* `signatures`: `Array<` [`JsonBytes`](#type-jsonbytes) `>` - The list of required signatures.
-
 ### Type `AlertId`
 The alert identifier that is used to filter duplicated alerts.
 
@@ -5644,7 +5527,7 @@ The alert identifier that is used to filter duplicated alerts.
 This is a 32-bit unsigned integer type encoded as the 0x-prefixed hex string in JSON. See examples of [Uint32](type.Uint32.html#examples).
 
 ### Type `AlertMessage`
-An alert sent by RPC `send_alert`.
+Legacy alert message.
 
 #### Fields
 
@@ -6099,7 +5982,7 @@ Chain information.
 
 `ChainInfo` is a JSON object with the following fields.
 
-* `alerts`: `Array<` [`AlertMessage`](#type-alertmessage) `>` - Active alerts stored in the local node.
+* `alerts`: `Array<` [`AlertMessage`](#type-alertmessage) `>` - Legacy alert list. Always empty because the alert protocol has been removed.
 
 * `chain`: `string` - The network name.
 
@@ -8099,8 +7982,6 @@ the data directory and re-sync the chain from scratch.
 dependencies.
 ### ERROR `TransactionFailedToVerify`
 (-302): Failed to verify the transaction.
-### ERROR `AlertFailedToVerifySignatures`
-(-1000): Some signatures in the submit alert are invalid.
 ### ERROR `PoolRejectedTransactionByOutputsValidator`
 (-1102): The transaction is rejected by the outputs validator specified by the RPC parameter.
 ### ERROR `PoolRejectedTransactionByIllTransactionChecker`

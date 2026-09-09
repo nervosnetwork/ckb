@@ -99,8 +99,6 @@ block_uncles_cache_size    = 30
 # [notifier]
 # # Execute command when the new tip block changes, first arg is block hash.
 # new_block_notify_script = "your_new_block_notify_script.sh"
-# # Execute command when node received an network alert, first arg is alert message string.
-# network_alert_notify_script = "your_network_alert_notify_script.sh"
 
 # Set the lock script to protect mined CKB.
 #

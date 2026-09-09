@@ -1,13 +1,10 @@
 use async_trait::async_trait;
-use ckb_jsonrpc_types::{AlertMessage, ChainInfo, DeploymentInfo, DeploymentPos, DeploymentsInfo};
-use ckb_network_alert::notifier::Notifier as AlertNotifier;
+use ckb_jsonrpc_types::{ChainInfo, DeploymentInfo, DeploymentPos, DeploymentsInfo};
 use ckb_shared::shared::Shared;
 use ckb_traits::HeaderFieldsProvider;
-use ckb_util::Mutex;
 use jsonrpc_core::Result;
 use jsonrpc_utils::rpc;
 use std::collections::BTreeMap;
-use std::sync::Arc;
 
 /// RPC Module Stats for getting various statistic data.
 #[rpc(openrpc)]
@@ -35,14 +32,7 @@ pub trait StatsRpc {
     ///   "id": 42,
     ///   "jsonrpc": "2.0",
     ///   "result": {
-    ///     "alerts": [
-    ///       {
-    ///         "id": "0x2a",
-    ///         "message": "An example alert message!",
-    ///         "notice_until": "0x24bcca57c00",
-    ///         "priority": "0x1"
-    ///       }
-    ///     ],
+    ///     "alerts": [],
     ///     "chain": "ckb",
     ///     "difficulty": "0x1f4003",
     ///     "epoch": "0x7080018000001",
@@ -103,7 +93,6 @@ pub trait StatsRpc {
 #[derive(Clone)]
 pub(crate) struct StatsRpcImpl {
     pub shared: Shared,
-    pub alert_notifier: Arc<Mutex<AlertNotifier>>,
 }
 
 #[async_trait]
@@ -129,24 +118,13 @@ impl StatsRpc for StatsRpcImpl {
         };
         let difficulty = tip_header.difficulty();
         let is_initial_block_download = self.shared.is_initial_block_download();
-        let alerts: Vec<AlertMessage> = {
-            let now = ckb_systemtime::unix_time_as_millis();
-            let mut notifier = self.alert_notifier.lock();
-            notifier.clear_expired_alerts(now);
-            notifier
-                .noticed_alerts()
-                .into_iter()
-                .map(Into::into)
-                .collect()
-        };
-
         Ok(ChainInfo {
             chain,
             median_time: median_time.into(),
             epoch: epoch.into(),
             difficulty,
             is_initial_block_download,
-            alerts,
+            alerts: Vec::new(),
         })
     }
 

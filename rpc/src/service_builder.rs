@@ -1,9 +1,8 @@
 #![allow(deprecated)]
 use crate::module::{
-    AlertRpcImpl, ChainRpcImpl, DebugRpcImpl, ExperimentRpcImpl, IndexerRpcImpl,
-    IntegrationTestRpcImpl, MinerRpcImpl, NetRpcImpl, PoolRpcImpl, RichIndexerRpcImpl,
-    StatsRpcImpl, SubscriptionRpcImpl, TerminalRpcImpl, add_alert_rpc_methods,
-    add_chain_rpc_methods, add_debug_rpc_methods, add_experiment_rpc_methods,
+    ChainRpcImpl, DebugRpcImpl, ExperimentRpcImpl, IndexerRpcImpl, IntegrationTestRpcImpl,
+    MinerRpcImpl, NetRpcImpl, PoolRpcImpl, RichIndexerRpcImpl, StatsRpcImpl, SubscriptionRpcImpl,
+    TerminalRpcImpl, add_chain_rpc_methods, add_debug_rpc_methods, add_experiment_rpc_methods,
     add_indexer_rpc_methods, add_integration_test_rpc_methods, add_miner_rpc_methods,
     add_net_rpc_methods, add_pool_rpc_methods, add_rich_indexer_rpc_methods, add_stats_rpc_methods,
     add_subscription_rpc_methods, add_terminal_rpc_methods,
@@ -14,13 +13,11 @@ use ckb_chain::ChainController;
 use ckb_indexer::IndexerService;
 use ckb_indexer_sync::{PoolService, new_secondary_db};
 use ckb_network::NetworkController;
-use ckb_network_alert::{notifier::Notifier as AlertNotifier, verifier::Verifier as AlertVerifier};
 use ckb_pow::Pow;
 use ckb_rich_indexer::RichIndexerService;
 use ckb_shared::shared::Shared;
 use ckb_sync::SyncShared;
 use ckb_types::packed::Script;
-use ckb_util::Mutex;
 use jsonrpc_core::{MetaIoHandler, RemoteProcedure};
 use jsonrpc_utils::pub_sub::Session;
 use std::sync::Arc;
@@ -115,15 +112,8 @@ impl<'a> ServiceBuilder<'a> {
     }
 
     /// Mounts methods from module Stats if it is enabled in the config.
-    pub fn enable_stats(
-        mut self,
-        shared: Shared,
-        alert_notifier: Arc<Mutex<AlertNotifier>>,
-    ) -> Self {
-        let methods = StatsRpcImpl {
-            shared,
-            alert_notifier,
-        };
+    pub fn enable_stats(mut self, shared: Shared) -> Self {
+        let methods = StatsRpcImpl { shared };
         set_rpc_module_methods!(self, "Stats", stats_enable, add_stats_rpc_methods, methods)
     }
 
@@ -170,23 +160,6 @@ impl<'a> ServiceBuilder<'a> {
             add_integration_test_rpc_methods,
             methods
         )
-    }
-
-    /// Mounts methods from module Alert if it is enabled in the config.
-    pub fn enable_alert(
-        mut self,
-        alert_verifier: Arc<AlertVerifier>,
-        alert_notifier: Arc<Mutex<AlertNotifier>>,
-        network_controller: NetworkController,
-        shared: Shared,
-    ) -> Self {
-        let methods = AlertRpcImpl::new(
-            alert_verifier,
-            alert_notifier,
-            network_controller,
-            shared.async_handle().clone(),
-        );
-        set_rpc_module_methods!(self, "Alert", alert_enable, add_alert_rpc_methods, methods)
     }
 
     /// Mounts methods from module Debug if it is enabled in the config.
