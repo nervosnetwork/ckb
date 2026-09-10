@@ -32,7 +32,17 @@ use ckb_types::{
 };
 use ckb_verification_traits::Switch;
 use std::collections::HashSet;
-use std::{cell::RefCell, future::Future, pin::Pin, sync::Arc, time::Duration};
+use std::{
+    cell::RefCell,
+    future::Future,
+    pin::Pin,
+    sync::{
+        Arc, Mutex,
+        atomic::{AtomicBool, Ordering},
+        mpsc::{Receiver, SyncSender},
+    },
+    time::Duration,
+};
 
 pub(crate) fn new_index_transaction(index: usize) -> IndexTransaction {
     let transaction = TransactionBuilder::default()
@@ -300,6 +310,13 @@ pub(crate) fn gen_block(
 pub(crate) struct MockProtocolContext {
     protocol: SupportProtocols,
     sent_messages: RefCell<Vec<(ProtocolId, PeerIndex, P2pBytes)>>,
+    broadcast_gate: Option<BroadcastGate>,
+}
+
+struct BroadcastGate {
+    entered: SyncSender<()>,
+    release: Mutex<Receiver<()>>,
+    blocked: AtomicBool,
 }
 
 // test mock context with single thread
@@ -312,6 +329,33 @@ impl MockProtocolContext {
         Self {
             protocol,
             sent_messages: Default::default(),
+            broadcast_gate: None,
+        }
+    }
+
+    pub(crate) fn with_blocked_broadcast(
+        protocol: SupportProtocols,
+        entered: SyncSender<()>,
+        release: Receiver<()>,
+    ) -> Self {
+        Self {
+            protocol,
+            sent_messages: Default::default(),
+            broadcast_gate: Some(BroadcastGate {
+                entered,
+                release: Mutex::new(release),
+                blocked: AtomicBool::new(false),
+            }),
+        }
+    }
+
+    fn block_first_broadcast(&self) {
+        let Some(gate) = &self.broadcast_gate else {
+            return;
+        };
+        if !gate.blocked.swap(true, Ordering::SeqCst) {
+            gate.entered.send(()).unwrap();
+            gate.release.lock().unwrap().recv().unwrap();
         }
     }
 
@@ -359,6 +403,7 @@ impl CKBProtocolContext for MockProtocolContext {
         target: TargetSession,
         data: P2pBytes,
     ) -> Result<(), Error> {
+        self.block_first_broadcast();
         self.quick_filter_broadcast(target, data)
     }
     async fn async_future_task(
