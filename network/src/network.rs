@@ -21,7 +21,9 @@ use crate::services::{
     dump_peer_store::DumpPeerStoreService, outbound_peer::OutboundPeerService,
     protocol_type_checker::ProtocolTypeCheckerService,
 };
-use crate::{Behaviour, CKBProtocol, Peer, PeerIndex, ProtocolId, ServiceControl};
+use crate::{
+    Behaviour, CKBProtocol, Peer, PeerIndex, ProtocolId, ServiceControl, multiaddr_to_ip_socketaddr,
+};
 use ckb_app_config::{NetworkConfig, SupportProtocol, default_support_all_protocols};
 use ckb_logger::{debug, error, info, trace, warn};
 use ckb_spawn::Spawn;
@@ -44,7 +46,7 @@ use p2p::{
         TargetSession,
     },
     traits::ServiceHandle,
-    utils::{extract_peer_id, is_reachable, multiaddr_to_socketaddr},
+    utils::{extract_peer_id, is_reachable},
     yamux::config::Config as YamuxConfig,
 };
 use rand::prelude::IteratorRandom;
@@ -104,8 +106,8 @@ impl NetworkState {
             .iter()
             .chain(config.public_addresses.iter())
             .cloned()
-            .filter_map(|mut addr| match multiaddr_to_socketaddr(&addr) {
-                Some(socket_addr) if !is_reachable(socket_addr.ip()) => None,
+            .filter_map(|mut addr| match multiaddr_to_ip_socketaddr(&addr) {
+                Some(socket_addr) if !config.discovery_local_address && !is_reachable(socket_addr.ip()) => None,
                 _ => {
                     match extract_peer_id(&addr) {
                         Some(peer_id) if peer_id != local_peer_id => {
@@ -167,8 +169,12 @@ impl NetworkState {
             .iter()
             .chain(config.public_addresses.iter())
             .cloned()
-            .filter_map(|mut addr| match multiaddr_to_socketaddr(&addr) {
-                Some(socket_addr) if !is_reachable(socket_addr.ip()) => None,
+            .filter_map(|mut addr| match multiaddr_to_ip_socketaddr(&addr) {
+                Some(socket_addr)
+                    if !config.discovery_local_address && !is_reachable(socket_addr.ip()) =>
+                {
+                    None
+                }
                 _ => {
                     if extract_peer_id(&addr).is_none() {
                         addr.push(Protocol::P2P(Cow::Borrowed(local_peer_id.as_bytes())));
@@ -871,8 +877,11 @@ impl NetworkService {
             identify_announce.1.clone(),
             identify_announce.2,
         );
+        let identify_global_ip_only = !config.discovery_local_address;
         let identify_meta = SupportProtocols::Identify.build_meta_with_service_handle(move || {
-            ProtocolHandle::Callback(Box::new(IdentifyProtocol::new(identify_callback)))
+            ProtocolHandle::Callback(Box::new(
+                IdentifyProtocol::new(identify_callback).global_ip_only(identify_global_ip_only),
+            ))
         });
         protocol_metas.push(identify_meta);
 
@@ -982,7 +991,9 @@ impl NetworkService {
 
         #[cfg(not(target_family = "wasm"))]
         {
-            service_builder = service_builder.upnp(config.upnp);
+            service_builder = service_builder
+                .upnp(config.upnp)
+                .quic_config(p2p::quic::config::QuicConfig::default());
 
             // set proxy and onion config
 
@@ -1077,12 +1088,17 @@ impl NetworkService {
                     }
 
                     match find_type(multi_addr) {
+                        // This loop only installs TCP socket transformers. QUIC
+                        // owns its UDP endpoint and is configured through
+                        // `quic_config`, so QUIC listen addresses are skipped
+                        // here.
+                        TransportType::QuicV1 => continue,
                         TransportType::Tcp => {
                             // only bind once
                             if matches!(init, BindType::Tcp) {
                                 continue;
                             }
-                            if let Some(addr) = multiaddr_to_socketaddr(multi_addr) {
+                            if let Some(addr) = p2p::utils::multiaddr_to_socketaddr(multi_addr) {
                                 let bind_fn = move |socket: p2p::service::TcpSocket,
                                                     ctxt: p2p::service::TransformerContext| {
                                     bind_fn_with_addr(socket, ctxt, addr)
@@ -1096,7 +1112,7 @@ impl NetworkService {
                             if matches!(init, BindType::Ws) {
                                 continue;
                             }
-                            if let Some(addr) = multiaddr_to_socketaddr(multi_addr) {
+                            if let Some(addr) = p2p::utils::multiaddr_to_socketaddr(multi_addr) {
                                 let bind_fn = move |socket: p2p::service::TcpSocket,
                                                     ctxt: p2p::service::TransformerContext| {
                                     bind_fn_with_addr(socket, ctxt, addr)
@@ -1133,11 +1149,33 @@ impl NetworkService {
             Box::pin(protocol_type_checker_service) as Pin<Box<_>>,
         ];
         if config.outbound_peer_service_enabled() {
+            // Transports this node is able to dial, primary transport first.
+            // The `transport_type` argument is the caller's "primary" transport
+            // (defaulting to TCP). Any additional transports configured through
+            // `listen_addresses` (e.g. WS) are appended, and QUIC is always
+            // dialable: `quic_config` is set unconditionally and tentacle
+            // creates a one-shot client endpoint per dial, so no QUIC listen
+            // address is required for outbound QUIC connections.
+            let mut transport_types: Vec<TransportType> = vec![transport_type];
+            #[cfg(not(target_family = "wasm"))]
+            {
+                for addr in &config.listen_addresses {
+                    let ty = find_type(addr);
+                    if !transport_types.contains(&ty) {
+                        transport_types.push(ty);
+                    }
+                }
+                if !transport_types.contains(&TransportType::QuicV1) {
+                    transport_types.push(TransportType::QuicV1);
+                }
+            }
+
+            // A single service shares the dial budget across all transports.
             let outbound_peer_service = OutboundPeerService::new(
                 Arc::clone(&network_state),
                 p2p_service.control().to_owned().into(),
                 Duration::from_secs(config.connect_outbound_interval_secs),
-                transport_type,
+                transport_types,
             );
             bg_services.push(Box::pin(outbound_peer_service) as Pin<Box<_>>);
         };
@@ -1456,7 +1494,7 @@ impl NetworkController {
     fn disconnect_peers_in_ip_range(&self, address: IpNetwork, reason: &str) {
         self.network_state.with_peer_registry(|reg| {
             reg.peers().iter().for_each(|(peer_index, peer)| {
-                if let Some(addr) = multiaddr_to_socketaddr(&peer.connected_addr)
+                if let Some(addr) = multiaddr_to_ip_socketaddr(&peer.connected_addr)
                     && address.contains(addr.ip())
                 {
                     let _ = disconnect_with_message(
@@ -1649,6 +1687,8 @@ pub enum TransportType {
     Ws,
     /// Wss only on wasm
     Wss,
+    /// QUIC V1
+    QuicV1,
 }
 
 #[allow(dead_code)]
@@ -1658,7 +1698,29 @@ pub(crate) fn find_type(addr: &Multiaddr) -> TransportType {
     iter.find_map(|proto| match proto {
         Protocol::Ws => Some(TransportType::Ws),
         Protocol::Wss => Some(TransportType::Wss),
+        Protocol::QuicV1 => Some(TransportType::QuicV1),
         _ => None,
     })
     .unwrap_or(TransportType::Tcp)
+}
+
+#[cfg(test)]
+mod transport_type_tests {
+    use super::{TransportType, find_type};
+    use p2p::multiaddr::Multiaddr;
+
+    #[test]
+    fn find_transport_type() {
+        let cases = [
+            ("/ip4/127.0.0.1/tcp/8115", TransportType::Tcp),
+            ("/ip4/127.0.0.1/tcp/8115/ws", TransportType::Ws),
+            ("/ip4/127.0.0.1/tcp/8115/wss", TransportType::Wss),
+            ("/ip4/127.0.0.1/udp/8116/quic-v1", TransportType::QuicV1),
+        ];
+
+        for (raw_addr, expected) in cases {
+            let addr: Multiaddr = raw_addr.parse().expect("valid multiaddr");
+            assert_eq!(find_type(&addr), expected);
+        }
+    }
 }

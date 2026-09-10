@@ -7,7 +7,7 @@ use p2p::{
     context::{ProtocolContext, ProtocolContextMutRef, SessionContext},
     multiaddr::Multiaddr,
     traits::ServiceProtocol,
-    utils::{is_reachable, multiaddr_to_socketaddr},
+    utils::is_reachable,
 };
 use rand::seq::SliceRandom;
 
@@ -347,7 +347,7 @@ impl AddressManager for DiscoveryAddressManager {
 
     fn is_valid_addr(&self, addr: &Multiaddr) -> bool {
         if !self.discovery_local_address {
-            match multiaddr_to_socketaddr(addr) {
+            match crate::multiaddr_to_ip_socketaddr(addr) {
                 Some(socket_addr) => is_reachable(socket_addr.ip()),
                 None => true,
             }

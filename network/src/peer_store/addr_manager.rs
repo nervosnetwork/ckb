@@ -1,10 +1,8 @@
 //! Address manager
+use crate::multiaddr_to_ip_socketaddr;
 use crate::peer_store::{base_addr, types::AddrInfo};
 use ckb_logger::debug;
-use p2p::{
-    multiaddr::{Multiaddr, Protocol},
-    utils::multiaddr_to_socketaddr,
-};
+use p2p::multiaddr::{Multiaddr, Protocol};
 use rand::Rng;
 use std::collections::{HashMap, HashSet};
 
@@ -56,7 +54,7 @@ impl AddrManager {
             let j = rng.gen_range(i..self.random_ids.len());
             self.swap_random_id(j, i);
             let addr_info: AddrInfo = self.id_to_info[&self.random_ids[i]].to_owned();
-            match multiaddr_to_socketaddr(&addr_info.addr) {
+            match multiaddr_to_ip_socketaddr(&addr_info.addr) {
                 Some(socket_addr) => {
                     let ip = socket_addr.ip();
                     let is_unique_ip = !duplicate_ips.contains(&ip);
