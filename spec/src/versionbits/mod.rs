@@ -48,14 +48,14 @@ pub enum ThresholdState {
 }
 
 impl ThresholdState {
-    fn from_u8(value: u8) -> ThresholdState {
+    fn from_u8(value: u8) -> Option<ThresholdState> {
         match value {
-            0 => ThresholdState::Defined,
-            1 => ThresholdState::Started,
-            2 => ThresholdState::LockedIn,
-            3 => ThresholdState::Active,
-            4 => ThresholdState::Failed,
-            _ => panic!("Unknown value: {}", value),
+            0 => Some(ThresholdState::Defined),
+            1 => Some(ThresholdState::Started),
+            2 => Some(ThresholdState::LockedIn),
+            3 => Some(ThresholdState::Active),
+            4 => Some(ThresholdState::Failed),
+            _ => None,
         }
     }
 }
@@ -154,7 +154,13 @@ impl Cache {
     #[cfg(not(target_family = "wasm"))]
     pub fn get(&self, key: &Byte32) -> Option<ThresholdState> {
         match cacache::read_sync(&self.path, Self::encode_key(key)) {
-            Ok(bytes) => Some(Self::decode_value(bytes)),
+            Ok(bytes) => {
+                let state = Self::decode_value(bytes);
+                if state.is_none() {
+                    error!("cacache entry for key {} is malformed", Self::encode_key(key));
+                }
+                state
+            }
             Err(cacache::Error::EntryNotFound(_path, _key)) => None,
             Err(err) => {
                 error!("cacache read_sync failed {:?}", err);
@@ -187,8 +193,8 @@ impl Cache {
         unimplemented!()
     }
 
-    fn decode_value(value: Vec<u8>) -> ThresholdState {
-        ThresholdState::from_u8(value[0])
+    fn decode_value(value: Vec<u8>) -> Option<ThresholdState> {
+        value.first().copied().and_then(ThresholdState::from_u8)
     }
 
     fn encode_key(key: &Byte32) -> String {
