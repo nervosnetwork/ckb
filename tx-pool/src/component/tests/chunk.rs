@@ -4,7 +4,7 @@ use crate::component::tests::util::build_tx;
 use crate::component::verify_queue::{Entry, VerifyQueue};
 use crate::pool::TxPool;
 use crate::service::{TxPoolService, TxVerificationResult};
-use ckb_app_config::{NetworkConfig, TxPoolConfig};
+use ckb_app_config::{DBConfig, NetworkConfig, TxPoolConfig};
 use ckb_async_runtime::new_background_runtime;
 use ckb_chain_spec::consensus::{Consensus, ConsensusBuilder};
 use ckb_db::RocksDB;
@@ -337,8 +337,12 @@ fn tx_pool_config() -> TxPoolConfig {
 
 fn snapshot(consensus: Arc<Consensus>) -> Arc<Snapshot> {
     let tmp_dir = TempDir::new().expect("create temp dir");
+    let db_config = DBConfig {
+        path: tmp_dir.path().to_path_buf(),
+        ..Default::default()
+    };
     let store = ChainDB::new(
-        RocksDB::open_in(&tmp_dir, UNUSED_SNAPSHOT_COLUMNS),
+        RocksDB::open_with_columns(&db_config, UNUSED_SNAPSHOT_COLUMNS),
         Default::default(),
     );
     Arc::new(Snapshot::new(

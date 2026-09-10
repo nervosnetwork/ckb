@@ -1,7 +1,6 @@
 use ckb_chain_spec::consensus::Consensus;
 use ckb_dao_utils::{DaoError, extract_dao_data, pack_dao_data};
-use ckb_db::RocksDB;
-use ckb_db_schema::COLUMNS;
+use ckb_db::{RocksDB, Schema};
 use ckb_store::{ChainDB, ChainStore};
 use ckb_types::{
     U256,
@@ -26,11 +25,12 @@ fn prepare_store(
     epoch_start: Option<BlockNumber>,
 ) -> (TempDir, ChainDB, HeaderView) {
     let tmp_dir = TempDir::new().unwrap();
-    let db = RocksDB::open_in(&tmp_dir, COLUMNS);
+    let db = RocksDB::open_in(&tmp_dir, Schema::V1);
     let store = ChainDB::new(db, Default::default());
     let txn = store.begin_transaction();
 
     let parent_block = BlockBuilder::default().header(parent.clone()).build();
+    let parent = parent_block.header();
 
     txn.insert_block(&parent_block).unwrap();
     txn.attach_block(&parent_block).unwrap();
@@ -47,13 +47,13 @@ fn prepare_store(
         .build();
     let epoch_hash = h256!("0x123455").into();
 
-    txn.insert_block_epoch_index(&parent.hash(), &epoch_hash)
+    txn.insert_block_epoch_index(parent.number(), &parent.hash(), &epoch_hash)
         .unwrap();
     txn.insert_epoch_ext(&epoch_hash, &epoch_ext).unwrap();
 
     txn.commit().unwrap();
 
-    (tmp_dir, store, parent.clone())
+    (tmp_dir, store, parent)
 }
 
 #[test]
@@ -271,7 +271,7 @@ fn check_withdraw_calculation() {
     let withdrawing_block = BlockBuilder::default().header(withdrawing_header).build();
 
     let tmp_dir = TempDir::new().unwrap();
-    let db = RocksDB::open_in(&tmp_dir, COLUMNS);
+    let db = RocksDB::open_in(&tmp_dir, Schema::V1);
     let store = ChainDB::new(db, Default::default());
     let txn = store.begin_transaction();
     txn.insert_block(&deposit_block).unwrap();
@@ -328,7 +328,7 @@ fn check_withdraw_calculation_overflows() {
     let withdrawing_block = BlockBuilder::default().header(withdrawing_header).build();
 
     let tmp_dir = TempDir::new().unwrap();
-    let db = RocksDB::open_in(&tmp_dir, COLUMNS);
+    let db = RocksDB::open_in(&tmp_dir, Schema::V1);
     let store = ChainDB::new(db, Default::default());
     let txn = store.begin_transaction();
     txn.insert_block(&deposit_block).unwrap();
@@ -385,7 +385,7 @@ fn check_withdraw_calculation_counted_capacity_overflows_before_adding_occupied_
     let withdrawing_block = BlockBuilder::default().header(withdrawing_header).build();
 
     let tmp_dir = TempDir::new().unwrap();
-    let db = RocksDB::open_in(&tmp_dir, COLUMNS);
+    let db = RocksDB::open_in(&tmp_dir, Schema::V1);
     let store = ChainDB::new(db, Default::default());
     let txn = store.begin_transaction();
     txn.insert_block(&deposit_block).unwrap();
@@ -485,7 +485,7 @@ fn setup_store_with_headers(
     let withdraw_block = BlockBuilder::default().header(withdraw_header).build();
 
     let tmp_dir = TempDir::new().unwrap();
-    let db = RocksDB::open_in(&tmp_dir, COLUMNS);
+    let db = RocksDB::open_in(&tmp_dir, Schema::V1);
     let store = ChainDB::new(db, Default::default());
     let txn = store.begin_transaction();
     txn.insert_block(&deposit_block).unwrap();

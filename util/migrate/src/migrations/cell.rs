@@ -1,10 +1,11 @@
-use ckb_app_config::StoreConfig;
-use ckb_db::RocksDB;
+use ckb_db::{RocksDB, RocksDBWriteBatch};
 use ckb_db_migration::{Migration, ProgressBar, ProgressStyle};
-use ckb_db_schema::COLUMN_CELL;
+use ckb_db_schema::{
+    legacy::{COLUMN_CELL, COLUMN_CELL_DATA, COLUMN_CELL_DATA_HASH},
+    out_point_key,
+};
 use ckb_error::Error;
 use ckb_migration_template::multi_thread_migration;
-use ckb_store::{ChainDB, ChainStore, StoreWriteBatch};
 use ckb_types::{
     core::{BlockView, TransactionView},
     packed,
@@ -81,7 +82,7 @@ fn clean_cell_column(db: &mut RocksDB) -> Result<(), Error> {
     Ok(())
 }
 
-fn insert_block_cell(batch: &mut StoreWriteBatch, block: &BlockView) {
+fn insert_block_cell(batch: &mut RocksDBWriteBatch, block: &BlockView) {
     let transactions = block.transactions();
 
     // add new live cells
@@ -126,15 +127,38 @@ fn insert_block_cell(batch: &mut StoreWriteBatch, block: &BlockView) {
                     (out_point, entry, data_entry)
                 })
         });
-    batch.insert_cells(new_cells).unwrap();
+
+    for (out_point, entry, data_entry) in new_cells {
+        let key = out_point_key(&out_point);
+        batch.put(COLUMN_CELL, &key, entry.as_slice()).unwrap();
+        if let Some(data) = data_entry {
+            batch.put(COLUMN_CELL_DATA, &key, data.as_slice()).unwrap();
+            batch
+                .put(
+                    COLUMN_CELL_DATA_HASH,
+                    &key,
+                    data.output_data_hash().as_slice(),
+                )
+                .unwrap();
+        } else {
+            batch.put(COLUMN_CELL_DATA, &key, &[]).unwrap();
+            batch.put(COLUMN_CELL_DATA_HASH, &key, &[]).unwrap();
+        }
+    }
 }
 
-fn delete_consumed_cell(batch: &mut StoreWriteBatch, transactions: &[TransactionView]) {
+fn delete_consumed_cell(batch: &mut RocksDBWriteBatch, transactions: &[TransactionView]) {
     // mark inputs dead
     // skip cellbase
     let deads = transactions
         .iter()
         .skip(1)
         .flat_map(|tx| tx.input_pts_iter());
-    batch.delete_cells(deads).unwrap();
+
+    for out_point in deads {
+        let key = out_point_key(&out_point);
+        batch.delete(COLUMN_CELL, &key).unwrap();
+        batch.delete(COLUMN_CELL_DATA, &key).unwrap();
+        batch.delete(COLUMN_CELL_DATA_HASH, &key).unwrap();
+    }
 }

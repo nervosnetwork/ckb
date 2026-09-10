@@ -5,12 +5,13 @@ use ckb_db::{
     iter::{DBIter, Direction, IteratorMode},
 };
 use ckb_db_schema::{
-    COLUMN_BLOCK_BODY, COLUMN_BLOCK_EPOCH, COLUMN_BLOCK_EXT, COLUMN_BLOCK_EXTENSION,
-    COLUMN_BLOCK_FILTER, COLUMN_BLOCK_FILTER_HASH, COLUMN_BLOCK_HEADER, COLUMN_BLOCK_PROPOSAL_IDS,
-    COLUMN_BLOCK_UNCLE, COLUMN_CELL, COLUMN_CELL_DATA, COLUMN_CELL_DATA_HASH,
-    COLUMN_CHAIN_ROOT_MMR, COLUMN_EPOCH, COLUMN_INDEX, COLUMN_META, COLUMN_TRANSACTION_INFO,
-    COLUMN_UNCLES, Col, META_CURRENT_EPOCH_KEY, META_LATEST_BUILT_FILTER_DATA_KEY,
-    META_TIP_HEADER_KEY,
+    BlockHashIndexValue, BlockIndexFlag, BlockKey, COLUMN_BLOCK_BODY, COLUMN_BLOCK_EPOCH,
+    COLUMN_BLOCK_EXT, COLUMN_BLOCK_EXTENSION, COLUMN_BLOCK_FILTER, COLUMN_BLOCK_FILTER_HASH,
+    COLUMN_BLOCK_HEADER, COLUMN_BLOCK_PROPOSAL_IDS, COLUMN_BLOCK_UNCLE, COLUMN_CELL,
+    COLUMN_CELL_DATA, COLUMN_CELL_DATA_HASH, COLUMN_CHAIN_ROOT_MMR, COLUMN_EPOCH,
+    COLUMN_HASH_INDEX, COLUMN_INDEX, COLUMN_META, COLUMN_TRANSACTION_INFO, COLUMN_UNCLES, Col,
+    META_CURRENT_EPOCH_KEY, META_LATEST_BUILT_FILTER_DATA_KEY, META_TIP_HEADER_KEY, block_body_key,
+    block_key, block_number_key, out_point_key,
 };
 use ckb_freezer::Freezer;
 use ckb_types::{
@@ -36,6 +37,18 @@ pub trait ChainStore: Send + Sync + Sized {
     /// Return the borrowed data loader wrapper
     fn borrow_as_data_loader(&self) -> BorrowedDataLoaderWrapper<'_, Self> {
         BorrowedDataLoaderWrapper::new(self)
+    }
+
+    /// Helper: Gets stored block number and builds composite key.
+    ///
+    /// This uses the all-block hash index because composite keys are needed for both main-chain
+    /// blocks and fork blocks.
+    ///
+    /// Returns a stack-allocated BlockKey to avoid heap allocation.
+    /// Returns None if the block_hash is not found.
+    fn get_block_key(&self, block_hash: &packed::Byte32) -> Option<BlockKey> {
+        self.get_stored_block_number(block_hash)
+            .map(|number| block_key(number, block_hash))
     }
 
     /// Get block by block header hash
@@ -76,7 +89,9 @@ pub trait ChainStore: Send + Sync + Sized {
         {
             return Some(header.clone());
         };
-        let ret = self.get(COLUMN_BLOCK_HEADER, hash.as_slice()).map(|slice| {
+
+        let block_key = self.get_block_key(hash)?;
+        let ret = self.get(COLUMN_BLOCK_HEADER, &block_key).map(|slice| {
             let reader = packed::HeaderViewReader::from_slice_should_be_ok(slice.as_ref());
             Into::<HeaderView>::into(reader)
         });
@@ -92,12 +107,18 @@ pub trait ChainStore: Send + Sync + Sized {
 
     /// Get block body by block header hash
     fn get_block_body(&self, hash: &packed::Byte32) -> Vec<TransactionView> {
-        let prefix = hash.as_slice();
+        // Use cached get_block_key() to avoid redundant COLUMN_HASH_INDEX lookups
+        let block_key = match self.get_block_key(hash) {
+            Some(key) => key,
+            None => return vec![],
+        };
+
+        // Scan with composite key prefix
         self.get_iter(
             COLUMN_BLOCK_BODY,
-            IteratorMode::From(prefix, Direction::Forward),
+            IteratorMode::From(&block_key, Direction::Forward),
         )
-        .take_while(|(key, _)| key.starts_with(prefix))
+        .take_while(|(key, _)| key.starts_with(&block_key))
         .map(|(_key, value)| {
             let reader = packed::TransactionViewReader::from_slice_should_be_ok(value.as_ref());
             Into::<TransactionView>::into(reader)
@@ -107,17 +128,29 @@ pub trait ChainStore: Send + Sync + Sized {
 
     /// Get unfrozen block from ky-store with given hash
     fn get_unfrozen_block(&self, hash: &packed::Byte32) -> Option<BlockView> {
-        let header = self
-            .get(COLUMN_BLOCK_HEADER, hash.as_slice())
-            .map(|slice| {
-                let reader = packed::HeaderViewReader::from_slice_should_be_ok(slice.as_ref());
-                Into::<HeaderView>::into(reader)
-            })?;
+        // Use cached get_block_key() to avoid redundant COLUMN_HASH_INDEX lookups
+        let block_key = self.get_block_key(hash)?;
 
-        let body = self.get_block_body(hash);
+        let header = self.get(COLUMN_BLOCK_HEADER, &block_key).map(|slice| {
+            let reader = packed::HeaderViewReader::from_slice_should_be_ok(slice.as_ref());
+            Into::<HeaderView>::into(reader)
+        })?;
+
+        // Use block_key directly instead of calling get_block_body(hash) which would do another lookup
+        let body: Vec<TransactionView> = self
+            .get_iter(
+                COLUMN_BLOCK_BODY,
+                IteratorMode::From(&block_key, Direction::Forward),
+            )
+            .take_while(|(key, _)| key.starts_with(&block_key))
+            .map(|(_key, value)| {
+                let reader = packed::TransactionViewReader::from_slice_should_be_ok(value.as_ref());
+                Into::<TransactionView>::into(reader)
+            })
+            .collect();
 
         let uncles = self
-            .get(COLUMN_BLOCK_UNCLE, hash.as_slice())
+            .get(COLUMN_BLOCK_UNCLE, &block_key)
             .map(|slice| {
                 let reader =
                     packed::UncleBlockVecViewReader::from_slice_should_be_ok(slice.as_ref());
@@ -126,7 +159,7 @@ pub trait ChainStore: Send + Sync + Sized {
             .expect("block uncles must be stored");
 
         let proposals = self
-            .get(COLUMN_BLOCK_PROPOSAL_IDS, hash.as_slice())
+            .get(COLUMN_BLOCK_PROPOSAL_IDS, &block_key)
             .map(|slice| {
                 packed::ProposalShortIdVecReader::from_slice_should_be_ok(slice.as_ref())
                     .to_entity()
@@ -134,7 +167,7 @@ pub trait ChainStore: Send + Sync + Sized {
             .expect("block proposal_ids must be stored");
 
         let extension_opt = self
-            .get(COLUMN_BLOCK_EXTENSION, hash.as_slice())
+            .get(COLUMN_BLOCK_EXTENSION, &block_key)
             .map(|slice| packed::BytesReader::from_slice_should_be_ok(slice.as_ref()).to_entity());
 
         let block = if let Some(extension) = extension_opt {
@@ -154,13 +187,18 @@ pub trait ChainStore: Send + Sync + Sized {
             return hashes.clone();
         };
 
-        let prefix = hash.as_slice();
+        // Use cached get_block_key() to avoid redundant COLUMN_HASH_INDEX lookups
+        let block_key = match self.get_block_key(hash) {
+            Some(key) => key,
+            None => return vec![],
+        };
+
         let ret: Vec<_> = self
             .get_iter(
                 COLUMN_BLOCK_BODY,
-                IteratorMode::From(prefix, Direction::Forward),
+                IteratorMode::From(&block_key, Direction::Forward),
             )
-            .take_while(|(key, _)| key.starts_with(prefix))
+            .take_while(|(key, _)| key.starts_with(&block_key))
             .map(|(_key, value)| {
                 let reader = packed::TransactionViewReader::from_slice_should_be_ok(value.as_ref());
                 reader.hash().to_entity()
@@ -185,8 +223,11 @@ pub trait ChainStore: Send + Sync + Sized {
             return Some(data.clone());
         };
 
+        // Use cached get_block_key() to avoid redundant COLUMN_HASH_INDEX lookups
+        let block_key = self.get_block_key(hash)?;
+
         let ret = self
-            .get(COLUMN_BLOCK_PROPOSAL_IDS, hash.as_slice())
+            .get(COLUMN_BLOCK_PROPOSAL_IDS, &block_key)
             .map(|slice| {
                 packed::ProposalShortIdVecReader::from_slice_should_be_ok(slice.as_ref())
                     .to_entity()
@@ -209,7 +250,10 @@ pub trait ChainStore: Send + Sync + Sized {
             return Some(data.clone());
         };
 
-        let ret = self.get(COLUMN_BLOCK_UNCLE, hash.as_slice()).map(|slice| {
+        // Use cached get_block_key() to avoid redundant COLUMN_HASH_INDEX lookups
+        let block_key = self.get_block_key(hash)?;
+
+        let ret = self.get(COLUMN_BLOCK_UNCLE, &block_key).map(|slice| {
             let reader = packed::UncleBlockVecViewReader::from_slice_should_be_ok(slice.as_ref());
             Into::<UncleBlockVecView>::into(reader)
         });
@@ -231,8 +275,11 @@ pub trait ChainStore: Send + Sync + Sized {
             return data.clone();
         };
 
+        // Use cached get_block_key() to avoid redundant COLUMN_HASH_INDEX lookups
+        let block_key = self.get_block_key(hash)?;
+
         let ret = self
-            .get(COLUMN_BLOCK_EXTENSION, hash.as_slice())
+            .get(COLUMN_BLOCK_EXTENSION, &block_key)
             .map(|slice| packed::BytesReader::from_slice_should_be_ok(slice.as_ref()).to_entity());
 
         if let Some(cache) = self.cache() {
@@ -245,39 +292,77 @@ pub trait ChainStore: Send + Sync + Sized {
     ///
     /// Since v0.106, `BlockExt` added two option fields, so we have to use compatibility mode to read
     fn get_block_ext(&self, block_hash: &packed::Byte32) -> Option<BlockExt> {
-        self.get(COLUMN_BLOCK_EXT, block_hash.as_slice())
-            .map(|slice| {
-                let reader =
-                    packed::BlockExtReader::from_compatible_slice_should_be_ok(slice.as_ref());
-                match reader.count_extra_fields() {
-                    0 => reader.into(),
-                    2 => packed::BlockExtV1Reader::from_slice_should_be_ok(slice.as_ref()).into(),
-                    _ => {
-                        panic!(
-                            "BlockExt storage field count doesn't match, expect 7 or 5, actual {}",
-                            reader.field_count()
-                        )
-                    }
+        // Use cached get_block_key() to avoid redundant COLUMN_HASH_INDEX lookups
+        let block_key = self.get_block_key(block_hash)?;
+
+        self.get(COLUMN_BLOCK_EXT, &block_key).map(|slice| {
+            let reader = packed::BlockExtReader::from_compatible_slice_should_be_ok(slice.as_ref());
+            match reader.count_extra_fields() {
+                0 => reader.into(),
+                2 => packed::BlockExtV1Reader::from_slice_should_be_ok(slice.as_ref()).into(),
+                _ => {
+                    panic!(
+                        "BlockExt storage field count doesn't match, expect 7 or 5, actual {}",
+                        reader.field_count()
+                    )
                 }
-            })
+            }
+        })
     }
 
     /// Get block header hash by block number
     fn get_block_hash(&self, number: BlockNumber) -> Option<packed::Byte32> {
-        let block_number: packed::Uint64 = number.into();
-        self.get(COLUMN_INDEX, block_number.as_slice())
+        self.get(COLUMN_INDEX, &block_number_key(number))
             .map(|raw| packed::Byte32Reader::from_slice_should_be_ok(raw.as_ref()).to_entity())
     }
 
-    /// Get block number by block header hash
+    /// Returns hash-index metadata for a stored block hash.
+    fn get_block_index_value(&self, hash: &packed::Byte32) -> Option<BlockHashIndexValue> {
+        self.get(COLUMN_HASH_INDEX, hash.as_slice())
+            .and_then(|raw| BlockHashIndexValue::decode(raw.as_ref()))
+    }
+
+    /// Returns the stored block number for main-chain and fork blocks.
+    ///
+    /// This is for building composite storage keys. Public chain APIs should use
+    /// `get_block_number`, which intentionally keeps main-chain-only semantics.
+    fn get_stored_block_number(&self, hash: &packed::Byte32) -> Option<BlockNumber> {
+        // Check block_numbers cache first
+        if let Some(cache) = self.cache() {
+            if let Some(&number) = cache.block_numbers.lock().get(hash) {
+                return Some(number);
+            }
+            // Check headers cache - header contains block number
+            if let Some(header) = cache.headers.lock().get(hash) {
+                let number = header.number();
+                cache.block_numbers.lock().put(hash.clone(), number);
+                return Some(number);
+            }
+        }
+
+        // Fall back to COLUMN_HASH_INDEX lookup
+        let number = self.get_block_index_value(hash).map(|value| value.number)?;
+
+        // Populate cache for future lookups
+        if let Some(cache) = self.cache() {
+            cache.block_numbers.lock().put(hash.clone(), number);
+        }
+
+        Some(number)
+    }
+
+    /// Get main-chain block number by block header hash.
     fn get_block_number(&self, hash: &packed::Byte32) -> Option<BlockNumber> {
-        self.get(COLUMN_INDEX, hash.as_slice())
-            .map(|raw| packed::Uint64Reader::from_slice_should_be_ok(raw.as_ref()).into())
+        self.get_block_index_value(hash)
+            .filter(|value| value.flag == BlockIndexFlag::MainChain)
+            .map(|value| value.number)
     }
 
     /// Returns true if the block is on the main chain.
+    ///
+    /// Checks the block index flag in the COLUMN_HASH_INDEX value (9th byte).
     fn is_main_chain(&self, hash: &packed::Byte32) -> bool {
-        self.get(COLUMN_INDEX, hash.as_slice()).is_some()
+        self.get_block_index_value(hash).map(|value| value.flag) == Some(BlockIndexFlag::MainChain)
     }
 
     /// Returns the header of the chain tip.
@@ -334,22 +419,26 @@ pub trait ChainStore: Send + Sync + Sized {
                 return Some((tx_reader.to_entity().into_view(), tx_info));
             }
         }
-        self.get(COLUMN_BLOCK_BODY, tx_info.key().as_slice())
-            .map(|slice| {
-                let reader = packed::TransactionViewReader::from_slice_should_be_ok(slice.as_ref());
-                (reader.into(), tx_info)
-            })
+        let tx_key = block_body_key(
+            tx_info.block_number,
+            &tx_info.block_hash,
+            tx_info.index as u32,
+        );
+        self.get(COLUMN_BLOCK_BODY, &tx_key).map(|slice| {
+            let reader = packed::TransactionViewReader::from_slice_should_be_ok(slice.as_ref());
+            (reader.into(), tx_info)
+        })
     }
 
     /// Return whether cell is live
     fn have_cell(&self, out_point: &OutPoint) -> bool {
-        let key = out_point.to_cell_key();
+        let key = out_point_key(out_point);
         self.get(COLUMN_CELL, &key).is_some()
     }
 
     /// Gets cell meta data with out_point
     fn get_cell(&self, out_point: &OutPoint) -> Option<CellMeta> {
-        let key = out_point.to_cell_key();
+        let key = out_point_key(out_point);
         self.get(COLUMN_CELL, &key).map(|slice| {
             let reader = packed::CellEntryReader::from_slice_should_be_ok(slice.as_ref());
             build_cell_meta_from_reader(out_point.clone(), reader)
@@ -358,9 +447,9 @@ pub trait ChainStore: Send + Sync + Sized {
 
     /// Returns cell data and its hash for the given outpoint.
     fn get_cell_data(&self, out_point: &OutPoint) -> Option<(Bytes, packed::Byte32)> {
-        let key = out_point.to_cell_key();
+        let key = out_point_key(out_point);
         if let Some(cache) = self.cache()
-            && let Some(cached) = cache.cell_data.lock().get(&key)
+            && let Some(cached) = cache.cell_data.lock().get(key.as_slice())
         {
             return Some(cached.clone());
         };
@@ -378,7 +467,7 @@ pub trait ChainStore: Send + Sync + Sized {
 
         if let Some(cache) = self.cache() {
             ret.inspect(|cached| {
-                cache.cell_data.lock().put(key, cached.clone());
+                cache.cell_data.lock().put(key.to_vec(), cached.clone());
             })
         } else {
             ret
@@ -387,9 +476,9 @@ pub trait ChainStore: Send + Sync + Sized {
 
     /// Returns the hash of cell data for the given outpoint.
     fn get_cell_data_hash(&self, out_point: &OutPoint) -> Option<packed::Byte32> {
-        let key = out_point.to_cell_key();
+        let key = out_point_key(out_point);
         if let Some(cache) = self.cache()
-            && let Some(cached) = cache.cell_data_hash.lock().get(&key)
+            && let Some(cached) = cache.cell_data_hash.lock().get(key.as_slice())
         {
             return Some(cached.clone());
         };
@@ -404,7 +493,10 @@ pub trait ChainStore: Send + Sync + Sized {
 
         if let Some(cache) = self.cache() {
             ret.inspect(|cached| {
-                cache.cell_data_hash.lock().put(key, cached.clone());
+                cache
+                    .cell_data_hash
+                    .lock()
+                    .put(key.to_vec(), cached.clone());
             })
         } else {
             ret
@@ -432,7 +524,10 @@ pub trait ChainStore: Send + Sync + Sized {
 
     /// Gets epoch index by block hash
     fn get_block_epoch_index(&self, block_hash: &packed::Byte32) -> Option<packed::Byte32> {
-        self.get(COLUMN_BLOCK_EPOCH, block_hash.as_slice())
+        // Use cached get_block_key() to avoid redundant COLUMN_HASH_INDEX lookups
+        let block_key = self.get_block_key(block_hash)?;
+
+        self.get(COLUMN_BLOCK_EPOCH, &block_key)
             .map(|raw| packed::Byte32Reader::from_slice_should_be_ok(raw.as_ref()).to_entity())
     }
 
@@ -462,15 +557,21 @@ pub trait ChainStore: Send + Sync + Sized {
         {
             return true;
         };
-        self.get(COLUMN_BLOCK_HEADER, hash.as_slice()).is_some()
+        let Some(block_key) = self.get_block_key(hash) else {
+            return false;
+        };
+        self.get(COLUMN_BLOCK_HEADER, &block_key).is_some()
     }
 
     /// Gets cellbase by block hash
     fn get_cellbase(&self, hash: &packed::Byte32) -> Option<TransactionView> {
-        let key = packed::TransactionKey::new_builder()
-            .block_hash(hash.to_owned())
-            .build();
-        self.get(COLUMN_BLOCK_BODY, key.as_slice()).map(|slice| {
+        // Cellbase lookup should work for both main-chain and fork blocks.
+        let number = self.get_stored_block_number(hash)?;
+
+        // Build composite transaction key for index 0 (cellbase is always first)
+        let tx_key = block_body_key(number, hash, 0);
+
+        self.get(COLUMN_BLOCK_BODY, &tx_key).map(|slice| {
             let reader = packed::TransactionViewReader::from_slice_should_be_ok(slice.as_ref());
             Into::<TransactionView>::into(reader)
         })
@@ -484,32 +585,38 @@ pub trait ChainStore: Send + Sync + Sized {
 
     /// Gets block filter data by block hash
     fn get_block_filter(&self, hash: &packed::Byte32) -> Option<packed::Bytes> {
-        self.get(COLUMN_BLOCK_FILTER, hash.as_slice())
+        // Use cached get_block_key() to avoid redundant COLUMN_HASH_INDEX lookups
+        let block_key = self.get_block_key(hash)?;
+
+        self.get(COLUMN_BLOCK_FILTER, &block_key)
             .map(|slice| packed::BytesReader::from_slice_should_be_ok(slice.as_ref()).to_entity())
     }
 
     /// Gets block filter hash by block hash
     fn get_block_filter_hash(&self, hash: &packed::Byte32) -> Option<packed::Byte32> {
-        self.get(COLUMN_BLOCK_FILTER_HASH, hash.as_slice())
+        // Use cached get_block_key() to avoid redundant COLUMN_HASH_INDEX lookups
+        let block_key = self.get_block_key(hash)?;
+
+        self.get(COLUMN_BLOCK_FILTER_HASH, &block_key)
             .map(|slice| packed::Byte32Reader::from_slice_should_be_ok(slice.as_ref()).to_entity())
     }
 
     /// Gets block bytes by block hash
     fn get_packed_block(&self, hash: &packed::Byte32) -> Option<packed::Block> {
-        let header = self
-            .get(COLUMN_BLOCK_HEADER, hash.as_slice())
-            .map(|slice| {
-                let reader = packed::HeaderViewReader::from_slice_should_be_ok(slice.as_ref());
-                reader.data().to_entity()
-            })?;
+        // Use cached get_block_key() to avoid redundant COLUMN_HASH_INDEX lookups
+        let block_key = self.get_block_key(hash)?;
 
-        let prefix = hash.as_slice();
+        let header = self.get(COLUMN_BLOCK_HEADER, &block_key).map(|slice| {
+            let reader = packed::HeaderViewReader::from_slice_should_be_ok(slice.as_ref());
+            reader.data().to_entity()
+        })?;
+
         let transactions: packed::TransactionVec = self
             .get_iter(
                 COLUMN_BLOCK_BODY,
-                IteratorMode::From(prefix, Direction::Forward),
+                IteratorMode::From(&block_key, Direction::Forward),
             )
-            .take_while(|(key, _)| key.starts_with(prefix))
+            .take_while(|(key, _)| key.starts_with(&block_key))
             .map(|(_key, value)| {
                 let reader = packed::TransactionViewReader::from_slice_should_be_ok(value.as_ref());
                 reader.data().to_entity()
@@ -517,6 +624,7 @@ pub trait ChainStore: Send + Sync + Sized {
             .collect::<Vec<_>>()
             .into();
 
+        // These calls will hit cache since get_block_key() already populated it
         let uncles = self.get_block_uncles(hash)?;
         let proposals = self.get_block_proposal_txs_ids(hash)?;
         let extension_opt = self.get_block_extension(hash);
@@ -544,7 +652,10 @@ pub trait ChainStore: Send + Sync + Sized {
 
     /// Gets block header bytes by block hash
     fn get_packed_block_header(&self, hash: &packed::Byte32) -> Option<packed::Header> {
-        self.get(COLUMN_BLOCK_HEADER, hash.as_slice()).map(|slice| {
+        // Use cached get_block_key() to avoid redundant COLUMN_HASH_INDEX lookups
+        let block_key = self.get_block_key(hash)?;
+
+        self.get(COLUMN_BLOCK_HEADER, &block_key).map(|slice| {
             let reader = packed::HeaderViewReader::from_slice_should_be_ok(slice.as_ref());
             reader.data().to_entity()
         })

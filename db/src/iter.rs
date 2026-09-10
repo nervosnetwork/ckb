@@ -1,12 +1,15 @@
 //! RocksDB iterator wrapper base on DBIter
 use crate::db::cf_handle;
 use crate::{
-    Result, RocksDB, RocksDBSnapshot, RocksDBTransaction, RocksDBTransactionSnapshot,
+    ReadOnlyDB, Result, RocksDB, RocksDBSnapshot, RocksDBTransaction, RocksDBTransactionSnapshot,
     internal_error,
 };
 use ckb_db_schema::Col;
 pub use rocksdb::{DBIterator as DBIter, Direction, IteratorMode};
-use rocksdb::{ReadOptions, ops::IterateCF};
+use rocksdb::{
+    ReadOptions,
+    ops::{GetColumnFamilys, IterateCF},
+};
 
 /// An iterator over a column family, with specifiable ranges and direction.
 pub trait DBIterator {
@@ -53,6 +56,18 @@ impl DBIterator for RocksDBSnapshot {
     fn iter_opt(&self, col: Col, mode: IteratorMode, readopts: &ReadOptions) -> Result<DBIter<'_>> {
         let cf = cf_handle(&self.db, col)?;
         self.iterator_cf_opt(cf, mode, readopts)
+            .map_err(internal_error)
+    }
+}
+
+impl DBIterator for ReadOnlyDB {
+    fn iter_opt(&self, col: Col, mode: IteratorMode, readopts: &ReadOptions) -> Result<DBIter<'_>> {
+        let cf = self
+            .inner
+            .cf_handle(col)
+            .ok_or_else(|| internal_error(format!("column {col} not found")))?;
+        self.inner
+            .iterator_cf_opt(cf, mode, readopts)
             .map_err(internal_error)
     }
 }

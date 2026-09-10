@@ -320,6 +320,7 @@ impl ConsumeUnverifiedBlockProcessor {
         let _snapshot_tip_hash = db_txn.get_update_for_tip_hash(&txn_snapshot);
 
         db_txn.insert_block_epoch_index(
+            block.number(),
             &block.header().hash(),
             &epoch.last_block_hash_in_previous_epoch(),
         )?;
@@ -354,7 +355,7 @@ impl ConsumeUnverifiedBlockProcessor {
                 db_txn.insert_current_epoch_ext(&epoch)?;
             }
         } else {
-            db_txn.insert_block_ext(&block.header().hash(), &ext)?;
+            db_txn.insert_block_ext(block.number(), &block.header().hash(), &ext)?;
         }
         db_txn.commit()?;
 
@@ -685,7 +686,8 @@ impl ConsumeUnverifiedBlockProcessor {
 
                                     self.insert_ok_ext(
                                         &txn,
-                                        &b.header().hash(),
+                                        b.number(),
+                                        &b.hash(),
                                         ext.clone(),
                                         Some(&cache_entries),
                                         Some(txs_sizes),
@@ -703,24 +705,29 @@ impl ConsumeUnverifiedBlockProcessor {
                                 Err(err) => {
                                     self.print_error(b, &err);
                                     found_error = Some(err);
-                                    self.insert_failure_ext(&txn, &b.header().hash(), ext.clone())?;
+                                    self.insert_failure_ext(
+                                        &txn,
+                                        b.number(),
+                                        &b.hash(),
+                                        ext.clone(),
+                                    )?;
                                 }
                             }
                         }
                         Err(err) => {
                             found_error = Some(err);
-                            self.insert_failure_ext(&txn, &b.header().hash(), ext.clone())?;
+                            self.insert_failure_ext(&txn, b.number(), &b.hash(), ext.clone())?;
                         }
                     }
                 } else {
-                    self.insert_failure_ext(&txn, &b.header().hash(), ext.clone())?;
+                    self.insert_failure_ext(&txn, b.number(), &b.hash(), ext.clone())?;
                 }
             } else {
                 txn.attach_block(b)?;
                 attach_block_cell(&txn, b)?;
                 mmr.push(b.digest())
                     .map_err(|e| InternalErrorKind::MMR.other(e))?;
-                self.insert_ok_ext(&txn, &b.header().hash(), ext.clone(), None, None)?;
+                self.insert_ok_ext(&txn, b.number(), &b.hash(), ext.clone(), None, None)?;
             }
         }
 
@@ -758,6 +765,7 @@ impl ConsumeUnverifiedBlockProcessor {
     fn insert_ok_ext(
         &self,
         txn: &StoreTransaction,
+        number: BlockNumber,
         hash: &Byte32,
         mut ext: BlockExt,
         cache_entries: Option<&[Completed]>,
@@ -773,17 +781,18 @@ impl ConsumeUnverifiedBlockProcessor {
             ext.cycles = Some(cycles);
         }
         ext.txs_sizes = txs_sizes;
-        txn.insert_block_ext(hash, &ext)
+        txn.insert_block_ext(number, hash, &ext)
     }
 
     fn insert_failure_ext(
         &self,
         txn: &StoreTransaction,
+        number: BlockNumber,
         hash: &Byte32,
         mut ext: BlockExt,
     ) -> Result<(), Error> {
         ext.verified = Some(false);
-        txn.insert_block_ext(hash, &ext)
+        txn.insert_block_ext(number, hash, &ext)
     }
 
     fn monitor_block_txs_verified(

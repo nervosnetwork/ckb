@@ -17,7 +17,7 @@ pub mod write_batch;
 #[cfg(test)]
 mod tests;
 
-pub use crate::db::RocksDB;
+pub use crate::db::{RocksDB, Schema};
 pub use crate::db_with_ttl::DBWithTTL;
 pub use crate::iter::DBIterator;
 pub use crate::read_only_db::ReadOnlyDB;
