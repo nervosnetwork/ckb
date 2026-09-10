@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.2.4](https://github.com/nervosnetwork/ckb/compare/ckb-network-v1.2.3...ckb-network-v1.2.4) - 2026-09-10
+
+### Fixed
+
+- prevent timestamp underflow in hole punching (#5324) (by @Officeyutong)
+
+### Removed
+
+- remove network alert module (#5304) (by @chenyukang)
+
+### Contributors
+
+- @chenyukang
+- @Officeyutong
+
 ## [1.2.3](https://github.com/nervosnetwork/ckb/compare/ckb-network-v1.2.2...ckb-network-v1.2.3) - 2026-07-28
 
 ### Changed

@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.3.1](https://github.com/nervosnetwork/ckb/compare/ckb-rpc-v1.3.0...ckb-rpc-v1.3.1) - 2026-09-10
+
+### Removed
+
+- remove network alert module (#5304) (by @chenyukang)
+
+### Contributors
+
+- @chenyukang
+
 ## [1.3.0](https://github.com/nervosnetwork/ckb/compare/ckb-rpc-v1.2.3...ckb-rpc-v1.3.0) - 2026-07-28
 
 ### Added

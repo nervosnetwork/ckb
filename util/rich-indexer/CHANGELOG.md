@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.1.4](https://github.com/nervosnetwork/ckb/compare/ckb-rich-indexer-v1.1.3...ckb-rich-indexer-v1.1.4) - 2026-09-10
+
+### Fixed
+
+- *(rich-indexer)* skip empty spent-cell resets (#5300) (by @chenyukang)
+
+### Contributors
+
+- @chenyukang
+
 ## [1.1.3](https://github.com/nervosnetwork/ckb/compare/ckb-rich-indexer-v1.1.2...ckb-rich-indexer-v1.1.3) - 2026-07-28
 
 ### Changed
