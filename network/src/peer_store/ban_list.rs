@@ -1,17 +1,23 @@
 //! Ban list
 use crate::peer_store::Multiaddr;
 use crate::peer_store::types::{BannedAddr, ip_to_network};
+use crate::{PeerId, extract_peer_id};
 use ckb_systemtime::unix_time_as_millis;
+use ckb_util::LinkedHashMap;
 use ipnetwork::IpNetwork;
 use p2p::utils::multiaddr_to_socketaddr;
 use std::collections::HashMap;
 use std::net::IpAddr;
 
 pub(crate) const CLEAR_INTERVAL_COUNTER: usize = 1024;
+// Proxy clients can change identities, so bound these temporary bans.
+pub(crate) const MAX_BANNED_PEERS: usize = 16384;
 
 /// Ban list
 pub struct BanList {
     inner: HashMap<IpNetwork, BannedAddr>,
+    // Session identity bans are intentionally memory-only; the persisted/RPC ban list is IP based.
+    peers: LinkedHashMap<PeerId, u64>,
     insert_count: usize,
 }
 
@@ -26,6 +32,7 @@ impl BanList {
     pub fn new() -> Self {
         BanList {
             inner: HashMap::default(),
+            peers: LinkedHashMap::default(),
             insert_count: 0,
         }
     }
@@ -43,6 +50,14 @@ impl BanList {
     /// Unban address
     pub fn unban_network(&mut self, ip_network: &IpNetwork) {
         self.inner.remove(ip_network);
+    }
+
+    pub(crate) fn ban_peer(&mut self, peer_id: PeerId, timeout_ms: u64) {
+        let now = unix_time_as_millis();
+        self.peers.insert(peer_id, now.saturating_add(timeout_ms));
+        if self.peers.len() > MAX_BANNED_PEERS {
+            self.peers.pop_front();
+        }
     }
 
     fn is_ip_banned_until(&self, ip: IpAddr, now_ms: u64) -> bool {
@@ -66,9 +81,13 @@ impl BanList {
 
     /// Whether the address is banned
     pub fn is_addr_banned(&self, addr: &Multiaddr) -> bool {
-        multiaddr_to_socketaddr(addr)
-            .map(|socket_addr| self.is_ip_banned(&socket_addr.ip()))
-            .unwrap_or_default()
+        let peer_banned = extract_peer_id(addr)
+            .and_then(|peer_id| self.peers.get(&peer_id))
+            .is_some_and(|until| *until > unix_time_as_millis());
+        peer_banned
+            || multiaddr_to_socketaddr(addr)
+                .map(|socket_addr| self.is_ip_banned(&socket_addr.ip()))
+                .unwrap_or_default()
     }
 
     /// Get banned address list

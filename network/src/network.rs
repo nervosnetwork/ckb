@@ -121,9 +121,10 @@ impl NetworkState {
             .collect();
         info!("Loading the peer store. This process may take a few seconds to complete.");
 
-        let peer_store = Mutex::new(PeerStore::load_from_dir_or_default(
-            config.peer_store_path(),
-        ));
+        let peer_store = Mutex::new(
+            PeerStore::load_from_dir_or_default(config.peer_store_path())
+                .with_shared_proxy_addrs(config.shared_proxy_addrs()),
+        );
         info!("Loaded the peer store.");
 
         if let Some(ref proxy_url) = config.proxy.proxy_url {
@@ -178,7 +179,11 @@ impl NetworkState {
             })
             .collect();
         info!("Loading the peer store. This process may take a few seconds to complete.");
-        let peer_store = Mutex::new(PeerStore::load_from_idb(config.peer_store_path()).await);
+        let peer_store = Mutex::new(
+            PeerStore::load_from_idb(config.peer_store_path())
+                .await
+                .with_shared_proxy_addrs(config.shared_proxy_addrs()),
+        );
         let bootnodes = config.bootnodes();
 
         let peer_registry = PeerRegistry::new(
@@ -978,7 +983,9 @@ impl NetworkService {
             .set_channel_size(config.channel_size())
             .timeout(Duration::from_secs(5))
             .onion_timeout(Duration::from_secs(120))
-            .trusted_proxies(config.trusted_proxies.clone());
+            // Tor forwards client-controlled bytes without authenticating proxy
+            // metadata. Preserve the socket source used by the identity-ban policy.
+            .trusted_proxies(config.forwarding_metadata_proxies());
 
         #[cfg(not(target_family = "wasm"))]
         {
