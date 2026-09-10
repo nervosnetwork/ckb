@@ -1,0 +1,43 @@
+--- a/build.rs
++++ b/build.rs
+@@ -1,6 +1,10 @@
+ //! Build script for the binary crate `ckb`.
+ use std::path::Path;
+ 
++fn env_var_non_empty(name: &str) -> Option<String> {
++    std::env::var(name).ok().filter(|value| !value.is_empty())
++}
++
+ fn rerun_if_changed(path_str: &str) -> bool {
+     let path = Path::new(path_str);
+ 
+@@ -29,13 +33,28 @@
+ 
+ #[allow(clippy::manual_strip)]
+ fn main() {
++    let commit_describe = env_var_non_empty("COMMIT_DESCRIBE");
++    let commit_date = env_var_non_empty("COMMIT_DATE");
++    if commit_describe.is_some() || commit_date.is_some() {
++        println!("cargo:rerun-if-env-changed=COMMIT_DESCRIBE");
++        println!("cargo:rerun-if-env-changed=COMMIT_DATE");
++        println!(
++            "cargo:rustc-env=COMMIT_DESCRIBE={}",
++            commit_describe.as_deref().unwrap_or_default()
++        );
++        println!(
++            "cargo:rustc-env=COMMIT_DATE={}",
++            commit_date.as_deref().unwrap_or_default()
++        );
++    }
++
+     let files_stdout = std::process::Command::new("git")
+         .args(["ls-tree", "-r", "--name-only", "HEAD"])
+         .output()
+         .ok()
+         .and_then(|r| String::from_utf8(r.stdout).ok());
+ 
+-    if files_stdout.is_some() {
++    if files_stdout.is_some() && commit_describe.is_none() && commit_date.is_none() {
+         println!(
+             "cargo:rustc-env=COMMIT_DESCRIBE={}",
+             ckb_build_info::get_commit_describe().unwrap_or_default()
