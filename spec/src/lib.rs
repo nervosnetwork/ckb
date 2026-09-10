@@ -15,7 +15,7 @@ use crate::consensus::{
     TESTNET_ACTIVATION_THRESHOLD, TYPE_ID_CODE_HASH, build_genesis_dao_data,
     build_genesis_epoch_ext,
 };
-use crate::versionbits::{ActiveMode, Deployment, DeploymentPos};
+use crate::versionbits::{ActiveMode, Deployment, DeploymentPos, VERSIONBITS_NUM_BITS};
 use ckb_constant::hardfork::{mainnet, testnet};
 use ckb_crypto::secp::Privkey;
 use ckb_hash::{blake2b_256, new_blake2b};
@@ -554,10 +554,72 @@ impl ChainSpec {
         }
     }
 
+    fn validate_params(&self) -> Result<(), Box<dyn Error>> {
+        let genesis_epoch_length = self.params.genesis_epoch_length();
+        if genesis_epoch_length == 0 {
+            return Err(Box::new(SpecError::InvalidParams(
+                "genesis_epoch_length must be non-zero".to_string(),
+            )));
+        }
+
+        if self.params.epoch_duration_target() == 0 {
+            return Err(Box::new(SpecError::InvalidParams(
+                "epoch_duration_target must be non-zero".to_string(),
+            )));
+        }
+
+        let orphan_rate_target = self.params.orphan_rate_target();
+        if orphan_rate_target.1 == 0 {
+            return Err(Box::new(SpecError::InvalidParams(
+                "orphan_rate_target denominator must be non-zero".to_string(),
+            )));
+        }
+
+        let genesis_orphan_count = genesis_epoch_length
+            .checked_mul(u64::from(orphan_rate_target.0))
+            .ok_or_else(|| {
+                Box::new(SpecError::InvalidParams(
+                    "genesis_epoch_length * orphan_rate_target numerator overflows".to_string(),
+                )) as Box<dyn Error>
+            })?
+            / u64::from(orphan_rate_target.1);
+
+        genesis_epoch_length
+            .checked_add(genesis_orphan_count)
+            .ok_or_else(|| {
+                Box::new(SpecError::InvalidParams(
+                    "genesis_epoch_length + genesis_orphan_count overflows".to_string(),
+                )) as Box<dyn Error>
+            })?;
+
+        if let Some(deployments) = self.softfork_deployments() {
+            for (pos, deployment) in deployments {
+                if u32::from(deployment.bit) >= VERSIONBITS_NUM_BITS {
+                    return Err(Box::new(SpecError::InvalidParams(format!(
+                        "{pos} deployment bit must be less than {VERSIONBITS_NUM_BITS}"
+                    ))));
+                }
+                if deployment.period == 0 {
+                    return Err(Box::new(SpecError::InvalidParams(format!(
+                        "{pos} deployment period must be non-zero"
+                    ))));
+                }
+                if deployment.threshold.denom() == 0 {
+                    return Err(Box::new(SpecError::InvalidParams(format!(
+                        "{pos} deployment threshold denominator must be non-zero"
+                    ))));
+                }
+            }
+        }
+
+        Ok(())
+    }
+
     /// Build consensus instance
     ///
     /// [Consensus](consensus/struct.Consensus.html)
     pub fn build_consensus(&self) -> Result<Consensus, Box<dyn Error>> {
+        self.validate_params()?;
         let hardfork_switch = self.build_hardfork_switch()?;
         let genesis_epoch_ext = build_genesis_epoch_ext(
             self.params.initial_primary_epoch_reward(),
@@ -602,6 +664,7 @@ impl ChainSpec {
 
     /// Build genesis block from chain spec
     pub fn build_genesis(&self) -> Result<BlockView, Box<dyn Error>> {
+        self.validate_params()?;
         let special_cell_capacity = {
             let cellbase_transaction_for_special_cell_capacity =
                 self.build_cellbase_transaction(capacity_bytes!(500))?;
