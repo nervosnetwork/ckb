@@ -3,7 +3,7 @@ use crate::utils::wait_until;
 use crate::{Net, Node, Spec};
 use ckb_jsonrpc_types::{Status, TxPoolInfo};
 use ckb_network::SupportProtocols;
-use ckb_types::packed::CellOutputBuilder;
+use ckb_types::packed::{Byte32, CellOutputBuilder};
 use ckb_types::{
     bytes::Bytes,
     core::{Capacity, TransactionBuilder, TransactionView, capacity_bytes},
@@ -13,6 +13,7 @@ use ckb_types::{
     packed::{CellInput, OutPoint},
     prelude::*,
 };
+use std::{cell::RefCell, collections::BTreeSet};
 
 const ALWAYS_SUCCESS_SCRIPT_CYCLE: u64 = 537;
 // always_failure, as the name implies, so it doesn't matter what the cycles are
@@ -91,7 +92,9 @@ impl Spec for OrphanTxRejected {
             1,
             "Send parent tx, the child tx will be moved from orphan tx pool because of always_failure",
         );
-        wait_until(20, || node0.rpc_client().get_banned_addresses().len() == 1);
+        assert!(wait_until(20, || {
+            node0.rpc_client().get_banned_addresses().len() == 1
+        }));
 
         let ret = node0
             .rpc_client()
@@ -233,13 +236,29 @@ fn assert_tx_pool_counts(node0: &Node, orphan_tx_cnt: u64, pending_cnt: u64, ass
     );
 }
 
-fn should_receive_get_relay_transactions(net: &Net, node0: &Node, assert_message: &str) {
-    let ret = net.should_receive(node0, |data: &Bytes| {
-        packed::RelayMessage::from_slice(data)
-            .map(|message| message.to_enum().item_name() == packed::GetRelayTransactions::NAME)
-            .unwrap_or(false)
-    });
-    assert!(ret, "{}", assert_message);
+fn should_receive_get_relay_transactions(net: &Net, node0: &Node, hashes: &[Byte32]) {
+    let missing = RefCell::new(hashes.iter().cloned().collect::<BTreeSet<_>>());
+    // A parent request may be split across messages. Do not satisfy the wait
+    // with an unrelated or repeated GetRelayTransactions message.
+    let received = net.should_receive(
+        node0,
+        |data: &Bytes| match packed::RelayMessage::from_slice(data).map(|message| message.to_enum())
+        {
+            Ok(packed::RelayMessageUnion::GetRelayTransactions(request)) => {
+                let mut missing = missing.borrow_mut();
+                for hash in request.tx_hashes() {
+                    missing.remove(&hash);
+                }
+                missing.is_empty()
+            }
+            _ => false,
+        },
+    );
+    assert!(
+        received,
+        "node did not request parents {:?}",
+        missing.into_inner()
+    );
 }
 
 pub struct TxPoolOrphanNormal;
@@ -285,10 +304,14 @@ impl Spec for TxPoolOrphanReverse {
             run_replay_tx(&net, node0, final_tx, 1, 0),
             "expect final_tx is in orphan pool"
         );
-        should_receive_get_relay_transactions(&net, node0, "node should ask for tx11 tx12 tx13");
+        should_receive_get_relay_transactions(
+            &net,
+            node0,
+            &[tx11.hash(), tx12.hash(), tx13.hash()],
+        );
 
         assert!(run_send_tx(&net, node0, tx13, 2, 0), "tx13 in orphan pool");
-        should_receive_get_relay_transactions(&net, node0, "node should ask for tx1");
+        should_receive_get_relay_transactions(&net, node0, &[tx1.hash()]);
 
         assert!(
             run_send_tx(&net, node0, tx12, 3, 0),
@@ -297,7 +320,7 @@ impl Spec for TxPoolOrphanReverse {
         assert!(run_send_tx(&net, node0, tx11, 4, 0), "tx11 is in orphan");
         assert!(run_send_tx(&net, node0, tx1, 5, 0), "tx1 is in orphan");
 
-        should_receive_get_relay_transactions(&net, node0, "node should ask for parent");
+        should_receive_get_relay_transactions(&net, node0, &[parent.hash()]);
         assert!(run_send_tx(&net, node0, parent, 0, 6), "all is in pending");
     }
 }
@@ -313,10 +336,14 @@ impl Spec for TxPoolOrphanUnordered {
             "expect final_tx is in orphan pool"
         );
 
-        should_receive_get_relay_transactions(&net, node0, "node should ask for tx11 tx12 tx13");
+        should_receive_get_relay_transactions(
+            &net,
+            node0,
+            &[tx11.hash(), tx12.hash(), tx13.hash()],
+        );
 
         assert!(run_send_tx(&net, node0, tx11, 2, 0), "tx11 in orphan pool");
-        should_receive_get_relay_transactions(&net, node0, "node should ask for tx1");
+        should_receive_get_relay_transactions(&net, node0, &[tx1.hash()]);
 
         let tx12_clone = tx12.clone();
         assert!(
@@ -380,7 +407,7 @@ impl Spec for TxPoolOrphanPartialInputUnknown {
             "expect final_tx is in orphan pool"
         );
 
-        should_receive_get_relay_transactions(&net, node0, "node should ask for tx13");
+        should_receive_get_relay_transactions(&net, node0, &[tx13.hash()]);
         assert!(
             run_send_tx(&net, node0, tx13, 0, 6),
             "tx13 is sent, orphan pool is empty"

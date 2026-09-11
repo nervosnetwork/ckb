@@ -319,6 +319,64 @@ statistical arithmetic; it does not recreate OS behavior. Historical
 `packing-r28`/`packing-r29` remain in the earlier migration packet and do not
 supply final-source comparisons.
 
+## Owner-account preparation
+
+The subsequent owner-account refinement compares frozen `f9e299114` with
+`ac5ad9133`; only production budget preparation differs. One temporary ordered
+map aggregates old/new charges before producing the existing reservation lists.
+Stack routing replaces temporary per-owner maps in recovery selection. It leaves
+the live ledger, reservation/rollback and protected commit work unchanged. Actual
+fixed-account and retained-map alternatives were measured and reviewed; the
+selected scratch-map representation keeps fewer accounting concepts and the
+original settlement behavior, at the cost of some potential allocation reduction.
+
+Allocation-only production builds ran six balanced pairs per scenario, with eight
+workers and four peers. These are median paired candidate/baseline ratios of
+allocation traffic during the target terminal window, not retained memory:
+
+| Workload | Allocation calls | Requested bytes |
+|---|---:|---:|
+| RBF, 16,384 target and warm transactions | 0.99126 (−0.874%) | 0.999988 (−0.0012%) |
+| Reverse fanout, 16,640 target transactions | 0.98875 (−1.125%) | 0.999949 (−0.0051%) |
+
+Separate uninstrumented A/A and A/B studies each used 12 balanced pairs, two fresh
+processes per side/sample, and the preset 2% A/A, 1.5% paired-MAD and 4% interval-width
+gates. Each study completed 100 successful executions including validation runs.
+RBF uses 32,768 target/warm transactions for timing; reverse fanout keeps 16,640.
+The table gives median paired ratios and pointwise 95% order-statistic intervals:
+
+| Workload | Target CPU | Throughput | Mean lifetime peak RSS | Qualification |
+|---|---:|---:|---:|---|
+| RBF | 0.99681 [0.99320, 1.00263] | 0.99754 [0.98494, 1.02294] | 0.99672 [0.99380, 1.00562] | A/A and A/B quality pass; all directions unresolved |
+| Reverse fanout | 1.00240 [0.98099, 1.01195] | 1.00533 [0.96914, 1.03006] | 0.99865 [0.99051, 1.00086] | A/A CPU/throughput and A/B throughput do not qualify |
+
+The refinement has a measured reduction in allocation calls and a simpler
+preparation representation. It does not establish faster execution, lower RSS,
+or performance equivalence. In particular, successful executions do not override
+the fanout noise failure. No gates were widened or studies rerun until favorable.
+The intervals assume stable independent sampling; this protocol does not prove
+that assumption or simultaneous coverage across metrics.
+
+The accompanying test refinement passes 1,437 distinct workspace Nextest tests
+(the normal suite plus its two ignored RPC cases). All 89 selected release
+integration specs pass in one run without retries. Strict workspace Clippy
+and scoped checks cover the changed source. The 3,136 phase/source transitions and
+real-planner sequence check complete owner, projection, queue and account
+populations; individual owner sizing deliberately shares the production formula.
+Targeted mutation checks detect a previously missed complete-capture merge guard.
+Six final generated mutants are caught; two comparator mutations cannot compile
+because `Ordering` has no `Default`. Nine separately labeled seeded mutations,
+including valid comparator counterparts, are caught. These bounded checks do not
+establish a whole-pool mutation score. [Review guidance](REVIEW_GUIDE.md#maintain-test-value)
+records how to preserve scenario intent and distinguish asynchronous completion.
+
+The project evidence directory `resource-test-refinement-20260911` retains the
+frozen source/binary/build receipts, native attribution, all three allocation
+comparisons, `uninstrumented-final-{aa,ab}.json`, commands and complete attempts.
+The rejected profiling-plus-allocation pilot and stale-binary build attempt remain
+marked invalid and do not contribute measurements. [The benchmark protocol](BENCHMARK.md)
+defines the metric windows, frozen inputs and replay limits.
+
 ## Resource and maintenance decision
 
 The retained improvements reduce repeated owner/index traversal, active-account
@@ -353,10 +411,11 @@ benefit or integration cost failed to justify them. Fixed 1,024 shards were reje
 at the user's direction after source-cost review; no native speedup is claimed.
 The candidate index and source-bound decisions preserve all explored alternatives.
 
-The pool occupies 16,488 physical Rust lines in 47 production files, including
-inline tests, versus the accepted 15,319-line/42-file reference. This packing change
-adds 347 lines over its 16,141-line baseline. Separate tests,
-shared-crate changes and measurement tools are disclosed outside both counts.
+The current pool occupies 16,605 physical Rust lines in 49 production files,
+including inline tests, versus the accepted 15,319-line/42-file reference. The
+owner-account refinement adds 58 lines over its `f9e299114` baseline: two in
+production budget preparation and 56 in test-only observation interfaces.
+Separate tests, shared-crate changes and measurement tools are outside both counts.
 No logic was moved or compressed to hide that cost. The maintained design owns
 original observations, atomic coupled commits, bounded retained/transient work,
 and ordered effect obligations through the actual producer/consumer paths. Shared

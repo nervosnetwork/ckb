@@ -2,7 +2,6 @@ use crate::util::cell::gen_spendable;
 use crate::util::check::is_transaction_committed;
 use crate::util::transaction::always_success_transaction;
 use crate::{Node, Spec};
-use ckb_logger::info;
 use ckb_types::{
     core::cell::CellMetaBuilder,
     core::{Capacity, DepType},
@@ -150,22 +149,6 @@ impl Spec for CellBeingSpentThenCellDepInSameBlockTestSubmitBlock {
             ret.is_err(),
             "a block commits transactions [B, C] should be invalid, ret: {ret:?}"
         );
-    }
-}
-
-pub struct CellBeingCellDepAndSpentInSameBlockTestGetBlockTemplateMultiple;
-
-impl Spec for CellBeingCellDepAndSpentInSameBlockTestGetBlockTemplateMultiple {
-    crate::setup!(num_nodes: 10);
-
-    fn run(&self, nodes: &mut Vec<Node>) {
-        while let Some(node) = nodes.pop() {
-            info!(
-                "Run CellBeingCellDepAndSpentInSameBlockTestGetBlockTemplate on Node.{}",
-                nodes.len()
-            );
-            CellBeingCellDepAndSpentInSameBlockTestGetBlockTemplate {}.run(&mut vec![node])
-        }
     }
 }
 

@@ -1,3 +1,4 @@
+use super::utils::get_pool_entries;
 use crate::{
     Node, Spec,
     util::{cell::gen_spendable, transaction::always_success_transaction},
@@ -8,7 +9,6 @@ use ckb_types::{
     core::{DepType, FeeRate, cell::CellMetaBuilder},
     packed::CellDepBuilder,
 };
-use std::{thread::sleep, time::Duration};
 
 use ckb_types::{packed::OutPoint, prelude::*};
 
@@ -47,11 +47,24 @@ impl Spec for SizeLimit {
             let tx = node.new_transaction(hash.clone());
             hash = node.rpc_client().send_transaction(tx.data().into());
             txs_hash.push(hash.clone());
-            sleep(Duration::from_millis(10));
         });
 
         info!("The next tx reach size limit");
-        let _tx = node.new_transaction(hash);
+        let overflow = node.new_transaction(hash);
+        let before = get_pool_entries(node);
+        let error = node
+            .rpc_client()
+            .send_transaction_result(overflow.data().into())
+            .expect_err("the dependent beyond the serialized limit must be rejected");
+        assert!(
+            error.to_string().contains("PoolIsFull"),
+            "unexpected capacity rejection: {error}"
+        );
+        assert_eq!(
+            get_pool_entries(node),
+            before,
+            "rejected admission must preserve every incumbent"
+        );
         node.assert_tx_pool_serialized_size((max_tx_num) * one_tx_size);
         let last =
             node.mine_with_blocking(|template| template.proposals.len() != max_tx_num as usize);
@@ -59,6 +72,8 @@ impl Spec for SizeLimit {
         node.mine_with_blocking(|template| template.number.value() != (last + 1));
         node.mine_with_blocking(|template| template.transactions.len() != max_tx_num as usize);
         node.assert_tx_pool_serialized_size(0);
+        node.submit_transaction(&overflow);
+        node.assert_tx_pool_serialized_size(one_tx_size);
     }
 
     fn modify_app_config(&self, config: &mut ckb_app_config::CKBAppConfig) {

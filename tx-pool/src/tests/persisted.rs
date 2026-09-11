@@ -25,9 +25,17 @@ async fn persistence_writer_admits_only_one_snapshot_owner() {
     let writer = Arc::new(PersistenceWriter::default());
     let first = writer.acquire().await;
     let waiting_writer = Arc::clone(&writer);
-    let second = tokio::spawn(async move { waiting_writer.acquire().await });
-    tokio::task::yield_now().await;
-    assert!(!second.is_finished());
+    let (blocked, observed) = tokio::sync::oneshot::channel();
+    let second = tokio::spawn(async move {
+        let mut acquisition = std::pin::pin!(waiting_writer.acquire());
+        assert!(futures_util::poll!(acquisition.as_mut()).is_pending());
+        blocked.send(()).unwrap();
+        acquisition.await
+    });
+    tokio::time::timeout(std::time::Duration::from_secs(1), observed)
+        .await
+        .expect("the second acquisition reaches its wait while the first lease is held")
+        .expect("the waiting task reports its pending acquisition");
 
     drop(first);
     tokio::time::timeout(std::time::Duration::from_secs(1), second)

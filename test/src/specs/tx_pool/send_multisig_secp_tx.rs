@@ -24,7 +24,7 @@ pub struct SendMultiSigSecpTxUseDepGroup {
 
 impl SendMultiSigSecpTxUseDepGroup {
     pub fn new(name: &'static str, hash_type: ScriptHashType) -> Self {
-        let keys = vec![Generator::random_privkey(); 3];
+        let keys = (0..3).map(|_| Generator::random_privkey()).collect();
         SendMultiSigSecpTxUseDepGroup {
             name,
             hash_type,

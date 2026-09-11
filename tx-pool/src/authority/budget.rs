@@ -85,14 +85,6 @@ impl Amount {
             cycles: self.cycles,
         })
     }
-    fn nonzero(self) -> Self {
-        Self {
-            items: self.items.max(1),
-            bytes: self.bytes.max(1),
-            edges: self.edges.max(1),
-            ..self
-        }
-    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
@@ -102,6 +94,12 @@ enum Account {
     Remote,
     Peer(PeerIndex),
     History,
+}
+
+#[derive(Clone, Debug)]
+pub(super) struct MaterializationLimits {
+    pub(super) bytes: usize,
+    pub(super) edges: usize,
 }
 
 /// Limits are derived once from existing configuration and canonical consensus.
@@ -115,7 +113,7 @@ pub(super) struct Limits {
     active_jobs: usize,
     remote_active_jobs: usize,
     peer_active_jobs: usize,
-    pub(super) per_job: Amount,
+    pub(super) per_job: MaterializationLimits,
     pub(super) workers: usize,
     pub(super) max_block_bytes: usize,
     pub(super) max_owners: usize,
@@ -166,11 +164,9 @@ impl Limits {
         {
             return Err(bad());
         }
-        let active = Amount {
-            items: active_items,
+        let active = MaterializationLimits {
             bytes: job_bytes.checked_mul(active_items).ok_or_else(bad)?,
             edges: job_edges.checked_mul(active_items).ok_or_else(bad)?,
-            ..Amount::default()
         };
         let pipeline = Amount {
             items: pipeline_bytes / 768,
@@ -179,7 +175,8 @@ impl Limits {
             ..Amount::default()
         };
         let remote = pipeline.fraction(7, 8).ok_or_else(bad)?;
-        let peer = remote.fraction(1, 8).ok_or_else(bad)?.nonzero();
+        // The validated job envelope already leaves nonzero queued peer shares.
+        let peer = remote.fraction(1, 8).ok_or_else(bad)?;
         let peer_items = remote_items.div_ceil(4);
         let history = Amount {
             items: (pipeline.items / 16).clamp(1, 10_000),
@@ -204,11 +201,9 @@ impl Limits {
             active_jobs: active_items,
             remote_active_jobs: remote_items,
             peer_active_jobs: peer_items,
-            per_job: Amount {
-                items: 1,
+            per_job: MaterializationLimits {
                 bytes: job_bytes,
                 edges: job_edges,
-                ..Amount::default()
             },
             workers,
             max_block_bytes,
@@ -239,12 +234,14 @@ impl Limits {
         let mut totals = BTreeMap::<Account, Amount>::new();
         let mut failure = None;
         entries.retain(|entry| {
-            let mut charges = BTreeMap::new();
-            if let Err(error) = owner_accounts(entry, &mut charges) {
-                failure = Some(error);
-                return false;
-            }
-            for (account, charge) in &mut charges {
+            let mut charges = match owner_accounts(entry) {
+                Ok(charges) => charges,
+                Err(error) => {
+                    failure = Some(error);
+                    return false;
+                }
+            };
+            for (account, charge) in charges.iter_mut().flatten() {
                 let Some(projected) = totals
                     .get(account)
                     .copied()
@@ -259,7 +256,7 @@ impl Limits {
                 }
                 *charge = projected;
             }
-            totals.extend(charges);
+            totals.extend(charges.into_iter().flatten());
             true
         });
         failure.map_or(Ok(()), Err)
@@ -332,63 +329,68 @@ pub(super) fn owner_amount(entry: &Entry) -> Result<Amount, Error> {
     })
 }
 
-fn owner_accounts(entry: &Entry, totals: &mut BTreeMap<Account, Amount>) -> Result<(), Error> {
+// One owner charges Accepted, Pipeline+History, or Pipeline plus its remote
+// and peer accounts. Keep this bounded routing on the stack during planning.
+fn owner_accounts(entry: &Entry) -> Result<[Option<(Account, Amount)>; 3], Error> {
     let amount = owner_amount(entry)?;
-    let mut add = |key| -> Result<(), Error> {
-        let before = totals.get(&key).copied().unwrap_or_default();
-        totals.insert(
-            key,
-            before
-                .checked_add(amount)
-                .ok_or(Error::Full("quota arithmetic".into()))?,
-        );
-        Ok(())
-    };
+    let charge = |account| Some((account, amount));
     if entry.accepted().is_some() {
-        return add(Account::Accepted);
+        return Ok([charge(Account::Accepted), None, None]);
     }
-    add(Account::Pipeline)?;
-    if matches!(entry.phase, Phase::Replaced { .. }) {
-        add(Account::History)?;
+    let (shared, peer) = if matches!(entry.phase, Phase::Replaced { .. }) {
+        (charge(Account::History), None)
     } else if let Some(peer) = entry.source.residency_peer() {
-        add(Account::Remote)?;
-        add(Account::Peer(peer))?;
-    }
-    Ok(())
+        (charge(Account::Remote), charge(Account::Peer(peer)))
+    } else {
+        (None, None)
+    };
+    Ok([charge(Account::Pipeline), shared, peer])
 }
 
 /// Exact owner charges prepared without holding authority guards or capacity.
+/// Aggregate both sides together, then retain only each account's net changes.
 pub(super) struct OwnerDelta {
     positive: Vec<(Account, Amount)>,
     negative: Vec<(Account, Amount)>,
 }
+
 impl OwnerDelta {
     pub(super) fn new<'a>(
         before: impl Iterator<Item = &'a Entry>,
         after: impl Iterator<Item = &'a Entry>,
     ) -> Result<Self, Error> {
-        let mut old = BTreeMap::new();
-        let mut new = BTreeMap::new();
+        let mut totals = BTreeMap::<Account, (Amount, Amount)>::new();
         for entry in before {
-            owner_accounts(entry, &mut old)?;
+            for (account, amount) in owner_accounts(entry)?.into_iter().flatten() {
+                let (old, _) = totals.entry(account).or_default();
+                *old = old
+                    .checked_add(amount)
+                    .ok_or(Error::Full("quota arithmetic".into()))?;
+            }
         }
         for entry in after {
-            owner_accounts(entry, &mut new)?;
+            for (account, amount) in owner_accounts(entry)?.into_iter().flatten() {
+                let (_, new) = totals.entry(account).or_default();
+                *new = new
+                    .checked_add(amount)
+                    .ok_or(Error::Full("quota arithmetic".into()))?;
+            }
         }
-        let difference = |from: &BTreeMap<_, Amount>, to: &BTreeMap<_, Amount>| {
-            from.iter()
-                .filter_map(|(key, amount)| {
-                    let delta =
-                        amount.positive_difference(to.get(key).copied().unwrap_or_default());
-                    (delta != Amount::default()).then_some((*key, delta))
-                })
-                .collect()
-        };
-        Ok(Self {
-            positive: difference(&new, &old),
-            negative: difference(&old, &new),
-        })
+        let mut positive = Vec::new();
+        let mut negative = Vec::new();
+        for (account, (old, new)) in totals {
+            let added = new.positive_difference(old);
+            let removed = old.positive_difference(new);
+            if added != Amount::default() {
+                positive.push((account, added));
+            }
+            if removed != Amount::default() {
+                negative.push((account, removed));
+            }
+        }
+        Ok(Self { positive, negative })
     }
+
     /// The caller holds the validated owner cut until this reservation commits
     /// or drops, so a complete owner capture cannot observe unsettled capacity.
     pub(super) fn reserve(self, budget: &Arc<Budget>) -> Result<Reservation, Error> {
@@ -609,6 +611,38 @@ impl Drop for Reservation {
     fn drop(&mut self) {
         if let Some(positive) = self.positive.take() {
             self.budget.release(&positive, true);
+        }
+    }
+}
+
+#[cfg(test)]
+#[derive(Debug, Default, PartialEq, Eq)]
+pub(super) struct OwnerUsage {
+    pub(super) accepted: Amount,
+    pub(super) pipeline: Amount,
+    pub(super) remote: Amount,
+    pub(super) history: Amount,
+    pub(super) peers: BTreeMap<PeerIndex, Amount>,
+}
+
+#[cfg(test)]
+impl Budget {
+    /// Observe settled accounting without reusing owner routing or delta preparation.
+    pub(super) fn owner_usage(&self) -> OwnerUsage {
+        let usage = self.usage.lock();
+        let amount = |account| usage.get(&account).copied().unwrap_or_default();
+        OwnerUsage {
+            accepted: amount(Account::Accepted),
+            pipeline: amount(Account::Pipeline),
+            remote: amount(Account::Remote),
+            history: amount(Account::History),
+            peers: usage
+                .iter()
+                .filter_map(|(account, amount)| match account {
+                    Account::Peer(peer) => Some((*peer, *amount)),
+                    _ => None,
+                })
+                .collect(),
         }
     }
 }

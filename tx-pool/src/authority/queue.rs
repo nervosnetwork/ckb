@@ -270,5 +270,25 @@ impl Queues {
 }
 
 #[cfg(test)]
+impl Queues {
+    /// Preserve stale Weak entries in the observation so tests can detect them.
+    pub(super) fn queued_owners(&self) -> [Vec<Weak<Entry>>; 2] {
+        [&self.resolve, &self.verify].map(|lane| {
+            let lane = lane.lock();
+            assert!(
+                lane.owners
+                    .values()
+                    .all(|owner| !owner.small.is_empty() || !owner.large.is_empty())
+            );
+            lane.owners
+                .values()
+                .flat_map(|owner| owner.small.values().chain(owner.large.values()))
+                .cloned()
+                .collect()
+        })
+    }
+}
+
+#[cfg(test)]
 #[path = "tests/queue.rs"]
 mod tests;

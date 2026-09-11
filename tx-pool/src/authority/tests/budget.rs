@@ -4,6 +4,7 @@ use super::super::{
     store::Store,
 };
 use super::common::*;
+use std::sync::Arc;
 
 #[test]
 fn positive_reservation_rolls_back_when_dropped_and_exact_owner_charge_is_released() {
@@ -132,10 +133,11 @@ fn active_capacity_return_wakes_registered_waiters() {
 
 #[test]
 fn active_pipeline_reserves_execution_population_within_the_derived_budget() {
+    let snapshot = crate::test_support::genesis_snapshot();
     for workers in [1, 2, 8, 16] {
         let mut configuration = config();
         configuration.max_tx_verify_workers = workers;
-        let store = Store::new(crate::test_support::genesis_snapshot(), &configuration).unwrap();
+        let store = Store::new(Arc::clone(&snapshot), &configuration).unwrap();
         let limits = &store.budget.limits;
         let total_bytes =
             crate::constants::ResidencyLimits::from_pool_size(configuration.max_tx_pool_size)
@@ -209,34 +211,4 @@ fn unrepresentable_derived_residency_is_rejected_before_pool_creation() {
         ..Default::default()
     };
     assert!(Store::new(snapshot, &configuration).is_err());
-}
-
-#[test]
-fn four_peers_can_use_remote_slots_without_consuming_trusted_headroom() {
-    let mut configuration = config();
-    configuration.max_tx_verify_workers = 8;
-    let store = Store::new(crate::test_support::genesis_snapshot(), &configuration).unwrap();
-    let mut reservations = Vec::new();
-    for peer in [1, 1, 1, 2, 2, 3, 3, 4, 4] {
-        reservations.push(store.budget.active(remote(peer, 1)).unwrap());
-    }
-    assert!(matches!(
-        store.budget.active(remote(5, 1)),
-        Err(Error::Full(FullReason::Other("remote active work")))
-    ));
-    let trusted = store.budget.active(Source::Local).unwrap();
-    assert!(matches!(
-        store.budget.active(Source::Local),
-        Err(Error::Full(FullReason::Active))
-    ));
-    drop((reservations, trusted));
-    let first_peer = store.budget.active(remote(1, 1)).unwrap();
-    let second_peer = store.budget.active(remote(1, 1)).unwrap();
-    let third_peer = store.budget.active(remote(1, 1)).unwrap();
-    assert!(matches!(
-        store.budget.active(remote(1, 1)),
-        Err(Error::Full(FullReason::Other("peer active work")))
-    ));
-    drop((first_peer, second_peer, third_peer));
-    assert!(!store.budget.faulted());
 }

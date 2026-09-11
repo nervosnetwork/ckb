@@ -193,7 +193,7 @@ optional fee overflow must not poison unrelated admission or query paths.
 | Owner edits routed and sorted once | Preflight/mutation avoid scanning all edits per shard | Preparation vector and sorting add scratch; a stale Plan discards that work |
 | Flat per-relation owner changes | Merges repeated roles of each ordered owner without nested maps | The Plan's unique hash order is required; preflight checks every original role before mutation |
 | Direct spender projection | Point conflict reads avoid scanning dependency readers | Only Apply changes the spender; full relation reads still include it and preserve their version premise |
-| Derived owner charge deltas | Capacity reservation uses exact validated changes | Before/after ownership and release order must remain consistent |
+| One temporary account aggregation | Combines old/new charges without two trees; each owner's at-most-three account routes stay on the stack | Checked gross totals precede netting; the tree is consumed into ordered positive/negative lists before guards are acquired |
 | Original graph reads reused within a decision | Avoids rereading already observed owners and absences | A retired weak owner makes the decision stale; Apply still validates the original identities |
 
 Membership calculation remains transient. Complete aggregate queries reuse

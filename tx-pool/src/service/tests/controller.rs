@@ -10,6 +10,7 @@ use ckb_async_runtime::new_background_runtime;
 use ckb_error::AnyError;
 use ckb_script::ChunkCommand;
 use ckb_types::{core::BlockBuilder, prelude::Entity};
+use futures_util::FutureExt;
 use std::{
     collections::{HashSet, VecDeque},
     future::Future,
@@ -36,8 +37,8 @@ fn controller(sender: mpsc::Sender<Message>) -> TxPoolController {
     }
 }
 
-fn full_controller() -> TxPoolController {
-    let (sender, _receiver) = mpsc::channel(1);
+fn full_controller() -> (TxPoolController, mpsc::Receiver<Message>) {
+    let (sender, receiver) = mpsc::channel(1);
     assert!(
         sender
             .try_send(Message::NotifyTxs(Notify::new(
@@ -46,7 +47,7 @@ fn full_controller() -> TxPoolController {
             .is_ok(),
         "fixture fills the bounded controller channel"
     );
-    controller(sender)
+    (controller(sender), receiver)
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -161,7 +162,7 @@ async fn ordinary_compute_and_template_waits_preserve_reserved_read_routes() {
 
 #[test]
 fn callback_ibd_mutation_is_refused_before_controller_channel_admission() {
-    let controller = full_controller();
+    let (controller, _receiver) = full_controller();
     let error =
         crate::callback::with_callback_context(|| controller.update_ibd_state(true)).unwrap_err();
     assert!(error.to_string().contains(
@@ -515,24 +516,38 @@ fn closed_administration_lane_releases_the_unique_admission() {
     drop(admission);
 }
 
-async fn assert_fast_error<F, T>(future: F)
+fn assert_fast_error<F, T>(future: F, expected: &str)
 where
     F: Future<Output = Result<T, AnyError>>,
 {
-    let result = tokio::time::timeout(Duration::from_millis(100), future)
-        .await
-        .expect("a full controller channel must fail without waiting");
-    assert!(result.is_err());
+    let error = future
+        .now_or_never()
+        .expect("controller refusal must be ready without waiting")
+        .err()
+        .expect("controller admission must fail");
+    assert!(error.to_string().contains(expected), "{error}");
 }
 
-#[tokio::test]
-async fn asynchronous_network_calls_fail_fast_when_the_controller_channel_is_full() {
-    let controller = full_controller();
+#[test]
+fn asynchronous_network_calls_fail_fast_when_the_controller_channel_is_full() {
+    let (controller, _receiver) = full_controller();
 
-    assert_fast_error(controller.notify_txs_async(Vec::new())).await;
-    assert_fast_error(controller.fresh_proposals_filter(Vec::new())).await;
-    assert_fast_error(controller.fetch_txs(HashSet::new())).await;
-    assert_fast_error(controller.fetch_txs_with_cycles(HashSet::new())).await;
+    assert_fast_error(
+        controller.notify_txs_async(Vec::new()),
+        "no available capacity",
+    );
+    assert_fast_error(
+        controller.fresh_proposals_filter(Vec::new()),
+        "no available capacity",
+    );
+    assert_fast_error(
+        controller.fetch_txs(HashSet::new()),
+        "no available capacity",
+    );
+    assert_fast_error(
+        controller.fetch_txs_with_cycles(HashSet::new()),
+        "no available capacity",
+    );
 }
 
 #[tokio::test]
@@ -557,13 +572,15 @@ async fn proposal_delivery_preserves_payload_and_closed_network_calls_fail_fast(
     let (sender, receiver) = mpsc::channel(1);
     drop(receiver);
     let client = controller(sender);
-    assert_fast_error(client.notify_txs_async(Vec::new())).await;
-    assert_fast_error(client.submit_remote_tx(
-        ckb_types::core::TransactionBuilder::default().build(),
-        0,
-        ckb_network::PeerIndex::from(1),
-    ))
-    .await;
+    assert_fast_error(client.notify_txs_async(Vec::new()), "channel closed");
+    assert_fast_error(
+        client.submit_remote_tx(
+            ckb_types::core::TransactionBuilder::default().build(),
+            0,
+            ckb_network::PeerIndex::from(1),
+        ),
+        "channel closed",
+    );
 }
 
 #[test]
@@ -670,13 +687,16 @@ fn remote_batch_larger_than_the_controller_capacity_uses_one_queue_slot() {
 
 #[test]
 fn remote_batch_full_controller_fails_before_creating_a_response_owner() {
-    let controller = full_controller();
+    let (controller, _receiver) = full_controller();
     let transaction = ckb_types::core::TransactionBuilder::default().build();
     let result =
         controller.submit_remote_txs(vec![(transaction, 0)], ckb_network::PeerIndex::from(1));
+    let error = result
+        .err()
+        .expect("a full controller rejects the bounded batch synchronously");
     assert!(
-        result.is_err(),
-        "a full controller rejects the bounded batch synchronously"
+        error.to_string().contains("no available capacity"),
+        "{error}"
     );
 }
 

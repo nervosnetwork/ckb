@@ -1177,9 +1177,18 @@ impl Spec for RbfCyclingAttack {
         assert_eq!(res.tx_status.status, Status::Rejected);
         eprintln!("tx_b1 {:?}", tx_b1.proposal_short_id());
 
-        // B1 is expected by recovered back
-        let res = node0.rpc_client().get_transaction(tx_b1.hash());
-        assert_eq!(res.tx_status.status, Status::Pending);
+        // Releasing B2's input schedules B1's recovery asynchronously.
+        assert!(wait_until(30, || {
+            [
+                (tx_a3.hash(), Status::Pending),
+                (tx_b2.hash(), Status::Rejected),
+                (tx_b1.hash(), Status::Pending),
+            ]
+            .into_iter()
+            .all(|(hash, status)| {
+                node0.rpc_client().get_transaction(hash).tx_status.status == status
+            })
+        }));
     }
 
     fn modify_app_config(&self, config: &mut ckb_app_config::CKBAppConfig) {

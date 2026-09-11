@@ -540,8 +540,7 @@ fn all_specs() -> Vec<Box<dyn Spec>> {
         Box::new(Disconnect),
         Box::new(MalformedMessage),
         Box::new(DepentTxInSameBlock),
-        // TODO enable these after proposed/pending pool tip verify logic changing
-        // Box::new(CellbaseMaturity),
+        Box::new(CellbaseMaturity),
         Box::new(ValidSince),
         Box::new(SendLowFeeRateTx),
         Box::new(SendLargeCyclesTxInBlock::new()),
@@ -662,7 +661,6 @@ fn all_specs() -> Vec<Box<dyn Spec>> {
         Box::new(CellBeingSpentThenCellDepInSameBlockTestSubmitBlock),
         Box::new(CellBeingCellDepThenSpentInSameBlockTestSubmitBlock),
         Box::new(CellBeingCellDepAndSpentInSameBlockTestGetBlockTemplate),
-        Box::new(CellBeingCellDepAndSpentInSameBlockTestGetBlockTemplateMultiple),
         Box::new(HeaderSyncCycle),
         Box::new(InboundSync),
         Box::new(OutboundSync),

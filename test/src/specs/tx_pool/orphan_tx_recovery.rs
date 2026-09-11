@@ -133,28 +133,10 @@ impl Spec for RbfOrphanRecovery {
             .build();
         let _ = node.rpc_client().send_transaction(tx_d1.data().into());
 
-        // B2 must complete asynchronous resolution, verification and admission.
+        // B2 must finish recovery while A2 stays blocked. Observe the complete
+        // replacement and recovery outcome together, including both victims.
         assert!(
             wait_until(30, || {
-                let b2 = node.rpc_client().get_transaction(tx_b2.hash());
-                b2.tx_status.status == Status::Pending
-            }),
-            "B2 should be recovered back to pending after re-verification"
-        );
-
-        // Check the successful replacement and its displaced owner as well.
-        assert!(
-            wait_until(15, || {
-                let d1 = node.rpc_client().get_transaction(tx_d1.hash());
-                let c1 = node.rpc_client().get_transaction(tx_c1.hash());
-                d1.tx_status.status == Status::Pending && c1.tx_status.status == Status::Rejected
-            }),
-            "D1 should be pending and C1 should be rejected after replacement"
-        );
-
-        // Verify the complete final state, including A2's still-blocked input.
-        assert!(
-            wait_until(15, || {
                 let d1 = node.rpc_client().get_transaction(tx_d1.hash());
                 let b2 = node.rpc_client().get_transaction(tx_b2.hash());
                 let c1 = node.rpc_client().get_transaction(tx_c1.hash());

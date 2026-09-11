@@ -193,6 +193,26 @@ fn merging_observations_preserves_the_original_missing_spender() {
 }
 
 #[test]
+fn merging_complete_captures_accepts_identical_versions_and_preserves_conflicts() {
+    let store = store();
+    for (accepted_only, nonce) in [(false, 7_810), (true, 7_811)] {
+        let (view, _, _, captured) = store.capture(accepted_only);
+        let mut original = ReadSet::default();
+        original.merge(&captured).unwrap();
+        original.merge(&captured).unwrap();
+        store.read_selected(view, &original, || ()).unwrap();
+
+        accept(&store, tx(nonce), 1, 1, Status::Pending);
+        let fresh = store.capture(accepted_only).3;
+        assert!(matches!(original.merge(&fresh), Err(Error::Stale)));
+        assert!(matches!(
+            store.read_selected(view, &original, || ()),
+            Err(Error::Stale)
+        ));
+    }
+}
+
+#[test]
 fn absence_is_a_current_fact_and_allows_absent_present_absent_history() {
     let store = store();
     let original = entry(&store, tx(3), Source::Local);

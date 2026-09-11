@@ -1,7 +1,9 @@
 use super::{Queues, WorkStage};
 use crate::authority::{
     model::{Phase, Source, Status},
-    tests::common::{entry, queued, remote, store, tx, verified},
+    tests::common::{
+        config, entry, queued, remote, store, store_with_pipeline_limit, tx, verified,
+    },
 };
 use ckb_app_config::VerifyOrdering;
 use std::{sync::Arc, time::Duration};
@@ -82,6 +84,8 @@ fn clearing_detaches_both_queues_and_allows_fresh_work() {
 
 #[test]
 fn both_phases_use_the_same_declared_cycle_boundary() {
+    let snapshot = crate::test_support::genesis_snapshot();
+    let configuration = config();
     let remote = |cycles| Source::Remote {
         peer: 1.into(),
         deadline: std::time::Instant::now() + Duration::from_secs(60),
@@ -98,7 +102,8 @@ fn both_phases_use_the_same_declared_cycle_boundary() {
             (remote(None), false),
         ] {
             for stage in [WorkStage::Resolve, WorkStage::Verify] {
-                let store = store();
+                let store =
+                    store_with_pipeline_limit(Arc::clone(&snapshot), &configuration, 64_000_000);
                 let queues = Queues::new(order, 100);
                 let original = entry(&store, tx(203), source);
                 let queued = if stage == WorkStage::Verify {

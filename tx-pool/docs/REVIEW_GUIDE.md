@@ -33,13 +33,14 @@ can invalidate or retire the same owned data.
 | Real receive, canonical VM, commit, publication and joined service | [execution.rs](../src/authority/tests/execution.rs), `remote_receive_resolve_verify_commit_publish_and_join` |
 | Independent and shared read-only work overlap inside final production cuts | [concurrency.rs](../src/authority/tests/concurrency.rs), `*_hold_final_commit_cuts_together` and `independent_remote_jobs_overlap_*` |
 | Original reads reject ABA; failed multi-owner Apply is atomic | [contracts.rs](../src/authority/tests/contracts.rs), `original_owner_identity_*`, `a_read_set_cannot_replace_*`, `rejected_multi_owner_edit_*` |
+| Complete phase/source changes and composed admission, RBF, recovery, reorg and clear preserve every population | [state_transitions.rs](../src/authority/tests/state_transitions.rs), exhaustive phase/source pairs and the real-planner sequence; independent projection and account-routing expectations, with the shared single-owner charge formula stated explicitly |
 | Necessary input/dep premises, complete replacement effects, refusal rollback and preview isolation | [decision contracts](architecture/COMMIT.md#original-reads-and-intended-writes) map policy to independent mutation/interposition checks |
 | Both orderings, peer eligibility, active quotas and unique queue selection | [contracts.rs](../src/authority/tests/contracts.rs) and [queue.rs](../src/authority/tests/queue.rs) |
 | Serialized-size compatibility, execution room for small pools, proportional larger limits and overflow rejection | [budget.rs](../src/authority/tests/budget.rs); [configuration conversion](../../util/app-config/src/legacy/tx_pool.rs) and [bundled network configs](../../util/app-config/src/tests/app_config.rs) |
 | One detached cell shared across input/dependency roles remains charged and fits its final owner | [verification.rs](../src/authority/tests/verification.rs), `resolution_shares_one_detached_cell_across_input_and_dependency_roles` |
 | RBF exact fees, shared descendant accounting, conditional reads and capacity rejection | [membership.rs](../src/authority/tests/membership.rs) |
 | Complete graph totals and batched eviction rank changes | [membership_aggregates.rs](../src/authority/tests/membership_aggregates.rs), exhaustive five-node DAGs plus limit/cycle/overflow refusal; [membership_trim.rs](../src/authority/tests/membership_trim.rs), shared-ancestor changes before the next victim choice |
-| Canonical resolution, VM cache/rules, since/maturity, exact declared cycles and initial-load refusal | [pool verification](../src/authority/tests/verification.rs); [cache identity](../../verification/src/tests/cache.rs) and [contextual block checks](../../verification/contextual/src/tests/contextual_block_verifier.rs), including fresh proof publication and task completion before the assume-valid negative assertion |
+| Canonical resolution, VM cache/rules, since/maturity, exact declared cycles and initial-load refusal | [pool verification](../src/authority/tests/verification.rs); [nonzero cellbase maturity](../../test/src/specs/tx_pool/cellbase_maturity.rs), rejection before the epoch boundary and successful same-transaction retry through commit; [cache identity](../../verification/src/tests/cache.rs) and [contextual block checks](../../verification/contextual/src/tests/contextual_block_verifier.rs), including fresh proof publication and task completion before the assume-valid negative assertion |
 | Peer revocation rejects stale workers and late cohort changes | [ingress_contracts.rs](../src/authority/tests/ingress_contracts.rs) |
 | FIFO, fixed ready-prefix selection, per-batch release, endpoint failure and cancellation | [notice.rs](../src/authority/tests/notice.rs) |
 | Relay prefix allocation, reset ordering and waiting-parent reconstruction | [relay.rs](../src/authority/tests/relay.rs) and `public_relay_batch_drain_keeps_raw_reset_order_before_waiter_reconstruction` in [execution.rs](../src/authority/tests/execution.rs) |
@@ -68,6 +69,48 @@ still exercise the concurrency under test. Keep output capture and the normal
 leak timeout enabled: a deliberately retained descendant pipe must still be
 detected. Diagnose new reports through pipe ownership, following
 [Nextest's leak guidance](https://nexte.st/docs/features/leaky-tests/).
+
+## Maintain test value
+
+Keep a case's original trigger order and terminal contract when improving its
+assertions. Pending, gap and proposed collision cases may all reject the same
+submission yet exercise different later proposal histories. Reorg tests that
+manually commit, naturally select or omit an uncle also protect different paths.
+Check the introducing change when names or old comments no longer explain the
+scenario. Similar setup is insufficient evidence for deletion.
+
+An empty queue or aggregate count can already hold before asynchronous work
+starts. Wait for the submitted transaction's exact status, rejection or requested
+parent hashes before checking cleanup. Preserve downstream waits until the actual
+consumer has an observable acknowledgement: a visible ban does not establish that
+the relayer consumed its filter reset. Within unit tests, poll the real acquisition
+or notification future to establish Pending/Ready instead of relying on a yield
+or elapsed delay. Keep channel receivers alive when testing Full versus Closed.
+
+Use one immutable snapshot within a parameter matrix while retaining fresh Store,
+queue and reservation state where each case requires isolation. Consolidation must
+preserve each original input and independent expected result. Exact capacity and
+output-index boundaries need both the successful endpoint and adjacent refusal.
+
+For mutation checks, prelist a bounded set of relevant gates and use isolated
+source plus Nextest. Recheck survivors against the full relevant suite before
+calling them coverage gaps; distinguish valid-state equivalence, compilation
+failure, timeout and a missed behavioral change. Removing a redundant test needs
+contract evidence; matching detection of selected mutations is supporting evidence,
+not proof that the tests are interchangeable. Label hand-seeded perturbations
+separately from mutations generated by the tool.
+
+The real-node [pool specs](../../test/src/specs/tx_pool) protect relay, mining and
+restart behavior beyond private authority fixtures. Enumerate active names with
+`ckb-test --list-specs` and include relevant RPC consumers such as
+[TxPoolEntryStatus](../../test/src/specs/rpc/get_pool.rs) and
+[truncate](../../test/src/specs/rpc/truncate.rs), [transaction relay](../../test/src/specs/relay/transaction_relay.rs),
+[compact-block pool reads](../../test/src/specs/relay/compact_block.rs) and
+[proposal-batch mining](../../test/src/specs/mining/fee.rs) when their boundary is affected.
+A Spec implementation or unused method is not executed coverage. Confirm registration
+and call paths when reviewing old cases. The shared [commit assertion](../../test/src/specs/tx_pool/utils.rs)
+checks the exact transaction through Pending, Gap, Proposed and Committed, including
+its expected commit height; both since and cellbase-maturity cases use it.
 
 ## Check resource composition
 

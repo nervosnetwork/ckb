@@ -1,7 +1,37 @@
 use crate::Node;
-use ckb_types::core::TransactionView;
+use crate::util::check;
+use ckb_jsonrpc_types::{RawTxPool, TxPoolEntries};
+use ckb_types::core::{BlockNumber, TransactionView};
 use ckb_types::packed::{CellInput, OutPoint};
 use ckb_types::prelude::*;
+
+pub fn get_pool_entries(node: &Node) -> TxPoolEntries {
+    match node.rpc_client().get_raw_tx_pool(Some(true)) {
+        RawTxPool::Verbose(entries) => entries,
+        RawTxPool::Ids(_) => panic!("verbose pool query returned transaction IDs"),
+    }
+}
+
+/// Follow one pending transaction through proposal and commit at the expected height.
+pub fn assert_committed_at(node: &Node, transaction: &TransactionView, committed_at: BlockNumber) {
+    // Pending
+    node.assert_tx_pool_size(1, 0);
+    assert!(check::is_transaction_pending(node, transaction));
+    // Gap
+    let proposed = node.mine_with_blocking(|template| template.proposals.len() != 1);
+    node.assert_tx_pool_size(1, 0);
+    assert!(check::is_transaction_pending(node, transaction));
+    // Proposed
+    node.mine_with_blocking(|template| template.number.value() != (proposed + 1));
+    node.assert_tx_pool_size(0, 1);
+    assert!(check::is_transaction_proposed(node, transaction));
+    // Committed
+    node.mine_with_blocking(|template| template.transactions.len() != 1);
+    node.assert_tx_pool_size(0, 0);
+    assert!(check::is_transaction_committed(node, transaction));
+
+    assert_eq!(node.get_tip_block_number(), committed_at);
+}
 
 /// `TxFamily` used to represent a set of relative transactions,
 /// `TxFamily.get(0)` is the parent of `TxFamily.get(1)`,

@@ -73,21 +73,37 @@ fn bounded_transaction_owns_one_compact_backing_allocation() {
 }
 
 #[test]
-fn bounded_transaction_rejects_the_protocol_size_boundary_before_enqueue() {
-    let transaction = TransactionBuilder::default()
-        .output_data(Bytes::from(vec![0; TRANSACTION_SIZE_LIMIT as usize + 1]).pack())
-        .build();
-    let actual = transaction.data().serialized_size_in_block() as u64;
-    let error = BoundedTransaction::try_new(transaction)
-        .expect_err("an oversized transaction cannot cross the service channel");
-
-    assert!(matches!(
-        error,
-        BoundedTransactionError::TooLarge {
-            actual: observed,
-            maximum: TRANSACTION_SIZE_LIMIT,
-        } if observed == actual
-    ));
+fn bounded_transaction_accepts_the_protocol_size_limit_and_rejects_the_next_byte() {
+    let overhead = TransactionBuilder::default()
+        .witness(Bytes::new())
+        .build()
+        .data()
+        .serialized_size_in_block();
+    for extra in [0, 1] {
+        let size = TRANSACTION_SIZE_LIMIT as usize + extra;
+        let transaction = TransactionBuilder::default()
+            .witness(Bytes::from(vec![0; size - overhead]))
+            .build();
+        assert_eq!(transaction.data().serialized_size_in_block(), size);
+        let result = BoundedTransaction::try_new(transaction.clone());
+        if extra == 0 {
+            assert_eq!(
+                result
+                    .expect("the exact limit fits")
+                    .into_transaction()
+                    .as_ref(),
+                &transaction
+            );
+        } else {
+            assert!(matches!(
+                result,
+                Err(BoundedTransactionError::TooLarge {
+                    actual,
+                    maximum: TRANSACTION_SIZE_LIMIT,
+                }) if actual == size as u64
+            ));
+        }
+    }
 }
 
 #[test]

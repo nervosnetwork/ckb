@@ -427,19 +427,28 @@ async fn dependency_spent_after_verification_cannot_commit_the_old_live_observat
         1,
         Status::Pending,
     );
+    let before = store.capture(false).2;
+    let usage = store.budget.owner_usage();
     let prepared =
         crate::authority::membership::admission(&store, &candidate, None, &proof, &config, true);
     match prepared {
         Err(Error::Stale) => {}
         Ok((plan, reject)) => {
+            let applied = store.apply(plan);
             assert!(
-                reject.is_some() || matches!(store.apply(plan), Err(Error::Stale)),
+                matches!(applied, Err(Error::Stale)) || (reject.is_some() && applied.is_ok()),
                 "a previously live dependency was spent before the candidate commit"
             );
         }
         _ => panic!("unexpected admission result"),
     }
     assert!(store.point(&candidate.hash()).1.is_none());
+    assert_eq!(store.capture(false).2.len(), before.len());
+    for owner in before {
+        assert!(Arc::ptr_eq(&store.point(&owner.hash()).1.unwrap(), &owner));
+    }
+    assert_eq!(store.budget.owner_usage(), usage);
+    assert!(!store.is_faulted());
 }
 
 #[test]
@@ -451,7 +460,8 @@ fn trusted_missing_resolution_waits_only_for_a_known_producer_with_a_valid_outpu
         Source::Recovery,
     );
     insert(&store, Arc::clone(&parent));
-    for (index, may_wait) in [(0, true), (9, false)] {
+    let first_missing_output = parent.transaction.outputs().len().try_into().unwrap();
+    for (index, may_wait) in [(0, true), (first_missing_output, false), (9, false)] {
         let candidate = entry(
             &store,
             funded_tx(OutPoint::new(parent.hash(), index), 19_999_999_000),

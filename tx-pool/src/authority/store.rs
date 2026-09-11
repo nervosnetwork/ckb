@@ -40,6 +40,10 @@ use tokio::sync::Notify;
 mod tests;
 
 #[cfg(test)]
+#[path = "tests/state_transitions.rs"]
+mod transition_tests;
+
+#[cfg(test)]
 type CommitObserver = Arc<dyn Fn(&Plan, bool) + Send + Sync>;
 
 pub(super) const SHARDS: usize = 256;
