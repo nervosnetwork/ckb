@@ -31,6 +31,10 @@ Results were collected on macOS 26.6.2 arm64, 18 logical CPUs, Rust 1.95.0, prof
 peers were used throughout. Reporting edits after measurement do not change
 executable inputs; the evidence records their separate hashes.
 
+Each section applies to its named source; the packing comparison identifies its
+own earlier revisions. Later executable changes require separate measurements
+and do not inherit the ratios or verification counts reported here.
+
 Each row has 24 paired samples of four fresh-process replicates per side, plus
 two retained pilots. Pair order is balanced and prospectively randomized. The
 unchanged gates require every target window ≥0.25 s, throughput paired relative
@@ -43,7 +47,7 @@ The frozen ascending calibration ladder retained 14 populations/28 pilots,
 including six short populations, before fixing the eight formal populations.
 Each complete A/A and A/B study retains 1,552 successful executions. Together with
 two original fanout stress executions and the 294 secp attribution executions,
-the final evidence contains 3,428 native executions. Successful executions do not
+the final end-to-end/secp studies contain 3,428 native executions. Successful executions do not
 turn an imprecise row into a pass.
 
 Target elapsed time uses one monotonic clock from submission start to required
@@ -179,6 +183,135 @@ controlled harness estimate. Production contrasts include non-VM dependency chan
 and do not isolate one pool optimization. Paired median contrasts also need not
 multiply exactly into the total delivered ratio.
 
+## Packing comparison
+
+Packing was measured separately from receive-to-terminal throughput. Its current
+candidate performs more work per selection than develop in most of the focused
+large-fixture cases below. The exception is equal-fee fanout. The dense aggregate
+optimization reduces this cost relative to the previous candidate, but does not
+establish a generally faster selector than develop.
+
+These are earlier, separately frozen `packing-r28` sources: candidate
+`74926165483b857cf502b47e8c9690939a616676`, control
+`894c729e4864f0f94b993cc2a2db842f38ecc34b`, and prepared develop
+`c4cc26b261e53b2326f24f90a0c3d623df2d87a2` based on
+`cdfde29e45dfbe9443be66083241ebc1acca9fe6`. They are not the final executable
+pair in the receive-to-terminal matrix. The candidate/control production change
+is bounded ordinal scratch for full-graph aggregates. All three arms invoke their
+actual production selector through the shared v2 harness and their respective
+adapters; the legacy partial-set qualification failure from `packing-r26` remains
+preserved and was not reused as passing evidence.
+
+The [selection window](BENCHMARK.md#measure-template-transaction-selection) includes current
+owner-vector cloning, derived selection-state construction, packing and destruction
+of that state. Develop selects from its already maintained `PoolMap`; the cost of
+maintaining that map during admission is outside this window. Fixture/source
+preparation, Store capture/locks, optional content and final DAO/template building
+are excluded. These elapsed times cannot be read as complete block-template latency
+or receive throughput. No packing process-CPU or RSS comparison was established.
+
+### Develop versus candidate: complete large-fixture matrix
+
+Each cell is develop → candidate, in milliseconds per selection, with lower being
+better. The values are medians of five calls after two warm calls in one process
+per arm/case. Arm order was fixed; these are descriptive observations without an
+independent-process develop A/A qualification or confidence interval. All 40 large
+cases are shown, including adverse results. `All` fits the whole fixture; `Partial`
+limits selection to 595,000 bytes and 3,500,000,000 cycles. `chain` is a forest of
+bounded chains, not one 16,384-ancestor transaction chain.
+
+| Shape / fee pattern | Pool entries | All: develop → candidate ms | Partial: develop → candidate ms |
+|---|---:|---:|---:|
+| `independent / equal` | 4,096 | 0.958 → 2.501 | 0.540 → 1.918 |
+| `independent / equal` | 16,384 | 4.273 → 15.858 | 0.612 → 8.437 |
+| `independent / cpfp` | 4,096 | 0.948 → 2.466 | 0.536 → 1.963 |
+| `independent / cpfp` | 16,384 | 4.482 → 16.637 | 0.612 → 8.422 |
+| `chain / equal` | 4,096 | 11.547 → 12.374 | 5.596 → 10.536 |
+| `chain / equal` | 16,384 | 49.842 → 92.256 | 5.812 → 74.624 |
+| `chain / cpfp` | 4,096 | 11.612 → 13.008 | 5.547 → 10.803 |
+| `chain / cpfp` | 16,384 | 49.771 → 93.339 | 5.704 → 69.261 |
+| `fanout / equal` | 4,096 | 17.445 → 4.467 | 16.167 → 3.289 |
+| `fanout / equal` | 16,384 | 256.194 → 31.644 | 44.028 → 19.147 |
+| `fanout / cpfp` | 4,096 | 2.312 → 4.256 | 0.954 → 3.038 |
+| `fanout / cpfp` | 16,384 | 11.047 → 31.384 | 1.081 → 17.893 |
+| `diamond / equal` | 4,096 | 1.353 → 3.659 | 0.793 → 3.407 |
+| `diamond / equal` | 16,384 | 6.851 → 28.010 | 0.797 → 17.918 |
+| `diamond / cpfp` | 4,096 | 1.376 → 3.849 | 0.722 → 2.978 |
+| `diamond / cpfp` | 16,384 | 6.830 → 28.111 | 0.838 → 18.554 |
+| `mixed / equal` | 4,096 | 1.983 → 4.527 | 0.994 → 3.404 |
+| `mixed / equal` | 16,384 | 10.941 → 32.722 | 1.140 → 21.986 |
+| `mixed / cpfp` | 4,096 | 2.038 → 4.289 | 1.002 → 3.343 |
+| `mixed / cpfp` | 16,384 | 10.190 → 33.411 | 1.088 → 20.204 |
+
+Candidate selection takes longer than develop in 36/40 large cases. In the
+16,384-entry partial cases, observed candidate/develop elapsed ratios range from
+0.435 for equal-fee fanout to 22.495 for equal-fee diamond. These ratios describe
+the recorded runs, not qualified final-source speedups or slowdowns.
+
+Selection quality is reported alongside cost. Candidate and control produce the
+same selected result in every case. All-fit runs select all entries. Across the
+40 large cases, develop and candidate have equal selected fee totals in 39 cases;
+partial 16,384-entry CPFP fanout selects 1,453 → 1,473 transactions and
+44,300,517,760 → 44,951,454,520 shannons (1.47% more fees), while selection takes
+1.081 → 17.893 ms. Partial-result sets and cycle utilization can differ even where
+fees match. This is neither a proof of globally optimal packing nor an equal-work
+comparison for that differing-result case. The 15 eight-entry functional cases
+and their exhaustive small-fixture checks remain in the same source packet.
+
+### Allocation traffic
+
+These separate instrumented runs use 4,096 entries, CPFP fees, three measured
+calls after one warm call. Values are requested allocation bytes per selection,
+develop → candidate. They count allocation traffic, not retained memory or RSS;
+instrumented elapsed times are excluded from the timing table.
+
+| Shape | All: requested bytes | Partial: requested bytes |
+|---|---:|---:|
+| `independent` | 5,447,300 → 7,275,808 | 2,639,282 → 6,789,648 |
+| `chain` | 17,795,260 → 9,187,080 | 8,441,018 → 8,544,424 |
+| `fanout` | 7,069,454 → 9,605,216 | 2,690,140 → 8,471,760 |
+| `diamond` | 4,081,428 → 8,860,792 | 2,000,690 → 8,193,576 |
+| `mixed` | 4,662,652 → 9,037,288 | 2,094,948 → 8,222,360 |
+
+### Candidate optimization: prospective A/A and A/B
+
+`packing-r29` reuses the frozen control/candidate binaries above. It compares the
+candidate optimization against its previous implementation, **not against develop**.
+Ten 16,384-entry CPFP cases use six balanced paired blocks for each of A/A and A/B,
+with one fresh process per side and five calls after two warm calls per process:
+240 captures and replays in total. The sampling unit is the process median.
+
+The original A/A gate requires its complete pointwise interval inside
+[1/1.05, 1.05]; only independent/partial passes. A/B establishes lower elapsed time
+only when A/A passes and the A/B interval lies below 1. Brackets below are the
+original conservative order-statistic intervals, conditional on independent
+blocks, without simultaneous coverage across cases. All unresolved rows remain.
+
+| Shape / budget | A/A elapsed ratio [interval] | Candidate/control elapsed ratio [interval] | Original decision |
+|---|---|---|---|
+| `independent / All` | 0.9792 [0.9332, 1.0571] | 0.8203 [0.7799, 0.8833] | Unresolved |
+| `independent / Partial` | 0.9932 [0.9647, 1.0237] | 0.6993 [0.6665, 0.7532] | Lower selection time |
+| `chain / All` | 0.9912 [0.8703, 1.0218] | 0.3880 [0.3768, 0.4373] | Unresolved |
+| `chain / Partial` | 0.9896 [0.9461, 1.0088] | 0.3423 [0.3355, 0.3471] | Unresolved |
+| `fanout / All` | 0.9779 [0.8537, 1.0333] | 0.8244 [0.7700, 0.8526] | Unresolved |
+| `fanout / Partial` | 1.0104 [0.9833, 1.0697] | 0.7155 [0.6560, 0.7590] | Unresolved |
+| `diamond / All` | 0.9902 [0.9133, 1.0458] | 0.7759 [0.7457, 0.9206] | Unresolved |
+| `diamond / Partial` | 1.0418 [0.7167, 1.0533] | 0.6717 [0.6203, 0.7362] | Unresolved |
+| `mixed / All` | 0.9749 [0.9444, 1.0271] | 0.7135 [0.6868, 0.7723] | Unresolved |
+| `mixed / Partial` | 0.9849 [0.9244, 1.0454] | 0.6193 [0.6102, 0.6271] | Unresolved |
+
+The qualified independent/partial optimization has elapsed ratio 0.6993
+[0.6665, 0.7532], about 30.1% lower than the prior candidate. The other nine A/B
+point estimates are favorable but remain unresolved under their original A/A
+gates. None supplies a qualified final-candidate/develop packing ranking.
+
+All 195 exploratory captures/replays and all 240 prospective captures/replays are
+retained under `evidence/candidate-reassessment-20260910-r1/` in the portable
+packet. The source/binary manifests, `packing-r28/summary.json`,
+`packing-r28/observations.json`, and `packing-r29/plan.json`/`result.json` identify
+the exact inputs, complete results and qualification. These focused runs are
+separate from the 3,428 final end-to-end/secp executions.
+
 ## Resource and maintenance decision
 
 The retained improvements reduce repeated owner/index traversal, active-account
@@ -205,11 +338,10 @@ workload; it does not establish a production hit rate or RSS reduction. Relay
 prefix reuse removes one observed singleton allocation (320 bytes/two calls to
 256 bytes/one call). Allocation instrumentation is excluded from final timing.
 
-Packing improvements retain complete-package refusal and bounded cycle fallback,
-but develop is still faster in most larger, partial-budget focused comparisons.
-The prospective packing A/A study establishes its ±5% elapsed equivalence for only
-one of ten cases; the other nine remain unresolved. Publisher polling, broad
-persistent aggregate caching and index sorting were not adopted where observed
+The [packing comparison](#packing-comparison) exposes the selector's elapsed and
+allocation costs relative to develop, its fee/result differences, and all ten
+prospective optimization outcomes. Publisher polling, broad persistent aggregate
+caching and index sorting were not adopted where observed
 benefit or integration cost failed to justify them. Fixed 1,024 shards were rejected
 at the user's direction after source-cost review; no native speedup is claimed.
 The candidate index and source-bound decisions preserve all explored alternatives.
