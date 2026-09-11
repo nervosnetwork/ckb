@@ -1,10 +1,11 @@
 use super::super::{
     membership,
     model::{Error, Source, Status},
-    store::{ReadSet, Store},
+    notice::Class,
+    store::{Plan, ReadSet, Store},
 };
 use super::common::*;
-use crate::error::Reject;
+use crate::{callback::CallbackEvent, error::Reject};
 use ckb_app_config::TxPoolConfig;
 use ckb_types::{
     core::FeeRate,
@@ -26,6 +27,109 @@ fn rbf() -> TxPoolConfig {
     TxPoolConfig {
         min_rbf_rate: FeeRate::from_u64(1000),
         ..config()
+    }
+}
+
+// These fixtures have direct cell-deps, so derive their expected parents from
+// transaction bodies independently of Graph, relation indexes and stored parents.
+fn assert_parents_match_transactions(store: &Store) {
+    let owners = store.capture(true).2;
+    let present: BTreeSet<_> = owners.iter().map(|owner| owner.hash()).collect();
+    for owner in owners {
+        let expected: BTreeSet<_> = owner
+            .transaction
+            .input_pts_iter()
+            .chain(
+                owner
+                    .transaction
+                    .cell_deps_iter()
+                    .map(|dep| dep.out_point()),
+            )
+            .map(|point| point.tx_hash())
+            .filter(|hash| present.contains(hash))
+            .collect();
+        assert_eq!(owner.accepted().unwrap().parents, expected);
+    }
+}
+
+#[test]
+fn late_input_and_cell_dep_readers_invalidate_admission_and_become_parents_on_retry() {
+    for dependency in [false, true] {
+        let store = store();
+        let producer = entry(&store, output_tx(90_000), Source::Local);
+        let (stale, reject) =
+            admission(&store, &producer, 1, 1, Status::Pending, &config()).unwrap();
+        assert!(reject.is_none());
+        let output = [OutPoint::new(producer.hash(), 0)];
+        let reader = if dependency {
+            spend(90_001, &[], &output)
+        } else {
+            spend(90_001, &output, &[])
+        };
+        let child = accept(&store, reader, 1, 1, Status::Pending);
+        assert!(matches!(store.apply(stale), Err(Error::Stale)));
+        assert_eq!(hashes(&store), BTreeSet::from([child.clone()]));
+
+        let (fresh, reject) =
+            admission(&store, &producer, 1, 1, Status::Pending, &config()).unwrap();
+        assert!(reject.is_none());
+        store.apply(fresh).unwrap();
+        assert_eq!(hashes(&store), BTreeSet::from([producer.hash(), child]));
+        assert_parents_match_transactions(&store);
+    }
+}
+
+#[test]
+fn replacement_retries_the_complete_descendant_set_with_exact_ordered_effects() {
+    for dependency in [false, true] {
+        let store = store();
+        let input = point(201);
+        let victim = accept(
+            &store,
+            spend(90_002, std::slice::from_ref(&input), &[]),
+            1,
+            1,
+            Status::Pending,
+        );
+        let candidate = entry(&store, spend(90_003, &[input], &[]), Source::Local);
+        let (stale, reject) =
+            admission(&store, &candidate, 1_000_000, 1, Status::Pending, &rbf()).unwrap();
+        assert!(reject.is_none());
+        let output = [OutPoint::new(victim.clone(), 0)];
+        let reader = if dependency {
+            spend(90_004, &[], &output)
+        } else {
+            spend(90_004, &output, &[])
+        };
+        let child = accept(&store, reader, 1, 1, Status::Pending);
+        assert!(matches!(store.apply(stale), Err(Error::Stale)));
+        assert_eq!(
+            hashes(&store),
+            BTreeSet::from([victim.clone(), child.clone()])
+        );
+        assert!(store.outbox.pending_reject(&victim).is_none());
+        assert!(store.outbox.pending_reject(&child).is_none());
+
+        let (fresh, reject) =
+            admission(&store, &candidate, 1_000_000, 1, Status::Pending, &rbf()).unwrap();
+        assert!(reject.is_none());
+        let callbacks: Vec<_> = fresh
+            .effects()
+            .iter()
+            .filter_map(|effect| effect.callback())
+            .map(|event| match event {
+                CallbackEvent::Reject(entry, _) => (entry.transaction.hash(), false),
+                CallbackEvent::Pending(entry) => (entry.transaction.hash(), true),
+                CallbackEvent::Proposed(_) => panic!("pending admission must stay pending"),
+            })
+            .collect();
+        assert_eq!(
+            callbacks,
+            vec![(child, false), (victim, false), (candidate.hash(), true)]
+        );
+        store.apply(fresh).unwrap();
+        assert_eq!(hashes(&store), BTreeSet::from([candidate.hash()]));
+        assert_parents_match_transactions(&store);
     }
 }
 
@@ -169,7 +273,7 @@ fn capacity_replacement_is_one_atomic_candidate_and_victim_change() {
     let candidate = entry(&store, tx(15), Source::Local);
     let (plan, reject) = admission(&store, &candidate, 1000, 1, Status::Pending, &config).unwrap();
     assert!(reject.is_none());
-    assert_eq!(plan.edits.len(), 2);
+    assert_eq!(plan.edits().len(), 2);
     store.apply(plan).unwrap();
     assert_eq!(hashes(&store), BTreeSet::from([candidate.hash()]));
     assert_eq!(store.budget.accepted_usage().items, 1);
@@ -225,7 +329,7 @@ fn conditional_dependency_reader_is_not_a_causal_ancestor_of_a_later_spender() {
     );
     let owner = store.point(&reader).1.unwrap();
     let plan = membership::removal(&store, &owner, &config(), None).unwrap();
-    assert_eq!(plan.edits.len(), 1);
+    assert_eq!(plan.edits().len(), 1);
     store.apply(plan).unwrap();
     assert_eq!(hashes(&store), BTreeSet::from([spender]));
 }
@@ -336,12 +440,9 @@ fn dry_run_uses_the_same_policy_without_mutating_membership_or_releasing_victim_
     );
     let before = store.budget.accepted_usage();
     let candidate = entry(&store, spend(31, &[input], &[]), Source::Local);
-    let (mut plan, reject) =
-        admission(&store, &candidate, 1000, 1, Status::Pending, &rbf()).unwrap();
+    let (plan, reject) = admission(&store, &candidate, 1000, 1, Status::Pending, &rbf()).unwrap();
     assert!(reject.is_none());
-    plan.dry_run = true;
-    plan.effects.clear();
-    assert!(store.apply(plan).unwrap().is_none());
+    assert!(store.apply(plan.dry_run()).unwrap().is_none());
     assert_eq!(hashes(&store), BTreeSet::from([old]));
     assert_eq!(store.budget.accepted_usage(), before);
 }
@@ -400,7 +501,11 @@ fn dependency_reader_fanout_does_not_consume_spender_ancestry_or_mutation_budget
     };
     let (plan, reject) = admission(&store, &candidate, 1, 1, Status::Pending, &narrow).unwrap();
     assert!(reject.is_none());
-    assert_eq!(plan.edits.len(), 1, "conditional readers need no mutation");
+    assert_eq!(
+        plan.edits().len(),
+        1,
+        "conditional readers need no mutation"
+    );
     store.apply(plan).unwrap();
     assert_eq!(
         store
@@ -420,71 +525,65 @@ fn dependency_reader_fanout_does_not_consume_spender_ancestry_or_mutation_budget
 
 #[test]
 fn graph_reuses_a_negative_owner_and_apply_rejects_its_successor() {
-    use super::super::{notice::Class, store::Plan};
     let store = store();
     let transaction = output_tx(10400);
     let hash = transaction.hash();
-    let mut graph = membership::Graph::new(&store, ReadSet::default());
+    let mut plan = Plan::new(store.snapshot().0, Class::Trusted, ReadSet::default());
+    let mut graph = membership::Graph::new(&store, &mut plan);
     assert!(graph.get(&hash).unwrap().is_none());
     accept(&store, transaction, 1, 1, Status::Pending);
     assert!(graph.get(&hash).unwrap().is_none());
-    let mut plan = Plan::new(store.snapshot().0, Class::Trusted);
-    plan.reads = graph.reads;
     assert!(matches!(store.apply(plan), Err(Error::Stale)));
 }
 
 #[test]
 fn graph_reuses_the_original_positive_owner_and_apply_rejects_identity_aba() {
-    use super::super::{notice::Class, store::Plan};
     use std::sync::Arc;
     let store = store();
     let hash = accept(&store, output_tx(10401), 1, 1, Status::Pending);
     let old = store.point(&hash).1.unwrap();
     let mut reads = ReadSet::default();
-    reads.owner(&hash, Some(&old)).unwrap();
+    reads.observe_owner(&hash, Some(&old)).unwrap();
     let current = replace(&store, Arc::clone(&old), old.phase.clone());
     assert!(!Arc::ptr_eq(&old, &current));
-    let mut graph = membership::Graph::new(&store, reads);
+    let mut plan = Plan::new(store.snapshot().0, Class::Trusted, reads);
+    let mut graph = membership::Graph::new(&store, &mut plan);
     assert!(Arc::ptr_eq(&graph.get(&hash).unwrap().unwrap(), &old));
-    let mut plan = Plan::new(store.snapshot().0, Class::Trusted);
-    plan.reads = graph.reads;
     assert!(matches!(store.apply(plan), Err(Error::Stale)));
 }
 
 #[test]
 fn graph_returns_stale_when_its_original_owner_has_expired() {
-    use super::super::{notice::Class, store::Plan};
     use std::sync::Arc;
     let store = store();
     let old = entry(&store, output_tx(10402), Source::Local);
     let hash = old.hash();
     insert(&store, Arc::clone(&old));
     let mut reads = ReadSet::default();
-    reads.owner(&hash, Some(&old)).unwrap();
+    reads.observe_owner(&hash, Some(&old)).unwrap();
     let weak = Arc::downgrade(&old);
-    let mut removal = Plan::new(store.snapshot().0, Class::Trusted);
-    removal.edit(Some(old), None).unwrap();
+    let mut removal = Plan::new(store.snapshot().0, Class::Trusted, Default::default());
+    removal.edit(Some(old), None, None).unwrap();
     store.apply(removal).unwrap();
     assert!(weak.upgrade().is_none());
-    let mut graph = membership::Graph::new(&store, reads);
+    let mut plan = Plan::new(store.snapshot().0, Class::Trusted, reads);
+    let mut graph = membership::Graph::new(&store, &mut plan);
     assert!(matches!(graph.get(&hash), Err(Error::Stale)));
 }
 
 #[test]
 fn graph_keeps_a_nonaccepted_observation_when_the_owner_becomes_accepted() {
-    use super::super::{notice::Class, store::Plan};
     use std::sync::Arc;
     let store = store();
     let transaction = output_tx(10403);
     let old = entry(&store, transaction.clone(), Source::Local);
     let hash = old.hash();
     insert(&store, Arc::clone(&old));
-    let mut graph = membership::Graph::new(&store, ReadSet::default());
+    let mut plan = Plan::new(store.snapshot().0, Class::Trusted, ReadSet::default());
+    let mut graph = membership::Graph::new(&store, &mut plan);
     assert!(graph.get(&hash).unwrap().is_none());
     accept(&store, transaction, 1, 1, Status::Pending);
     assert!(graph.get(&hash).unwrap().is_none());
-    let mut plan = Plan::new(store.snapshot().0, Class::Trusted);
-    plan.reads = graph.reads;
     assert!(matches!(store.apply(plan), Err(Error::Stale)));
 }
 
@@ -540,11 +639,13 @@ fn batched_removal_totals_match_individual_snapshots_with_shared_ancestors_and_d
     // Also test a subset: its ancestors can be outside the captured descendant union.
     let subset: Vec<_> = hashes.iter().skip(1).take(2).cloned().collect();
     for selected in [hashes.as_slice(), subset.as_slice()] {
-        let mut graph = membership::Graph::new(&store, ReadSet::default());
+        let mut plan = Plan::new(store.snapshot().0, Class::Trusted, ReadSet::default());
+        let mut graph = membership::Graph::new(&store, &mut plan);
         let totals = graph
             .removal_totals(selected, config().max_ancestors_count)
             .unwrap();
-        let mut reference = membership::Graph::new(&store, ReadSet::default());
+        let mut reference_plan = Plan::new(store.snapshot().0, Class::Trusted, ReadSet::default());
+        let mut reference = membership::Graph::new(&store, &mut reference_plan);
         for hash in selected {
             let old = graph.require(hash).unwrap();
             let (ancestors, descendants) = totals.get(hash).unwrap();
@@ -560,10 +661,10 @@ fn batched_removal_totals_match_individual_snapshots_with_shared_ancestors_and_d
 
 #[test]
 fn batched_removal_totals_validate_a_later_child_before_apply() {
-    use super::super::{notice::Class, store::Plan};
     let store = store();
     let hashes = removal_totals_diamond(&store);
-    let mut graph = membership::Graph::new(&store, ReadSet::default());
+    let mut plan = Plan::new(store.snapshot().0, Class::Trusted, ReadSet::default());
+    let mut graph = membership::Graph::new(&store, &mut plan);
     graph
         .removal_totals(&hashes, config().max_ancestors_count)
         .unwrap();
@@ -575,17 +676,15 @@ fn batched_removal_totals_validate_a_later_child_before_apply() {
         11,
         Status::Pending,
     );
-    let mut plan = Plan::new(store.snapshot().0, Class::Trusted);
-    plan.reads = graph.reads;
     assert!(matches!(store.apply(plan), Err(Error::Stale)));
 }
 
 #[test]
 fn batched_removal_totals_allow_a_later_shared_dependency_reader() {
-    use super::super::{notice::Class, store::Plan};
     let store = store();
     let hashes = removal_totals_diamond(&store);
-    let mut graph = membership::Graph::new(&store, ReadSet::default());
+    let mut plan = Plan::new(store.snapshot().0, Class::Trusted, ReadSet::default());
+    let mut graph = membership::Graph::new(&store, &mut plan);
     graph
         .removal_totals(&hashes, config().max_ancestors_count)
         .unwrap();
@@ -598,7 +697,5 @@ fn batched_removal_totals_allow_a_later_shared_dependency_reader() {
         11,
         Status::Pending,
     );
-    let mut plan = Plan::new(store.snapshot().0, Class::Trusted);
-    plan.reads = graph.reads;
     store.apply(plan).unwrap();
 }

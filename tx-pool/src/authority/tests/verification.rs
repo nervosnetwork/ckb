@@ -493,8 +493,12 @@ fn materialization_keeps_current_spender_in_original_reads() {
     let reads = provider.observed.into_inner().reads;
     assert_eq!(reads.spent().collect::<Vec<_>>(), vec![(&point, &consumer)]);
     let before = store.point(&consumer).1.unwrap();
-    let mut plan = super::super::store::Plan::new(view, super::super::notice::Class::Trusted);
-    plan.edit(Some(before), None).unwrap();
+    let mut plan = super::super::store::Plan::new(
+        view,
+        super::super::notice::Class::Trusted,
+        Default::default(),
+    );
+    plan.edit(Some(before), None, None).unwrap();
     store.apply(plan).unwrap();
     assert!(matches!(
         store.read_selected(view, &reads, || ()),

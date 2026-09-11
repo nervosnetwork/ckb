@@ -1,8 +1,9 @@
 //! Source promotion and current-owner rejection plans.
 use super::{
+    jobs::Resolution,
     model::{Entry, Error, Phase, Source},
-    notice::{Class, Effect, bounded_ban_reason},
-    store::{Plan, ReadSet, Store},
+    notice::{Class, Effect},
+    store::{Plan, Store},
 };
 use crate::{
     error::Reject, service::TxVerificationResult, util::compact_packed,
@@ -48,22 +49,14 @@ pub(super) fn prepare(
     source: Source,
 ) -> Result<Plan, Error> {
     let (view, snapshot) = store.snapshot();
-    let mut reads = ReadSet::default();
-    let current = store.get(&transaction.hash(), &mut reads)?;
-    let peer_access = match source {
-        Source::Remote { peer, .. } => Some((peer, store.peer_banned(peer))),
-        _ => None,
-    };
-    if let Some((_, true)) = peer_access {
-        let mut plan = Plan::new(view, class(source));
-        plan.reads = reads;
-        plan.peer_access = peer_access;
-        plan.effects.push(Effect {
-            relay: Some(TxVerificationResult::Reject {
-                tx_hash: compact_packed(&transaction.hash()),
-            }),
-            ..Effect::default()
-        });
+    let mut plan = Plan::new(view, class(source), Default::default());
+    let current = plan.get(store, &transaction.hash())?;
+    if let Source::Remote { peer, .. } = source
+        && plan.peer_banned(store, peer)?
+    {
+        plan.notify(Effect::relay(TxVerificationResult::Reject {
+            tx_hash: compact_packed(&transaction.hash()),
+        }));
         return Ok(plan);
     }
     let validity = if source
@@ -81,36 +74,20 @@ pub(super) fn prepare(
         non_contextual_verify(snapshot.consensus(), &transaction)
     };
     if let Err(reject) = validity {
-        let mut plan = rejection(
-            store,
-            view,
-            None,
-            &transaction.hash(),
-            source,
-            reject,
-            reads,
-        )?;
-        plan.peer_access = peer_access;
-        return Ok(plan);
+        return rejection(store, plan, None, &transaction.hash(), source, reject);
     }
-    let mut plan = Plan::new(view, class(source));
-    plan.peer_access = peer_access;
-    plan.reads = reads;
     match (&current, source) {
         (Some(old), Source::Remote { peer, .. }) => {
-            plan.effects.push(Effect {
-                relay: Some(if old.accepted().is_some() {
-                    TxVerificationResult::Ok {
-                        original_peer: Some(peer),
-                        tx_hash: compact_packed(&transaction.hash()),
-                    }
-                } else {
-                    TxVerificationResult::Reject {
-                        tx_hash: compact_packed(&transaction.hash()),
-                    }
-                }),
-                ..Effect::default()
-            });
+            plan.notify(Effect::relay(if old.accepted().is_some() {
+                TxVerificationResult::Ok {
+                    original_peer: Some(peer),
+                    tx_hash: compact_packed(&transaction.hash()),
+                }
+            } else {
+                TxVerificationResult::Reject {
+                    tx_hash: compact_packed(&transaction.hash()),
+                }
+            }));
             return Ok(plan);
         }
         (Some(old), _) if old.accepted().is_some() => {
@@ -167,7 +144,36 @@ pub(super) fn prepare(
         phase,
     });
     store.budget.limits.resolved_fits(&after)?;
-    plan.edit(current, Some(after))?;
+    plan.edit(current, Some(after), None)?;
+    Ok(plan)
+}
+
+/// A resolution result determines its owner phase, original reads and required
+/// parent request together. The worker only commits or retries this outcome.
+pub(super) fn resolution(
+    store: &Store,
+    view: u64,
+    before: &Arc<Entry>,
+    result: &Resolution,
+) -> Result<Plan, Error> {
+    let (phase, reads) = match result {
+        Resolution::Ready(resolved) => (Phase::Verify(Arc::clone(resolved)), &resolved.reads),
+        Resolution::Waiting(keys, reads) => (Phase::Waiting(keys.clone()), reads),
+        Resolution::Rejected(reject, reads) => {
+            return rejection(
+                store,
+                Plan::new(view, class(before.source), reads.clone()),
+                Some(Arc::clone(before)),
+                &before.hash(),
+                before.source,
+                reject.clone(),
+            );
+        }
+    };
+    let mut plan = Plan::new(view, class(before.source), reads.clone());
+    let after = before.with_phase(phase);
+    let effect = Effect::waiting(&after);
+    plan.edit(Some(Arc::clone(before)), Some(after), effect)?;
     Ok(plan)
 }
 
@@ -175,17 +181,15 @@ pub(super) fn prepare(
 /// The original culprit read prevents an old worker from banning after promotion.
 pub(super) fn rejection(
     store: &Store,
-    view: u64,
+    plan: Plan,
     before: Option<Arc<Entry>>,
     hash: &Byte32,
     source: Source,
     reject: Reject,
-    reads: ReadSet,
 ) -> Result<Plan, Error> {
-    let mut plan = Plan::new(view, class(source));
-    plan.reads = reads;
+    let mut plan = plan.discard_changes();
     if let Some(before) = &before {
-        plan.reads.owner(hash, Some(before))?;
+        plan.observe_owner(hash, Some(before))?;
     }
     if reject.is_malformed_tx()
         && let Source::Remote {
@@ -194,31 +198,28 @@ pub(super) fn rejection(
             ..
         } = source
     {
-        let hashes = store.peer_members(peer, &mut plan.reads)?;
+        let hashes = plan.peer_members(store, peer)?;
         for hash in hashes {
-            let entry = store.get(&hash, &mut plan.reads)?.ok_or(Error::Stale)?;
+            let entry = plan.get(store, &hash)?.ok_or(Error::Stale)?;
             if !entry.preaccepted() || entry.source.residency_peer() != Some(peer) {
                 return Err(Error::Stale);
             }
-            plan.edit(Some(entry), None)?;
+            plan.edit(Some(entry), None, None)?;
         }
         let deadline = Instant::now()
             .checked_add(Duration::from_secs(
                 crate::constants::MALFORMED_TX_BAN_SECONDS,
             ))
             .ok_or(Error::Fault("ban deadline"))?;
-        let mut effect = Effect::rejected(hash, reject.clone(), None, false)?;
-        effect.ban = Some((peer, deadline, bounded_ban_reason(&reject)));
-        effect.relay = Some(TxVerificationResult::GenerationReset);
-        plan.effects.push(effect);
-        plan.ban = Some((peer, deadline));
+        plan.ban_peer(hash, reject, peer, deadline)?;
         return Ok(plan);
     }
     let relay = source.residency_peer().is_some();
-    plan.effects
-        .push(Effect::rejected(hash, reject, None, relay)?);
+    let effect = Effect::rejected(hash, reject, None, relay)?;
     if let Some(before) = before {
-        plan.edit(Some(before), None)?;
+        plan.edit(Some(before), None, Some(effect))?;
+    } else {
+        plan.notify(effect);
     }
     Ok(plan)
 }

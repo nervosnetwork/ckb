@@ -15,7 +15,7 @@ fn positive_reservation_rolls_back_when_dropped_and_exact_owner_charge_is_releas
             .unwrap();
     assert!(reject.is_none());
     let after = plan
-        .edits
+        .edits()
         .values()
         .find_map(|edit| edit.after.as_ref())
         .unwrap();

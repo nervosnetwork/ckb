@@ -9,7 +9,6 @@ use super::{
     store::{Plan, Store},
 };
 use crate::{
-    callback::CallbackEvent,
     error::Reject,
     service::{BoundedTransaction, ChainReorgArgs, TxVerificationResult},
     util::compact_packed,
@@ -140,35 +139,19 @@ pub(super) fn recover_bounded(store: &Store, command: &ChainReorgArgs) -> Result
             }),
         );
     }
-    let mut plan = Plan::new(view, Class::Critical);
-    plan.reads = reads;
-    plan.snapshot = Some(Arc::clone(snapshot));
-    plan.invalidate_view = true;
+    let mut plan = Plan::new(view, Class::Critical, reads);
     for entry in owners {
         let after = retained.remove(&entry.hash());
-        plan.edit(Some(entry), after)?;
+        plan.edit(Some(entry), after, None)?;
     }
     for entry in retained.into_values() {
-        plan.edit(None, Some(entry))?;
+        plan.edit(None, Some(entry), None)?;
     }
-    plan.effects.push(Effect::reset());
-    if !attached_blocks.is_empty() {
-        plan.effects.push(Effect {
-            blocks: attached_blocks
-                .iter()
-                .map(|block| Arc::new(block.clone()))
-                .collect(),
-            ..Effect::default()
-        });
-    }
-    for block in attached_blocks {
-        for transaction in block.transactions().iter().skip(1) {
-            plan.committed.push((
-                compact_packed(&transaction.proposal_short_id()),
-                compact_packed(&transaction.hash()),
-            ));
-        }
-    }
+    plan.reset(Arc::clone(snapshot), false);
+    plan.chain(
+        Arc::clone(snapshot),
+        attached_blocks.iter().map(|block| Arc::new(block.clone())),
+    );
     Ok(plan)
 }
 
@@ -178,17 +161,13 @@ pub(super) fn clear(
     pipeline_only: bool,
 ) -> Result<Plan, Error> {
     let (view, current, owners, reads) = store.capture(false);
-    let mut plan = Plan::new(view, Class::Critical);
-    plan.reads = reads;
-    plan.invalidate_view = true;
-    plan.snapshot = Some(snapshot.unwrap_or(current));
-    plan.clear_all = !pipeline_only;
+    let mut plan = Plan::new(view, Class::Critical, reads);
     for entry in owners {
         if !pipeline_only || entry.accepted().is_none() {
-            plan.edit(Some(entry), None)?;
+            plan.edit(Some(entry), None, None)?;
         }
     }
-    plan.effects.push(Effect::reset());
+    plan.reset(snapshot.unwrap_or(current), !pipeline_only);
     Ok(plan)
 }
 
@@ -414,25 +393,19 @@ pub(super) fn reconcile(
             }),
         );
     }
-    let mut plan = Plan::new(view, Class::Critical);
-    plan.reads = reads;
-    plan.snapshot = Some(Arc::clone(snapshot));
+    let mut plan = Plan::new(view, Class::Critical, reads);
     for (hash, old) in &old {
         let next = after.get(hash);
-        if !next.is_some_and(|next| Arc::ptr_eq(next, old)) {
-            plan.edit(Some(Arc::clone(old)), next.cloned())?;
-        }
-        if attached.contains(hash) {
+        let effect = if attached.contains(hash) {
             if old.preaccepted()
                 && let Some(peer) = old.source.residency_peer()
             {
-                plan.effects.push(Effect {
-                    relay: Some(TxVerificationResult::Ok {
-                        original_peer: Some(peer),
-                        tx_hash: hash.clone(),
-                    }),
-                    ..Effect::default()
-                });
+                Some(Effect::relay(TxVerificationResult::Ok {
+                    original_peer: Some(peer),
+                    tx_hash: hash.clone(),
+                }))
+            } else {
+                None
             }
         } else if let Some(point) = conflicts.get(hash) {
             let callback = if old.accepted().is_some() {
@@ -450,24 +423,28 @@ pub(super) fn reconcile(
             } else {
                 None
             };
-            plan.effects.push(Effect::rejected(
+            Some(Effect::rejected(
                 hash,
                 Reject::Resolve(OutPointError::Dead(point.clone())),
                 callback,
                 old.accepted().is_some() || old.source.residency_peer().is_some(),
-            )?);
+            )?)
         } else if !after.contains_key(hash) && old.source.residency_peer().is_some() {
-            plan.effects.push(Effect {
-                relay: Some(TxVerificationResult::Reject {
-                    tx_hash: hash.clone(),
-                }),
-                ..Effect::default()
-            });
+            Some(Effect::relay(TxVerificationResult::Reject {
+                tx_hash: hash.clone(),
+            }))
+        } else {
+            None
+        };
+        if !next.is_some_and(|next| Arc::ptr_eq(next, old)) {
+            plan.edit(Some(Arc::clone(old)), next.cloned(), effect)?;
+        } else if let Some(effect) = effect {
+            plan.notify(effect);
         }
     }
     for (hash, entry) in &after {
         if !old.contains_key(hash) {
-            plan.edit(None, Some(Arc::clone(entry)))?;
+            plan.edit(None, Some(Arc::clone(entry)), None)?;
         }
     }
     let final_accepted: Members = after
@@ -498,17 +475,10 @@ pub(super) fn reconcile(
                 .and_then(|totals| totals.get(hash))
                 .ok_or(Error::Stale)?;
             let value = membership::snapshot(entry, *ancestors, *descendants)?;
-            let callback = if entry.accepted().ok_or(Error::Stale)?.status(snapshot)
-                == super::model::Status::Proposed
-            {
-                CallbackEvent::Proposed(value)
-            } else {
-                CallbackEvent::Pending(value)
-            };
-            plan.effects.push(Effect {
-                callback: Some(callback),
-                ..Effect::default()
-            });
+            plan.notify(Effect::projected(
+                value,
+                entry.accepted().ok_or(Error::Stale)?.status(snapshot),
+            ));
         }
     }
     for block in attached_blocks.iter().chain(detached_blocks) {
@@ -519,22 +489,9 @@ pub(super) fn reconcile(
             }
         }
     }
-    if !attached_blocks.is_empty() {
-        plan.effects.push(Effect {
-            blocks: attached_blocks
-                .iter()
-                .map(|block| Arc::new(block.clone()))
-                .collect(),
-            ..Effect::default()
-        });
-    }
-    for block in attached_blocks {
-        for transaction in block.transactions().iter().skip(1) {
-            plan.committed.push((
-                compact_packed(&transaction.proposal_short_id()),
-                compact_packed(&transaction.hash()),
-            ));
-        }
-    }
+    plan.chain(
+        Arc::clone(snapshot),
+        attached_blocks.iter().map(|block| Arc::new(block.clone())),
+    );
     Ok(plan)
 }

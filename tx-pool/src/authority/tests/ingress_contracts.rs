@@ -1,8 +1,8 @@
 use super::{
     super::{
         ingress,
-        model::{Error, Phase, Source, Status},
-        notice::Class,
+        model::{Error, FullReason, Phase, Source, Status},
+        notice::{Class, Effect},
         store::{Plan, ReadSet},
     },
     common::*,
@@ -16,6 +16,136 @@ use std::{
 
 fn malformed() -> Reject {
     Reject::Malformed("remote declared cycles".into(), "test".into())
+}
+
+#[test]
+fn refused_plan_retains_its_original_reads_and_discards_speculative_changes_and_effects() {
+    for changed in [false, true] {
+        let store = store();
+        let victim = accept(&store, output_tx(91_000), 1, 1, Status::Pending);
+        let old = store.point(&victim).1.unwrap();
+        let candidate = entry(&store, output_tx(91_001), Source::Local);
+        let (mut plan, reject) =
+            admission(&store, &candidate, 1, 1, Status::Pending, &config()).unwrap();
+        assert!(reject.is_none());
+        let absent = entry(&store, tx(91_002), Source::Local);
+        assert!(plan.get(&store, &absent.hash()).unwrap().is_none());
+        plan.edit(
+            Some(Arc::clone(&old)),
+            None,
+            Some(Effect::rejected(&victim, Reject::Expiry(1), None, true).unwrap()),
+        )
+        .unwrap();
+        let (view, snapshot) = store.snapshot();
+        plan.reset(snapshot, true);
+        plan.ban_peer(
+            &candidate.hash(),
+            malformed(),
+            91.into(),
+            Instant::now() + Duration::from_secs(60),
+        )
+        .unwrap();
+        let rejected = ingress::rejection(
+            &store,
+            plan,
+            None,
+            &candidate.hash(),
+            Source::Local,
+            Reject::RBFRejected("refused speculative policy".into()),
+        )
+        .unwrap();
+        assert!(rejected.edits().is_empty());
+        assert_eq!(rejected.effects().len(), 1);
+        assert!(
+            rejected
+                .effects()
+                .iter()
+                .all(|effect| effect.callback().is_none())
+        );
+        if changed {
+            insert(&store, absent);
+            assert!(matches!(store.apply(rejected), Err(Error::Stale)));
+            assert!(store.outbox.pending_reject(&candidate.hash()).is_none());
+        } else {
+            store.apply(rejected).unwrap();
+            assert!(store.outbox.pending_reject(&candidate.hash()).is_some());
+        }
+        assert!(Arc::ptr_eq(&old, &store.point(&victim).1.unwrap()));
+        assert!(store.point(&candidate.hash()).1.is_none());
+        assert!(store.outbox.pending_reject(&victim).is_none());
+        assert!(!store.peer_banned(91.into()));
+        assert_eq!(store.snapshot().0, view);
+    }
+}
+
+#[test]
+fn rejected_preview_validates_reads_without_consuming_notice_capacity_or_retiring_its_owner() {
+    let store = store();
+    let owner = entry(&store, tx(91_003), remote(92, 1));
+    insert(&store, Arc::clone(&owner));
+    let held: Vec<_> = (0..crate::constants::EFFECT_JOURNAL_REMOTE_MAX_BATCHES)
+        .map(|_| {
+            store
+                .outbox
+                .reserve(vec![Effect::reset()], Class::Remote)
+                .unwrap()
+                .unwrap()
+        })
+        .collect();
+    assert!(matches!(
+        store.outbox.reserve(vec![Effect::reset()], Class::Remote),
+        Err(Error::Full(FullReason::NoticeOutbox))
+    ));
+    let plan = Plan::new(store.snapshot().0, Class::Remote, ReadSet::default()).dry_run();
+    let preview = ingress::rejection(
+        &store,
+        plan,
+        Some(Arc::clone(&owner)),
+        &owner.hash(),
+        owner.source,
+        Reject::Expiry(1),
+    )
+    .unwrap();
+    assert!(!preview.effects().is_empty());
+    assert!(store.apply(preview.clone()).unwrap().is_none());
+    assert!(Arc::ptr_eq(&owner, &store.point(&owner.hash()).1.unwrap()));
+    assert!(store.outbox.pending_reject(&owner.hash()).is_none());
+    replace(&store, Arc::clone(&owner), Phase::Resolve);
+    assert!(matches!(store.apply(preview), Err(Error::Stale)));
+    drop(held);
+}
+
+#[test]
+fn rereading_peer_eligibility_cannot_replace_a_refused_plans_original_premise() {
+    let store = store();
+    let source = remote(93, 1);
+    let candidate = entry(&store, tx(91_004), source);
+    let mut plan = Plan::new(store.snapshot().0, Class::Remote, ReadSet::default());
+    assert!(!plan.peer_banned(&store, 93.into()).unwrap());
+    let mut ban = Plan::new(store.snapshot().0, Class::Remote, ReadSet::default());
+    ban.ban_peer(
+        &tx(91_005).hash(),
+        malformed(),
+        93.into(),
+        Instant::now() + Duration::from_secs(60),
+    )
+    .unwrap();
+    store.apply(ban).unwrap();
+    assert!(matches!(
+        plan.peer_banned(&store, 93.into()),
+        Err(Error::Stale)
+    ));
+    let rejected = ingress::rejection(
+        &store,
+        plan,
+        None,
+        &candidate.hash(),
+        source,
+        Reject::Expiry(1),
+    )
+    .unwrap();
+    assert!(matches!(store.apply(rejected), Err(Error::Stale)));
+    assert!(store.outbox.pending_reject(&candidate.hash()).is_none());
 }
 
 #[test]
@@ -35,12 +165,15 @@ fn malformed_peer_revocation_is_atomic_and_preserves_other_peers_and_accepted_tr
     let accepted = accept(&store, output_tx(8103), 1, 1, Status::Pending);
     let plan = ingress::rejection(
         &store,
-        store.snapshot().0,
+        Plan::new(
+            store.snapshot().0,
+            ingress::class(source),
+            ReadSet::default(),
+        ),
         Some(Arc::clone(&culprit)),
         &culprit.hash(),
         source,
         malformed(),
-        ReadSet::default(),
     )
     .unwrap();
     store.apply(plan).unwrap();
@@ -60,21 +193,24 @@ fn old_worker_cannot_ban_a_peer_after_its_culprit_has_been_promoted() {
     insert(&store, Arc::clone(&culprit));
     let stale = ingress::rejection(
         &store,
-        store.snapshot().0,
+        Plan::new(
+            store.snapshot().0,
+            ingress::class(source),
+            ReadSet::default(),
+        ),
         Some(Arc::clone(&culprit)),
         &culprit.hash(),
         source,
         malformed(),
-        ReadSet::default(),
     )
     .unwrap();
     let promoted = Arc::new(super::super::model::Entry {
         source: Source::Recovery,
         ..culprit.as_ref().clone()
     });
-    let mut promotion = Plan::new(store.snapshot().0, Class::Trusted);
+    let mut promotion = Plan::new(store.snapshot().0, Class::Trusted, Default::default());
     promotion
-        .edit(Some(Arc::clone(&culprit)), Some(promoted))
+        .edit(Some(Arc::clone(&culprit)), Some(promoted), None)
         .unwrap();
     store.apply(promotion).unwrap();
     assert!(matches!(store.apply(stale), Err(Error::Stale)));
@@ -90,12 +226,15 @@ fn late_peer_admission_invalidates_an_older_complete_revocation_plan() {
     insert(&store, Arc::clone(&culprit));
     let stale = ingress::rejection(
         &store,
-        store.snapshot().0,
+        Plan::new(
+            store.snapshot().0,
+            ingress::class(source),
+            ReadSet::default(),
+        ),
         Some(Arc::clone(&culprit)),
         &culprit.hash(),
         source,
         malformed(),
-        ReadSet::default(),
     )
     .unwrap();
     let late = entry(&store, tx(8106), source);
@@ -108,8 +247,14 @@ fn late_peer_admission_invalidates_an_older_complete_revocation_plan() {
 #[test]
 fn banned_remote_input_only_publishes_release_and_cannot_reenter() {
     let store = store();
-    let mut ban = Plan::new(store.snapshot().0, Class::Remote);
-    ban.ban = Some((85.into(), Instant::now() + Duration::from_secs(60)));
+    let mut ban = Plan::new(store.snapshot().0, Class::Remote, Default::default());
+    ban.ban_peer(
+        &tx(0).hash(),
+        Reject::Malformed("fixture".into(), "ban fixture".into()),
+        85.into(),
+        Instant::now() + Duration::from_secs(60),
+    )
+    .unwrap();
     store.apply(ban).unwrap();
     let transaction = funded_tx(OutPoint::new(tx(8199).hash(), 0), 20_000_000_000);
     let plan = ingress::prepare(
@@ -118,8 +263,8 @@ fn banned_remote_input_only_publishes_release_and_cannot_reenter() {
         ingress::remote_source(85.into(), 1).unwrap(),
     )
     .unwrap();
-    assert!(plan.edits.is_empty());
-    assert_eq!(plan.effects.len(), 1);
+    assert!(plan.edits().is_empty());
+    assert_eq!(plan.effects().len(), 1);
     store.apply(plan).unwrap();
     assert!(store.point(&transaction.hash()).1.is_none());
     assert!(store.peer_banned(85.into()));
@@ -135,8 +280,14 @@ fn newly_banned_peer_invalidates_a_prepared_remote_admission() {
         ingress::remote_source(86.into(), 1).unwrap(),
     )
     .unwrap();
-    let mut ban = Plan::new(store.snapshot().0, Class::Remote);
-    ban.ban = Some((86.into(), Instant::now() + Duration::from_secs(60)));
+    let mut ban = Plan::new(store.snapshot().0, Class::Remote, Default::default());
+    ban.ban_peer(
+        &tx(0).hash(),
+        Reject::Malformed("fixture".into(), "ban fixture".into()),
+        86.into(),
+        Instant::now() + Duration::from_secs(60),
+    )
+    .unwrap();
     store.apply(ban).unwrap();
     assert!(matches!(store.apply(plan), Err(Error::Stale)));
     assert!(store.point(&transaction.hash()).1.is_none());
@@ -180,10 +331,9 @@ fn declared_cycle_and_non_contextual_gates_reject_before_retaining_any_source() 
     )
     .unwrap();
     let plan = ingress::prepare(&store, Arc::new(transaction.clone()), source).unwrap();
-    assert!(plan.edits.is_empty());
-    assert!(plan.ban.is_some());
-    assert!(plan.effects.iter().any(|effect| matches!(
-        effect.relay,
+    assert!(plan.edits().is_empty());
+    assert!(plan.effects().iter().any(|effect| matches!(
+        effect.relay_result(),
         Some(crate::service::TxVerificationResult::GenerationReset)
     )));
     store.apply(plan).unwrap();
@@ -197,8 +347,8 @@ fn declared_cycle_and_non_contextual_gates_reject_before_retaining_any_source() 
     ] {
         let invalid = tx(8195);
         let plan = ingress::prepare(&store, Arc::new(invalid.clone()), source).unwrap();
-        assert!(plan.edits.is_empty());
-        assert!(!plan.effects.is_empty());
+        assert!(plan.edits().is_empty());
+        assert!(!plan.effects().is_empty());
         store.apply(plan).unwrap();
         assert!(store.point(&invalid.hash()).1.is_none());
     }
@@ -224,8 +374,8 @@ fn repeated_proposal_and_recovery_witness_variants_preserve_the_same_owner() {
         };
         let plan =
             ingress::prepare(&store, Arc::new(changed), Source::Proposal { remote: None }).unwrap();
-        assert!(plan.edits.is_empty());
-        assert!(plan.effects.is_empty());
+        assert!(plan.edits().is_empty());
+        assert!(plan.effects().is_empty());
         store.apply(plan).unwrap();
         assert!(Arc::ptr_eq(
             &store.point(&before.hash()).1.unwrap(),
@@ -246,10 +396,10 @@ fn accepted_remote_duplicate_acknowledges_the_new_peer_without_changing_ownershi
         ingress::remote_source(91.into(), 17).unwrap(),
     )
     .unwrap();
-    assert!(plan.edits.is_empty());
+    assert!(plan.edits().is_empty());
     assert!(
-        matches!(plan.effects[0].relay, Some(crate::service::TxVerificationResult::Ok {
-        original_peer: Some(peer), ref tx_hash }) if peer == 91.into() && tx_hash == &hash)
+        matches!(plan.effects()[0].relay_result(), Some(crate::service::TxVerificationResult::Ok {
+        original_peer: Some(peer), tx_hash }) if *peer == 91.into() && tx_hash == &hash)
     );
     store.apply(plan).unwrap();
     assert!(Arc::ptr_eq(&store.point(&hash).1.unwrap(), &before));
@@ -260,8 +410,14 @@ fn accepted_remote_duplicate_acknowledges_the_new_peer_without_changing_ownershi
 fn active_peer_ban_survives_both_full_and_pipeline_clear() {
     for pipeline in [false, true] {
         let store = store();
-        let mut ban = Plan::new(store.snapshot().0, Class::Remote);
-        ban.ban = Some((92.into(), Instant::now() + Duration::from_secs(60)));
+        let mut ban = Plan::new(store.snapshot().0, Class::Remote, Default::default());
+        ban.ban_peer(
+            &tx(0).hash(),
+            Reject::Malformed("fixture".into(), "ban fixture".into()),
+            92.into(),
+            Instant::now() + Duration::from_secs(60),
+        )
+        .unwrap();
         store.apply(ban).unwrap();
         store
             .apply(super::super::chain::clear(&store, None, pipeline).unwrap())
@@ -274,8 +430,8 @@ fn active_peer_ban_survives_both_full_and_pipeline_clear() {
             ingress::remote_source(92.into(), 1).unwrap(),
         )
         .unwrap();
-        assert!(plan.edits.is_empty());
-        assert_eq!(plan.effects.len(), 1);
+        assert!(plan.edits().is_empty());
+        assert_eq!(plan.effects().len(), 1);
     }
 }
 
@@ -305,17 +461,22 @@ async fn proposal_promotion_reuses_exact_resolution_and_rechecks_original_produc
         assert!(active.current().unwrap());
         let obsolete_rejection = ingress::rejection(
             &store,
-            store.snapshot().0,
+            Plan::new(
+                store.snapshot().0,
+                ingress::class(source),
+                ReadSet::default(),
+            ),
             Some(Arc::clone(&verifying)),
             &verifying.hash(),
             source,
             malformed(),
-            ReadSet::default(),
         )
         .unwrap();
         if remove_producer {
-            let mut removal = Plan::new(store.snapshot().0, Class::Trusted);
-            removal.edit(store.point(&parent_hash).1, None).unwrap();
+            let mut removal = Plan::new(store.snapshot().0, Class::Trusted, Default::default());
+            removal
+                .edit(store.point(&parent_hash).1, None, None)
+                .unwrap();
             store.apply(removal).unwrap();
         }
         store

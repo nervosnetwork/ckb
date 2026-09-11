@@ -91,11 +91,10 @@ async fn shutdown(
 async fn commit_observes_notice_refund_before_its_first_wait_poll() {
     let (pool, sink, drain, _) = fixture();
     let hash = tx(4110).hash();
-    let effect = || Effect {
-        relay: Some(TxVerificationResult::Reject {
+    let effect = || {
+        Effect::relay(TxVerificationResult::Reject {
             tx_hash: hash.clone(),
-        }),
-        ..Effect::default()
+        })
     };
     let mut reservations: Vec<_> = (0..crate::constants::EFFECT_JOURNAL_REMOTE_MAX_BATCHES)
         .map(|_| {
@@ -122,8 +121,8 @@ async fn commit_observes_notice_refund_before_its_first_wait_poll() {
             drop(reservations.pop().unwrap());
             return Err(refused);
         }
-        let mut plan = Plan::new(pool.store.snapshot().0, Class::Remote);
-        plan.effects.push(effect());
+        let mut plan = Plan::new(pool.store.snapshot().0, Class::Remote, Default::default());
+        plan.notify(effect());
         Ok(plan)
     }))
     .await
@@ -152,8 +151,8 @@ async fn commit_observes_chain_release_before_its_first_wait_poll() {
     let mut attempts = 0;
     within(pool.commit(|| {
         attempts += 1;
-        let mut plan = Plan::new(pool.store.snapshot().0, Class::Trusted);
-        plan.edit(None, Some(Arc::clone(&candidate)))?;
+        let mut plan = Plan::new(pool.store.snapshot().0, Class::Trusted, Default::default());
+        plan.edit(None, Some(Arc::clone(&candidate)), None)?;
         if attempts == 1 {
             let refused = pool
                 .store
@@ -447,8 +446,8 @@ async fn relay_reset_rebuilds_current_missing_levels_and_ignores_retired_owners(
         drain.try_recv(),
         Some(TxVerificationResult::GenerationReset)
     ));
-    let mut remove = Plan::new(pool.store.snapshot().0, Class::Trusted);
-    remove.edit(Some(first), None).unwrap();
+    let mut remove = Plan::new(pool.store.snapshot().0, Class::Trusted, Default::default());
+    remove.edit(Some(first), None, None).unwrap();
     pool.store.apply(remove).unwrap();
     let mut levels = Vec::new();
     for _ in 0..128 {
@@ -860,12 +859,9 @@ async fn claimed_worker_retains_rejection_under_remote_notice_pressure_while_tru
             pool.store
                 .outbox
                 .reserve(
-                    vec![Effect {
-                        relay: Some(TxVerificationResult::Reject {
-                            tx_hash: tx(4092).hash(),
-                        }),
-                        ..Effect::default()
-                    }],
+                    vec![Effect::relay(TxVerificationResult::Reject {
+                        tx_hash: tx(4092).hash(),
+                    })],
                     Class::Remote,
                 )
                 .unwrap()
@@ -1022,13 +1018,15 @@ async fn selected_resolution_requeues_once_when_only_the_view_changes() {
     let original = entry(&pool.store, tx(4094), Source::Local);
     insert(&pool.store, Arc::clone(&original));
     let mut selected = pool.store.pop(WorkStage::Resolve, false).unwrap().unwrap();
-    let mut lifecycle = Plan::new(pool.store.snapshot().0, Class::Critical);
-    lifecycle.invalidate_view = true;
+    let mut lifecycle = Plan::new(pool.store.snapshot().0, Class::Critical, Default::default());
+    lifecycle.reset(pool.store.snapshot().1, false);
     pool.store.apply(lifecycle).unwrap();
     assert!(selected.current().unwrap());
     assert!(pool.store.pop(WorkStage::Resolve, false).unwrap().is_none());
-    let mut stale = Plan::new(selected.view, Class::Trusted);
-    stale.edit(Some(Arc::clone(&selected.entry)), None).unwrap();
+    let mut stale = Plan::new(selected.view, Class::Trusted, Default::default());
+    stale
+        .edit(Some(Arc::clone(&selected.entry)), None, None)
+        .unwrap();
     assert!(matches!(pool.store.apply(stale), Err(Error::Stale)));
     within(pool.requeue(&mut selected)).await.unwrap();
     let successor = pool.store.pop(WorkStage::Resolve, false).unwrap().unwrap();
@@ -1169,12 +1167,9 @@ async fn missing_parent_wait_and_request_commit_together_after_notice_pressure()
             pool.store
                 .outbox
                 .reserve(
-                    vec![Effect {
-                        relay: Some(TxVerificationResult::Reject {
-                            tx_hash: tx(4101).hash(),
-                        }),
-                        ..Effect::default()
-                    }],
+                    vec![Effect::relay(TxVerificationResult::Reject {
+                        tx_hash: tx(4101).hash(),
+                    })],
                     Class::Remote,
                 )
                 .unwrap()
@@ -1439,7 +1434,7 @@ async fn optional_history_pressure_preserves_local_and_owned_job_admission() {
             let target = candidate.hash();
             *pool.store.commit_observer.lock() = Some(Arc::new(move |plan, locked| {
                 if locked
-                    && plan.edits.get(&target).is_some_and(|edit| {
+                    && plan.edits().get(&target).is_some_and(|edit| {
                         edit.after
                             .as_ref()
                             .is_some_and(|owner| owner.accepted().is_some())
@@ -1695,17 +1690,17 @@ async fn local_removal_completes_the_accepted_closure_beyond_an_expiry_page() {
     let unrelated = accept(&pool.store, output_tx(7600), 1, 1, Status::Pending);
     let prepared = membership::removal(&pool.store, &root, &pool.config, None).unwrap();
     assert_eq!(
-        prepared.edits.len(),
+        prepared.edits().len(),
         crate::constants::MAX_POOL_MUTATION_CANDIDATES + 1
     );
-    assert!(!prepared.edits.contains_key(&unrelated));
+    assert!(!prepared.edits().contains_key(&unrelated));
     let expiry =
         membership::removal(&pool.store, &root, &pool.config, Some(Reject::Expiry(0))).unwrap();
     assert_eq!(
-        expiry.edits.len(),
+        expiry.edits().len(),
         crate::constants::MAX_POOL_MUTATION_CANDIDATES
     );
-    assert!(!expiry.edits.contains_key(&root_hash));
+    assert!(!expiry.edits().contains_key(&root_hash));
     drop(expiry);
     let late = accept(
         &pool.store,

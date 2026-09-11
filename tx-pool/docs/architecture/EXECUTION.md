@@ -74,6 +74,12 @@ settlement. `Job::complete()` marks the selection handled; the active reservatio
 is released only when the Job drops. Owner residency and effect-batch capacity
 have separate lifetimes and are not released by that marker.
 
+[Ingress](../../src/authority/ingress.rs) converts the exhaustive resolution
+result into one Plan: Ready keeps its original reads and installs Verify; Waiting
+installs its keys and derives any remote parent request from that same owner;
+Rejected retains its reads and prepares the rejection. The worker commits or
+retries this outcome, without assembling separate phase/read/effect values.
+
 ```mermaid
 flowchart TB
     S["Select owner + active reservation"] --> J["Job owns computation and settlement"]
@@ -166,7 +172,12 @@ and preserve reset order and ownership on allocation refusal.
 
 ## Ordered publication and projections
 
-[Outbox](../../src/authority/notice.rs) appends a batch with its owner commit and
+[Effect constructors](../../src/authority/notice.rs) select the required endpoints
+and bound diagnostics before Apply. Plan pairs effects with their owner edits or
+explicit notice-only outcomes. A refused Plan keeps no speculative obligations;
+Apply reserves its complete final batch before mutation.
+
+[Outbox](../../src/authority/notice.rs) appends that batch with its owner commit and
 activates it after guards open. A later ready batch cannot overtake an earlier
 unready one. Each batch settles, returns capacity and releases publisher/FIFO
 references before the next. Callback-owned clones have their own lifetimes.

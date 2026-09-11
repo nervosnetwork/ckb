@@ -4,10 +4,10 @@ use super::{
     budget::{Amount, owner_amount},
     ingress,
     jobs::{Verified, context_sensitive},
-    model::{Accepted, DependencyKey, Entry, Error, Phase, RelationKey, Source, Status},
+    model::{Accepted, DependencyKey, Entry, Error, Phase, Source, Status},
     notice::Effect,
     residency,
-    store::{CHILD, DEP, INPUT, Plan, ReadSet, Store},
+    store::{Plan, Store},
 };
 use crate::{
     component::entry::TxEntrySnapshot, constants::MAX_POOL_MUTATION_CANDIDATES, error::Reject,
@@ -23,6 +23,9 @@ use std::{
     collections::{BTreeMap, BTreeSet},
     sync::Arc,
 };
+
+mod graph;
+pub(super) use graph::Graph;
 
 pub(super) type Members = BTreeMap<Byte32, Arc<Entry>>;
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -247,140 +250,6 @@ pub(super) fn snapshot(
     })
 }
 
-pub(super) struct Graph<'a> {
-    pub(super) store: &'a Store,
-    pub(super) entries: Members,
-    pub(super) reads: ReadSet,
-}
-impl<'a> Graph<'a> {
-    pub(super) fn new(store: &'a Store, reads: ReadSet) -> Self {
-        Self {
-            store,
-            entries: Members::new(),
-            reads,
-        }
-    }
-    pub(super) fn get(&mut self, hash: &Byte32) -> Result<Option<Arc<Entry>>, Error> {
-        if let Some(entry) = self.entries.get(hash) {
-            return Ok(Some(Arc::clone(entry)));
-        }
-        // Reuse the original observation, including absence. Every consumer
-        // carries these reads to Apply, which still validates current identity.
-        let entry = match self.reads.observed_owner(hash) {
-            Some(None) => None,
-            Some(Some(owner)) => Some(owner.upgrade().ok_or(Error::Stale)?),
-            None => self.store.get(hash, &mut self.reads)?,
-        }
-        .filter(|entry| entry.accepted().is_some());
-        if let Some(entry) = &entry {
-            self.entries.insert(compact_packed(hash), Arc::clone(entry));
-        }
-        Ok(entry)
-    }
-    pub(super) fn require(&mut self, hash: &Byte32) -> Result<Arc<Entry>, Error> {
-        self.get(hash)?.ok_or(Error::Stale)
-    }
-    pub(super) fn descendants(
-        &mut self,
-        roots: impl IntoIterator<Item = Byte32>,
-        removed: &BTreeSet<Byte32>,
-        limit: usize,
-    ) -> Result<BTreeSet<Byte32>, Error> {
-        let mut result = BTreeSet::new();
-        let mut stack: Vec<_> = roots.into_iter().collect();
-        while let Some(hash) = stack.pop() {
-            if removed.contains(&hash) || !result.insert(hash.clone()) {
-                continue;
-            }
-            if result.len() > limit {
-                return Err(component_limit(false));
-            }
-            self.require(&hash)?;
-            stack.extend(self.store.members(
-                &RelationKey::Children(hash),
-                CHILD,
-                &mut self.reads,
-            )?);
-        }
-        Ok(result)
-    }
-    pub(super) fn ancestors(
-        &mut self,
-        roots: impl IntoIterator<Item = Byte32>,
-        removed: &BTreeSet<Byte32>,
-        limit: usize,
-    ) -> Result<BTreeSet<Byte32>, Error> {
-        let mut result = BTreeSet::new();
-        let mut stack: Vec<_> = roots.into_iter().collect();
-        while let Some(hash) = stack.pop() {
-            if removed.contains(&hash) || !result.insert(hash.clone()) {
-                continue;
-            }
-            if result.len() > limit {
-                return Err(Reject::ExceededMaximumAncestorsCount.into());
-            }
-            let entry = self.require(&hash)?;
-            stack.extend(accepted(&entry)?.parents.iter().cloned());
-        }
-        Ok(result)
-    }
-    /// Compute original totals only for entries that need removal notices.
-    /// Observe each descendant relation once, then reuse immutable parent edges.
-    pub(super) fn removal_totals(
-        &mut self,
-        hashes: &[Byte32],
-        max_ancestors: usize,
-    ) -> Result<BTreeMap<Byte32, (Aggregate, Aggregate)>, Error> {
-        let mut totals = BTreeMap::new();
-        for hash in hashes {
-            let ancestors = self.ancestors([hash.clone()], &BTreeSet::new(), max_ancestors)?;
-            totals.insert(
-                compact_packed(hash),
-                (aggregate(&self.entries, &ancestors)?, Aggregate::default()),
-            );
-        }
-        let descendants = self.descendants(
-            hashes.iter().cloned(),
-            &BTreeSet::new(),
-            self.store.budget.limits.accepted.items,
-        )?;
-        for hash in &descendants {
-            let own = Aggregate::one(accepted(self.entries.get(hash).ok_or(Error::Stale)?)?);
-            let mut seen = BTreeSet::new();
-            let mut stack = vec![hash.clone()];
-            while let Some(parent) = stack.pop() {
-                if !descendants.contains(&parent) || !seen.insert(parent.clone()) {
-                    continue;
-                }
-                if let Some((_, total)) = totals.get_mut(&parent) {
-                    *total = total.add(own)?;
-                }
-                let entry = self.entries.get(&parent).ok_or(Error::Stale)?;
-                stack.extend(accepted(entry)?.parents.iter().cloned());
-            }
-        }
-        Ok(totals)
-    }
-    pub(super) fn entry_snapshot(
-        &mut self,
-        hash: &Byte32,
-        max_ancestors: usize,
-    ) -> Result<TxEntrySnapshot, Error> {
-        let entry = self.require(hash)?;
-        let ancestors = self.ancestors([hash.clone()], &BTreeSet::new(), max_ancestors)?;
-        let descendants = self.descendants(
-            [hash.clone()],
-            &BTreeSet::new(),
-            self.store.budget.limits.accepted.items,
-        )?;
-        snapshot(
-            &entry,
-            aggregate(&self.entries, &ancestors)?,
-            aggregate(&self.entries, &descendants)?,
-        )
-    }
-}
-
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
 struct EvictionRank {
     status: Status,
@@ -433,7 +302,7 @@ fn rbf(
     let mut direct = BTreeSet::new();
     let mut conflict_point = None;
     for point in candidate.transaction.input_pts_iter() {
-        if let Some(hash) = graph.store.spender(&point, &mut graph.reads)? {
+        if let Some(hash) = graph.spender(&point)? {
             direct.insert(hash);
             conflict_point.get_or_insert(point);
         }
@@ -617,11 +486,14 @@ pub(super) fn admission(
     if view != verified.resolved().view {
         return Err(Error::Stale);
     }
-    let mut graph = Graph::new(store, verified.resolved().reads.clone());
-    graph.reads.owner(&candidate.hash(), before.as_ref())?;
-    let outcome = prepare_admission(
-        &mut graph,
+    let mut plan = Plan::new(
         view,
+        ingress::class(candidate.source),
+        verified.resolved().reads.clone(),
+    );
+    plan.observe_owner(&candidate.hash(), before.as_ref())?;
+    let outcome = prepare_admission(
+        &mut Graph::new(store, &mut plan),
         &snapshot,
         candidate,
         before.clone(),
@@ -630,17 +502,16 @@ pub(super) fn admission(
         retain_history,
     );
     match outcome {
-        Ok(plan) => Ok((plan, None)),
+        Ok(()) => Ok((plan, None)),
         Err(Error::Rejected(reject)) => {
             let retire = before.filter(|entry| Arc::ptr_eq(entry, candidate));
             let plan = ingress::rejection(
                 store,
-                view,
+                plan,
                 retire,
                 &candidate.hash(),
                 candidate.source,
                 reject.clone(),
-                graph.reads,
             )?;
             Ok((plan, Some(reject)))
         }
@@ -648,21 +519,15 @@ pub(super) fn admission(
     }
 }
 
-#[expect(
-    clippy::too_many_arguments,
-    reason = "pure admission uses the existing graph and its exact source, with no extra owner or proof wrapper"
-)]
 fn prepare_admission(
     graph: &mut Graph<'_>,
-    view: u64,
     snapshot: &Snapshot,
     candidate: &Arc<Entry>,
     before: Option<Arc<Entry>>,
     verified: &Verified,
     config: &TxPoolConfig,
     retain_history: bool,
-) -> Result<Plan, Error> {
-    let store = graph.store;
+) -> Result<(), Error> {
     let mut removed = rbf(graph, candidate, verified, config)?;
     let mut causes: BTreeMap<_, _> = removed
         .iter()
@@ -678,11 +543,7 @@ fn prepare_admission(
     )?;
     let mut late = BTreeSet::new();
     for point in candidate.transaction.output_pts_iter() {
-        for child in store.members(
-            &RelationKey::Dependency(DependencyKey::Cell(point)),
-            INPUT | DEP,
-            &mut graph.reads,
-        )? {
+        for child in graph.readers(point)? {
             if !removed.contains(&child) {
                 late.insert(child);
             }
@@ -711,7 +572,7 @@ fn prepare_admission(
         forced_status: verified.forced_status(),
     };
     let admitted = candidate.with_phase(Phase::Accepted(value));
-    let mut virtual_entries = apply_virtual(&graph.entries, &admitted, &late, &removed)?;
+    let mut virtual_entries = apply_virtual(graph.entries(), &admitted, &late, &removed)?;
     let mut affected = late_descendants.clone();
     affected.insert(candidate.hash());
     for hash in &affected {
@@ -732,30 +593,16 @@ fn prepare_admission(
         released = released.checked_add(old).ok_or_else(overflow)?;
         added = added.checked_add(new).ok_or_else(overflow)?;
     }
-    let optimistic = store
-        .budget
+    let optimistic = graph
         .accepted_usage()
         .checked_sub(released)
         .and_then(|usage| usage.checked_add(added));
-    if optimistic.is_none_or(|usage| !usage.fits(store.budget.limits.accepted)) {
+    if optimistic.is_none_or(|usage| !usage.fits(graph.limits().accepted)) {
         // This speculative map will be rebuilt from the full cut below.
         // Release it before the full capture and replacement map overlap.
         drop(virtual_entries);
-        let (full_view, _, all, reads) = store.capture(true);
-        if full_view != view {
-            return Err(Error::Stale);
-        }
-        graph.reads.merge(&reads)?;
-        let all: Members = all.into_iter().map(|entry| (entry.hash(), entry)).collect();
-        // Keep original point reads; a full capture may not rebind any of them.
-        for (hash, entry) in &graph.entries {
-            graph.reads.owner(hash, Some(entry))?;
-        }
-        for (hash, entry) in &all {
-            graph.reads.owner(hash, Some(entry))?;
-        }
-        graph.entries = all;
-        virtual_entries = apply_virtual(&graph.entries, &admitted, &late, &removed)?;
+        graph.capture_accepted()?;
+        virtual_entries = apply_virtual(graph.entries(), &admitted, &late, &removed)?;
         trim_virtual(
             &mut virtual_entries,
             snapshot,
@@ -764,12 +611,11 @@ fn prepare_admission(
             &mut causes,
             &late_descendants,
             &admitted.hash(),
-            store.budget.limits.accepted,
+            graph.limits().accepted,
         )?;
     }
     validate_backing(verified, &inputs, &removed)?;
-    let mut plan = Plan::new(view, ingress::class(candidate.source));
-    let order = removal_order(&graph.entries, &removed)?;
+    let order = removal_order(graph.entries(), &removed)?;
     let removed_totals = if order.len() > 1 {
         Some(graph.removal_totals(&order, config.max_ancestors_count)?)
     } else {
@@ -788,19 +634,18 @@ fn prepare_admission(
                 .get(&hash)
                 .ok_or(Error::Stale)?
                 .reject(&old, &candidate.hash(), snapshot)?;
-        plan.effects
-            .push(Effect::rejected(&hash, reason, Some(old_snapshot), true)?);
+        let effect = Effect::rejected(&hash, reason, Some(old_snapshot), true)?;
         let history = if retain_history {
             history(&old, &inputs, &removed, graph)?
         } else {
             None
         };
-        plan.edit(Some(old), history)?;
+        graph.plan.edit(Some(old), history, Some(effect))?;
     }
     for hash in late.difference(&removed) {
         let old = graph.require(hash)?;
         let after = virtual_entries.get(hash).cloned().ok_or(Error::Stale)?;
-        plan.edit(Some(old), Some(after))?;
+        graph.plan.edit(Some(old), Some(after), None)?;
     }
     let ancestors = ancestor_hashes(
         &virtual_entries,
@@ -813,7 +658,7 @@ fn prepare_admission(
         let descendants = descendant_hashes(
             &children(&virtual_entries),
             [admitted.hash()],
-            store.budget.limits.accepted.items,
+            graph.limits().accepted.items,
         )?;
         aggregate(&virtual_entries, &descendants)?
     };
@@ -822,14 +667,12 @@ fn prepare_admission(
         aggregate(&virtual_entries, &ancestors)?,
         descendants,
     )?;
-    plan.effects.push(Effect::accepted(
+    let effect = Effect::accepted(
         accepted_snapshot,
         accepted(&admitted)?.status(snapshot),
         candidate.source.residency_peer(),
-    ));
-    plan.edit(before, Some(admitted))?;
-    plan.reads.merge(&graph.reads)?;
-    Ok(plan)
+    );
+    graph.plan.edit(before, Some(admitted), Some(effect))
 }
 #[expect(
     clippy::too_many_arguments,
@@ -988,7 +831,7 @@ fn history(
         .chain(&accepted.transaction.resolved_cell_deps)
         .chain(&accepted.transaction.resolved_dep_groups)
     {
-        let spender = graph.store.spender(&cell.out_point, &mut graph.reads)?;
+        let spender = graph.spender(&cell.out_point)?;
         if candidate_inputs.contains(&cell.out_point)
             || spender.as_ref().is_some_and(|hash| !removed.contains(hash))
             || (cell.transaction_info.is_none() && removed.contains(&cell.out_point.tx_hash()))
@@ -1025,12 +868,12 @@ pub(super) fn removal(
     reason: Option<Reject>,
 ) -> Result<Plan, Error> {
     let (view, _) = store.snapshot();
-    let mut graph = Graph::new(store, ReadSet::default());
-    graph.reads.owner(&root.hash(), Some(root))?;
-    let mut plan = Plan::new(view, super::notice::Class::Trusted);
+    let mut plan = Plan::new(view, super::notice::Class::Trusted, Default::default());
+    plan.observe_owner(&root.hash(), Some(root))?;
     if root.accepted().is_none() {
-        plan.edit(Some(Arc::clone(root)), None)?;
+        plan.edit(Some(Arc::clone(root)), None, None)?;
     } else {
+        let mut graph = Graph::new(store, &mut plan);
         let removed = graph.descendants(
             [root.hash()],
             &BTreeSet::new(),
@@ -1044,7 +887,7 @@ pub(super) fn removal(
         } else {
             MAX_POOL_MUTATION_CANDIDATES
         };
-        let mut order = removal_order(&graph.entries, &removed)?;
+        let mut order = removal_order(graph.entries(), &removed)?;
         order.truncate(limit);
         let removed_totals = if reason.is_some() && order.len() > 1 {
             Some(graph.removal_totals(&order, config.max_ancestors_count)?)
@@ -1053,27 +896,28 @@ pub(super) fn removal(
         };
         for hash in order {
             let old = graph.require(&hash)?;
-            if let Some(reason) = &reason {
+            let effect = if let Some(reason) = &reason {
                 let snapshot = if let Some(totals) = &removed_totals {
                     let (ancestors, descendants) = totals.get(&hash).ok_or(Error::Stale)?;
                     self::snapshot(&old, *ancestors, *descendants)?
                 } else {
                     graph.entry_snapshot(&hash, config.max_ancestors_count)?
                 };
-                plan.effects.push(Effect::rejected(
+                Some(Effect::rejected(
                     &hash,
                     reason.clone(),
                     Some(snapshot),
                     true,
-                )?);
-            }
-            plan.edit(Some(old), None)?;
+                )?)
+            } else {
+                None
+            };
+            graph.plan.edit(Some(old), None, effect)?;
         }
     }
     if reason.is_none() {
-        plan.effects.push(Effect::reset());
+        plan.notify(Effect::reset());
     }
-    plan.reads.merge(&graph.reads)?;
     Ok(plan)
 }
 

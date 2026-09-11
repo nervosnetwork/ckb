@@ -8,11 +8,12 @@ use super::{
     notice::{self, Batch, Class, Effect, Outbox},
     queue::{Queues, WorkStage},
 };
-use crate::util::compact_packed;
+use crate::{error::Reject, util::compact_packed};
 use ckb_app_config::TxPoolConfig;
 use ckb_network::PeerIndex;
 use ckb_snapshot::Snapshot;
 use ckb_types::{
+    core::BlockView,
     packed::{Byte32, OutPoint, ProposalShortId},
     prelude::*,
 };
@@ -68,10 +69,14 @@ fn same_weak<T>(a: &Option<Weak<T>>, b: &Option<Weak<T>>) -> bool {
     }
 }
 impl ReadSet {
-    pub(super) fn observed_owner(&self, hash: &Byte32) -> Option<&Option<Weak<Entry>>> {
+    fn observed_owner(&self, hash: &Byte32) -> Option<&Option<Weak<Entry>>> {
         self.owners.get(hash)
     }
-    pub(super) fn owner(&mut self, hash: &Byte32, entry: Option<&Arc<Entry>>) -> Result<(), Error> {
+    pub(super) fn observe_owner(
+        &mut self,
+        hash: &Byte32,
+        entry: Option<&Arc<Entry>>,
+    ) -> Result<(), Error> {
         let observed = entry.map(Arc::downgrade);
         if let Some(old) = self.owners.get(hash) {
             if !same_weak(old, &observed) {
@@ -153,29 +158,31 @@ pub(super) struct Edit {
     pub(super) before: Option<Arc<Entry>>,
     pub(super) after: Option<Arc<Entry>>,
 }
-/// A lifecycle revision is paired with its snapshot. No caller can increment it.
+/// One decision owns its original observations, owner changes and obligations.
+/// Producers can add observations, but cannot replace them or edit the outcome
+/// vectors directly. A lifecycle revision stays paired with its snapshot.
 #[derive(Clone)]
 pub(super) struct Plan {
-    pub(super) view: u64,
-    pub(super) reads: ReadSet,
-    pub(super) edits: BTreeMap<Byte32, Edit>,
-    pub(super) effects: Vec<Effect>,
-    pub(super) class: Class,
-    pub(super) snapshot: Option<Arc<Snapshot>>,
-    pub(super) invalidate_view: bool,
-    pub(super) dry_run: bool,
-    pub(super) clear_all: bool,
-    pub(super) committed: Vec<(ProposalShortId, Byte32)>,
-    pub(super) ban: Option<(PeerIndex, Instant)>,
-    pub(super) peer_access: Option<(PeerIndex, bool)>,
+    view: u64,
+    reads: ReadSet,
+    edits: BTreeMap<Byte32, Edit>,
+    effects: Vec<Effect>,
+    class: Class,
+    snapshot: Option<Arc<Snapshot>>,
+    invalidate_view: bool,
+    dry_run: bool,
+    clear_all: bool,
+    committed: Vec<(ProposalShortId, Byte32)>,
+    ban: Option<(PeerIndex, Instant)>,
+    peer_access: Option<(PeerIndex, bool)>,
     pub(super) wake: BTreeSet<DependencyKey>,
     wake_advance: Option<WakePage>,
 }
 impl Plan {
-    pub(super) fn new(view: u64, class: Class) -> Self {
+    pub(super) fn new(view: u64, class: Class, reads: ReadSet) -> Self {
         Self {
             view,
-            reads: ReadSet::default(),
+            reads,
             edits: BTreeMap::new(),
             effects: Vec::new(),
             class,
@@ -194,6 +201,7 @@ impl Plan {
         &mut self,
         before: Option<Arc<Entry>>,
         after: Option<Arc<Entry>>,
+        effect: Option<Effect>,
     ) -> Result<(), Error> {
         let hash = before
             .as_ref()
@@ -206,7 +214,7 @@ impl Plan {
         if self.edits.contains_key(&hash) {
             return Err(Error::Fault("duplicate owner edit"));
         }
-        self.reads.owner(&hash, before.as_ref())?;
+        self.reads.observe_owner(&hash, before.as_ref())?;
         // An identical immutable owner is only a read. Re-inserting its queue
         // projection could duplicate work that a worker has already selected.
         if before
@@ -214,11 +222,160 @@ impl Plan {
             .zip(after.as_ref())
             .is_some_and(|(before, after)| Arc::ptr_eq(before, after))
         {
+            self.effects.extend(effect);
             return Ok(());
         }
         self.edits
             .insert(compact_packed(&hash), Edit { before, after });
+        self.effects.extend(effect);
         Ok(())
+    }
+    /// Notice-only outcomes have no owner edit, but still validate this Plan.
+    pub(super) fn notify(&mut self, effect: Effect) {
+        self.effects.push(effect);
+    }
+    pub(super) fn peer_banned(&mut self, store: &Store, peer: PeerIndex) -> Result<bool, Error> {
+        let banned = store.peer_banned(peer);
+        if self
+            .peer_access
+            .is_some_and(|original| original != (peer, banned))
+        {
+            return Err(Error::Stale);
+        }
+        self.peer_access = Some((peer, banned));
+        Ok(banned)
+    }
+    pub(super) fn ban_peer(
+        &mut self,
+        hash: &Byte32,
+        reject: Reject,
+        peer: PeerIndex,
+        deadline: Instant,
+    ) -> Result<(), Error> {
+        if self.ban.is_some() {
+            return Err(Error::Fault("duplicate peer ban"));
+        }
+        let effect = Effect::banned(hash, reject, peer, deadline)?;
+        self.ban = Some((peer, deadline));
+        self.notify(effect);
+        Ok(())
+    }
+    /// Resetting the lifecycle and invalidating relay knowledge are one outcome.
+    pub(super) fn reset(&mut self, snapshot: Arc<Snapshot>, clear_all: bool) {
+        self.snapshot = Some(snapshot);
+        self.invalidate_view = true;
+        self.clear_all = clear_all;
+        self.notify(Effect::reset());
+    }
+    /// Block observations and ordered committed-hash records come from the same
+    /// attached blocks; source preparation cannot append one without the other.
+    pub(super) fn chain(
+        &mut self,
+        snapshot: Arc<Snapshot>,
+        blocks: impl IntoIterator<Item = Arc<BlockView>>,
+    ) {
+        self.snapshot = Some(snapshot);
+        let blocks: Vec<_> = blocks.into_iter().collect();
+        for block in &blocks {
+            for transaction in block.transactions().iter().skip(1) {
+                self.committed.push((
+                    compact_packed(&transaction.proposal_short_id()),
+                    compact_packed(&transaction.hash()),
+                ));
+            }
+        }
+        if !blocks.is_empty() {
+            self.notify(Effect::blocks(blocks));
+        }
+    }
+    #[cfg(test)]
+    pub(super) fn committed_for_test(&mut self, records: Vec<(ProposalShortId, Byte32)>) {
+        self.committed = records;
+    }
+    pub(super) fn get(
+        &mut self,
+        store: &Store,
+        hash: &Byte32,
+    ) -> Result<Option<Arc<Entry>>, Error> {
+        store.get(hash, &mut self.reads)
+    }
+    /// Graph policy reuses the first immutable observation, including absence.
+    pub(super) fn original(
+        &mut self,
+        store: &Store,
+        hash: &Byte32,
+    ) -> Result<Option<Arc<Entry>>, Error> {
+        match self.reads.observed_owner(hash) {
+            Some(None) => Ok(None),
+            Some(Some(owner)) => owner.upgrade().map(Some).ok_or(Error::Stale),
+            None => self.get(store, hash),
+        }
+    }
+    pub(super) fn observe_owner(
+        &mut self,
+        hash: &Byte32,
+        entry: Option<&Arc<Entry>>,
+    ) -> Result<(), Error> {
+        self.reads.observe_owner(hash, entry)
+    }
+    pub(super) fn spender(
+        &mut self,
+        store: &Store,
+        point: &OutPoint,
+    ) -> Result<Option<Byte32>, Error> {
+        store.spender(point, &mut self.reads)
+    }
+    pub(super) fn members(
+        &mut self,
+        store: &Store,
+        key: &RelationKey,
+        roles: u8,
+    ) -> Result<Vec<Byte32>, Error> {
+        store.members(key, roles, &mut self.reads)
+    }
+    pub(super) fn peer_members(
+        &mut self,
+        store: &Store,
+        peer: PeerIndex,
+    ) -> Result<Vec<Byte32>, Error> {
+        store.peer_members(peer, &mut self.reads)
+    }
+    pub(super) fn capture_accepted(&mut self, store: &Store) -> Result<Vec<Arc<Entry>>, Error> {
+        let (view, _, entries, reads) = store.capture(true);
+        if view != self.view {
+            return Err(Error::Stale);
+        }
+        self.reads.merge(&reads)?;
+        for entry in &entries {
+            self.observe_owner(&entry.hash(), Some(entry))?;
+        }
+        Ok(entries)
+    }
+    /// A refused policy keeps every premise, including peer eligibility, while
+    /// dropping speculative owners and notices before constructing its rejection.
+    pub(super) fn discard_changes(self) -> Self {
+        Self {
+            peer_access: self.peer_access,
+            dry_run: self.dry_run,
+            ..Self::new(self.view, self.class, self.reads)
+        }
+    }
+    pub(super) fn dry_run(mut self) -> Self {
+        self.dry_run = true;
+        self.effects.clear();
+        self
+    }
+    #[cfg(any(test, feature = "internal"))]
+    pub(super) fn edits(&self) -> &BTreeMap<Byte32, Edit> {
+        &self.edits
+    }
+    #[cfg(test)]
+    pub(super) fn effects(&self) -> &[Effect] {
+        &self.effects
+    }
+    #[cfg(any(test, feature = "internal"))]
+    pub(super) fn silence_fixture(&mut self) {
+        self.effects.clear();
     }
     pub(super) fn advance(&mut self, page: WakePage) {
         self.wake_advance = Some(page);
@@ -796,7 +953,7 @@ impl Store {
             .owners
             .get(hash)
             .cloned();
-        reads.owner(hash, entry.as_ref())?;
+        reads.observe_owner(hash, entry.as_ref())?;
         Ok(entry)
     }
     /// Copy one bounded pool cell while its producer still owns its complete
@@ -815,7 +972,7 @@ impl Store {
         let _view = self.view.read();
         let shard = self.shards[self.owner_shard(&point.tx_hash())].read();
         let owner = shard.owners.get(&point.tx_hash());
-        reads.owner(&point.tx_hash(), owner)?;
+        reads.observe_owner(&point.tx_hash(), owner)?;
         let Some(owner) = owner.filter(|entry| entry.accepted().is_some()) else {
             return Ok(None);
         };
@@ -1227,7 +1384,7 @@ impl Store {
                 .filter_map(|edit| edit.before.as_deref()),
             plan.edits.values().filter_map(|edit| edit.after.as_deref()),
         )?;
-        if notice.is_none() {
+        if notice.is_none() && !plan.dry_run {
             *notice = self
                 .outbox
                 .reserve(std::mem::take(&mut plan.effects), plan.class)?;

@@ -2,7 +2,7 @@
 //! by one task after its guards open. There is no preallocated sequence gap.
 use super::{
     budget::Limits,
-    model::{Error, FullReason, Status},
+    model::{DependencyKey, Entry, Error, FullReason, Phase, Status},
     relay::{AuthorityRelaySink, RelayMailboxDisposition},
 };
 use crate::{
@@ -41,12 +41,12 @@ mod tests;
 /// These values are fully built before Apply and never consult current owners.
 #[derive(Clone, Default)]
 pub(super) struct Effect {
-    pub(super) rejection: Option<crate::metrics::RejectionClass>,
-    pub(super) recent: Option<(Byte32, Reject, String)>,
-    pub(super) callback: Option<CallbackEvent>,
-    pub(super) ban: Option<(PeerIndex, Instant, String)>,
-    pub(super) relay: Option<TxVerificationResult>,
-    pub(super) blocks: Vec<Arc<BlockView>>,
+    rejection: Option<crate::metrics::RejectionClass>,
+    recent: Option<(Byte32, Reject, String)>,
+    callback: Option<CallbackEvent>,
+    ban: Option<(PeerIndex, Instant, String)>,
+    relay: Option<TxVerificationResult>,
+    blocks: Vec<Arc<BlockView>>,
 }
 impl Effect {
     pub(super) fn accepted(
@@ -56,16 +56,70 @@ impl Effect {
     ) -> Self {
         let hash = compact_packed(&entry.transaction.hash());
         Self {
-            callback: Some(match status {
-                Status::Proposed => CallbackEvent::Proposed(entry),
-                Status::Pending | Status::Gap => CallbackEvent::Pending(entry),
-            }),
             relay: Some(TxVerificationResult::Ok {
                 original_peer: peer,
                 tx_hash: hash,
             }),
+            ..Self::projected(entry, status)
+        }
+    }
+    pub(super) fn projected(entry: TxEntrySnapshot, status: Status) -> Self {
+        Self {
+            callback: Some(match status {
+                Status::Proposed => CallbackEvent::Proposed(entry),
+                Status::Pending | Status::Gap => CallbackEvent::Pending(entry),
+            }),
             ..Self::default()
         }
+    }
+    pub(super) fn relay(result: TxVerificationResult) -> Self {
+        Self {
+            relay: Some(result),
+            ..Self::default()
+        }
+    }
+    pub(super) fn waiting(entry: &Entry) -> Option<Self> {
+        let Phase::Waiting(keys) = &entry.phase else {
+            return None;
+        };
+        let peer = entry.source.residency_peer()?;
+        Some(Self::relay(TxVerificationResult::UnknownParents {
+            peer,
+            parents: keys
+                .iter()
+                .filter_map(|key| match key {
+                    DependencyKey::Cell(point) => Some(compact_packed(&point.tx_hash())),
+                    DependencyKey::Header(_) => None,
+                })
+                .collect(),
+        }))
+    }
+    pub(super) fn blocks(blocks: Vec<Arc<BlockView>>) -> Self {
+        Self {
+            blocks,
+            ..Self::default()
+        }
+    }
+    pub(super) fn banned(
+        hash: &Byte32,
+        reject: Reject,
+        peer: PeerIndex,
+        deadline: Instant,
+    ) -> Result<Self, Error> {
+        let reason = bounded_ban_reason(&reject);
+        Ok(Self {
+            ban: Some((peer, deadline, reason)),
+            relay: Some(TxVerificationResult::GenerationReset),
+            ..Self::rejected(hash, reject, None, false)?
+        })
+    }
+    #[cfg(test)]
+    pub(super) fn relay_result(&self) -> Option<&TxVerificationResult> {
+        self.relay.as_ref()
+    }
+    #[cfg(test)]
+    pub(super) fn callback(&self) -> Option<&CallbackEvent> {
+        self.callback.as_ref()
     }
     pub(super) fn rejected(
         hash: &Byte32,
@@ -747,7 +801,7 @@ fn run_endpoint<T>(name: &'static str, operation: impl FnOnce() -> T) -> Option<
     })
 }
 
-pub(super) fn bounded_ban_reason(reject: &Reject) -> String {
+fn bounded_ban_reason(reject: &Reject) -> String {
     bounded_text(format!("reject {reject}"), 1024)
 }
 fn serialized_recent_reject(reject: &Reject) -> Result<String, Error> {

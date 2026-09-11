@@ -28,7 +28,7 @@ use crate::{
         BoundedTransaction, ChainControl, ChainReorgArgs, LocalRemovalCompetingProgress, Request,
         TxVerificationResult, respond,
     },
-    util::{block_offload, compact_packed},
+    util::block_offload,
     verification::non_contextual_verify,
 };
 use ckb_app_config::TxPoolConfig;
@@ -506,12 +506,14 @@ impl Pool {
                                 )
                             } else {
                                 let (view, _) = self.store.snapshot();
-                                let mut plan = Plan::new(view, Class::Remote);
-                                plan.edit(Some(Arc::clone(&entry)), None)?;
-                                plan.effects.push(Effect {
-                                    relay: Some(TxVerificationResult::Reject { tx_hash: entry.hash() }),
-                                    ..Effect::default()
-                                });
+                                let mut plan = Plan::new(view, Class::Remote, Default::default());
+                                plan.edit(
+                                    Some(Arc::clone(&entry)),
+                                    None,
+                                    Some(Effect::relay(TxVerificationResult::Reject {
+                                        tx_hash: entry.hash(),
+                                    })),
+                                )?;
                                 Ok(plan)
                             }
                         }).await;

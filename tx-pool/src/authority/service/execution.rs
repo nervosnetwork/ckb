@@ -6,10 +6,11 @@ impl Pool {
     pub(super) async fn requeue(&self, job: &mut Job) -> Result<(), Error> {
         self.commit(|| {
             let (view, _) = self.store.snapshot();
-            let mut plan = Plan::new(view, ingress::class(job.entry.source));
+            let mut plan = Plan::new(view, ingress::class(job.entry.source), Default::default());
             plan.edit(
                 Some(Arc::clone(&job.entry)),
                 Some(job.entry.with_phase(Phase::Resolve)),
+                None,
             )?;
             Ok(plan)
         })
@@ -34,12 +35,11 @@ impl Pool {
             .commit(|| {
                 ingress::rejection(
                     &self.store,
-                    job.view,
+                    Plan::new(job.view, ingress::class(job.entry.source), reads.clone()),
                     Some(Arc::clone(&job.entry)),
                     &job.entry.hash(),
                     job.entry.source,
                     reject.clone(),
-                    reads.clone(),
                 )
             })
             .await;
@@ -63,33 +63,8 @@ impl Pool {
             jobs::resolve(&self.store, &job.entry, &self.config)
         });
         drop(cpu);
-        let (phase, reads, effect) = match resolution {
-            Ok(Resolution::Ready(resolved)) => (
-                Phase::Verify(Arc::clone(&resolved)),
-                resolved.reads.clone(),
-                None,
-            ),
-            Ok(Resolution::Waiting(keys, reads)) => {
-                let effect = job.entry.source.residency_peer().map(|peer| Effect {
-                    relay: Some(TxVerificationResult::UnknownParents {
-                        peer,
-                        parents: keys
-                            .iter()
-                            .filter_map(|key| match key {
-                                DependencyKey::Cell(point) => {
-                                    Some(compact_packed(&point.tx_hash()))
-                                }
-                                _ => None,
-                            })
-                            .collect(),
-                    }),
-                    ..Effect::default()
-                });
-                (Phase::Waiting(keys), reads, effect)
-            }
-            Ok(Resolution::Rejected(reject, reads)) => {
-                return self.reject_job(job, reject, reads).await;
-            }
+        let resolution = match resolution {
+            Ok(resolution) => resolution,
             Err(Error::Stale) => return self.requeue(job).await,
             Err(Error::Full(reason)) => {
                 return self
@@ -99,16 +74,7 @@ impl Pool {
             Err(error) => return Err(error),
         };
         let result = self
-            .commit(|| {
-                let mut plan = Plan::new(job.view, ingress::class(job.entry.source));
-                plan.reads = reads.clone();
-                plan.edit(
-                    Some(Arc::clone(&job.entry)),
-                    Some(job.entry.with_phase(phase.clone())),
-                )?;
-                plan.effects.extend(effect.clone());
-                Ok(plan)
-            })
+            .commit(|| ingress::resolution(&self.store, job.view, &job.entry, &resolution))
             .await;
         match result {
             Ok(_) => {
@@ -116,7 +82,7 @@ impl Pool {
                 Ok(())
             }
             Err(Error::Stale) => self.requeue(job).await,
-            Err(Error::Full(reason)) => {
+            Err(Error::Full(reason)) if !matches!(resolution, Resolution::Rejected(..)) => {
                 self.reject_job(job, Reject::Full(reason.to_string()), ReadSet::default())
                     .await
             }

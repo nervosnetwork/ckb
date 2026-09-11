@@ -21,12 +21,11 @@ impl Pool {
                             self.store.get(&transaction.hash(), &mut reads)?;
                             ingress::rejection(
                                 &self.store,
-                                view,
+                                Plan::new(view, ingress::class(source), reads),
                                 None,
                                 &transaction.hash(),
                                 source,
                                 Reject::Full(reason.to_string()),
-                                reads,
                             )
                         }
                         Err(error) => Err(error),
@@ -47,12 +46,11 @@ impl Pool {
                             self.store.get(&transaction.hash(), &mut reads)?;
                             ingress::rejection(
                                 &self.store,
-                                view,
+                                Plan::new(view, ingress::class(source), reads),
                                 None,
                                 &transaction.hash(),
                                 source,
                                 Reject::Full(reason.to_string()),
-                                reads,
                             )
                         })
                         .await;
@@ -121,21 +119,18 @@ impl Pool {
         dry_run: bool,
     ) -> Result<Result<EntryCompleted, Reject>, Error> {
         if dry_run {
-            let mut check = Plan::new(view, Class::Trusted);
-            check.reads = reads;
-            check.dry_run = true;
-            self.store.apply(check)?;
+            let check = Plan::new(view, Class::Trusted, reads);
+            self.store.apply(check.dry_run())?;
         } else {
             let batch = self
                 .commit(|| {
                     ingress::rejection(
                         &self.store,
-                        view,
+                        Plan::new(view, ingress::class(Source::Local), reads.clone()),
                         None,
                         hash,
                         Source::Local,
                         reject.clone(),
-                        reads.clone(),
                     )
                 })
                 .await?;
@@ -251,7 +246,7 @@ impl Pool {
             let mut retain_history = !dry_run;
             let mut attempt = || {
                 self.open()?;
-                let (mut plan, reject) = membership::admission(
+                let (plan, reject) = membership::admission(
                     &self.store,
                     &candidate,
                     before.clone(),
@@ -260,9 +255,7 @@ impl Pool {
                     retain_history,
                 )?;
                 let applied = if dry_run {
-                    plan.dry_run = true;
-                    plan.effects.clear();
-                    self.store.apply(plan)
+                    self.store.apply(plan.dry_run())
                 } else {
                     self.store.apply_admission(plan, &mut retain_history)
                 };
@@ -395,12 +388,12 @@ impl Pool {
                         if let Some(reject) = reject {
                             return Err(Error::Rejected(reject));
                         }
-                        if plan.edits.values().any(|edit| edit.before.is_some()) {
+                        if plan.edits().values().any(|edit| edit.before.is_some()) {
                             return Err(Error::Rejected(Reject::Full(
                                 "internal insertion would displace an owner".into(),
                             )));
                         }
-                        plan.effects.clear();
+                        plan.silence_fixture();
                         Ok(plan)
                     })
                     .await;

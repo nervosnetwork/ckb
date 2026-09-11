@@ -106,14 +106,15 @@ pub(in crate::authority) fn entry(
     })
 }
 pub(in crate::authority) fn insert(store: &Store, entry: Arc<Entry>) {
-    let mut plan = Plan::new(store.snapshot().0, Class::Trusted);
-    plan.edit(None, Some(entry)).unwrap();
+    let mut plan = Plan::new(store.snapshot().0, Class::Trusted, Default::default());
+    plan.edit(None, Some(entry), None).unwrap();
     store.apply(plan).unwrap();
 }
 pub(in crate::authority) fn replace(store: &Store, before: Arc<Entry>, phase: Phase) -> Arc<Entry> {
     let after = before.with_phase(phase);
-    let mut plan = Plan::new(store.snapshot().0, Class::Trusted);
-    plan.edit(Some(before), Some(Arc::clone(&after))).unwrap();
+    let mut plan = Plan::new(store.snapshot().0, Class::Trusted, Default::default());
+    plan.edit(Some(before), Some(Arc::clone(&after)), None)
+        .unwrap();
     store.apply(plan).unwrap();
     after
 }
@@ -367,8 +368,8 @@ pub(in crate::authority) fn remote(peer: usize, cycles: u64) -> Source {
 }
 
 pub(in crate::authority) fn delete(store: &Store, entry: Arc<Entry>) -> Plan {
-    let mut plan = Plan::new(store.snapshot().0, Class::Trusted);
-    plan.edit(Some(entry), None).unwrap();
+    let mut plan = Plan::new(store.snapshot().0, Class::Trusted, Default::default());
+    plan.edit(Some(entry), None, None).unwrap();
     plan
 }
 

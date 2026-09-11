@@ -30,11 +30,12 @@ fn registering_missing_after_availability_rejects_the_old_absence() {
         remote(1, 1),
     );
     insert(&store, Arc::clone(&owner));
-    let mut plan = Plan::new(store.snapshot().0, Class::Remote);
-    store.get(&parent.hash(), &mut plan.reads).unwrap();
+    let mut plan = Plan::new(store.snapshot().0, Class::Remote, Default::default());
+    plan.get(&store, &parent.hash()).unwrap();
     plan.edit(
         Some(Arc::clone(&owner)),
         Some(owner.with_phase(Phase::Waiting(BTreeSet::from([DependencyKey::Cell(point)])))),
+        None,
     )
     .unwrap();
     accept(&store, parent, 1, 1, Status::Pending);
@@ -402,8 +403,9 @@ fn trusted_waiter_checks_later_missing_producers_after_an_unready_known_producer
 
     // The first key remains legitimately blocked, but the later missing
     // producer makes trusted recovery terminal on this validated cut.
-    let (_, snapshot) = store.snapshot();
-    assert!(!waiting::available(&store, &snapshot, &first_key, &mut Default::default()).unwrap());
+    let (view, snapshot) = store.snapshot();
+    let mut plan = Plan::new(view, Class::Trusted, Default::default());
+    assert!(!waiting::available(&store, &snapshot, &first_key, &mut plan).unwrap());
     assert!(store.point(&first.hash()).1.is_some());
     assert!(drain_wakes(&store) > 0);
     assert!(store.point(&waiter.hash()).1.is_none());
@@ -428,7 +430,7 @@ fn shared_wake_readiness_rejects_changed_producer_and_spender_before_commit() {
         // Prepare both decisions first, then change a premise before commit.
         // This explicit interleaving exercises reuse of the first observation.
         let plan = waiting::wake(&store, &mut None).unwrap().unwrap();
-        assert_eq!(plan.edits.len(), 2);
+        assert_eq!(plan.edits().len(), 2);
         if change_spender {
             accept(&store, spend(7803, &[point], &[]), 1, 1, Status::Pending);
         } else {
@@ -472,13 +474,13 @@ fn wake_short_circuit_does_not_observe_an_unvisited_trigger() {
     let mut cursor = None;
     let mut plan = waiting::wake(&store, &mut cursor).unwrap().unwrap();
     assert_eq!(cursor, Some(trigger_key));
-    assert!(plan.edits.is_empty());
+    assert!(plan.edits().is_empty());
     // Both waiters stop at the earlier missing key. A first observation of
     // the trigger can bind its successor, proving the old owner was not read.
     let before = store.point(&trigger).1.unwrap();
     let successor = replace(&store, Arc::clone(&before), before.phase.clone());
     assert!(!Arc::ptr_eq(&before, &successor));
-    plan.reads.owner(&trigger, Some(&successor)).unwrap();
+    plan.observe_owner(&trigger, Some(&successor)).unwrap();
     // Replacing the producer still starts a newer wake pass. Its independent
     // cursor premise must reject the old page, despite the unvisited key.
     assert!(matches!(store.apply(plan), Err(Error::Stale)));

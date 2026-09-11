@@ -309,10 +309,9 @@ pub(super) fn resolve(
                         for key in &keys {
                             if let DependencyKey::Cell(point) = key
                                 && !super::waiting::pending_producer(
-                                    store,
+                                    store.get(&point.tx_hash(), &mut observed.reads)?.as_deref(),
                                     point,
-                                    &mut observed.reads,
-                                )?
+                                )
                             {
                                 return Ok(Resolution::Rejected(
                                     Reject::Resolve(OutPointError::Unknown(point.clone())),

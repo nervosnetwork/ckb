@@ -101,17 +101,16 @@ fn owner_edit_groups_cover_mixed_guards_and_empty_clear_shards() {
             )
         })
         .collect();
-    let mut initial = Plan::new(store.snapshot().0, Class::Trusted);
+    let mut initial = Plan::new(store.snapshot().0, Class::Trusted, Default::default());
     for (_, owner) in owners.iter().rev() {
-        initial.edit(None, Some(Arc::clone(owner))).unwrap();
+        initial.edit(None, Some(Arc::clone(owner)), None).unwrap();
     }
     store.apply(initial).unwrap();
     let (view, _, _, reads) = store.capture(false);
-    let mut removal = Plan::new(view, Class::Trusted);
-    removal.reads = reads;
+    let mut removal = Plan::new(view, Class::Trusted, reads);
     for (index, owner) in &owners {
         if index % 2 == 1 {
-            removal.edit(Some(Arc::clone(owner)), None).unwrap();
+            removal.edit(Some(Arc::clone(owner)), None, None).unwrap();
         }
     }
     store.apply(removal).unwrap();
@@ -127,12 +126,11 @@ fn owner_edit_groups_cover_mixed_guards_and_empty_clear_shards() {
     // The second pass also checks a completely empty edit table.
     for _ in 0..2 {
         let (view, _, owners, reads) = store.capture(false);
-        let mut clear = Plan::new(view, Class::Trusted);
-        clear.reads = reads;
+        let mut clear = Plan::new(view, Class::Trusted, reads);
         clear.invalidate_view = true;
         clear.clear_all = true;
         for owner in owners {
-            clear.edit(Some(owner), None).unwrap();
+            clear.edit(Some(owner), None, None).unwrap();
         }
         store.apply(clear).unwrap();
         assert_eq!(store.snapshot().0, view + 1);
@@ -155,7 +153,7 @@ fn owner_preflight_preserves_shard_order_between_collision_and_counter_errors() 
         } else {
             (last, first)
         };
-        let mut plan = Plan::new(store.snapshot().0, Class::Trusted);
+        let mut plan = Plan::new(store.snapshot().0, Class::Trusted, Default::default());
         for suffix in [1, 2] {
             let mut bytes: [u8; 32] = collision.1.as_slice().try_into().unwrap();
             bytes[31] = suffix;
@@ -166,6 +164,7 @@ fn owner_preflight_preserves_shard_order_between_collision_and_counter_errors() 
                     tx(7751).fake_hash(Byte32::new(bytes)),
                     Source::Recovery,
                 )),
+                None,
             )
             .unwrap();
         }
@@ -176,6 +175,7 @@ fn owner_preflight_preserves_shard_order_between_collision_and_counter_errors() 
                 tx(7752).fake_hash(exhausted.1.clone()),
                 Source::Recovery,
             )),
+            None,
         )
         .unwrap();
         store.shards[*exhausted.0].write().revision = u64::MAX;
@@ -228,9 +228,11 @@ fn coupled_spender_transfer_preserves_roles_in_both_hash_orders() {
         );
         let before = store.capture(false);
         let budget = store.budget.accepted_usage();
-        let mut conflict = Plan::new(store.snapshot().0, Class::Trusted);
-        conflict.edit(None, Some(Arc::clone(&queued))).unwrap();
-        conflict.edit(None, Some(Arc::clone(&new))).unwrap();
+        let mut conflict = Plan::new(store.snapshot().0, Class::Trusted, Default::default());
+        conflict
+            .edit(None, Some(Arc::clone(&queued)), None)
+            .unwrap();
+        conflict.edit(None, Some(Arc::clone(&new)), None).unwrap();
         assert!(matches!(
             store.apply(conflict),
             Err(Error::Fault("multiple accepted spenders"))
@@ -250,10 +252,12 @@ fn coupled_spender_transfer_preserves_roles_in_both_hash_orders() {
             Some(old_hash.clone())
         );
 
-        let mut transfer = Plan::new(store.snapshot().0, Class::Trusted);
-        transfer.edit(Some(old), None).unwrap();
-        transfer.edit(None, Some(Arc::clone(&new))).unwrap();
-        transfer.edit(None, Some(Arc::clone(&queued))).unwrap();
+        let mut transfer = Plan::new(store.snapshot().0, Class::Trusted, Default::default());
+        transfer.edit(Some(old), None, None).unwrap();
+        transfer.edit(None, Some(Arc::clone(&new)), None).unwrap();
+        transfer
+            .edit(None, Some(Arc::clone(&queued)), None)
+            .unwrap();
         store.apply(transfer).unwrap();
         assert!(store.point(&old_hash).1.is_none());
         assert!(Arc::ptr_eq(&store.point(&new.hash()).1.unwrap(), &new));
@@ -284,9 +288,9 @@ fn coupled_spender_transfer_preserves_roles_in_both_hash_orders() {
                 .unwrap(),
             vec![queued.hash()]
         );
-        let mut removal = Plan::new(store.snapshot().0, Class::Trusted);
-        removal.edit(Some(new), None).unwrap();
-        removal.edit(Some(queued), None).unwrap();
+        let mut removal = Plan::new(store.snapshot().0, Class::Trusted, Default::default());
+        removal.edit(Some(new), None, None).unwrap();
+        removal.edit(Some(queued), None, None).unwrap();
         store.apply(removal).unwrap();
         assert!(store.relation(&key).is_none());
         assert!(
@@ -328,20 +332,20 @@ fn spender_only_relation_survives_reader_and_wake_retirement() {
             .unwrap(),
         vec![readers[0].clone(), spender.clone(), readers[1].clone()]
     );
-    let mut remove = Plan::new(store.snapshot().0, Class::Trusted);
+    let mut remove = Plan::new(store.snapshot().0, Class::Trusted, Default::default());
     for reader in &readers {
-        remove.edit(store.point(reader).1, None).unwrap();
+        remove.edit(store.point(reader).1, None, None).unwrap();
     }
     store.apply(remove).unwrap();
     assert!(store.relation(&key).unwrap().lock().members.is_empty());
     let waiter = entry(&store, tx(7716), Source::Local)
         .with_phase(Phase::Waiting(BTreeSet::from([dependency.clone()])));
     insert(&store, Arc::clone(&waiter));
-    let mut signal = Plan::new(store.snapshot().0, Class::Trusted);
+    let mut signal = Plan::new(store.snapshot().0, Class::Trusted, Default::default());
     signal.wake.insert(dependency);
     store.apply(signal).unwrap();
-    let mut remove = Plan::new(store.snapshot().0, Class::Trusted);
-    remove.edit(Some(waiter), None).unwrap();
+    let mut remove = Plan::new(store.snapshot().0, Class::Trusted, Default::default());
+    remove.edit(Some(waiter), None, None).unwrap();
     store.apply(remove).unwrap();
     store
         .apply(
@@ -360,8 +364,8 @@ fn spender_only_relation_survives_reader_and_wake_retirement() {
         vec![spender.clone()]
     );
     assert!(store.relation(&key).unwrap().lock().members.is_empty());
-    let mut remove = Plan::new(store.snapshot().0, Class::Trusted);
-    remove.edit(store.point(&spender).1, None).unwrap();
+    let mut remove = Plan::new(store.snapshot().0, Class::Trusted, Default::default());
+    remove.edit(store.point(&spender).1, None, None).unwrap();
     store.apply(remove).unwrap();
     assert!(store.relation(&key).is_none());
     assert!(!store.is_faulted());
@@ -438,8 +442,8 @@ fn projection_role_union_survives_phase_changes_and_duplicate_dependencies() {
         store.spender(&point, &mut ReadSet::default()).unwrap(),
         Some(hash.clone())
     );
-    let mut removal = Plan::new(store.snapshot().0, Class::Trusted);
-    removal.edit(Some(owner), None).unwrap();
+    let mut removal = Plan::new(store.snapshot().0, Class::Trusted, Default::default());
+    removal.edit(Some(owner), None, None).unwrap();
     store.apply(removal).unwrap();
     assert_eq!(roles(&cell_key), None);
     assert_eq!(roles(&child_key), None);
@@ -528,7 +532,7 @@ fn history_retry_revalidates_before_mutation_and_refunds_on_failure() {
         let wait = Mutex::new(wait);
         *store.commit_observer.lock() = Some(Arc::new(move |plan, locked| {
             if !locked
-                && plan.edits.contains_key(&target)
+                && plan.edits().contains_key(&target)
                 && observed.fetch_add(1, Ordering::AcqRel) == 1
             {
                 entered.send(()).unwrap();
@@ -587,12 +591,12 @@ fn history_retry_without_optional_history_is_bounded_and_refunds_notices() {
         ..config()
     };
     let store = store_with_pipeline_limit(chain_snapshot(), &configuration, 64_000);
-    let mut plan = Plan::new(store.snapshot().0, Class::Trusted);
+    let mut plan = Plan::new(store.snapshot().0, Class::Trusted, Default::default());
     for nonce in 7500..7570 {
-        plan.edit(None, Some(entry(&store, tx(nonce), Source::Local)))
+        plan.edit(None, Some(entry(&store, tx(nonce), Source::Local)), None)
             .unwrap();
     }
-    plan.effects.push(Effect::reset());
+    plan.notify(Effect::reset());
     let attempts = Arc::new(AtomicU64::new(0));
     let observed = Arc::clone(&attempts);
     *store.commit_observer.lock() = Some(Arc::new(move |_, locked| {
@@ -735,7 +739,7 @@ async fn production_overlap(shared_code: bool) {
     let target = hashes.clone();
     *store.commit_observer.lock() = Some(Arc::new(move |plan, locked| {
         if let Some((index, _)) = target.iter().enumerate().find(|(_, hash)| {
-            plan.edits.get(*hash).is_some_and(|edit| {
+            plan.edits().get(*hash).is_some_and(|edit| {
                 edit.after
                     .as_ref()
                     .is_some_and(|entry| entry.accepted().is_some())
@@ -837,10 +841,10 @@ async fn remote_jobs_sharing_only_read_only_cell_dep_hold_final_commit_cuts_toge
 fn ban_deadlines_never_shorten_and_saturation_discards_only_the_oldest_marker() {
     let store = store();
     let now = Instant::now();
-    let mut initial = Plan::new(store.snapshot().0, Class::Remote);
+    let mut initial = Plan::new(store.snapshot().0, Class::Remote, Default::default());
     initial.ban = Some((1.into(), now + Duration::from_secs(10_000)));
     store.apply(initial).unwrap();
-    let mut shorter = Plan::new(store.snapshot().0, Class::Remote);
+    let mut shorter = Plan::new(store.snapshot().0, Class::Remote, Default::default());
     shorter.ban = Some((1.into(), now + Duration::from_secs(1)));
     store.apply(shorter).unwrap();
     assert_eq!(
@@ -848,7 +852,7 @@ fn ban_deadlines_never_shorten_and_saturation_discards_only_the_oldest_marker() 
         Some(&(now + Duration::from_secs(10_000)))
     );
     for index in 2..=crate::constants::PEER_BAN_FENCE_CAPACITY + 1 {
-        let mut plan = Plan::new(store.snapshot().0, Class::Remote);
+        let mut plan = Plan::new(store.snapshot().0, Class::Remote, Default::default());
         plan.ban = Some((index.into(), now + Duration::from_secs(index as u64)));
         store.apply(plan).unwrap();
     }
@@ -905,17 +909,18 @@ fn remaining_counter_exhaustion_rejects_before_any_owner_or_notice_change() {
         }
         let before = store.capture(false);
         let charge = store.budget.accepted_usage();
-        let mut plan = Plan::new(before.0, Class::Trusted);
+        let mut plan = Plan::new(before.0, Class::Trusted, Default::default());
         plan.edit(
             Some(Arc::clone(&owner)),
             Some(owner.with_phase(Phase::Resolve)),
+            None,
         )
         .unwrap();
         if counter == "view counter" {
             plan.invalidate_view = true;
         }
         plan.wake.insert(key);
-        plan.effects.push(
+        plan.notify(
             Effect::rejected(
                 &hash,
                 crate::error::Reject::Malformed("counter fixture".into(), String::new()),
@@ -989,12 +994,11 @@ fn projection_versions_do_not_alias_after_complete_relation_or_peer_reentry() {
         vec![hash.clone()]
     );
     let owner = store.point(&hash).1.unwrap();
-    let mut removal = Plan::new(store.snapshot().0, Class::Trusted);
-    removal.edit(Some(owner), None).unwrap();
+    let mut removal = Plan::new(store.snapshot().0, Class::Trusted, Default::default());
+    removal.edit(Some(owner), None, None).unwrap();
     store.apply(removal).unwrap();
     accept(&store, transaction, 1, 1, Status::Pending);
-    let mut stale = Plan::new(store.snapshot().0, Class::Trusted);
-    stale.reads = relation;
+    let stale = Plan::new(store.snapshot().0, Class::Trusted, relation);
     assert!(matches!(store.apply(stale), Err(Error::Stale)));
     let remote = entry(
         &store,
@@ -1007,12 +1011,11 @@ fn projection_versions_do_not_alias_after_complete_relation_or_peer_reentry() {
         store.peer_members(93.into(), &mut peers).unwrap(),
         vec![remote.hash()]
     );
-    let mut removal = Plan::new(store.snapshot().0, Class::Trusted);
-    removal.edit(Some(Arc::clone(&remote)), None).unwrap();
+    let mut removal = Plan::new(store.snapshot().0, Class::Trusted, Default::default());
+    removal.edit(Some(Arc::clone(&remote)), None, None).unwrap();
     store.apply(removal).unwrap();
     insert(&store, remote);
-    let mut stale = Plan::new(store.snapshot().0, Class::Trusted);
-    stale.reads = peers;
+    let stale = Plan::new(store.snapshot().0, Class::Trusted, peers);
     assert!(matches!(store.apply(stale), Err(Error::Stale)));
 }
 
@@ -1025,12 +1028,13 @@ fn full_query_waits_for_an_atomic_multi_shard_change_and_returns_one_coherent_cu
         .find(|tx| store.owner_shard(&tx.hash()) != store.owner_shard(&a))
         .unwrap();
     let b = accept(&store, b, 2000, 11, Status::Pending);
-    let mut plan = Plan::new(store.snapshot().0, Class::Trusted);
+    let mut plan = Plan::new(store.snapshot().0, Class::Trusted, Default::default());
     for hash in [&a, &b] {
         let before = store.point(hash).1.unwrap();
         plan.edit(
             Some(Arc::clone(&before)),
             Some(before.with_phase(Phase::Resolve)),
+            None,
         )
         .unwrap();
     }
@@ -1160,7 +1164,10 @@ async fn production_mutation_overlap(mutation: Mutation) {
     let waits = [Mutex::new(wait_a), Mutex::new(wait_b)];
     let target = hashes.clone();
     *store.commit_observer.lock() = Some(Arc::new(move |plan, locked| {
-        if let Some(index) = target.iter().position(|hash| plan.edits.contains_key(hash)) {
+        if let Some(index) = target
+            .iter()
+            .position(|hash| plan.edits().contains_key(hash))
+        {
             entered.send((index, locked)).unwrap();
             if locked {
                 waits[index]
@@ -1300,7 +1307,7 @@ fn conflicting_input_commits_cannot_both_enter_the_validated_owner_cut() {
     *store.commit_observer.lock() = Some(Arc::new(move |plan, locked| {
         let index = target
             .iter()
-            .position(|hash| plan.edits.contains_key(hash))
+            .position(|hash| plan.edits().contains_key(hash))
             .unwrap();
         entered.send((index, locked)).unwrap();
         if locked {
@@ -1372,9 +1379,13 @@ fn phase_and_source_updates_keep_current_proposal_and_exact_expiry() {
             source: remote(later),
             ..verifying.as_ref().clone()
         });
-        let mut update = Plan::new(store.snapshot().0, Class::Trusted);
+        let mut update = Plan::new(store.snapshot().0, Class::Trusted, Default::default());
         update
-            .edit(Some(Arc::clone(&verifying)), Some(Arc::clone(&extended)))
+            .edit(
+                Some(Arc::clone(&verifying)),
+                Some(Arc::clone(&extended)),
+                None,
+            )
             .unwrap();
         store.apply(update).unwrap();
         lookup(&extended);
@@ -1383,8 +1394,8 @@ fn phase_and_source_updates_keep_current_proposal_and_exact_expiry() {
         assert_eq!(expired.len(), 1);
         assert!(Arc::ptr_eq(&expired[0], &extended));
 
-        let mut stale = Plan::new(store.snapshot().0, Class::Trusted);
-        stale.edit(Some(verifying), None).unwrap();
+        let mut stale = Plan::new(store.snapshot().0, Class::Trusted, Default::default());
+        stale.edit(Some(verifying), None, None).unwrap();
         assert!(matches!(store.apply(stale), Err(Error::Stale)));
         lookup(&extended);
         let expired = store.expired(later, 0, 10);
@@ -1404,9 +1415,9 @@ fn phase_and_source_updates_keep_current_proposal_and_exact_expiry() {
                 source: Source::Local,
                 ..extended.as_ref().clone()
             });
-            let mut promotion = Plan::new(store.snapshot().0, Class::Trusted);
+            let mut promotion = Plan::new(store.snapshot().0, Class::Trusted, Default::default());
             promotion
-                .edit(Some(extended), Some(Arc::clone(&local)))
+                .edit(Some(extended), Some(Arc::clone(&local)), None)
                 .unwrap();
             store.apply(promotion).unwrap();
             local
@@ -1456,8 +1467,7 @@ fn expiry_capture_and_metrics_are_bounded_read_only_projections() {
     store.budget.publish_metrics();
     store.outbox.publish_metrics();
     assert_eq!(store.budget.accepted_usage(), charge);
-    let mut unchanged = Plan::new(view, Class::Remote);
-    unchanged.reads = reads;
+    let unchanged = Plan::new(view, Class::Remote, reads);
     assert!(store.apply(unchanged).unwrap().is_none());
     assert!(
         before
@@ -1466,8 +1476,8 @@ fn expiry_capture_and_metrics_are_bounded_read_only_projections() {
     );
     let first_hashes: BTreeSet<_> = first.iter().map(|entry| entry.hash()).collect();
     for owner in first {
-        let mut plan = Plan::new(view, Class::Remote);
-        plan.edit(Some(owner), None).unwrap();
+        let mut plan = Plan::new(view, Class::Remote, Default::default());
+        plan.edit(Some(owner), None, None).unwrap();
         store.apply(plan).unwrap();
     }
     let remaining = store.expired(now, 0, 100);
@@ -1501,7 +1511,7 @@ fn sparse_admission_replans_settled_capacity_using_fee_policy() {
         let (release, wait) = std::sync::mpsc::channel();
         let wait = Mutex::new(wait);
         *store.commit_observer.lock() = Some(Arc::new(move |plan, locked| {
-            if plan.edits.contains_key(&target) {
+            if plan.edits().contains_key(&target) {
                 entered.send(locked).unwrap();
                 if !locked {
                     wait.lock()
@@ -1577,7 +1587,7 @@ fn settled_capacity_refusal_and_dry_run_preserve_the_entire_owner_cut() {
     let (mut plan, reject) =
         admission(&store, &candidate, 100, 1, Status::Pending, &configuration).unwrap();
     assert!(reject.is_none());
-    plan.effects.push(
+    plan.notify(
         Effect::rejected(
             &candidate.hash(),
             crate::error::Reject::Full("uncommitted fixture".into()),
@@ -1652,8 +1662,7 @@ fn roleless_owner_transition_combines_duplicate_roles_and_preserves_waiters() {
         store.members(&key, INPUT | DEP, &mut reads).unwrap(),
         vec![accepted.hash()]
     );
-    let mut observed = Plan::new(view, Class::Trusted);
-    observed.reads = reads;
+    let mut observed = Plan::new(view, Class::Trusted, reads);
     observed.dry_run = true;
     store.apply(observed.clone()).unwrap();
     let hash = accepted.hash();
@@ -1671,7 +1680,7 @@ fn roleless_owner_transition_combines_duplicate_roles_and_preserves_waiters() {
 fn history_capacity_retry_rebuilds_relation_changes_after_dropping_history() {
     let (store, plan, victim, candidate) = history_pressure_plan();
     let keys: BTreeSet<_> = plan
-        .edits
+        .edits()
         .values()
         .filter_map(|edit| {
             edit.after.as_ref().and_then(|entry| match &entry.phase {
@@ -1744,7 +1753,7 @@ fn wake_completion_can_retire_its_row_and_old_pass_cannot_erase_reinserted_work(
         entry(&store, tx(30_201), remote(1, 1)).with_phase(Phase::Waiting([key.clone()].into()));
     insert(&store, Arc::clone(&waiter));
     let producer = accept(&store, parent.clone(), 1, 1, Status::Pending);
-    let mut old = Plan::new(store.snapshot().0, Class::Trusted);
+    let mut old = Plan::new(store.snapshot().0, Class::Trusted, Default::default());
     old.advance(store.wake_page(&mut None).unwrap());
     store
         .apply(
@@ -1825,15 +1834,14 @@ fn dirty_retirement_preserves_a_spender_and_clear_releases_all_queued_keys() {
         entry(&store, tx(30_303), remote(1, 1)).with_phase(Phase::Waiting([key.clone()].into()));
     insert(&store, waiter);
     store.start_wake(&key);
-    let mut stale = Plan::new(store.snapshot().0, Class::Trusted);
+    let mut stale = Plan::new(store.snapshot().0, Class::Trusted, Default::default());
     stale.advance(store.wake_page(&mut None).unwrap());
     let (view, _, owners, reads) = store.capture(false);
-    let mut clear = Plan::new(view, Class::Trusted);
-    clear.reads = reads;
+    let mut clear = Plan::new(view, Class::Trusted, reads);
     clear.invalidate_view = true;
     clear.clear_all = true;
     for owner in owners {
-        clear.edit(Some(owner), None).unwrap();
+        clear.edit(Some(owner), None, None).unwrap();
     }
     store.apply(clear).unwrap();
     assert!(store.dirty.lock().is_empty());
@@ -1863,7 +1871,7 @@ fn repeated_availability_advances_pass_without_duplicating_dirty_membership() {
     assert_eq!(store.dirty.lock().len(), 1);
     let current = store.wake_page(&mut None).unwrap();
     assert!(current.pass > first.pass);
-    let mut stale = Plan::new(store.snapshot().0, Class::Trusted);
+    let mut stale = Plan::new(store.snapshot().0, Class::Trusted, Default::default());
     stale.advance(first);
     assert!(matches!(store.apply(stale), Err(Error::Stale)));
     assert_eq!(store.dirty.lock().len(), 1);

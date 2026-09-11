@@ -25,11 +25,46 @@ and peer observations also use identity markers. Different repeated observations
 make a read set stale. Absence is a current predicate: absent → present → absent
 history alone does not falsify it.
 
-A Plan carries unique before/after owner edits, original reads, paired lifecycle,
-required effects and applicable chain/ban/wake changes. Its write support, relation
-changes, queue changes and charges are derived from those owners. There is no
-second mutable membership ledger to reconcile. Only full captures allocate the
+A Plan owns the decision from preparation through Apply. Construction seeds the
+original resolution or capture reads; later tracked reads extend that same private
+set. The [membership graph](../../src/authority/membership/graph.rs) borrows the
+Plan and hides its Store and owner cache from membership policy. It preserves the
+first owner observation, including absence, and records complete input/dep reader
+and child relations even when they are empty. Capacity planning can extend the
+same decision with a full accepted capture. Only full captures allocate the
 optional shard-revision arrays; ordinary reads stay sparse.
+
+`Plan::edit` adds a unique before/after owner change and its optional effect
+together, after checking the old identity and duplicate/hash constraints.
+Metadata-only changes explicitly pass no effect. Notice-only outcomes use
+`Plan::notify` and still validate the decision's premises. Effect fields are
+private: constructors define accepted, rejected, waiting, projection, ban, reset
+and block obligations. Peer bans and their generation-reset notices share one
+Plan operation; attached-block notices and committed-hash records also share
+their source. Write support, relation changes, queues and charges derive from
+the owner edits, without a second mutable membership ledger.
+
+A policy rejection consumes the existing Plan, discards its speculative edits
+and effects, and constructs only its required rejection outcome. Original reads,
+peer eligibility and dry-run mode survive. This keeps a late policy failure from
+leaking victims, acceptance notices or lifecycle changes.
+
+Read tracking does not infer which facts the business rule ought to use. Review
+that closure against transaction semantics and independently perturb its premises:
+
+| Decision | Required premises and outcome | Behavioral check |
+|---|---|---|
+| Admit a producer after its readers | Complete output readers include both inputs and cell-deps; every surviving reader gains the parent | `late_input_and_cell_dep_readers_invalidate_admission_and_become_parents_on_retry` |
+| Replace a spender | Exact input conflict, original victim owners, full descendant closure and backing; child-before-parent rejection notices precede admission | `replacement_retries_the_complete_descendant_set_with_exact_ordered_effects` |
+| Refuse a prepared policy | Retain original positive/negative reads and peer eligibility; publish only the rejection | `refused_plan_retains_its_original_reads_and_discards_speculative_changes_and_effects`; `rereading_peer_eligibility_cannot_replace_a_refused_plans_original_premise` |
+| Preview a result | Validate original reads and capacity without committing or reserving notices | `rejected_preview_validates_reads_without_consuming_notice_capacity_or_retiring_its_owner` |
+
+The first two checks in [membership tests](../../src/authority/tests/membership.rs)
+derive expected parents from fixture transaction bodies, independently of Graph
+and stored parent metadata. The latter checks are in
+[ingress contracts](../../src/authority/tests/ingress_contracts.rs). These contracts
+and counterexamples complement the restricted interfaces; they are not a proof
+that arbitrary future policy code has a complete read or effect set.
 
 ### Example: replacing an input spender
 
@@ -63,7 +98,7 @@ reservation can still refuse: sparse accepted-capacity pressure becomes Stale so
 fee policy can be replanned, while other refusals retain their classified outcome.
 The exact validated victims fund replacement credit. Speculative credit cannot
 escape a refused commit. Dry-run shares membership policy and final capacity
-validation, then stops without installing owners or effects. Capacity trimming
+validation, then stops without reserving notices or installing owners or effects. Capacity trimming
 can enlarge the RBF victim set, so complete backing is rechecked for that final set.
 
 Replacement history is optional. If only its pipeline/history capacity is lost,

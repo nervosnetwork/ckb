@@ -16,7 +16,7 @@ pub(super) fn available(
     store: &Store,
     snapshot: &Snapshot,
     key: &DependencyKey,
-    reads: &mut super::store::ReadSet,
+    plan: &mut Plan,
 ) -> Result<bool, Error> {
     use ckb_types::core::cell::{CellProvider, CellStatus, HeaderChecker};
     match key {
@@ -24,10 +24,10 @@ pub(super) fn available(
             Ok(crate::util::block_offload(|| snapshot.check_valid(hash)).is_ok())
         }
         DependencyKey::Cell(point) => {
-            if store.spender(point, reads)?.is_some() {
+            if plan.spender(store, point)?.is_some() {
                 return Ok(false);
             }
-            if let Some(owner) = store.get(&point.tx_hash(), reads)?
+            if let Some(owner) = plan.get(store, &point.tx_hash())?
                 && owner.accepted().is_some()
             {
                 let index: u32 = point.index().into();
@@ -42,15 +42,11 @@ pub(super) fn available(
 }
 /// A trusted missing input can wait only for a known, not-yet-accepted
 /// producer with that exact output. Absence is terminal on its current cut.
-pub(super) fn pending_producer(
-    store: &Store,
-    point: &ckb_types::packed::OutPoint,
-    reads: &mut super::store::ReadSet,
-) -> Result<bool, Error> {
+pub(super) fn pending_producer(owner: Option<&Entry>, point: &ckb_types::packed::OutPoint) -> bool {
     let index: u32 = point.index().into();
-    Ok(store.get(&point.tx_hash(), reads)?.is_some_and(|owner| {
+    owner.is_some_and(|owner| {
         owner.preaccepted() && (index as usize) < owner.transaction.outputs().len()
-    }))
+    })
 }
 pub(super) fn wake(
     store: &Store,
@@ -63,12 +59,12 @@ pub(super) fn wake(
     #[cfg(feature = "profiling")]
     let _span =
         tracing::trace_span!(target: "ckb_tx_pool_profile", "tx_pool.maintenance.wake").entered();
-    let mut plan = Plan::new(view, Class::Trusted);
-    // The page shares one trigger. Its first observation stays in plan.reads
+    let mut plan = Plan::new(view, Class::Trusted, Default::default());
+    // The page shares one trigger. Its first observation stays in the Plan
     // and is validated for every waiter when the whole plan commits.
     let mut trigger_ready = None;
     for hash in &page.hashes {
-        let Some(entry) = store.get(hash, &mut plan.reads)? else {
+        let Some(entry) = plan.get(store, hash)? else {
             continue;
         };
         let (keys, require_all, history) = match &entry.phase {
@@ -87,13 +83,13 @@ pub(super) fn wake(
                 match trigger_ready {
                     Some(ready) => ready,
                     None => {
-                        let ready = available(store, &snapshot, key, &mut plan.reads)?;
+                        let ready = available(store, &snapshot, key, &mut plan)?;
                         trigger_ready = Some(ready);
                         ready
                     }
                 }
             } else {
-                available(store, &snapshot, key, &mut plan.reads)?
+                available(store, &snapshot, key, &mut plan)?
             };
             any_ready |= ready;
             all_ready &= ready;
@@ -101,7 +97,7 @@ pub(super) fn wake(
                 && !history
                 && entry.source.requires_known_producer()
                 && let DependencyKey::Cell(point) = key
-                && !pending_producer(store, point, &mut plan.reads)?
+                && !pending_producer(plan.get(store, &point.tx_hash())?.as_deref(), point)
             {
                 lost = Some(point.clone());
                 break;
@@ -115,13 +111,13 @@ pub(super) fn wake(
             }
         }
         if let Some(point) = lost {
-            plan.effects.push(Effect::rejected(
+            let effect = Effect::rejected(
                 &entry.hash(),
                 Reject::Resolve(OutPointError::Unknown(point)),
                 None,
                 entry.source.residency_peer().is_some(),
-            )?);
-            plan.edit(Some(entry), None)?;
+            )?;
+            plan.edit(Some(entry), None, Some(effect))?;
         } else if (require_all && all_ready) || (!require_all && any_ready) {
             let after = if history {
                 Arc::new(Entry {
@@ -133,7 +129,7 @@ pub(super) fn wake(
             } else {
                 entry.with_phase(Phase::Resolve)
             };
-            plan.edit(Some(entry), Some(after))?;
+            plan.edit(Some(entry), Some(after), None)?;
         }
     }
     plan.advance(page);

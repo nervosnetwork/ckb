@@ -64,8 +64,8 @@ fn descendant_fee_saturation_remains_exact_after_removing_one_reader() {
         2
     );
     let before = store.point(&readers[1].hash()).1.unwrap();
-    let mut plan = Plan::new(store.snapshot().0, Class::Trusted);
-    plan.edit(Some(before), None).unwrap();
+    let mut plan = Plan::new(store.snapshot().0, Class::Trusted, Default::default());
+    plan.edit(Some(before), None, None).unwrap();
     store.apply(plan).unwrap();
     let expected = Capacity::shannons(1000 + reader_fee)
         .safe_add(
@@ -369,8 +369,8 @@ fn detail_rank_preserves_ordering_equivalence_arrival_hash_and_status() {
             arrival: 100,
             ..old.as_ref().clone()
         });
-        let mut plan = Plan::new(store.snapshot().0, Class::Trusted);
-        plan.edit(Some(old), Some(after)).unwrap();
+        let mut plan = Plan::new(store.snapshot().0, Class::Trusted, Default::default());
+        plan.edit(Some(old), Some(after), None).unwrap();
         store.apply(plan).unwrap();
     }
     children.sort_unstable();
@@ -439,9 +439,8 @@ fn summary_tracks_phase_and_snapshot_changes_without_retaining_removed_maximum()
         ckb_proposal_table::ProposalView::new([], [a.proposal()]),
         base.cloned_consensus(),
     ));
-    let mut plan = Plan::new(view, Class::Critical);
-    plan.reads = reads;
-    plan.snapshot = Some(next);
+    let mut plan = Plan::new(view, Class::Critical, reads);
+    plan.chain(next, []);
     store.apply(plan).unwrap();
     assert!(Arc::ptr_eq(&store.point(&a.hash()).1.unwrap(), &a));
     let info = summary(&store, &config()).unwrap();
@@ -459,8 +458,8 @@ fn summary_tracks_phase_and_snapshot_changes_without_retaining_removed_maximum()
     );
 
     replace(&store, waiting, Phase::Resolve);
-    let mut removal = Plan::new(store.snapshot().0, Class::Trusted);
-    removal.edit(Some(Arc::clone(&b)), None).unwrap();
+    let mut removal = Plan::new(store.snapshot().0, Class::Trusted, Default::default());
+    removal.edit(Some(Arc::clone(&b)), None, None).unwrap();
     store.apply(removal).unwrap();
     let info = summary(&store, &config()).unwrap();
     assert_eq!(
@@ -481,8 +480,8 @@ fn summary_tracks_phase_and_snapshot_changes_without_retaining_removed_maximum()
         (a.accepted().unwrap().size, 7, 77)
     );
 
-    let mut stale = Plan::new(store.snapshot().0, Class::Trusted);
-    stale.edit(Some(b), None).unwrap();
+    let mut stale = Plan::new(store.snapshot().0, Class::Trusted, Default::default());
+    stale.edit(Some(b), None, None).unwrap();
     assert!(matches!(store.apply(stale), Err(Error::Stale)));
     assert_eq!(summary(&store, &config()).unwrap().proposed_size, 1);
     store

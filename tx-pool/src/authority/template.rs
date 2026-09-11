@@ -206,12 +206,12 @@ impl Driver {
         let mut reads = ReadSet::default();
         for transaction in &transactions {
             let hash = transaction.transaction().hash();
-            reads.owner(&hash, Some(original.get(&hash).ok_or(Error::Stale)?))?;
+            reads.observe_owner(&hash, Some(original.get(&hash).ok_or(Error::Stale)?))?;
         }
         let proposals: HashSet<_> = optional.proposals.iter().cloned().collect();
         for (hash, entry) in &original {
             if proposals.contains(&entry.proposal()) {
-                reads.owner(hash, Some(entry))?;
+                reads.observe_owner(hash, Some(entry))?;
             }
         }
         // Compute DAO only for the final selected contents. Work IDs and time

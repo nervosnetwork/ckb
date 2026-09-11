@@ -42,9 +42,9 @@ fn proposal_handoff_preserves_new_owner_in_either_edit_order() {
         );
         let proposal = old.proposal();
         assert_eq!(proposal, new.proposal());
-        let mut collision = Plan::new(store.snapshot().0, Class::Trusted);
-        collision.edit(None, Some(Arc::clone(&old))).unwrap();
-        collision.edit(None, Some(Arc::clone(&new))).unwrap();
+        let mut collision = Plan::new(store.snapshot().0, Class::Trusted, Default::default());
+        collision.edit(None, Some(Arc::clone(&old)), None).unwrap();
+        collision.edit(None, Some(Arc::clone(&new)), None).unwrap();
         assert!(matches!(
             store.apply(collision),
             Err(Error::Full(FullReason::Other(
@@ -60,8 +60,8 @@ fn proposal_handoff_preserves_new_owner_in_either_edit_order() {
                 .is_empty()
         );
         insert(&store, Arc::clone(&old));
-        let mut collision = Plan::new(store.snapshot().0, Class::Trusted);
-        collision.edit(None, Some(Arc::clone(&new))).unwrap();
+        let mut collision = Plan::new(store.snapshot().0, Class::Trusted, Default::default());
+        collision.edit(None, Some(Arc::clone(&new)), None).unwrap();
         assert!(matches!(
             store.apply(collision),
             Err(Error::Full(FullReason::Other(
@@ -70,7 +70,7 @@ fn proposal_handoff_preserves_new_owner_in_either_edit_order() {
         ));
         assert!(store.point(&new.hash()).1.is_none());
         let mut handoff = delete(&store, Arc::clone(&old));
-        handoff.edit(None, Some(Arc::clone(&new))).unwrap();
+        handoff.edit(None, Some(Arc::clone(&new)), None).unwrap();
         store.apply(handoff).unwrap();
         let (_, live, committed) = store.compact_lookup(std::slice::from_ref(&proposal));
         assert!(committed.is_empty());
@@ -100,8 +100,8 @@ fn proposal_collision_rejection_preserves_incumbent_between_new_owners() {
     assert_eq!(last.proposal(), proposal);
     insert(&store, Arc::clone(&middle));
     let mut plan = delete(&store, Arc::clone(&middle));
-    plan.edit(None, Some(Arc::clone(&first))).unwrap();
-    plan.edit(None, Some(Arc::clone(&last))).unwrap();
+    plan.edit(None, Some(Arc::clone(&first)), None).unwrap();
+    plan.edit(None, Some(Arc::clone(&last)), None).unwrap();
     assert!(matches!(
         store.apply(plan),
         Err(Error::Full(FullReason::Other(
@@ -147,7 +147,7 @@ fn a_read_set_cannot_replace_an_original_owner_observation() {
     store.get(&old.hash(), &mut reads).unwrap();
     let replacement = replace(&store, Arc::clone(&old), Phase::Resolve);
     assert!(matches!(
-        reads.owner(&old.hash(), Some(&replacement)),
+        reads.observe_owner(&old.hash(), Some(&replacement)),
         Err(Error::Stale)
     ));
     let mut fresh = ReadSet::default();
@@ -204,8 +204,8 @@ fn accepted_capture_ignores_prepool_changes_but_detects_accepted_edits() {
 fn generation_clear_invalidates_old_reads_even_when_the_snapshot_is_identical() {
     let store = store();
     let (view, snapshot) = store.snapshot();
-    let mut old = Plan::new(view, Class::Trusted);
-    old.edit(None, Some(entry(&store, tx(8), Source::Local)))
+    let mut old = Plan::new(view, Class::Trusted, Default::default());
+    old.edit(None, Some(entry(&store, tx(8), Source::Local)), None)
         .unwrap();
     store
         .apply(chain::clear(&store, Some(Arc::clone(&snapshot)), false).unwrap())
@@ -223,7 +223,7 @@ fn rejected_multi_owner_edit_has_no_visible_prefix_or_accounting_change() {
     insert(&store, Arc::clone(&a));
     insert(&store, Arc::clone(&b));
     let mut plan = delete(&store, Arc::clone(&a));
-    plan.edit(Some(Arc::clone(&b)), None).unwrap();
+    plan.edit(Some(Arc::clone(&b)), None, None).unwrap();
     let newest = replace(&store, b, Phase::Resolve);
     assert!(matches!(store.apply(plan), Err(Error::Stale)));
     assert!(Arc::ptr_eq(&store.point(&a.hash()).1.unwrap(), &a));
@@ -241,9 +241,9 @@ fn competing_exact_victim_replacement_consumes_credit_once() {
     let hash = accept(&store, tx(11), 1, 1, Status::Pending);
     let before = store.point(&hash).1.unwrap();
     let after = before.with_phase(Phase::Resolve);
-    let mut first = Plan::new(store.snapshot().0, Class::Trusted);
+    let mut first = Plan::new(store.snapshot().0, Class::Trusted, Default::default());
     first
-        .edit(Some(Arc::clone(&before)), Some(Arc::clone(&after)))
+        .edit(Some(Arc::clone(&before)), Some(Arc::clone(&after)), None)
         .unwrap();
     let second = first.clone();
     store.apply(first).unwrap();
@@ -375,8 +375,9 @@ fn selected_job_cannot_consume_promoted_work() {
         source: Source::Recovery,
         ..owner.as_ref().clone()
     });
-    let mut plan = Plan::new(store.snapshot().0, Class::Trusted);
-    plan.edit(Some(owner), Some(Arc::clone(&promoted))).unwrap();
+    let mut plan = Plan::new(store.snapshot().0, Class::Trusted, Default::default());
+    plan.edit(Some(owner), Some(Arc::clone(&promoted)), None)
+        .unwrap();
     store.apply(plan).unwrap();
     assert!(!selected.current().unwrap());
     let successor = store.pop(WorkStage::Resolve, false).unwrap().unwrap();
@@ -393,9 +394,9 @@ fn selection_and_identical_owner_edits_preserve_one_job_without_rewriting_facts(
     let owner = entry(&store, tx(902), Source::Local);
     insert(&store, Arc::clone(&owner));
     let (view, _, _, reads) = store.capture(false);
-    let mut unchanged = Plan::new(view, Class::Trusted);
+    let mut unchanged = Plan::new(view, Class::Trusted, Default::default());
     unchanged
-        .edit(Some(Arc::clone(&owner)), Some(Arc::clone(&owner)))
+        .edit(Some(Arc::clone(&owner)), Some(Arc::clone(&owner)), None)
         .unwrap();
     store.apply(unchanged.clone()).unwrap();
     let job = store.pop(WorkStage::Resolve, false).unwrap().unwrap();
@@ -415,9 +416,9 @@ fn identical_owner_edit_still_rejects_a_stale_observation() {
     let store = store();
     let owner = entry(&store, tx(903), Source::Local);
     insert(&store, Arc::clone(&owner));
-    let mut unchanged = Plan::new(store.snapshot().0, Class::Trusted);
+    let mut unchanged = Plan::new(store.snapshot().0, Class::Trusted, Default::default());
     unchanged
-        .edit(Some(Arc::clone(&owner)), Some(Arc::clone(&owner)))
+        .edit(Some(Arc::clone(&owner)), Some(Arc::clone(&owner)), None)
         .unwrap();
     let successor = replace(&store, owner, Phase::Resolve);
     assert!(matches!(store.apply(unchanged), Err(Error::Stale)));
@@ -444,8 +445,7 @@ fn complete_dependency_observation_detects_late_readers() {
             .is_empty()
     );
     accept(&store, spend(24, &[], &[point]), 1, 1, Status::Pending);
-    let mut plan = Plan::new(store.snapshot().0, Class::Trusted);
-    plan.reads = reads;
+    let plan = Plan::new(store.snapshot().0, Class::Trusted, reads);
     assert!(matches!(store.apply(plan), Err(Error::Stale)));
 }
 
@@ -455,8 +455,8 @@ fn chain_preparation_pauses_claims_and_owner_changes_until_release() {
     insert(&store, entry(&store, tx(35), Source::Local));
     let pause = store.begin_chain().unwrap();
     assert!(store.pop(WorkStage::Resolve, false).unwrap().is_none());
-    let mut plan = Plan::new(store.snapshot().0, Class::Trusted);
-    plan.edit(None, Some(entry(&store, tx(36), Source::Local)))
+    let mut plan = Plan::new(store.snapshot().0, Class::Trusted, Default::default());
+    plan.edit(None, Some(entry(&store, tx(36), Source::Local)), None)
         .unwrap();
     assert!(matches!(
         store.apply(plan),
@@ -537,7 +537,11 @@ fn worker_notifications_require_queued_work_or_returned_capacity() {
             .unwrap(),
     );
     store
-        .apply(Plan::new(store.snapshot().0, Class::Trusted))
+        .apply(Plan::new(
+            store.snapshot().0,
+            Class::Trusted,
+            Default::default(),
+        ))
         .unwrap();
     assert!(capacity.as_mut().poll(&mut context).is_pending());
     assert!(work.as_mut().poll(&mut context).is_pending());
@@ -563,8 +567,8 @@ fn worker_notifications_require_queued_work_or_returned_capacity() {
     job.complete();
 
     let mut maintenance = std::pin::pin!(store.changed.notified());
-    let mut lifecycle = Plan::new(store.snapshot().0, Class::Critical);
-    lifecycle.invalidate_view = true;
+    let mut lifecycle = Plan::new(store.snapshot().0, Class::Critical, Default::default());
+    lifecycle.reset(store.snapshot().1, false);
     store.apply(lifecycle).unwrap();
     assert!(work.as_mut().poll(&mut context).is_ready());
     assert!(maintenance.as_mut().poll(&mut context).is_ready());

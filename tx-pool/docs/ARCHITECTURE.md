@@ -20,7 +20,7 @@ flowchart TB
 | Concept | Responsibility |
 |---|---|
 | Read set | Retains the original premises of a decision, including absence and complete relation reads |
-| Plan | Describes before/after owners, lifecycle changes and required effects; preparation is discardable |
+| Plan | Owns original reads throughout preparation and Apply; pairs owner changes with their effects and preserves premises when discarding a refused policy |
 | Apply | Revalidates premises and reserves exact capacity before committing owners, indexes, queues, charges and obligations |
 | Shards and gates | Protect conflicting facts during Apply; they are concurrency machinery, not independent policy authorities |
 | Effect outbox | Preserves ordered obligations after commit until publication settles |
@@ -86,6 +86,13 @@ reconciliation and publication remain live. The builder owns startup and task
 joins. Jobs, suspended VM state, active reservations and publisher endpoints have
 their own lifetimes, explained in [execution](architecture/EXECUTION.md).
 Consensus and VM truth remain in the canonical verification crates.
+
+Membership policy reads through a graph borrowing its Plan. The graph's private
+Store/cache boundary prevents policy from bypassing tracking or swapping out its
+observations. Private Plan and Effect fields centralize outcome construction.
+Business rules still own which premises and obligations are necessary; the
+[decision contracts](architecture/COMMIT.md#original-reads-and-intended-writes)
+tie those responsibilities to independent behavioral checks.
 
 ## Responsibilities in code
 

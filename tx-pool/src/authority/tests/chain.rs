@@ -1,5 +1,6 @@
 use super::*;
 use crate::authority::{ingress, model::Status, tests::common::*};
+use crate::callback::CallbackEvent;
 use ckb_proposal_table::ProposalView;
 use ckb_test_chain_utils::MockStore;
 use ckb_types::{
@@ -192,7 +193,7 @@ fn chain_commit_preserves_supplied_order_for_colliding_compact_ids() {
     let mut plan = reconcile(&store, &command, &config()).unwrap();
     // Inject a compact collision at the same checked boundary that receives
     // ordered block transaction facts; constructing a hash collision is unnecessary.
-    plan.committed = vec![(id.clone(), first), (id.clone(), second.clone())];
+    plan.committed_for_test(vec![(id.clone(), first), (id.clone(), second.clone())]);
     store.apply(plan).unwrap();
     let (_, live, committed) = store.compact_lookup(std::slice::from_ref(&id));
     assert!(live.is_empty());
@@ -636,7 +637,11 @@ fn chain_without_accepted_callbacks_skips_both_aggregate_passes() {
         ..config()
     };
     let plan = reconcile(&store, &command(&store, Vec::new()), &configuration).unwrap();
-    assert!(plan.effects.iter().all(|effect| effect.callback.is_none()));
+    assert!(
+        plan.effects()
+            .iter()
+            .all(|effect| effect.callback().is_none())
+    );
     store.apply(plan).unwrap();
     // A real accepted conflict still requires the old graph snapshot, including
     // its ancestor bound; the lazy gate must not suppress required computation.
@@ -674,9 +679,9 @@ fn chain_conflict_callbacks_keep_old_ancestor_and_descendant_totals() {
     )
     .unwrap();
     let callbacks: BTreeMap<_, _> = plan
-        .effects
+        .effects()
         .iter()
-        .filter_map(|effect| match &effect.callback {
+        .filter_map(|effect| match effect.callback() {
             Some(CallbackEvent::Reject(entry, _)) => Some((entry.transaction.hash(), entry)),
             _ => None,
         })
@@ -715,9 +720,9 @@ fn chain_status_callback_uses_final_graph_after_parent_commit() {
     };
     let plan = reconcile(&store, &command, &config()).unwrap();
     let callbacks: Vec<_> = plan
-        .effects
+        .effects()
         .iter()
-        .filter_map(|effect| match &effect.callback {
+        .filter_map(|effect| match effect.callback() {
             Some(CallbackEvent::Proposed(entry)) => Some(entry),
             _ => None,
         })
