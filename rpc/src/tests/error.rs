@@ -41,12 +41,6 @@ fn test_submit_transaction_error() {
         RPCError::from_submit_transaction_reject(&reject).message
     );
 
-    let reject = Reject::ExcessiveVerifyTime;
-    assert_eq!(
-        "PoolIsFull: Transaction verification exceeded the local tx-pool time limit",
-        RPCError::from_submit_transaction_reject(&reject).message
-    );
-
     let reject = Reject::Duplicated(Byte32::new([0; 32]));
     assert_eq!(
         "PoolRejectedDuplicatedTransaction: Transaction(Byte32(0x0000000000000000000000000000000000000000000000000000000000000000)) already exists in transaction_pool",
@@ -63,6 +57,32 @@ fn test_submit_transaction_error() {
     assert_eq!(
         "PoolRejectedTransactionBySizeLimit: Transaction size 10 exceeded maximum limit 9",
         RPCError::from_submit_transaction_reject(&reject).message
+    );
+}
+
+#[test]
+fn verification_time_limit_has_a_distinct_rpc_error() {
+    assert_eq!(
+        serde_json::to_value(RPCError::from_submit_transaction_reject(
+            &Reject::ExcessiveVerifyTime
+        ))
+        .unwrap(),
+        serde_json::json!({
+            "code": -1113,
+            "message": "PoolRejectedTransactionByVerifyTimeLimit: Transaction verification exceeded the local tx-pool time limit",
+            "data": "ExcessiveVerifyTime"
+        })
+    );
+    assert_eq!(
+        serde_json::to_value(RPCError::from_submit_transaction_reject(&Reject::Full(
+            "capacity".to_owned()
+        )))
+        .unwrap(),
+        serde_json::json!({
+            "code": -1106,
+            "message": "PoolIsFull: Transaction is replaced because the pool is full, capacity",
+            "data": "Full(\"capacity\")"
+        })
     );
 }
 

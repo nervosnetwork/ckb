@@ -3581,6 +3581,7 @@ If the transaction is already in the pool, rebroadcast it to peers.
 * [`PoolRejectedTransactionByMinFeeRate (-1104)`](../enum.RPCError.html#variant.PoolRejectedTransactionByMinFeeRate) - The transaction fee rate must be greater than or equal to the config option `tx_pool.min_fee_rate`.
 * [`PoolRejectedTransactionByMaxAncestorsCountLimit (-1105)`](../enum.RPCError.html#variant.PoolRejectedTransactionByMaxAncestorsCountLimit) - The ancestors count must be greater than or equal to the config option `tx_pool.max_ancestors_count`.
 * [`PoolIsFull (-1106)`](../enum.RPCError.html#variant.PoolIsFull) - Pool is full.
+* [`PoolRejectedTransactionByVerifyTimeLimit (-1113)`](../enum.RPCError.html#variant.PoolRejectedTransactionByVerifyTimeLimit) - Transaction verification exceeded the local tx-pool time limit.
 * [`PoolRejectedDuplicatedTransaction (-1107)`](../enum.RPCError.html#variant.PoolRejectedDuplicatedTransaction) - The transaction is already in the pool.
 * [`TransactionFailedToResolve (-301)`](../enum.RPCError.html#variant.TransactionFailedToResolve) - Failed to resolve the referenced cells and headers used in the transaction, as inputs or dependencies.
 * [`TransactionFailedToVerify (-302)`](../enum.RPCError.html#variant.TransactionFailedToVerify) - Failed to verify the transaction.
@@ -4463,6 +4464,7 @@ If you want to track the status of the transaction, please use the `get_transact
 * [`PoolRejectedTransactionByMinFeeRate (-1104)`](../enum.RPCError.html#variant.PoolRejectedTransactionByMinFeeRate) - The transaction fee rate must be greater than or equal to the config option `tx_pool.min_fee_rate`.
 * [`PoolRejectedTransactionByMaxAncestorsCountLimit (-1105)`](../enum.RPCError.html#variant.PoolRejectedTransactionByMaxAncestorsCountLimit) - The ancestors count must be greater than or equal to the config option `tx_pool.max_ancestors_count`.
 * [`PoolIsFull (-1106)`](../enum.RPCError.html#variant.PoolIsFull) - Pool is full.
+* [`PoolRejectedTransactionByVerifyTimeLimit (-1113)`](../enum.RPCError.html#variant.PoolRejectedTransactionByVerifyTimeLimit) - Transaction verification exceeded the local tx-pool time limit.
 * [`PoolRejectedDuplicatedTransaction (-1107)`](../enum.RPCError.html#variant.PoolRejectedDuplicatedTransaction) - The transaction is already in the pool.
 * [`TransactionFailedToResolve (-301)`](../enum.RPCError.html#variant.TransactionFailedToResolve) - Failed to resolve the referenced cells and headers used in the transaction, as inputs or dependencies.
 * [`TransactionFailedToVerify (-302)`](../enum.RPCError.html#variant.TransactionFailedToVerify) - Failed to verify the transaction.
@@ -4552,6 +4554,7 @@ The parameters and errors of this method are the same as `send_transaction`.
 * [`PoolRejectedTransactionByMinFeeRate (-1104)`](../enum.RPCError.html#variant.PoolRejectedTransactionByMinFeeRate) - The transaction fee rate must be greater than or equal to the config option `tx_pool.min_fee_rate`.
 * [`PoolRejectedTransactionByMaxAncestorsCountLimit (-1105)`](../enum.RPCError.html#variant.PoolRejectedTransactionByMaxAncestorsCountLimit) - The ancestors count must be greater than or equal to the config option `tx_pool.max_ancestors_count`.
 * [`PoolIsFull (-1106)`](../enum.RPCError.html#variant.PoolIsFull) - Pool is full.
+* [`PoolRejectedTransactionByVerifyTimeLimit (-1113)`](../enum.RPCError.html#variant.PoolRejectedTransactionByVerifyTimeLimit) - Transaction verification exceeded the local tx-pool time limit.
 * [`PoolRejectedDuplicatedTransaction (-1107)`](../enum.RPCError.html#variant.PoolRejectedDuplicatedTransaction) - The transaction is already in the pool.
 * [`TransactionFailedToResolve (-301)`](../enum.RPCError.html#variant.TransactionFailedToResolve) - Failed to resolve the referenced cells and headers used in the transaction, as inputs or dependencies.
 * [`TransactionFailedToVerify (-302)`](../enum.RPCError.html#variant.TransactionFailedToVerify) - Failed to verify the transaction.
@@ -8024,5 +8027,9 @@ For example, a cellbase transaction is not allowed in `send_transaction` RPC.
 (-1111): The transaction is rejected for RBF checking.
 ### ERROR `PoolRejectedInvalidated`
 (-1112): The transaction is rejected for ref cell consuming.
+### ERROR `PoolRejectedTransactionByVerifyTimeLimit`
+(-1113): Transaction verification exceeded the node's tx-pool time limit.
+
+This is a local resource policy, not a consensus verification failure.
 ### ERROR `Indexer`
 (-1200): The indexer error.
