@@ -2204,7 +2204,7 @@ fn test_load_cell_data_reads_once_and_preserves_snapshot_store_semantics() {
     }
     impl CellDataProvider for CountingLoader {
         fn get_cell_data(&self, _: &OutPoint) -> Option<Bytes> {
-            self.reads.fetch_add(1, Ordering::Relaxed);
+            self.reads.fetch_add(1, Ordering::SeqCst);
             Some(self.data.clone())
         }
         fn get_cell_data_hash(&self, _: &OutPoint) -> Option<packed::Byte32> {
@@ -2284,7 +2284,7 @@ fn test_load_cell_data_reads_once_and_preserves_snapshot_store_semantics() {
                 current.set_register(A7, LOAD_CELL_DATA_SYSCALL_NUMBER);
             }
             let actual = LoadCellData::new(&context).ecall(&mut machine);
-            assert_eq!(reads.load(Ordering::Relaxed), usize::from(index == 0));
+            assert_eq!(reads.load(Ordering::SeqCst), usize::from(index == 0));
             let expected = (|| -> Result<bool, VMError> {
                 let id = DataPieceId::CellDep(index as u32);
                 let mut sc = reference_context.snapshot2_context.lock().unwrap();
