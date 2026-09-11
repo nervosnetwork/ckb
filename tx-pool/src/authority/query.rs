@@ -319,14 +319,14 @@ pub(super) fn estimate_fee(
         return Err(Error::Full("invalid fee estimate target".into()));
     }
     let (_, snapshot, owners, _) = store.capture(true);
-    let selection = Selection::new(owners, &snapshot, config.max_ancestors_count)?;
+    let selection = Selection::new(&owners, &snapshot, config.max_ancestors_count)?;
     let mut remaining = target
         .saturating_sub(snapshot.consensus().tx_proposal_window().closest())
         .max(1);
     let mut bytes = 0usize;
     let mut cycles = 0u64;
-    for candidate in selection.candidates() {
-        let value = &candidate.accepted;
+    for candidate in selection.candidates_by_score() {
+        let value = candidate.accepted;
         bytes = bytes
             .checked_add(value.size)
             .ok_or(Error::Full("fee estimate bytes".into()))?;

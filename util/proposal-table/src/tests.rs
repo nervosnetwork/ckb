@@ -4,7 +4,52 @@ use std::{
     iter,
 };
 
-use crate::{ProposalTable, ProposalView, ProposalWindow};
+use crate::{ProposalStatus, ProposalTable, ProposalView, ProposalWindow};
+
+#[test]
+fn phase_lookup_preserves_band_precedence_absence_and_snapshot_origin() {
+    let id = |value: u16| {
+        let [high, low] = value.to_be_bytes();
+        ProposalShortId::new([high, low, 0, 0, 0, 0, 0, 0, 0, 0])
+    };
+    let gap: HashSet<_> = (0..257).filter(|value| value % 2 == 0).map(id).collect();
+    let proposed: HashSet<_> = (0..257).filter(|value| value % 3 == 0).map(id).collect();
+    let original = ProposalView::new(gap.iter().cloned(), proposed.iter().cloned());
+    let changed = ProposalView::new(proposed.iter().cloned(), gap.iter().cloned());
+    let retained = gap.union(&proposed).count();
+    // Both sides of the materialization threshold, including a zero hint, must
+    // implement the same phase projection for hits, misses and repeated ids.
+    for hint in [0, 1, retained - 1, retained, retained + 1, 512] {
+        let lookup = original.status_lookup(hint);
+        let updated = changed.status_lookup(hint);
+        for value in (0..512).chain((0..512).rev()) {
+            let proposal = id(value);
+            let expected = if proposed.contains(&proposal) {
+                ProposalStatus::Proposed
+            } else if gap.contains(&proposal) {
+                ProposalStatus::Gap
+            } else {
+                ProposalStatus::Pending
+            };
+            let next = if gap.contains(&proposal) {
+                ProposalStatus::Proposed
+            } else if proposed.contains(&proposal) {
+                ProposalStatus::Gap
+            } else {
+                ProposalStatus::Pending
+            };
+            assert_eq!(lookup(proposal.as_reader()), expected);
+            assert_eq!(original.status(&proposal), expected);
+            assert_eq!(updated(proposal.as_reader()), next);
+            assert_eq!(lookup(proposal.as_reader()), expected);
+        }
+    }
+    let empty = ProposalView::default();
+    assert_eq!(
+        empty.status_lookup(512)(id(0).as_reader()),
+        ProposalStatus::Pending
+    );
+}
 
 fn proposed(view: &ProposalView) -> HashSet<ProposalShortId> {
     view.proposed_ids().collect()

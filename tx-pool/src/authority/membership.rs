@@ -39,7 +39,7 @@ fn overflow() -> Error {
     Reject::Full("accepted pool aggregate capacity overflow".into()).into()
 }
 impl Aggregate {
-    fn one(entry: &Accepted) -> Self {
+    pub(super) fn one(entry: &Accepted) -> Self {
         Self {
             count: 1,
             bytes: entry.size,
@@ -47,7 +47,7 @@ impl Aggregate {
             fee: u128::from(entry.fee.as_u64()),
         }
     }
-    fn add(self, rhs: Self) -> Result<Self, Error> {
+    pub(super) fn add(self, rhs: Self) -> Result<Self, Error> {
         Ok(Self {
             count: self.count.checked_add(rhs.count).ok_or_else(overflow)?,
             bytes: self.bytes.checked_add(rhs.bytes).ok_or_else(overflow)?,

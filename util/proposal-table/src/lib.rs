@@ -1,7 +1,11 @@
 //! The CKB proposal history projection for two-step transaction confirmation.
 
 use ckb_chain_spec::consensus::ProposalWindow;
-use ckb_types::{core::BlockNumber, packed::ProposalShortId, prelude::Entity};
+use ckb_types::{
+    core::BlockNumber,
+    packed::{ProposalShortId, ProposalShortIdReader},
+    prelude::Reader,
+};
 use imbl::OrdMap;
 use std::{
     collections::BTreeMap,
@@ -22,6 +26,27 @@ impl BandCounts {
     const fn is_empty(self) -> bool {
         self.proposed == 0 && self.gap == 0
     }
+
+    const fn status(self) -> ProposalStatus {
+        if self.proposed != 0 {
+            ProposalStatus::Proposed
+        } else if self.gap != 0 {
+            ProposalStatus::Gap
+        } else {
+            ProposalStatus::Pending
+        }
+    }
+}
+
+/// A transaction's phase in one proposal-history projection.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
+pub enum ProposalStatus {
+    /// No occurrence in either retained band.
+    Pending,
+    /// An occurrence in the Gap band, with none in the Proposed band.
+    Gap,
+    /// At least one occurrence in the Proposed band, regardless of Gap occurrences.
+    Proposed,
 }
 
 /// Inline protocol identity. Packed accessors may share the complete block or
@@ -32,6 +57,10 @@ struct ProposalKey([u8; 10]);
 
 impl ProposalKey {
     fn from_packed(id: &ProposalShortId) -> Self {
+        Self::from_reader(id.as_reader())
+    }
+
+    fn from_reader(id: ProposalShortIdReader<'_>) -> Self {
         let mut bytes = [0; 10];
         bytes.copy_from_slice(id.as_slice());
         Self(bytes)
@@ -137,6 +166,52 @@ impl ProposalView {
             .counts
             .get(&ProposalKey::from_packed(id))
             .is_some_and(|counts| counts.gap != 0)
+    }
+
+    /// Projects an id with Proposed taking precedence over Gap.
+    pub fn status(&self, id: &ProposalShortId) -> ProposalStatus {
+        self.status_key(ProposalKey::from_packed(id))
+    }
+
+    fn status_key(&self, id: ProposalKey) -> ProposalStatus {
+        self.state
+            .counts
+            .get(&id)
+            .copied()
+            .unwrap_or_default()
+            .status()
+    }
+
+    /// Creates a temporary lookup for repeated phase queries against this view.
+    ///
+    /// A compact sorted copy avoids repeatedly traversing persistent tree nodes
+    /// when there are at least as many queries as retained ids. It holds at most
+    /// `expected_queries` inline keys and phases; smaller reads use the tree.
+    /// The hint affects cost only, and every lookup keeps this snapshot's meaning.
+    /// Inputs are borrowed readers; looking up an id requires no owned short id.
+    pub fn status_lookup(
+        &self,
+        expected_queries: usize,
+    ) -> impl Fn(ProposalShortIdReader<'_>) -> ProposalStatus + '_ {
+        let flat =
+            (self.state.counts.len() <= expected_queries && expected_queries != 0).then(|| {
+                self.state
+                    .counts
+                    .iter()
+                    .map(|(id, counts)| (*id, counts.status()))
+                    .collect::<Vec<_>>()
+            });
+        move |id| {
+            let id = ProposalKey::from_reader(id);
+            match &flat {
+                Some(flat) => flat
+                    .binary_search_by_key(&id, |(key, _)| *key)
+                    .ok()
+                    .and_then(|index| flat.get(index))
+                    .map_or(ProposalStatus::Pending, |(_, status)| *status),
+                None => self.status_key(id),
+            }
+        }
     }
 
     fn same_identity(&self, state: &Weak<ProposalViewState>) -> bool {

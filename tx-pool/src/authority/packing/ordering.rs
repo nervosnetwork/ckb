@@ -1,45 +1,63 @@
 //! Conditional read-before-spend ordering for an already selected transaction set.
 
-use super::{EvictionRank, PackingError, Selection};
-use ckb_types::packed::{Byte32, OutPoint};
-use std::collections::{BTreeSet, HashMap, HashSet};
+use super::{EvictionRank, Links, PackingError, Selection};
+use ckb_types::prelude::*;
+use std::collections::{BTreeSet, HashMap};
 
 const MAX_CONDITIONAL_CYCLE_ROUNDS: usize = 64;
 
-impl Selection {
+impl Selection<'_> {
     pub(super) fn order_packed_indices(
         &self,
         selected: Vec<usize>,
-        by_hash: &HashMap<Byte32, usize>,
     ) -> Result<Vec<usize>, PackingError> {
         if selected.len() < 2 {
             return Ok(selected);
         }
-
-        let mut rank = Vec::with_capacity(self.candidates.len());
-        rank.resize(self.candidates.len(), None);
-        let mut active = Vec::with_capacity(self.candidates.len());
-        active.resize(self.candidates.len(), false);
+        let mut rank = vec![None; self.candidates.len()];
+        let mut active = vec![false; self.candidates.len()];
         for (position, index) in selected.iter().copied().enumerate() {
-            let slot = rank.get_mut(index).ok_or(PackingError::Projection)?;
-            if slot.replace(position).is_some() {
+            if rank
+                .get_mut(index)
+                .ok_or(PackingError::Projection)?
+                .replace(position)
+                .is_some()
+            {
                 return Err(PackingError::Projection);
             }
             *active.get_mut(index).ok_or(PackingError::Projection)? = true;
         }
 
-        // A unique spender and fixed package parents make every later graph
-        // the induced subgraph of this selection. Drops cannot create edges.
-        let graph = self.conditional_graph(&active, by_hash)?;
+        let conditional = self.conditional_edges(&selected)?;
+        let mut already_ordered = true;
+        for &(reader, spender) in &conditional {
+            let reader = rank
+                .get(reader)
+                .copied()
+                .flatten()
+                .ok_or(PackingError::Projection)?;
+            let spender = rank
+                .get(spender)
+                .copied()
+                .flatten()
+                .ok_or(PackingError::Projection)?;
+            already_ordered &= reader < spender;
+        }
+        if already_ordered {
+            return Ok(selected);
+        }
+
+        // Unique spenders and immutable causal parents make every later graph
+        // an induced subgraph. Reuse the original causal graph for package drops.
+        let graph = self.conditional_graph(&active, conditional)?;
         let mut cycle_round = 0usize;
         let mut eviction = None;
         loop {
-            let ordered = topological_active_order(&active, &rank, &graph.children)?;
+            let ordered = topological_active_order(&active, &rank, &graph)?;
             if ordered.len() == active.iter().filter(|is_active| **is_active).count() {
                 return Ok(ordered);
             }
-
-            let mut cyclic = strongly_connected_active(&active, &graph.children)?;
+            let mut cyclic = strongly_connected_active(&active, &graph)?;
             cyclic.retain(|component| component.len() > 1);
             if cyclic.is_empty() {
                 return Err(PackingError::Projection);
@@ -48,16 +66,15 @@ impl Selection {
             let bounded_fallback = cycle_round > MAX_CONDITIONAL_CYCLE_ROUNDS;
             let eviction = match &eviction {
                 Some(ranks) => ranks,
-                None => eviction.insert(self.eviction_ranks()),
+                None => eviction.insert(self.eviction_ranks()?),
             };
-            let mut roots = Vec::with_capacity(active.len());
-            roots.resize(active.len(), false);
+            let mut roots = vec![false; active.len()];
             for component in cyclic {
                 let chosen = Self::cycle_representative(
                     eviction,
                     &component,
                     bounded_fallback,
-                    &graph.package_children,
+                    &self.graph.children,
                 )?;
                 if bounded_fallback {
                     for index in component {
@@ -69,94 +86,98 @@ impl Selection {
                     *roots.get_mut(chosen).ok_or(PackingError::Projection)? = true;
                 }
             }
-            drop_package_descendants(&mut active, roots, &graph.package_children)?;
+            drop_package_descendants(&mut active, roots, &self.graph.children)?;
             if active.iter().filter(|is_active| **is_active).count() < 2 {
-                let mut retained = Vec::with_capacity(1);
-                retained.extend(
-                    selected
-                        .iter()
-                        .copied()
-                        .filter(|index| active.get(*index).is_some_and(|is_active| *is_active)),
-                );
-                return Ok(retained);
+                return Ok(selected
+                    .iter()
+                    .copied()
+                    .filter(|index| active.get(*index).is_some_and(|is_active| *is_active))
+                    .collect());
             }
         }
+    }
+
+    fn conditional_edges(&self, selected: &[usize]) -> Result<Vec<(usize, usize)>, PackingError> {
+        let input_count = selected.iter().try_fold(0usize, |sum, index| {
+            let candidate = self
+                .candidates
+                .get(*index)
+                .ok_or(PackingError::Projection)?;
+            sum.checked_add(
+                candidate
+                    .accepted
+                    .transaction
+                    .transaction
+                    .input_pts_reader_iter()
+                    .len(),
+            )
+            .ok_or(PackingError::Arithmetic)
+        })?;
+        let mut spenders = HashMap::<&[u8], usize>::with_capacity(input_count);
+        for &index in selected {
+            let candidate = self.candidates.get(index).ok_or(PackingError::Projection)?;
+            for input in candidate
+                .accepted
+                .transaction
+                .transaction
+                .input_pts_reader_iter()
+            {
+                if spenders.insert(input.as_slice(), index).is_some() {
+                    return Err(PackingError::Projection);
+                }
+            }
+        }
+        let mut edges = Vec::new();
+        for &reader in selected {
+            let candidate = self
+                .candidates
+                .get(reader)
+                .ok_or(PackingError::Projection)?;
+            // Each bounded dependency occurrence adds at most one edge.
+            for dependency in candidate.accepted.transaction.related_dep_out_points() {
+                if let Some(spender) = spenders.get(dependency.as_slice()).copied()
+                    && spender != reader
+                {
+                    edges.push((reader, spender));
+                }
+            }
+        }
+        Ok(edges)
     }
 
     fn conditional_graph(
         &self,
         active: &[bool],
-        by_hash: &HashMap<Byte32, usize>,
-    ) -> Result<SelectedGraph, PackingError> {
+        mut edges: Vec<(usize, usize)>,
+    ) -> Result<Links, PackingError> {
         if active.len() != self.candidates.len() {
             return Err(PackingError::Projection);
         }
-        let mut package_edges = Vec::new();
-        let mut input_count = 0usize;
-        let mut dependency_count = 0usize;
-        for (child, candidate) in self.candidates.iter().enumerate() {
-            if !active.get(child).copied().ok_or(PackingError::Projection)? {
+        for (child, is_active) in active.iter().copied().enumerate() {
+            if !is_active {
                 continue;
             }
-            input_count = input_count
-                .checked_add(candidate.accepted.transaction.transaction.inputs().len())
-                .ok_or(PackingError::Arithmetic)?;
-            dependency_count = dependency_count
-                .checked_add(candidate.accepted.dependencies().count())
-                .ok_or(PackingError::Arithmetic)?;
-            for parent in candidate.accepted.parents.iter() {
-                let parent = *by_hash.get(parent).ok_or(PackingError::Projection)?;
-                if active.get(parent).is_some_and(|is_active| *is_active) {
-                    package_edges.reserve(1);
-                    package_edges.push((parent, child));
-                }
-            }
-        }
-        if dependency_count > self.dependency_edge_bound {
-            return Err(PackingError::Projection);
-        }
-        let edge_capacity = package_edges
-            .len()
-            .checked_add(dependency_count)
-            .ok_or(PackingError::Arithmetic)?;
-        let mut edges = HashSet::with_capacity(edge_capacity);
-        edges.extend(package_edges.iter().copied());
-
-        let mut spenders = HashMap::<OutPoint, usize>::with_capacity(input_count);
-        for (index, candidate) in self.candidates.iter().enumerate() {
-            if !active.get(index).copied().ok_or(PackingError::Projection)? {
-                continue;
-            }
-            for input in candidate.accepted.transaction.transaction.input_pts_iter() {
-                if spenders.insert(input, index).is_some() {
-                    return Err(PackingError::Projection);
-                }
-            }
-        }
-        for (reader, candidate) in self.candidates.iter().enumerate() {
-            if !active
-                .get(reader)
-                .copied()
+            for &parent in self
+                .graph
+                .parents
+                .get(child)
                 .ok_or(PackingError::Projection)?
             {
-                continue;
-            }
-            for dependency in candidate.accepted.dependencies() {
-                if let Some(spender) = spenders.get(&dependency).copied()
-                    && spender != reader
-                {
-                    edges.insert((reader, spender));
+                if active.get(parent).is_some_and(|is_active| *is_active) {
+                    edges.push((parent, child));
                 }
             }
         }
-        SelectedGraph::from_edges(active.len(), edges, package_edges)
+        edges.sort_unstable();
+        edges.dedup();
+        Links::from_edges(active.len(), &edges)
     }
 
     fn cycle_representative(
         eviction: &[EvictionRank],
         component: &[usize],
         strongest: bool,
-        package_children: &[Vec<usize>],
+        package_children: &Links,
     ) -> Result<usize, PackingError> {
         // The stored package graph is acyclic even when conditional ordering
         // is not. Drop a package leaf within this SCC so its ancestors remain;
@@ -198,77 +219,10 @@ impl Selection {
     }
 }
 
-struct SelectedGraph {
-    children: Vec<Vec<usize>>,
-    package_children: Vec<Vec<usize>>,
-}
-
-impl SelectedGraph {
-    fn from_edges(
-        len: usize,
-        edges: HashSet<(usize, usize)>,
-        package_edges: Vec<(usize, usize)>,
-    ) -> Result<Self, PackingError> {
-        let mut child_counts = vec![0usize; len];
-        for (parent, child) in &edges {
-            if parent == child || *parent >= len || *child >= len {
-                return Err(PackingError::Projection);
-            }
-            let count = child_counts
-                .get_mut(*parent)
-                .ok_or(PackingError::Projection)?;
-            *count = count.checked_add(1).ok_or(PackingError::Arithmetic)?;
-        }
-        let mut package_counts = vec![0usize; len];
-        for (parent, child) in &package_edges {
-            if parent == child || *parent >= len || *child >= len {
-                return Err(PackingError::Projection);
-            }
-            let count = package_counts
-                .get_mut(*parent)
-                .ok_or(PackingError::Projection)?;
-            *count = count.checked_add(1).ok_or(PackingError::Arithmetic)?;
-        }
-
-        let mut children = Vec::with_capacity(len);
-        let mut package_children = Vec::with_capacity(len);
-        for index in 0..len {
-            let next =
-                Vec::with_capacity(*child_counts.get(index).ok_or(PackingError::Projection)?);
-            children.push(next);
-            let package_next =
-                Vec::with_capacity(*package_counts.get(index).ok_or(PackingError::Projection)?);
-            package_children.push(package_next);
-        }
-        for (parent, child) in edges {
-            children
-                .get_mut(parent)
-                .ok_or(PackingError::Projection)?
-                .push(child);
-        }
-        for (parent, child) in package_edges {
-            package_children
-                .get_mut(parent)
-                .ok_or(PackingError::Projection)?
-                .push(child);
-        }
-        for next in &mut children {
-            next.sort_unstable();
-        }
-        for next in &mut package_children {
-            next.sort_unstable();
-        }
-        Ok(Self {
-            children,
-            package_children,
-        })
-    }
-}
-
 fn topological_active_order(
     active: &[bool],
     rank: &[Option<usize>],
-    children: &[Vec<usize>],
+    children: &Links,
 ) -> Result<Vec<usize>, PackingError> {
     if active.len() != rank.len() || active.len() != children.len() {
         return Err(PackingError::Projection);
@@ -340,7 +294,7 @@ fn topological_active_order(
 /// recursive stack growth is permitted.
 fn strongly_connected_active(
     active: &[bool],
-    children: &[Vec<usize>],
+    children: &Links,
 ) -> Result<Vec<Vec<usize>>, PackingError> {
     if active.len() != children.len() {
         return Err(PackingError::Projection);
@@ -491,7 +445,7 @@ fn strongly_connected_active(
 fn drop_package_descendants(
     active: &mut [bool],
     mut dropped: Vec<bool>,
-    package_children: &[Vec<usize>],
+    package_children: &Links,
 ) -> Result<(), PackingError> {
     if active.len() != dropped.len() || active.len() != package_children.len() {
         return Err(PackingError::Projection);

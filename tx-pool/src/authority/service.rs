@@ -728,7 +728,7 @@ impl Pool {
     ) -> Result<Vec<crate::TxEntry>, Error> {
         self.read(|| {
             let (_, snapshot, owners, _) = self.store.capture(true);
-            let selection = Selection::new(owners, &snapshot, self.config.max_ancestors_count)?;
+            let selection = Selection::new(&owners, &snapshot, self.config.max_ancestors_count)?;
             selection
                 .pack_transactions(super::packing::TemplatePackingLimits::new(
                     bytes.unwrap_or_else(|| snapshot.consensus().max_block_bytes()) as usize,

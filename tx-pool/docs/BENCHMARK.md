@@ -259,6 +259,11 @@ parts fit the allowance, or execute DAO calculation and final serialization.
 | Limits | `budget:BYTES:CYCLES` supplies explicit transaction limits. `all` uses corpus totals; `bytes` or `cycles` reduces the corresponding total to one third; `both` uses two thirds of each; `zero` tests rejection. Fractional/all regimes are algorithm stress cases and may exceed consensus limits. |
 | Repetition | 1–128 measured calls and 0–32 warm calls; two untimed preflight calls additionally prove full-capacity eligibility and establish the repeated-result reference |
 
+The v2 corpus uses `max_ancestors = 64`; the production default is 1000. Its
+depth-64 chain results do not establish performance at the production ancestry
+boundary. A depth-1000 or proposal-phase study needs a separately identified
+corpus/contract, preserving the original captures and timing gates.
+
 Fixtures contain real serialized transactions and resolved dependency points.
 Fees and cycles are controlled accepted metadata, without admission or VM work.
 The harness verifies all entries fit at full corpus capacity, then checks every
@@ -269,8 +274,14 @@ Each call must still pass all semantic checks; order, set and fee/capacity
 variation are recorded against the untimed preflight result. A small-fixture exhaustive oracle reports maximum obtainable fee
 for at most 16 entries. Large-fixture optimality is not inferred from utilization.
 
-The `template_selection_v2` window includes the current owner-vector clone,
-`Selection::new`, `pack_transactions`, and selection-state destruction. It excludes
+The `template_selection_v2` window includes `Selection::new`,
+`pack_transactions`, and selection-state destruction. The current adapter borrows
+its prepared owner slice; older source receipts may instead clone that vector.
+Every current call compiles the graph inside the window, including cold
+construction and destruction. This adapter does not use the template loop's graph
+cache. Cache-hit, invalidation and retained-memory studies need a separately
+identified adapter and contract, with source renewal inside the stated window.
+The v2 window excludes
 fixture construction, source preparation, capture/store locks, optional-content
 packing, result validation/serialization/destruction, and final DAO/template
 work. Each call has a separate monotonic window with the shared bracketed clock

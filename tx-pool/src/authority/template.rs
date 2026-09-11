@@ -3,7 +3,7 @@
 
 use super::{
     model::Error,
-    packing::{Selection, TemplatePackingLimits},
+    packing::{Cache, TemplatePackingLimits},
     store::{ReadSet, Store},
 };
 use crate::{
@@ -18,8 +18,9 @@ use ckb_error::AnyError;
 use ckb_jsonrpc_types::BlockTemplate as JsonBlockTemplate;
 use ckb_store::ChainStore;
 use ckb_systemtime::unix_time_as_millis;
+use ckb_types::prelude::{Entity, Reader};
 use std::{
-    collections::{BTreeMap, HashSet},
+    collections::HashSet,
     sync::{
         Arc,
         atomic::{AtomicBool, Ordering},
@@ -124,6 +125,7 @@ impl Driver {
     }
     fn prepare(
         &self,
+        packing: &mut Cache,
     ) -> Result<
         (
             Arc<CurrentTemplate>,
@@ -133,11 +135,7 @@ impl Driver {
         AnyError,
     > {
         let (view, snapshot, owners, _) = self.store.capture(true);
-        let original: BTreeMap<_, _> = owners
-            .iter()
-            .map(|entry| (entry.hash(), Arc::clone(entry)))
-            .collect();
-        let selection = Selection::new(owners, &snapshot, self.max_ancestors)?;
+        let selection = packing.selection(&owners, &snapshot, self.max_ancestors)?;
         let epoch = snapshot
             .consensus()
             .next_epoch_ext(snapshot.tip_header(), &snapshot.borrow_as_data_loader())
@@ -204,15 +202,20 @@ impl Driver {
             &self.assembler.cell_liveness_memo,
         )?;
         let mut reads = ReadSet::default();
-        for transaction in &transactions {
-            let hash = transaction.transaction().hash();
-            reads.observe_owner(&hash, Some(original.get(&hash).ok_or(Error::Stale)?))?;
-        }
-        let proposals: HashSet<_> = optional.proposals.iter().cloned().collect();
-        for (hash, entry) in &original {
-            if proposals.contains(&entry.proposal()) {
-                reads.observe_owner(hash, Some(entry))?;
+        let mut selected: HashSet<_> = transactions
+            .iter()
+            .map(|transaction| transaction.transaction().hash())
+            .collect();
+        let proposals: HashSet<_> = optional.proposals.iter().map(Entity::as_slice).collect();
+        for candidate in selection.candidates() {
+            if selected.remove(candidate.hash())
+                || proposals.contains(candidate.proposal_short_id().as_slice())
+            {
+                reads.observe_owner(candidate.hash(), Some(candidate.owner()))?;
             }
+        }
+        if !selected.is_empty() {
+            return Err(Error::Stale.into());
         }
         // Compute DAO only for the final selected contents. Work IDs and time
         // belong to this publication attempt, not the reused mandatory parts.
@@ -243,8 +246,8 @@ impl Driver {
             uncle_source,
         ))
     }
-    fn rebuild(&self) -> Result<(), AnyError> {
-        let (current, prune, uncle_source) = self.prepare()?;
+    fn rebuild(&self, packing: &mut Cache) -> Result<(), AnyError> {
+        let (current, prune, uncle_source) = self.prepare(packing)?;
         let source = current
             .source
             .as_ref()
@@ -268,6 +271,7 @@ impl Driver {
     }
     pub(super) async fn run(self: Arc<Self>) -> Result<(), Error> {
         let mut first = true;
+        let mut packing = Cache::default();
         loop {
             let changed = self.store.template_changed.notified();
             let requested = self.requested.notified();
@@ -299,7 +303,7 @@ impl Driver {
                 }
             }
             first = false;
-            let outcome = block_offload(|| self.rebuild());
+            let outcome = block_offload(|| self.rebuild(&mut packing));
             let stale = outcome
                 .as_ref()
                 .err()

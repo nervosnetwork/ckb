@@ -83,11 +83,12 @@ fn mandatory_template_accepts_exact_byte_limit_and_rejects_one_byte_less() {
 #[test]
 fn template_build_reproposes_a_recovered_gap_then_packs_it_after_proposal() {
     let driver = fixture();
+    let mut cache = Cache::default();
     let pending = tx(7100);
     let gap = tx(7101);
     accept(&driver.store, pending.clone(), 1, 1, Status::Pending);
     accept(&driver.store, gap.clone(), 1, 1, Status::Gap);
-    driver.rebuild().unwrap();
+    driver.rebuild(&mut cache).unwrap();
     let output = selected(&driver);
     assert_eq!(
         output.template.parent_hash,
@@ -111,12 +112,12 @@ fn template_build_reproposes_a_recovered_gap_then_packs_it_after_proposal() {
     let mut value = owner.accepted().unwrap().clone();
     value.forced_status = Some(Status::Pending);
     let pending_owner = replace(&driver.store, owner, Phase::Accepted(value));
-    driver.rebuild().unwrap();
+    driver.rebuild(&mut cache).unwrap();
     assert_eq!(selected(&driver).template.proposals.len(), 2);
     let mut value = pending_owner.accepted().unwrap().clone();
     value.forced_status = Some(Status::Proposed);
     replace(&driver.store, pending_owner, Phase::Accepted(value));
-    driver.rebuild().unwrap();
+    driver.rebuild(&mut cache).unwrap();
     let output = selected(&driver);
     assert_eq!(output.template.proposals, vec![pending.proposal_short_id()]);
     assert_eq!(output.template.transactions.len(), 1);
@@ -131,13 +132,13 @@ fn template_build_reproposes_a_recovered_gap_then_packs_it_after_proposal() {
 async fn unrelated_acceptance_does_not_invalidate_current_selected_output() {
     let driver = fixture();
     accept(&driver.store, tx(7102), 1, 1, Status::Pending);
-    driver.rebuild().unwrap();
+    driver.rebuild(&mut Cache::default()).unwrap();
     let original = within(driver.read()).await.unwrap();
     accept(&driver.store, tx(7103), 1, 1, Status::Pending);
     let unchanged = within(driver.read()).await.unwrap();
     assert_eq!(unchanged.work_id, original.work_id);
     assert_eq!(unchanged.proposals, original.proposals);
-    driver.rebuild().unwrap();
+    driver.rebuild(&mut Cache::default()).unwrap();
     assert_eq!(within(driver.read()).await.unwrap().proposals.len(), 2);
 }
 
@@ -145,7 +146,7 @@ async fn unrelated_acceptance_does_not_invalidate_current_selected_output() {
 async fn removing_a_selected_proposal_requires_a_fresh_publication_before_read() {
     let driver = fixture();
     let hash = accept(&driver.store, tx(7104), 1, 1, Status::Pending);
-    driver.rebuild().unwrap();
+    driver.rebuild(&mut Cache::default()).unwrap();
     let old = selected(&driver);
     let entry = driver.store.point(&hash).1.unwrap();
     driver
@@ -169,9 +170,10 @@ async fn removing_a_selected_proposal_requires_a_fresh_publication_before_read()
 #[test]
 fn prepared_template_cannot_rebind_a_reentered_selected_owner() {
     let driver = fixture();
+    let mut cache = Cache::default();
     let transaction = tx(7105);
     let hash = accept(&driver.store, transaction.clone(), 1, 1, Status::Pending);
-    let (prepared, _, _) = driver.prepare().unwrap();
+    let (prepared, _, _) = driver.prepare(&mut cache).unwrap();
     let old = driver.store.point(&hash).1.unwrap();
     driver
         .store
@@ -185,13 +187,20 @@ fn prepared_template_cannot_rebind_a_reentered_selected_owner() {
             .read_selected(source.view, &source.reads, || ()),
         Err(Error::Stale)
     ));
+    let (replacement, _, _) = driver.prepare(&mut cache).unwrap();
+    let source = replacement.source.as_ref().unwrap();
+    driver
+        .store
+        .read_selected(source.view, &source.reads, || ())
+        .unwrap();
+    assert_eq!(replacement.template.proposals, prepared.template.proposals);
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn identical_tip_clear_still_requires_a_new_template_source_and_joins() {
     let driver = fixture();
     accept(&driver.store, tx(7106), 1, 1, Status::Pending);
-    driver.rebuild().unwrap();
+    driver.rebuild(&mut Cache::default()).unwrap();
     let old = selected(&driver);
     driver
         .store
@@ -216,7 +225,7 @@ async fn identical_tip_clear_still_requires_a_new_template_source_and_joins() {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn failed_new_source_build_does_not_return_the_previous_tip_template() {
     let driver = fixture();
-    driver.rebuild().unwrap();
+    driver.rebuild(&mut Cache::default()).unwrap();
     let old = selected(&driver);
     let unavailable = crate::test_support::genesis_snapshot();
     driver
@@ -237,7 +246,7 @@ async fn failed_new_source_build_does_not_return_the_previous_tip_template() {
 #[tokio::test(start_paused = true)]
 async fn template_refresh_wait_has_one_deadline_and_keeps_valid_cache_available() {
     let driver = fixture();
-    driver.rebuild().unwrap();
+    driver.rebuild(&mut Cache::default()).unwrap();
     let old = selected(&driver);
     driver
         .store
@@ -261,7 +270,7 @@ async fn template_refresh_wait_has_one_deadline_and_keeps_valid_cache_available(
     ));
     assert!(Arc::ptr_eq(&selected(&driver), &old));
     assert!(!driver.store.is_faulted());
-    driver.rebuild().unwrap();
+    driver.rebuild(&mut Cache::default()).unwrap();
     assert!(driver.read().await.unwrap().proposals.is_empty());
     driver.store.stop();
     assert!(matches!(driver.read().await, Err(Error::Closed)));
@@ -271,12 +280,12 @@ async fn template_refresh_wait_has_one_deadline_and_keeps_valid_cache_available(
 fn same_view_reuses_only_mandatory_payloads_and_consumes_a_fresh_work_id() {
     use ckb_types::prelude::Entity;
     let driver = fixture();
-    driver.rebuild().unwrap();
+    driver.rebuild(&mut Cache::default()).unwrap();
     let old = selected(&driver);
     let previous_references = Arc::strong_count(&old);
     let point = old.template.cellbase.data().as_slice().as_ptr();
     accept(&driver.store, tx(7190), 1, 1, Status::Pending);
-    let (prepared, _, _) = driver.prepare().unwrap();
+    let (prepared, _, _) = driver.prepare(&mut Cache::default()).unwrap();
     assert_eq!(
         prepared.source.as_ref().unwrap().view,
         old.source.as_ref().unwrap().view
@@ -289,7 +298,7 @@ fn same_view_reuses_only_mandatory_payloads_and_consumes_a_fresh_work_id() {
     assert_eq!(Arc::strong_count(&old), previous_references);
     driver.assembler.work_id.store(u64::MAX, Ordering::Release);
     let error = driver
-        .prepare()
+        .prepare(&mut Cache::default())
         .err()
         .expect("a reused basis must still check work-ID exhaustion");
     assert!(matches!(
@@ -302,14 +311,14 @@ fn same_view_reuses_only_mandatory_payloads_and_consumes_a_fresh_work_id() {
 fn identical_tip_new_view_rebuilds_mandatory_parts_and_enforces_its_byte_limit() {
     use ckb_types::prelude::Entity;
     let driver = fixture();
-    driver.rebuild().unwrap();
+    driver.rebuild(&mut Cache::default()).unwrap();
     let old = selected(&driver);
     let point = old.template.cellbase.data().as_slice().as_ptr();
     driver
         .store
         .apply(chain::clear(&driver.store, None, false).unwrap())
         .unwrap();
-    let (prepared, _, _) = driver.prepare().unwrap();
+    let (prepared, _, _) = driver.prepare(&mut Cache::default()).unwrap();
     assert_ne!(
         prepared.source.as_ref().unwrap().view,
         old.source.as_ref().unwrap().view
@@ -330,7 +339,7 @@ fn identical_tip_new_view_rebuilds_mandatory_parts_and_enforces_its_byte_limit()
         .apply(chain::clear(&driver.store, Some(too_small), false).unwrap())
         .unwrap();
     let error = driver
-        .prepare()
+        .prepare(&mut Cache::default())
         .err()
         .expect("the new view cannot reuse the old byte limit");
     assert!(matches!(

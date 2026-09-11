@@ -166,21 +166,10 @@ pub(super) enum RelationKey {
     Children(Byte32),
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
-pub(super) enum Status {
-    Pending,
-    Gap,
-    Proposed,
-}
+pub(super) use ckb_proposal_table::ProposalStatus as Status;
 
 pub(super) fn status(snapshot: &Snapshot, proposal: &ProposalShortId) -> Status {
-    if snapshot.proposals().contains_proposed(proposal) {
-        Status::Proposed
-    } else if snapshot.proposals().contains_gap(proposal) {
-        Status::Gap
-    } else {
-        Status::Pending
-    }
+    snapshot.proposals().status(proposal)
 }
 
 /// Resolution retains compact cell content and weak producer observations.

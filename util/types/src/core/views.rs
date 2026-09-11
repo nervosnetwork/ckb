@@ -302,6 +302,11 @@ impl TransactionView {
     define_cache_getter!(hash, Byte32);
     define_cache_getter!(witness_hash, Byte32);
 
+    /// Borrows the cached transaction hash without cloning its shared backing.
+    pub fn hash_ref(&self) -> &packed::Byte32 {
+        &self.hash
+    }
+
     /// Fallibly move this view into one allocation containing only the
     /// transaction and its cached hashes, without recomputing them.
     ///
@@ -408,6 +413,14 @@ impl TransactionView {
             .map(|x| x.previous_output())
     }
 
+    /// Borrows out points directly from the serialized transaction inputs.
+    pub fn input_pts_reader_iter(
+        &self,
+    ) -> impl ExactSizeIterator<Item = packed::OutPointReader<'_>> {
+        let inputs = self.data.as_reader().raw().inputs();
+        (0..inputs.len()).map(move |index| inputs.get_unchecked(index).previous_output())
+    }
+
     /// Creates an iterator from all outputs and their data.
     pub fn outputs_with_data_iter(&self) -> impl Iterator<Item = (packed::CellOutput, Bytes)> {
         self.outputs()
@@ -450,6 +463,11 @@ impl TransactionView {
     /// Creates a new `ProposalShortId` from the transaction hash.
     pub fn proposal_short_id(&self) -> packed::ProposalShortId {
         packed::ProposalShortId::from_tx_hash(&self.hash())
+    }
+
+    /// Borrows the first ten transaction-hash bytes as a proposal short id.
+    pub fn proposal_short_id_reader(&self) -> packed::ProposalShortIdReader<'_> {
+        packed::ProposalShortIdReader::new_unchecked(&self.hash.as_slice()[..10])
     }
 
     /// return deduplicate parent tx_hashes

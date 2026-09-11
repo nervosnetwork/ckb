@@ -1,13 +1,19 @@
 //! The existing package-selection regressions, exercised through the new Store.
 use super::TemplatePackingLimits;
-use crate::authority::{model::Status, packing::Selection, store::Store, tests::common};
+use crate::authority::{
+    model::{Entry, Status},
+    packing::Selection,
+    store::Store,
+    tests::common,
+};
+use ckb_snapshot::Snapshot;
 use ckb_types::{
     bytes::Bytes,
     core::{TransactionBuilder, TransactionView},
     packed::{Byte32, CellDep, CellInput, CellOutput, OutPoint},
     prelude::{Builder, Entity, Pack},
 };
-use std::collections::BTreeSet;
+use std::{collections::BTreeSet, sync::Arc};
 fn packed_hashes(packed: &[crate::TxEntry]) -> Vec<Byte32> {
     packed
         .iter()
@@ -58,9 +64,12 @@ fn accept(
 ) -> Byte32 {
     common::accept(store, transaction, fee, cycles, status)
 }
-fn selection(store: &Store) -> Selection {
+fn capture(store: &Store) -> (Arc<Snapshot>, Vec<Arc<Entry>>) {
     let (_, snapshot, owners, _) = store.capture(true);
-    Selection::new(owners, &snapshot, common::config().max_ancestors_count).unwrap()
+    (snapshot, owners)
+}
+fn selection<'a>(owners: &'a [Arc<Entry>], snapshot: &Snapshot) -> Selection<'a> {
+    Selection::new(owners, snapshot, common::config().max_ancestors_count).unwrap()
 }
 
 #[test]
@@ -85,7 +94,8 @@ fn uak_template_packer_selects_an_exact_fit_cpfp_package_parent_first() {
         .serialized_size_in_block()
         .checked_add(child_tx.data().serialized_size_in_block())
         .expect("fixture bytes fit");
-    let receipt = selection(&authority);
+    let (snapshot, owners) = capture(&authority);
+    let receipt = selection(&owners, &snapshot);
 
     let exact = receipt
         .pack_transactions(TemplatePackingLimits::new(package_bytes, 30))
@@ -167,19 +177,15 @@ fn uak_template_packer_rescores_descendants_after_shared_parent_selection() {
     let rival_tx = output_transaction(2_013);
     let rival = accept(&authority, rival_tx, 13, Status::Proposed, 60_000, 1);
 
-    let receipt = selection(&authority);
-    let rescored_initial = receipt
-        .candidates()
-        .iter()
-        .find(|candidate| candidate.hash() == &rescored)
-        .expect("rescored child is captured");
-    let rival_initial = receipt
-        .candidates()
-        .iter()
-        .find(|candidate| candidate.hash() == &rival)
-        .expect("rival is captured");
+    let (snapshot, owners) = capture(&authority);
+    let receipt = selection(&owners, &snapshot);
+    let initial: Vec<_> = receipt
+        .candidates_by_score()
+        .map(|candidate| candidate.hash())
+        .collect();
     assert!(
-        rival_initial.score > rescored_initial.score,
+        initial.iter().position(|hash| **hash == rival).unwrap()
+            < initial.iter().position(|hash| **hash == rescored).unwrap(),
         "the rival must start ahead of the child package"
     );
     let packed = receipt
@@ -218,7 +224,8 @@ fn uak_template_packer_aggregates_multi_parent_descendant_adjustments() {
         .build();
     let child = accept(&authority, child_tx, 16, Status::Proposed, 1, 1);
 
-    let receipt = selection(&authority);
+    let (snapshot, owners) = capture(&authority);
+    let receipt = selection(&owners, &snapshot);
     let packed = receipt
         .pack_transactions(TemplatePackingLimits::new(usize::MAX, 3))
         .expect("both selected-parent deltas are aggregated exactly once");
@@ -255,7 +262,8 @@ fn uak_template_packer_bounds_non_fitting_work_without_changing_the_policy() {
         1,
         1,
     );
-    let receipt = selection(&authority);
+    let (snapshot, owners) = capture(&authority);
+    let receipt = selection(&owners, &snapshot);
 
     let bounded = receipt
         .pack_transactions_with_failure_bound(TemplatePackingLimits::new(usize::MAX, 2), 1)
@@ -292,7 +300,8 @@ fn uak_template_packer_requires_proposed_ancestors_and_orders_conditional_edges(
         .build();
     let spender = accept(&authority, spender_tx, 33, Status::Proposed, 1_000_000, 1);
 
-    let packed = selection(&authority)
+    let (snapshot, owners) = capture(&authority);
+    let packed = selection(&owners, &snapshot)
         .pack_transactions(TemplatePackingLimits::new(usize::MAX, u64::MAX))
         .expect("the selected-set conditional graph is coherent");
     let hashes = packed
@@ -351,7 +360,8 @@ fn uak_template_packer_bounds_long_conditional_scc_fallback() {
         ));
     }
 
-    let packed = selection(&authority)
+    let (snapshot, owners) = capture(&authority);
+    let packed = selection(&owners, &snapshot)
         .pack_transactions(TemplatePackingLimits::new(usize::MAX, u64::MAX))
         .expect("the long conditional SCC uses the bounded deterministic fallback");
     assert_eq!(packed.len(), 1);
@@ -429,7 +439,8 @@ fn template_causal_eligibility_matches_every_three_vertex_dag_and_proposal_phase
                 digits /= 3;
                 common::accept(&store, transaction.clone(), 1, 1, status);
             }
-            let selection = selection(&store);
+            let (snapshot, owners) = capture(&store);
+            let selection = selection(&owners, &snapshot);
             let by_hash = selection.candidate_index().unwrap();
             let statuses: Vec<_> = selection
                 .candidates()
@@ -456,7 +467,7 @@ fn template_causal_eligibility_matches_every_three_vertex_dag_and_proposal_phase
                 .collect();
             let expected = expected_causal_membership(&statuses, &parents);
             let actual = selection
-                .package_eligible_proposed(&by_hash)
+                .package_eligible_proposed()
                 .unwrap()
                 .into_iter()
                 .collect::<BTreeSet<_>>();

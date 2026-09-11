@@ -1,6 +1,6 @@
 # Transaction-pool performance evidence
 
-The final frozen candidate improves all seven qualified receive-to-terminal
+The earlier migration study improves all seven qualified receive-to-terminal
 workloads against the prepared develop basis. Eight-worker secp throughput improves
 by 0.48%; always-success and dependent-forest throughput improve by 146% and 199%.
 Those gains have costs: all observed primary lifetime RSS comparisons increase,
@@ -32,7 +32,7 @@ peers were used throughout. Reporting edits after measurement do not change
 executable inputs; the evidence records their separate hashes.
 
 Each section applies to its named source; the packing comparison identifies its
-own earlier revisions. Later executable changes require separate measurements
+own final source and direct develop comparison. Later executable changes require separate measurements
 and do not inherit the ratios or verification counts reported here.
 
 Each row has 24 paired samples of four fresh-process replicates per side, plus
@@ -185,132 +185,139 @@ multiply exactly into the total delivered ratio.
 
 ## Packing comparison
 
-Packing was measured separately from receive-to-terminal throughput. Its current
-candidate performs more work per selection than develop in most of the focused
-large-fixture cases below. The exception is equal-fee fanout. The dense aggregate
-optimization reduces this cost relative to the previous candidate, but does not
-establish a generally faster selector than develop.
+The final packing source is `8aec0d70bc0e86f6bb86e6dfa4aac07e658c662f`.
+It is compared directly with prepared develop `9eaf18b24a8d7b4fef7666f711585d72fd604132`,
+whose production basis is `95fd03933ce2a396b84aed12caaa0f984165cd6c`.
+Across the 20 cases, the direct A/B intervals establish lower selection time in 13, higher time in 7, and leave 0 unresolved.
+These are selector costs on this host, not complete block-template latency or
+receive-to-terminal throughput. No global optimality or universal advantage is claimed.
 
-These are earlier, separately frozen `packing-r28` sources: candidate
-`74926165483b857cf502b47e8c9690939a616676`, control
-`894c729e4864f0f94b993cc2a2db842f38ecc34b`, and prepared develop
-`c4cc26b261e53b2326f24f90a0c3d623df2d87a2` based on
-`cdfde29e45dfbe9443be66083241ebc1acca9fe6`. They are not the final executable
-pair in the receive-to-terminal matrix. The candidate/control production change
-is bounded ordinal scratch for full-graph aggregates. All three arms invoke their
-actual production selector through the shared v2 harness and their respective
-adapters; the legacy partial-set qualification failure from `packing-r26` remains
-preserved and was not reused as passing evidence.
+The final implementation borrows captured owners and protocol fields, compiles
+one numeric causal graph, evaluates single-parent totals directly, reuses one
+exact closure at compatible merges, and uses bounded initial/modified priority
+queues. Remaining-chain ordering and consumer-aware descendant work avoid
+unnecessary traversals. The [execution description](architecture/EXECUTION.md#ordered-publication-and-projections)
+states ownership, invalidation, ordering and resource bounds.
 
-The [selection window](BENCHMARK.md#measure-template-transaction-selection) includes current
-owner-vector cloning, derived selection-state construction, packing and destruction
-of that state. Develop selects from its already maintained `PoolMap`; the cost of
-maintaining that map during admission is outside this window. Fixture/source
-preparation, Store capture/locks, optional content and final DAO/template building
-are excluded. These elapsed times cannot be read as complete block-template latency
-or receive throughput. No packing process-CPU or RSS comparison was established.
+### Direct develop A/B contract
 
-### Develop versus candidate: complete large-fixture matrix
+The complete matrix is five shapes × equal/CPFP fees × All/Partial, with 16,384
+entries and K=64. All fits the fixture; Partial allows 595,000 bytes and
+3,500,000,000 cycles. Chains are bounded cohorts, not one 16,384-entry chain.
+The production default ancestor limit is 1000; the separate completed K1000
+functional observations do not establish a develop performance ranking.
 
-Each cell is develop → candidate, in milliseconds per selection, with lower being
-better. The values are medians of five calls after two warm calls in one process
-per arm/case. Arm order was fixed; these are descriptive observations without an
-independent-process develop A/A qualification or confidence interval. All 40 large
-cases are shown, including adverse results. `All` fits the whole fixture; `Partial`
-limits selection to 595,000 bytes and 3,500,000,000 cycles. `chain` is a forest of
-bounded chains, not one 16,384-ancestor transaction chain.
+Each case uses 12 independent paired process blocks, in the originally fixed
+balanced/interleaved arm order: 480 formal native runs. The statistic is each
+process mean of individually timed calls, with calibrated repetition counts
+held fixed before A/B. All per-process semantic checks and the minimum 20 ms
+accumulated-exposure and clock-bracket gates remain in force. Intervals are
+conservative pointwise 95% sign/order-statistic intervals for the paired median
+ratio; they do not provide simultaneous coverage or prove process independence.
 
-| Shape / fee pattern | Pool entries | All: develop → candidate ms | Partial: develop → candidate ms |
-|---|---:|---:|---:|
-| `independent / equal` | 4,096 | 0.958 → 2.501 | 0.540 → 1.918 |
-| `independent / equal` | 16,384 | 4.273 → 15.858 | 0.612 → 8.437 |
-| `independent / cpfp` | 4,096 | 0.948 → 2.466 | 0.536 → 1.963 |
-| `independent / cpfp` | 16,384 | 4.482 → 16.637 | 0.612 → 8.422 |
-| `chain / equal` | 4,096 | 11.547 → 12.374 | 5.596 → 10.536 |
-| `chain / equal` | 16,384 | 49.842 → 92.256 | 5.812 → 74.624 |
-| `chain / cpfp` | 4,096 | 11.612 → 13.008 | 5.547 → 10.803 |
-| `chain / cpfp` | 16,384 | 49.771 → 93.339 | 5.704 → 69.261 |
-| `fanout / equal` | 4,096 | 17.445 → 4.467 | 16.167 → 3.289 |
-| `fanout / equal` | 16,384 | 256.194 → 31.644 | 44.028 → 19.147 |
-| `fanout / cpfp` | 4,096 | 2.312 → 4.256 | 0.954 → 3.038 |
-| `fanout / cpfp` | 16,384 | 11.047 → 31.384 | 1.081 → 17.893 |
-| `diamond / equal` | 4,096 | 1.353 → 3.659 | 0.793 → 3.407 |
-| `diamond / equal` | 16,384 | 6.851 → 28.010 | 0.797 → 17.918 |
-| `diamond / cpfp` | 4,096 | 1.376 → 3.849 | 0.722 → 2.978 |
-| `diamond / cpfp` | 16,384 | 6.830 → 28.111 | 0.838 → 18.554 |
-| `mixed / equal` | 4,096 | 1.983 → 4.527 | 0.994 → 3.404 |
-| `mixed / equal` | 16,384 | 10.941 → 32.722 | 1.140 → 21.986 |
-| `mixed / cpfp` | 4,096 | 2.038 → 4.289 | 1.002 → 3.343 |
-| `mixed / cpfp` | 16,384 | 10.190 → 33.411 | 1.088 → 20.204 |
+At the user’s direction, acceptance uses direct paired A/B without requiring
+a separate A/A equivalence gate. Previously collected A/A and intermediate
+observations remain diagnostic; their original plans and qualifications are
+unchanged. Remaining A/A, intermediate-version and extra cache/boundary timing
+runs were canceled before the first A/B capture. No result was excluded based
+on its direction. This new process-mean contract also leaves every original
+v2 per-call 1 ms qualification intact; short individual calls do not become old-gate passes.
 
-Candidate selection takes longer than develop in 36/40 large cases. In the
-16,384-entry partial cases, observed candidate/develop elapsed ratios range from
-0.435 for equal-fee fanout to 22.495 for equal-fee diamond. These ratios describe
-the recorded runs, not qualified final-source speedups or slowdowns.
+The [timed window](BENCHMARK.md#measure-template-transaction-selection) includes
+current cold graph construction, selection and selection-state destruction.
+Develop selects from its admission-maintained PoolMap, whose maintenance is
+outside the window. Both call their real production selector. Fixture setup,
+Store capture/locks, optional content, final DAO and complete template building
+are excluded. The current cold adapter does not use the template-loop graph cache.
 
-Selection quality is reported alongside cost. Candidate and control produce the
-same selected result in every case. All-fit runs select all entries. Across the
-40 large cases, develop and candidate have equal selected fee totals in 39 cases;
-partial 16,384-entry CPFP fanout selects 1,453 → 1,473 transactions and
-44,300,517,760 → 44,951,454,520 shannons (1.47% more fees), while selection takes
-1.081 → 17.893 ms. Partial-result sets and cycle utilization can differ even where
-fees match. This is neither a proof of globally optimal packing nor an equal-work
-comparison for that differing-result case. The 15 eight-entry functional cases
-and their exhaustive small-fixture checks remain in the same source packet.
+| Shape / fees / budget | Develop ms | Final ms | Final/develop [95% interval] | Decision |
+|---|---:|---:|---|---|
+| independent / equal / All | 5.053 | 3.563 | 0.7062 [0.6527, 0.7358] | Lower time |
+| independent / equal / Partial | 0.665 | 1.378 | 2.0652 [2.0270, 2.0957] | Higher time |
+| independent / cpfp / All | 5.214 | 3.553 | 0.6875 [0.6526, 0.7262] | Lower time |
+| independent / cpfp / Partial | 0.660 | 1.388 | 2.0958 [2.0071, 2.1556] | Higher time |
+| chain / equal / All | 53.595 | 3.449 | 0.0647 [0.0590, 0.0733] | Lower time |
+| chain / equal / Partial | 6.585 | 2.199 | 0.3297 [0.3075, 0.3566] | Lower time |
+| chain / cpfp / All | 54.009 | 3.295 | 0.0616 [0.0583, 0.0704] | Lower time |
+| chain / cpfp / Partial | 6.497 | 2.156 | 0.3359 [0.3245, 0.3572] | Lower time |
+| fanout / equal / All | 266.102 | 5.939 | 0.0222 [0.0209, 0.0239] | Lower time |
+| fanout / equal / Partial | 46.302 | 3.038 | 0.0656 [0.0619, 0.0693] | Lower time |
+| fanout / cpfp / All | 12.128 | 5.592 | 0.4356 [0.4118, 0.4668] | Lower time |
+| fanout / cpfp / Partial | 1.157 | 2.288 | 1.9559 [1.8053, 2.1704] | Higher time |
+| diamond / equal / All | 9.390 | 4.984 | 0.5400 [0.5273, 0.5948] | Lower time |
+| diamond / equal / Partial | 0.987 | 2.656 | 2.6523 [2.4340, 2.8100] | Higher time |
+| diamond / cpfp / All | 8.887 | 4.674 | 0.5449 [0.5223, 0.5697] | Lower time |
+| diamond / cpfp / Partial | 0.949 | 2.639 | 2.7247 [2.5510, 2.7513] | Higher time |
+| mixed / equal / All | 12.807 | 5.030 | 0.3944 [0.3740, 0.4416] | Lower time |
+| mixed / equal / Partial | 1.294 | 3.012 | 2.3538 [2.3059, 2.4398] | Higher time |
+| mixed / cpfp / All | 13.351 | 5.232 | 0.3878 [0.3685, 0.4328] | Lower time |
+| mixed / cpfp / Partial | 1.390 | 3.190 | 2.2947 [2.1599, 2.3648] | Higher time |
 
-### Allocation traffic
+Absolute times are medians of process means. Paired-ratio medians need not
+equal ratios of those separate absolute medians. Lower elapsed ratios are better.
 
-These separate instrumented runs use 4,096 entries, CPFP fees, three measured
-calls after one warm call. Values are requested allocation bytes per selection,
-develop → candidate. They count allocation traffic, not retained memory or RSS;
-instrumented elapsed times are excluded from the timing table.
+### Selected work and quality
 
-| Shape | All: requested bytes | Partial: requested bytes |
+Every final-source call reproduces its case’s exact selected set, order, fees,
+bytes and cycles. All-fit calls select all 16,384 transactions. Develop may emit
+different valid partial results under its legacy tie policy. The table retains
+all observed partial transaction/fee ranges, rather than asserting equal work.
+Complete byte/cycle utilization and set/order variation remain in the packet.
+Large-fixture optimality is not inferred from fee totals or utilization.
+
+| Shape / fees | Selected transactions: develop → final | Selected fees in shannons: develop → final |
 |---|---:|---:|
-| `independent` | 5,447,300 → 7,275,808 | 2,639,282 → 6,789,648 |
-| `chain` | 17,795,260 → 9,187,080 | 8,441,018 → 8,544,424 |
-| `fanout` | 7,069,454 → 9,605,216 | 2,690,140 → 8,471,760 |
-| `diamond` | 4,081,428 → 8,860,792 | 2,000,690 → 8,193,576 |
-| `mixed` | 4,662,652 → 9,037,288 | 2,094,948 → 8,222,360 |
+| independent / equal | 1,919 → 1,919 | 594,890,000 → 594,890,000 |
+| independent / cpfp | 1,919 → 1,919 | 594,890,000 → 594,890,000 |
+| chain / equal | 1,919 → 1,919 | 594,890,000 → 594,890,000 |
+| chain / cpfp | 1,919 → 1,919 | 904,859,000 → 904,859,000 |
+| fanout / equal | 178 → 178 | 590,426,000 → 590,426,000 |
+| fanout / cpfp | 1,453 → 1,473 | 44,300,517,760 → 44,951,454,520 |
+| diamond / equal | 1,852 → 1,852 | 594,492,000 → 594,492,000 |
+| diamond / cpfp | 1,852 → 1,852 | 16,394,505,900 → 16,394,505,900 |
+| mixed / equal | 1,780 → 1,780 | 594,505,000 → 594,505,000 |
+| mixed / cpfp | 1,780 → 1,780 | 8,529,892,570 → 8,529,892,570 |
 
-### Candidate optimization: prospective A/A and A/B
+### Resource observations
 
-`packing-r29` reuses the frozen control/candidate binaries above. It compares the
-candidate optimization against its previous implementation, **not against develop**.
-Ten 16,384-entry CPFP cases use six balanced paired blocks for each of A/A and A/B,
-with one fresh process per side and five calls after two warm calls per process:
-240 captures and replays in total. The sampling unit is the process median.
+Separate instrumentation records final per-selection allocation traffic; it
+never supplies timing claims. Across the 20 final cases the complete calls and
+requested bytes remain in `final-cost-12/rows.json`. Stable template-graph reuse
+retains 3,408,048–3,702,960 requested bytes after captured owners retire. These
+are numeric graph storage and weak Entry allocations; retired transaction and
+resolved payloads are released. This is neither allocator overhead nor RSS.
+One-owner or whole-source renewal rebuilds the graph and adds 131,072 requested
+bytes versus cold construction for the weak-identity vector.
+Repeated complete-template RPC reads do not establish graph-cache hit traffic.
 
-The original A/A gate requires its complete pointwise interval inside
-[1/1.05, 1.05]; only independent/partial passes. A/B establishes lower elapsed time
-only when A/A passes and the A/B interval lies below 1. Brackets below are the
-original conservative order-statistic intervals, conditional on independent
-blocks, without simultaneous coverage across cases. All unresolved rows remain.
+The following fixed 64-call CPFP observations use kernel wait4 CPU and maximum
+RSS over the entire native child, including fixture/source setup, preflight,
+warmup, selection and destruction. They are descriptive whole-process costs,
+not isolated selector CPU/RSS, node RSS, or a statistical resource ranking.
 
-| Shape / budget | A/A elapsed ratio [interval] | Candidate/control elapsed ratio [interval] | Original decision |
-|---|---|---|---|
-| `independent / All` | 0.9792 [0.9332, 1.0571] | 0.8203 [0.7799, 0.8833] | Unresolved |
-| `independent / Partial` | 0.9932 [0.9647, 1.0237] | 0.6993 [0.6665, 0.7532] | Lower selection time |
-| `chain / All` | 0.9912 [0.8703, 1.0218] | 0.3880 [0.3768, 0.4373] | Unresolved |
-| `chain / Partial` | 0.9896 [0.9461, 1.0088] | 0.3423 [0.3355, 0.3471] | Unresolved |
-| `fanout / All` | 0.9779 [0.8537, 1.0333] | 0.8244 [0.7700, 0.8526] | Unresolved |
-| `fanout / Partial` | 1.0104 [0.9833, 1.0697] | 0.7155 [0.6560, 0.7590] | Unresolved |
-| `diamond / All` | 0.9902 [0.9133, 1.0458] | 0.7759 [0.7457, 0.9206] | Unresolved |
-| `diamond / Partial` | 1.0418 [0.7167, 1.0533] | 0.6717 [0.6203, 0.7362] | Unresolved |
-| `mixed / All` | 0.9749 [0.9444, 1.0271] | 0.7135 [0.6868, 0.7723] | Unresolved |
-| `mixed / Partial` | 0.9849 [0.9244, 1.0454] | 0.6193 [0.6102, 0.6271] | Unresolved |
+| Shape / budget | Total CPU seconds: develop → final | Lifetime peak RSS MiB: develop → final |
+|---|---:|---:|
+| independent / All | 0.730 → 0.659 | 128.06 → 112.00 |
+| independent / Partial | 0.183 → 0.214 | 128.61 → 112.27 |
+| chain / All | 4.260 → 0.715 | 132.59 → 120.33 |
+| chain / Partial | 0.798 → 0.286 | 132.72 → 120.27 |
+| mixed / All | 1.398 → 0.886 | 141.03 → 122.22 |
+| mixed / Partial | 0.256 → 0.387 | 139.41 → 126.86 |
 
-The qualified independent/partial optimization has elapsed ratio 0.6993
-[0.6665, 0.7532], about 30.1% lower than the prior candidate. The other nine A/B
-point estimates are favorable but remain unresolved under their original A/A
-gates. None supplies a qualified final-candidate/develop packing ranking.
+The final-source strict workspace/all-target Clippy, 1,448 Nextest tests including
+ignored tests, 46 doctests and 176 release integration cases pass; integration
+needed no retries. Six cache diagnostic modes each pass 12 contract tests.
+The final report reuses these checks because only documentation changes after
+the frozen executable inputs. Mutation checks reject missing fork fallback,
+incorrect closure reuse and unsafe budget-exhaustion shortcuts.
 
-All 195 exploratory captures/replays and all 240 prospective captures/replays are
-retained under `evidence/candidate-reassessment-20260910-r1/` in the portable
-packet. The source/binary manifests, `packing-r28/summary.json`,
-`packing-r28/observations.json`, and `packing-r29/plan.json`/`result.json` identify
-the exact inputs, complete results and qualification. These focused runs are
-separate from the 3,428 final end-to-end/secp executions.
+The `tx-pool-packing-20260911-evidence.tar.gz` packet retains the direct A/B plan, all 480
+captures, original qualifications, canceled-study data, sources/binaries,
+validation receipts and the 76 completed resource plus 12 boundary observations.
+Replay checks raw logs, source/binary receipts, complete case membership and
+statistical arithmetic; it does not recreate OS behavior. Historical
+`packing-r28`/`packing-r29` remain in the earlier migration packet and do not
+supply final-source comparisons.
 
 ## Resource and maintenance decision
 
@@ -339,15 +346,16 @@ prefix reuse removes one observed singleton allocation (320 bytes/two calls to
 256 bytes/one call). Allocation instrumentation is excluded from final timing.
 
 The [packing comparison](#packing-comparison) exposes the selector's elapsed and
-allocation costs relative to develop, its fee/result differences, and all ten
-prospective optimization outcomes. Publisher polling, broad persistent aggregate
+allocation costs, direct develop comparisons, fee/result differences and all 20
+final A/B outcomes. Publisher polling, broad persistent aggregate
 caching and index sorting were not adopted where observed
 benefit or integration cost failed to justify them. Fixed 1,024 shards were rejected
 at the user's direction after source-cost review; no native speedup is claimed.
 The candidate index and source-bound decisions preserve all explored alternatives.
 
-The pool occupies 16,005 physical Rust lines in 45 production files, including
-inline tests, versus the accepted 15,319-line/42-file reference. Separate tests,
+The pool occupies 16,488 physical Rust lines in 47 production files, including
+inline tests, versus the accepted 15,319-line/42-file reference. This packing change
+adds 347 lines over its 16,141-line baseline. Separate tests,
 shared-crate changes and measurement tools are disclosed outside both counts.
 No logic was moved or compressed to hide that cost. The maintained design owns
 original observations, atomic coupled commits, bounded retained/transient work,
@@ -367,7 +375,7 @@ decisions remain separate from this implementing-agent assessment.
 
 ## Verification and portable evidence
 
-The final executable inputs pass strict workspace all-target Clippy with repository
+The earlier migration executable inputs pass strict workspace all-target Clippy with repository
 lint/features, 1,422 isolated Nextest tests including ignored tests (no skips or
 leaked pipes), 46 doctests, and all 176 release integration specs without retries.
 RPC Markdown regeneration is byte-identical. The 75 Python checks remain applicable

@@ -25,6 +25,7 @@ ckb-util.workspace = true
 ckb-jsonrpc-types.workspace = true
 ckb-chain-spec.workspace = true
 ckb-snapshot.workspace = true
+ckb-proposal-table.workspace = true
 ckb-metrics.workspace = true
 ckb-error.workspace = true
 tokio = { workspace = true, features = ["sync", "process", "time", "rt-multi-thread"] }
@@ -59,7 +60,6 @@ ckb-test-chain-utils.workspace = true
 ckb-systemtime = { workspace = true, features = ["enable_faketime"] }
 ckb-system-scripts.workspace = true
 ckb-crypto.workspace = true
-ckb-proposal-table.workspace = true
 
 [[bench]]
 name = "profile_one_shot"

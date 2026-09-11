@@ -75,7 +75,7 @@ impl PackingSource {
     /// Execute one template's production selection, including derived graph
     /// construction and destruction. No authoritative store lock is measured.
     pub fn select(&self, bytes: usize, cycles: u64) -> Result<Vec<TxEntry>, String> {
-        Selection::new(self.owners.clone(), &self.snapshot, self.max_ancestors)
+        Selection::new(&self.owners, &self.snapshot, self.max_ancestors)
             .map_err(|error| error.to_string())?
             .pack_transactions(TemplatePackingLimits::new(bytes, cycles))
             .map_err(|error| format!("packing failed: {error:?}"))

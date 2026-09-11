@@ -119,6 +119,7 @@ capacity, shared by admission, reorg payload and persistence-read bounds.
 | Replacement history | Charged to pipeline and smaller optional-history quotas |
 | Effects | Complete batches reserved before commit, with remote limits and trusted/critical headroom |
 | Scratch/concurrency | Bounded captures and graphs, fixed workers, bounded channels/read handlers and paged maintenance/relay work |
+| Packing graph cache | At most one graph in the template loop, with numeric edges/aggregates and weak owner identities; invalidation releases it before replacement construction |
 
 Each active permit reserves the same immutable per-job byte/edge envelope, so
 active capacity is represented by total, remote and per-peer job counts. Those
@@ -216,20 +217,80 @@ additions need not invalidate output; selected-owner replacement and same-tip cl
 do. Mandatory base bytes are checked before optional fitting. A refresh wait has
 one 30-second deadline; it does not bound synchronous work or stop the shared driver.
 
-The driver reuses only cellbase and extension payloads within the same lifecycle
-view. It computes DAO for the final selection and assigns each attempt a fresh
+On a rebuild, the driver reuses cellbase and extension payloads within the same
+lifecycle view. It computes DAO for the final selection and assigns each attempt a fresh
 work ID and time. DAO cell-liveness memoization is a separate, block-size-bounded
 LRU keyed by compact outpoints; a tip change clears it, and unknown results are
 cached too. Hits refresh recency. This preserves hot entries through same-tip
 churn but adds LRU maintenance to full scans.
 
-[Packing](../../src/authority/packing.rs) keeps package selection and
-[conditional ordering](../../src/authority/packing/ordering.rs) separate.
-Package selection updates scores from newly selected members and their causal
-descendants. Ordering builds the selected read-before-spend graph once, then
-uses induced subgraphs as cycle resolution drops packages. It retains the same
-deterministic tie breaks, complete causal packages and bounded cycle fallback.
-These graphs and ordinal arrays live only for this calculation.
+[Packing](../../src/authority/packing.rs) borrows the immutable accepted owners
+from that capture. One [compiled causal graph](../../src/authority/packing/graph.rs)
+supplies numeric parents, children, a topological order and exact ancestor totals.
+Zero/one-parent totals need no closure walk; merges deduplicate their bounded
+ancestor closures. Graph evaluation finishes a ready branch first and reuses one
+exact marked closure when its root is a direct parent of the next merge. This
+avoids repeated shared-ancestor walks without storing a closure per entry. It
+preserves eager source, cycle, ancestor-limit and arithmetic validation, including
+entries currently in Gap or Pending. The default production ancestor limit is 1000;
+dense bounded closures may still contain many edges.
+
+Candidates borrow their owners' cached transaction hashes and proposal short ids;
+only the proposal output prefix materializes independent owned ids. Candidate
+phases come from the current `ProposalView`. For a capture with at least
+as many owners as retained proposal keys, its temporary lookup copies sorted
+inline keys and phases once; smaller reads query the original tree directly.
+Both paths preserve Proposed precedence over Gap. The temporary copy contains at
+most the declared query count and is released after capture. Candidate priority
+uses a standard heap. Proposal selection and fee estimation consume the prefix
+they need instead of sorting every result. The shared ancestor-score comparator
+retains exact fee-rate cross-products and ancestor-weight ties, followed by
+arrival, hash and local index.
+
+Each packing call owns its changing budgets and candidate states. Ancestor totals
+are copied only on the first score adjustment. The initial heap and the set of
+modified scores each hold at most the captured population. Once a package is
+chosen, its members leave the queue together; descendant adjustments pass through
+selected intermediates while skipping branches with no remaining consumer. Each
+retiring child use propagates towards parents only once. This bounds retirement
+work, not all score-update work by a linear function.
+After a successful package, selection stops if the remaining byte budget cannot
+hold the smallest initially queued transaction's own bytes. Using own bytes
+keeps small residual children eligible after their parents are selected. Near
+integer limits, the shortcut is disabled where it could hide a projected-add
+overflow. The existing consecutive-failure policy remains in effect otherwise.
+
+When the unselected remainder forms a chain, its only parent-first order can be
+emitted directly, stopping at selected ancestors. Any residual fork uses a local
+priority Kahn traversal over the complete ancestor closure, including already
+selected ancestors; only output omits those ancestors. This preserves the global
+deterministic preference order without sorting the whole pool.
+[Conditional ordering](../../src/authority/packing/ordering.rs) checks actual
+selected inputs and read-before-spend edges. An already valid order returns
+directly. Input keys borrow the canonical transaction bytes; dependency lookups
+borrow resolved out points, including expanded dependency groups. The join still
+rejects duplicate inputs before returning an already ordered result. Otherwise,
+one selected graph supports induced subgraphs, complete causal
+package drops and bounded cycle fallback. Only an actual conditional cycle needs
+descendant eviction totals; those reuse the compiled parents and wide fee arithmetic.
+
+The sole template loop can reuse one compiled graph when the ordered accepted-owner
+identities and ancestor limit match exactly. Weak identities prevent allocation
+reuse from masquerading as a hit. They retain retired `Arc<Entry>` allocations,
+but keep no transaction or resolved payload alive. Proposal phases come from the
+new snapshot on every call, and publication still validates original selected
+owners, lifecycle and uncle sources. A mismatch drops the old graph and identities
+before construction; an empty capture clears the old contents. Stop/fault releases
+the loop's cache. One-time queries build only the numeric graph and retain no weak
+source identities. Admission maintains no packing cache and takes no additional lock.
+
+For `N` captured owners and `E` direct causal edges, retained graph/cache storage
+is `O(N + E)`; accepted item, byte and ancestry limits bound its producers. A cache
+miss temporarily overlaps the previous cache with fresh borrowed-candidate metadata,
+including the temporary proposal lookup, then replaces it. Selection scratch,
+output ownership and separately bounded read
+handlers add to that cost. The driver already serves valid complete templates from
+BlockAssembler, so repeated RPC reads do not establish graph-cache hit traffic.
 
 ## Startup and shutdown
 
