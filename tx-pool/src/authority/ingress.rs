@@ -1,7 +1,7 @@
 //! Source promotion and current-owner rejection plans.
 use super::{
     jobs::Resolution,
-    model::{Entry, Error, Phase, Source},
+    model::{Entry, Error, FullReason, Phase, Source},
     notice::{Class, Effect},
     store::{Plan, Store},
 };
@@ -175,6 +175,27 @@ pub(super) fn resolution(
     let effect = Effect::waiting(&after);
     plan.edit(Some(Arc::clone(before)), Some(after), effect)?;
     Ok(plan)
+}
+
+/// Capacity refusal observes the current owner without removing it, and still
+/// owes a rejection notice that releases the relayer's pending filter.
+pub(super) fn capacity_rejection(
+    store: &Store,
+    hash: &Byte32,
+    source: Source,
+    reason: FullReason,
+) -> Result<Plan, Error> {
+    let (view, _) = store.snapshot();
+    let mut plan = Plan::new(view, class(source), Default::default());
+    plan.get(store, hash)?;
+    rejection(
+        store,
+        plan,
+        None,
+        hash,
+        source,
+        Reject::Full(reason.to_string()),
+    )
 }
 
 /// A remote malformed result revokes exactly the current preaccepted cohort.

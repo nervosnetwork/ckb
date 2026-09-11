@@ -4,6 +4,7 @@ use super::model::DependencyKey;
 use super::{
     budget::ActivePermit,
     model::{Entry, Error, Phase, Resolved, Status, status},
+    residency::detach_cell,
     store::{ReadSet, Store},
 };
 use crate::{
@@ -15,7 +16,6 @@ use ckb_app_config::TxPoolConfig;
 use ckb_script::{ChunkCommand, InitialProgramLoadLimit, TxPoolVmExecutionMode};
 use ckb_snapshot::Snapshot;
 use ckb_types::{
-    bytes::Bytes,
     core::{
         DepType, TransactionView,
         cell::{
@@ -186,19 +186,7 @@ impl Provider<'_> {
                 "cell data exceeds materialization metadata".into(),
             ));
         }
-        cell.cell_output = ckb_types::packed::CellOutput::new_unchecked(Bytes::copy_from_slice(
-            cell.cell_output.as_slice(),
-        ));
-        cell.out_point = compact_packed(&cell.out_point);
-        if let Some(info) = &mut cell.transaction_info {
-            info.block_hash = compact_packed(&info.block_hash);
-        }
-        if let Some(data) = &cell.mem_cell_data {
-            cell.mem_cell_data = Some(Bytes::copy_from_slice(data));
-        }
-        if let Some(hash) = &cell.mem_cell_data_hash {
-            cell.mem_cell_data_hash = Some(compact_packed(hash));
-        }
+        detach_cell(&mut cell);
         state
             .cells
             .insert(compact_packed(point), (cell.clone(), bytes.max(old_bytes)));

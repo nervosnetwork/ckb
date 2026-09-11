@@ -79,7 +79,7 @@ impl<'a> Graph<'a> {
                 continue;
             }
             if result.len() > limit {
-                return Err(component_limit(false));
+                return Err(component_limit());
             }
             self.require(&hash)?;
             stack.extend(

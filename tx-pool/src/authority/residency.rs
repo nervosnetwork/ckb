@@ -1,18 +1,29 @@
 //! Retained-payload materialization and conservative resident-byte charges.
 
-use crate::component::entry::TxEntry;
+use crate::{component::entry::TxEntry, util::compact_packed};
 use ckb_types::{
+    bytes::Bytes,
     core::cell::{CellMeta, ResolvedTransaction},
+    packed::CellOutput,
     prelude::Entity,
 };
 use std::sync::Arc;
 
-#[cfg(any(test, feature = "internal"))]
-use ckb_types::bytes::Bytes;
-
-#[cfg(any(test, feature = "internal"))]
-fn compact_entity<T: Entity>(value: &T) -> T {
-    T::new_unchecked(Bytes::copy_from_slice(value.as_slice()))
+/// Detach every retained cell view from its producer's backing allocation.
+/// Provider calls this after charging and checking the materialized payload.
+pub(super) fn detach_cell(cell: &mut CellMeta) {
+    cell.cell_output =
+        CellOutput::new_unchecked(Bytes::copy_from_slice(cell.cell_output.as_slice()));
+    cell.out_point = compact_packed(&cell.out_point);
+    if let Some(info) = &mut cell.transaction_info {
+        info.block_hash = compact_packed(&info.block_hash);
+    }
+    if let Some(data) = &cell.mem_cell_data {
+        cell.mem_cell_data = Some(Bytes::copy_from_slice(data));
+    }
+    if let Some(hash) = &cell.mem_cell_data_hash {
+        cell.mem_cell_data_hash = Some(compact_packed(hash));
+    }
 }
 
 /// Detach cell views supplied by the test/internal verified-entry fixture.
@@ -23,27 +34,13 @@ fn compact_entity<T: Entity>(value: &T) -> T {
 pub(super) fn compact_fixture_resolution(
     mut resolved: ResolvedTransaction,
 ) -> Arc<ResolvedTransaction> {
-    fn compact_cell(cell: &mut CellMeta) {
-        cell.cell_output = compact_entity(&cell.cell_output);
-        cell.out_point = compact_entity(&cell.out_point);
-        if let Some(info) = &mut cell.transaction_info {
-            info.block_hash = compact_entity(&info.block_hash);
-        }
-        if let Some(data) = &cell.mem_cell_data {
-            cell.mem_cell_data = Some(Bytes::copy_from_slice(data));
-        }
-        if let Some(hash) = &mut cell.mem_cell_data_hash {
-            *hash = compact_entity(hash);
-        }
-    }
-
     for cell in resolved
         .resolved_inputs
         .iter_mut()
         .chain(resolved.resolved_cell_deps.iter_mut())
         .chain(resolved.resolved_dep_groups.iter_mut())
     {
-        compact_cell(cell);
+        detach_cell(cell);
     }
     Arc::new(resolved)
 }

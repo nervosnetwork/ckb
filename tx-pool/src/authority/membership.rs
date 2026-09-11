@@ -70,20 +70,11 @@ impl Aggregate {
 fn accepted(entry: &Entry) -> Result<&Accepted, Error> {
     entry.accepted().ok_or(Error::Stale)
 }
-fn component_limit(rbf: bool) -> Error {
-    if rbf {
-        Reject::RBFRejected(format!(
-            "Tx conflict with too many txs, conflict txs count: >= {}, expect <= {}",
-            MAX_POOL_MUTATION_CANDIDATES + 1,
-            MAX_POOL_MUTATION_CANDIDATES
-        ))
-        .into()
-    } else {
-        Reject::Full(format!(
-            "pool mutation exceeds the per-transition limit of {MAX_POOL_MUTATION_CANDIDATES}"
-        ))
-        .into()
-    }
+fn component_limit() -> Error {
+    Reject::Full(format!(
+        "pool mutation exceeds the per-transition limit of {MAX_POOL_MUTATION_CANDIDATES}"
+    ))
+    .into()
 }
 fn causal_cycle(hash: &Byte32) -> Error {
     Reject::Invalidated(format!(
@@ -144,7 +135,7 @@ pub(super) fn descendant_hashes(
             continue;
         }
         if seen.len() > limit {
-            return Err(component_limit(false));
+            return Err(component_limit());
         }
         if let Some(children) = children.get(&hash) {
             stack.extend(children.iter().cloned());
@@ -348,7 +339,12 @@ fn rbf(
         )
         .map_err(|error| {
             if matches!(error, Error::Rejected(Reject::Full(_))) {
-                component_limit(true)
+                Reject::RBFRejected(format!(
+                    "Tx conflict with too many txs, conflict txs count: >= {}, expect <= {}",
+                    MAX_POOL_MUTATION_CANDIDATES + 1,
+                    MAX_POOL_MUTATION_CANDIDATES
+                ))
+                .into()
             } else {
                 error
             }
@@ -748,7 +744,7 @@ fn trim_virtual(
             .chain(closure.iter().cloned())
             .collect::<BTreeSet<_>>();
         if touched.len() > MAX_POOL_MUTATION_CANDIDATES {
-            return Err(component_limit(false));
+            return Err(component_limit());
         }
         let mut update_rank = |ancestor: &Byte32, reduction: Aggregate| -> Result<(), Error> {
             let parent = entries.get(ancestor).ok_or(Error::Stale)?;

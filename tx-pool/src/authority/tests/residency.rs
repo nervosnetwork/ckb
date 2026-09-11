@@ -1,8 +1,11 @@
 use super::super::residency::{accepted_resolution, compact_fixture_resolution};
 use ckb_types::{
     bytes::Bytes,
-    core::{TransactionBuilder, cell::CellMeta, cell::ResolvedTransaction},
-    packed::CellOutput,
+    core::{
+        EpochNumberWithFraction, TransactionBuilder, TransactionInfo, cell::CellMeta,
+        cell::ResolvedTransaction,
+    },
+    packed::{Byte32, CellOutput, OutPoint},
     prelude::{Entity, Pack},
 };
 
@@ -33,15 +36,18 @@ fn verified_entry_fixture_detaches_cell_views_and_data_slices() {
 
     let input = CellMeta {
         cell_output: shared_output,
-        out_point: producer
-            .output_pts()
-            .into_iter()
-            .next()
-            .expect("producer outpoint"),
+        out_point: OutPoint::new_unchecked(data_backing.slice(2048..2084)),
+        transaction_info: Some(TransactionInfo::new(
+            7,
+            EpochNumberWithFraction::new(1, 2, 3),
+            Byte32::new_unchecked(data_backing.slice(4096..4128)),
+            1,
+        )),
         data_bytes: shared_data.len() as u64,
         mem_cell_data: Some(shared_data),
-        ..Default::default()
+        mem_cell_data_hash: Some(Byte32::new_unchecked(data_backing.slice(8192..8224))),
     };
+    let original = input.clone();
     let resolved = ResolvedTransaction {
         transaction: TransactionBuilder::default().build(),
         resolved_cell_deps: Vec::new(),
@@ -51,6 +57,7 @@ fn verified_entry_fixture_detaches_cell_views_and_data_slices() {
 
     let compact = compact_fixture_resolution(resolved);
     let compact_input = &compact.resolved_inputs[0];
+    assert!(compact_input == &original);
     assert!(!slice_is_within(
         compact_input.cell_output.as_slice(),
         producer_data.as_slice()
@@ -60,6 +67,22 @@ fn verified_entry_fixture_detaches_cell_views_and_data_slices() {
         &data_backing
     ));
     assert_eq!(compact_input.mem_cell_data.as_deref(), Some(&[0x7b; 8][..]));
+    for view in [
+        compact_input.out_point.as_slice(),
+        compact_input
+            .transaction_info
+            .as_ref()
+            .expect("transaction info")
+            .block_hash
+            .as_slice(),
+        compact_input
+            .mem_cell_data_hash
+            .as_ref()
+            .expect("data hash")
+            .as_slice(),
+    ] {
+        assert!(!slice_is_within(view, &data_backing));
+    }
 }
 
 #[test]

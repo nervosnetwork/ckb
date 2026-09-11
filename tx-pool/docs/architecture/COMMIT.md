@@ -1,9 +1,9 @@
 # Commit and concurrency
 
 [Architecture overview](../ARCHITECTURE.md) introduces the core. This page explains
-how [Store](../../src/authority/store.rs) validates a prepared decision and protects
-its coupled mutation. [Execution](EXECUTION.md) owns the surrounding job and effect
-lifetimes.
+how [Apply](../../src/authority/store/apply.rs) validates a prepared
+[Plan](../../src/authority/store/plan.rs) and protects its coupled mutation.
+[Execution](EXECUTION.md) owns the surrounding job and effect lifetimes.
 
 ## Original reads and intended writes
 
@@ -113,6 +113,12 @@ tail does not compile. This narrow guard does not prove preflight completeness,
 prevent panics or promise rollback after a committed integrity fault. Allocation
 uses Rust's abort-on-OOM behavior. A generation fault prevents continued normal
 use and makes persistence ineligible.
+
+Within that commit, `Shard::apply_edit` updates the owner and every shard-local
+projection, including queue membership and retirement. Its exhaustive field
+destructuring forces a new Shard field to be considered at this boundary; it does
+not prove the update is correct. Clear replaces complete shards, while a snapshot
+change refreshes the proposed count against the new view.
 
 Retired payloads and replaced collections drop outside the guarded cut. The
 outbox batch is appended with the mutation and becomes ready after guards open.

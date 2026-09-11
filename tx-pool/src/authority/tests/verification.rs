@@ -1,6 +1,7 @@
 use super::*;
 use crate::authority::{model::Source, tests::common::*};
 use ckb_types::{
+    bytes::Bytes,
     core::Capacity,
     packed::{CellDep, CellOutput, OutPoint, OutPointVec},
 };

@@ -2,7 +2,8 @@
 
 The [controller](../src/service/controller.rs) defines caller completion and failure.
 [ARCHITECTURE.md](ARCHITECTURE.md) explains ownership and locks.
-[Store::apply](../src/authority/store.rs) validates and commits each prepared Plan.
+[Store::apply](../src/authority/store/apply.rs) validates and commits each prepared
+[Plan](../src/authority/store/plan.rs).
 
 ## Configuration and capacity
 

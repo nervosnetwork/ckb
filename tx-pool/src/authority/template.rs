@@ -304,19 +304,14 @@ impl Driver {
             }
             first = false;
             let outcome = block_offload(|| self.rebuild(&mut packing));
-            let stale = outcome
+            let pool_error = outcome
                 .as_ref()
                 .err()
-                .and_then(|error| error.downcast_ref::<Error>())
-                .is_some_and(|error| matches!(error, Error::Stale));
+                .and_then(|error| error.downcast_ref::<Error>());
+            let stale = matches!(pool_error, Some(Error::Stale));
             self.failed
                 .store(outcome.is_err() && !stale, Ordering::Release);
-            if outcome
-                .as_ref()
-                .err()
-                .and_then(|error| error.downcast_ref::<Error>())
-                .is_some_and(|error| matches!(error, Error::Fault(_)))
-            {
+            if matches!(pool_error, Some(Error::Fault(_))) {
                 self.store.fault();
             }
             if let Err(error) = &outcome

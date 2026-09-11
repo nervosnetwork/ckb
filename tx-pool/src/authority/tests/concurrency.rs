@@ -3,6 +3,7 @@ use crate::service::BoundedTransaction;
 use crate::{
     authority::{
         model::{Source, Status},
+        notice::{Class, Effect},
         service::{Endpoints, Pool},
         tests::common::*,
     },

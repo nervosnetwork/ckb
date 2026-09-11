@@ -17,7 +17,7 @@ without following every queued phase.
 | [Controller](../src/service/controller.rs) and [ingress](../src/authority/ingress.rs) | Are inputs bounded, source permissions preserved and caller completion stated correctly? |
 | [Worker](../src/authority/service/execution.rs) and [jobs](../src/authority/jobs.rs) | Who owns each job, VM state, result and reservation through suspension, settlement and cancellation? Can block-dependent reconciliation and publication still progress? |
 | [Membership](../src/authority/membership.rs) and [chain](../src/authority/chain.rs) | Which original observations justify both the decision and any rejection? |
-| [Store](../src/authority/store.rs) and [budget](../src/authority/budget.rs) | Does complete preflight cover the exact owner, index, quota and effect changes before mutation? |
+| [Apply](../src/authority/store/apply.rs) and [budget](../src/authority/budget.rs) | Does complete preflight cover the exact owner, index, quota and effect changes before mutation? |
 | [Outbox](../src/authority/notice.rs) | Are required obligations retained through waiting/failure and published in order outside guards? |
 | [Template](../src/authority/template.rs), [query](../src/authority/query.rs), [persistence](../src/persisted.rs) | Does each consumer validate its actual sources and avoid inventing accepted proof or completion? |
 

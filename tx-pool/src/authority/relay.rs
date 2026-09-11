@@ -48,6 +48,15 @@ struct RelayMailboxState {
 }
 
 impl RelayMailboxState {
+    fn replace_with_reset(&mut self) {
+        self.queue.clear();
+        self.bytes = size_of::<TxVerificationResult>();
+        self.queue.push_back(RelayEnvelope {
+            result: TxVerificationResult::GenerationReset,
+            bytes: self.bytes,
+        });
+    }
+
     fn pop_front(&mut self) -> Option<TxVerificationResult> {
         let envelope = self.queue.pop_front()?;
         let Some(bytes) = self.bytes.checked_sub(envelope.bytes) else {
@@ -204,17 +213,7 @@ impl AuthorityRelaySink {
             return RelayMailboxDisposition::Exact;
         }
 
-        state.queue.clear();
-        state.bytes = 0;
-        let reset = TxVerificationResult::GenerationReset;
-        let Some(reset_bytes) = relay_result_bytes(&reset) else {
-            return RelayMailboxDisposition::Unavailable;
-        };
-        state.bytes = reset_bytes;
-        state.queue.push_back(RelayEnvelope {
-            result: reset,
-            bytes: reset_bytes,
-        });
+        state.replace_with_reset();
 
         let disposition = if matches!(result, TxVerificationResult::GenerationReset) {
             RelayMailboxDisposition::Reconciled
@@ -242,17 +241,7 @@ impl AuthorityRelaySink {
         if !self.inner.receiver_alive.load(Ordering::Acquire) {
             return RelayMailboxDisposition::Disconnected;
         }
-        state.queue.clear();
-        state.bytes = 0;
-        let reset = TxVerificationResult::GenerationReset;
-        let Some(reset_bytes) = relay_result_bytes(&reset) else {
-            return RelayMailboxDisposition::Unavailable;
-        };
-        state.bytes = reset_bytes;
-        state.queue.push_back(RelayEnvelope {
-            result: reset,
-            bytes: reset_bytes,
-        });
+        state.replace_with_reset();
         let disposition = if matches!(result, TxVerificationResult::UnknownParents { .. }) {
             RelayMailboxDisposition::Unavailable
         } else {

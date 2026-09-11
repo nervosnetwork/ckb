@@ -4,6 +4,10 @@
 //! original reads and changes owners, derived indexes, quota and committed
 //! notices together. Workers keep their work through admission; publication
 //! and every external call follow guard release.
+//!
+//! Start at [service] for request and worker coordination. Policy in [ingress],
+//! [membership] and [chain] prepares [store::Plan] decisions. [store] owns live
+//! reads and Apply; [notice] and [relay] deliver their committed effects.
 
 mod budget;
 mod chain;

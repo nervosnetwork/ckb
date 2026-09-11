@@ -15,19 +15,12 @@ impl Pool {
                     self.open()?;
                     match ingress::prepare(&self.store, Arc::clone(&transaction), source) {
                         Ok(plan) => Ok(plan),
-                        Err(Error::Full(reason)) => {
-                            let (view, _) = self.store.snapshot();
-                            let mut reads = ReadSet::default();
-                            self.store.get(&transaction.hash(), &mut reads)?;
-                            ingress::rejection(
-                                &self.store,
-                                Plan::new(view, ingress::class(source), reads),
-                                None,
-                                &transaction.hash(),
-                                source,
-                                Reject::Full(reason.to_string()),
-                            )
-                        }
+                        Err(Error::Full(reason)) => ingress::capacity_rejection(
+                            &self.store,
+                            &transaction.hash(),
+                            source,
+                            reason,
+                        ),
                         Err(error) => Err(error),
                     }
                 })
@@ -41,16 +34,11 @@ impl Pool {
                     let batch = self
                         .commit(|| {
                             self.open()?;
-                            let (view, _) = self.store.snapshot();
-                            let mut reads = ReadSet::default();
-                            self.store.get(&transaction.hash(), &mut reads)?;
-                            ingress::rejection(
+                            ingress::capacity_rejection(
                                 &self.store,
-                                Plan::new(view, ingress::class(source), reads),
-                                None,
                                 &transaction.hash(),
                                 source,
-                                Reject::Full(reason.to_string()),
+                                reason,
                             )
                         })
                         .await;
