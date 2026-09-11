@@ -417,3 +417,188 @@ fn dependency_reader_fanout_does_not_consume_spender_ancestry_or_mutation_budget
         assert!(store.point(&hash).1.unwrap().accepted().is_some());
     }
 }
+
+#[test]
+fn graph_reuses_a_negative_owner_and_apply_rejects_its_successor() {
+    use super::super::{notice::Class, store::Plan};
+    let store = store();
+    let transaction = output_tx(10400);
+    let hash = transaction.hash();
+    let mut graph = membership::Graph::new(&store, ReadSet::default());
+    assert!(graph.get(&hash).unwrap().is_none());
+    accept(&store, transaction, 1, 1, Status::Pending);
+    assert!(graph.get(&hash).unwrap().is_none());
+    let mut plan = Plan::new(store.snapshot().0, Class::Trusted);
+    plan.reads = graph.reads;
+    assert!(matches!(store.apply(plan), Err(Error::Stale)));
+}
+
+#[test]
+fn graph_reuses_the_original_positive_owner_and_apply_rejects_identity_aba() {
+    use super::super::{notice::Class, store::Plan};
+    use std::sync::Arc;
+    let store = store();
+    let hash = accept(&store, output_tx(10401), 1, 1, Status::Pending);
+    let old = store.point(&hash).1.unwrap();
+    let mut reads = ReadSet::default();
+    reads.owner(&hash, Some(&old)).unwrap();
+    let current = replace(&store, Arc::clone(&old), old.phase.clone());
+    assert!(!Arc::ptr_eq(&old, &current));
+    let mut graph = membership::Graph::new(&store, reads);
+    assert!(Arc::ptr_eq(&graph.get(&hash).unwrap().unwrap(), &old));
+    let mut plan = Plan::new(store.snapshot().0, Class::Trusted);
+    plan.reads = graph.reads;
+    assert!(matches!(store.apply(plan), Err(Error::Stale)));
+}
+
+#[test]
+fn graph_returns_stale_when_its_original_owner_has_expired() {
+    use super::super::{notice::Class, store::Plan};
+    use std::sync::Arc;
+    let store = store();
+    let old = entry(&store, output_tx(10402), Source::Local);
+    let hash = old.hash();
+    insert(&store, Arc::clone(&old));
+    let mut reads = ReadSet::default();
+    reads.owner(&hash, Some(&old)).unwrap();
+    let weak = Arc::downgrade(&old);
+    let mut removal = Plan::new(store.snapshot().0, Class::Trusted);
+    removal.edit(Some(old), None).unwrap();
+    store.apply(removal).unwrap();
+    assert!(weak.upgrade().is_none());
+    let mut graph = membership::Graph::new(&store, reads);
+    assert!(matches!(graph.get(&hash), Err(Error::Stale)));
+}
+
+#[test]
+fn graph_keeps_a_nonaccepted_observation_when_the_owner_becomes_accepted() {
+    use super::super::{notice::Class, store::Plan};
+    use std::sync::Arc;
+    let store = store();
+    let transaction = output_tx(10403);
+    let old = entry(&store, transaction.clone(), Source::Local);
+    let hash = old.hash();
+    insert(&store, Arc::clone(&old));
+    let mut graph = membership::Graph::new(&store, ReadSet::default());
+    assert!(graph.get(&hash).unwrap().is_none());
+    accept(&store, transaction, 1, 1, Status::Pending);
+    assert!(graph.get(&hash).unwrap().is_none());
+    let mut plan = Plan::new(store.snapshot().0, Class::Trusted);
+    plan.reads = graph.reads;
+    assert!(matches!(store.apply(plan), Err(Error::Stale)));
+}
+
+fn removal_totals_diamond(store: &Store) -> Vec<Byte32> {
+    use ckb_types::{
+        bytes::Bytes,
+        packed::{CellDep, CellOutput},
+        prelude::*,
+    };
+    let root = output_tx(10500)
+        .as_advanced_builder()
+        .cell_dep(
+            CellDep::new_builder()
+                .out_point(OutPoint::new(tx(10506).hash(), 0))
+                .build(),
+        )
+        .output(CellOutput::default())
+        .output_data(Bytes::new().pack())
+        .build();
+    let a = accept(store, root, 11, 2, Status::Pending);
+    let b = accept(
+        store,
+        spend(10501, &[OutPoint::new(a.clone(), 0)], &[]),
+        13,
+        3,
+        Status::Pending,
+    );
+    let c = accept(
+        store,
+        spend(10502, &[OutPoint::new(a.clone(), 1)], &[]),
+        17,
+        5,
+        Status::Pending,
+    );
+    let d = accept(
+        store,
+        spend(
+            10503,
+            &[OutPoint::new(b.clone(), 0), OutPoint::new(c.clone(), 0)],
+            &[],
+        ),
+        19,
+        7,
+        Status::Pending,
+    );
+    vec![a, b, c, d]
+}
+
+#[test]
+fn batched_removal_totals_match_individual_snapshots_with_shared_ancestors_and_descendants() {
+    let store = store();
+    let hashes = removal_totals_diamond(&store);
+    // Also test a subset: its ancestors can be outside the captured descendant union.
+    let subset: Vec<_> = hashes.iter().skip(1).take(2).cloned().collect();
+    for selected in [hashes.as_slice(), subset.as_slice()] {
+        let mut graph = membership::Graph::new(&store, ReadSet::default());
+        let totals = graph
+            .removal_totals(selected, config().max_ancestors_count)
+            .unwrap();
+        let mut reference = membership::Graph::new(&store, ReadSet::default());
+        for hash in selected {
+            let old = graph.require(hash).unwrap();
+            let (ancestors, descendants) = totals.get(hash).unwrap();
+            assert_eq!(
+                membership::snapshot(&old, *ancestors, *descendants).unwrap(),
+                reference
+                    .entry_snapshot(hash, config().max_ancestors_count)
+                    .unwrap(),
+            );
+        }
+    }
+}
+
+#[test]
+fn batched_removal_totals_validate_a_later_child_before_apply() {
+    use super::super::{notice::Class, store::Plan};
+    let store = store();
+    let hashes = removal_totals_diamond(&store);
+    let mut graph = membership::Graph::new(&store, ReadSet::default());
+    graph
+        .removal_totals(&hashes, config().max_ancestors_count)
+        .unwrap();
+    let leaf = hashes.last().unwrap().clone();
+    accept(
+        &store,
+        spend(10504, &[OutPoint::new(leaf, 0)], &[]),
+        23,
+        11,
+        Status::Pending,
+    );
+    let mut plan = Plan::new(store.snapshot().0, Class::Trusted);
+    plan.reads = graph.reads;
+    assert!(matches!(store.apply(plan), Err(Error::Stale)));
+}
+
+#[test]
+fn batched_removal_totals_allow_a_later_shared_dependency_reader() {
+    use super::super::{notice::Class, store::Plan};
+    let store = store();
+    let hashes = removal_totals_diamond(&store);
+    let mut graph = membership::Graph::new(&store, ReadSet::default());
+    graph
+        .removal_totals(&hashes, config().max_ancestors_count)
+        .unwrap();
+    // Reading a captured owner's output would add a causal child and must
+    // stale. This reader instead shares the root's external read-only cell.
+    accept(
+        &store,
+        spend(10505, &[], &[OutPoint::new(tx(10506).hash(), 0)]),
+        23,
+        11,
+        Status::Pending,
+    );
+    let mut plan = Plan::new(store.snapshot().0, Class::Trusted);
+    plan.reads = graph.reads;
+    store.apply(plan).unwrap();
+}

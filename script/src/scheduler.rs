@@ -40,7 +40,7 @@ pub const MAX_FDS: u64 = 64;
 
 struct PreparedRootProgram {
     program: Bytes,
-    metadata: ProgramMetadata,
+    metadata: Arc<ProgramMetadata>,
 }
 
 /// A single Scheduler instance is used to verify a single script
@@ -195,8 +195,17 @@ where
             .sg_data
             .load_data(&program_id, 0, u64::MAX)
             .ok_or(Error::SnapshotDataLoadError)?;
-        let metadata =
-            parse_elf::<u64>(&program, self.sg_data.sg_info.script_version.vm_version())?;
+        let version = self.sg_data.sg_info.script_version.vm_version();
+        let metadata = match self
+            .sg_data
+            .tx_info
+            .extract_program_data_hash(&self.sg_data.sg_info.script_group.script, &program_id)
+        {
+            Some(data_hash) => {
+                crate::program_cache::root_program_metadata(data_hash, version, &program)?
+            }
+            None => Arc::new(parse_elf::<u64>(&program, version)?),
+        };
         let receipt = InitialProgramLoadReceipt::from_metadata(&metadata);
         if receipt.is_some() {
             self.prepared_root_program = Some(PreparedRootProgram { program, metadata });
@@ -1038,12 +1047,16 @@ where
         machine: &mut M,
         location: &DataLocation,
         program: Bytes,
-        prepared_metadata: Option<ProgramMetadata>,
+        prepared_metadata: Option<Arc<ProgramMetadata>>,
         args: VmArgs,
     ) -> Result<u64, Error> {
-        let metadata = match prepared_metadata {
+        let parsed;
+        let metadata = match prepared_metadata.as_deref() {
             Some(metadata) => metadata,
-            None => parse_elf::<u64>(&program, machine.inner_mut().version())?,
+            None => {
+                parsed = parse_elf::<u64>(&program, machine.inner_mut().version())?;
+                &parsed
+            }
         };
         let bytes = match args {
             VmArgs::Reader { vm_id, argc, argv } => {
@@ -1052,16 +1065,16 @@ where
                 let argv = Self::u64_to_reg(argv);
                 let argv =
                     FlattenedArgsReader::new(machine_from.inner_mut().memory_mut(), argc, argv);
-                machine.load_program_with_metadata(&program, &metadata, argv)?
+                machine.load_program_with_metadata(&program, metadata, argv)?
             }
             VmArgs::Vector(data) => {
-                machine.load_program_with_metadata(&program, &metadata, data.into_iter().map(Ok))?
+                machine.load_program_with_metadata(&program, metadata, data.into_iter().map(Ok))?
             }
         };
         let mut sc = context.snapshot2_context.lock().expect("lock");
         sc.mark_program(
             machine.inner_mut(),
-            &metadata,
+            metadata,
             &location.data_piece_id,
             location.offset,
         )?;

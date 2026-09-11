@@ -171,3 +171,74 @@ fn uak_relay_mailbox_accounting_mismatch_rebuilds_instead_of_saturating() {
         assert_eq!(receiver.observation(), (0, 0));
     }
 }
+
+#[test]
+fn relay_batch_drain_matches_single_receive_order_for_every_prefix() {
+    for limit in [0, 1, 2, 3, 4, usize::MAX] {
+        let (sink, receiver) = authority_relay_mailbox(4, TEST_BYTES, TEST_MAX_PARENTS).unwrap();
+        let parents: HashSet<_> = [Byte32::new([9; 32])].into_iter().collect();
+        for result in [
+            TxVerificationResult::Reject {
+                tx_hash: Byte32::new([1; 32]),
+            },
+            TxVerificationResult::GenerationReset,
+            TxVerificationResult::UnknownParents {
+                peer: 3.into(),
+                parents: parents.clone(),
+            },
+            TxVerificationResult::Ok {
+                original_peer: Some(4.into()),
+                tx_hash: Byte32::new([4; 32]),
+            },
+        ] {
+            assert_eq!(sink.publish(result), RelayMailboxDisposition::Exact);
+        }
+        let mut drained = receiver.drain(limit);
+        assert_eq!(drained.len(), limit.min(4));
+        assert_eq!(receiver.observation().0, 4 - drained.len());
+        drained.extend(std::iter::from_fn(|| receiver.try_recv()));
+        let [first, second, third, fourth]: [TxVerificationResult; 4] = drained.try_into().unwrap();
+        assert!(
+            matches!(first, TxVerificationResult::Reject { tx_hash } if tx_hash == Byte32::new([1; 32]))
+        );
+        assert!(matches!(second, TxVerificationResult::GenerationReset));
+        assert!(
+            matches!(third, TxVerificationResult::UnknownParents { peer, parents: found } if peer == PeerIndex::from(3) && found == parents)
+        );
+        assert!(
+            matches!(fourth, TxVerificationResult::Ok { original_peer, tx_hash } if original_peer == Some(PeerIndex::from(4)) && tx_hash == Byte32::new([4; 32]))
+        );
+        assert_eq!(receiver.observation(), (0, 0));
+    }
+}
+
+#[test]
+fn relay_batch_drain_preserves_overflow_and_accounting_resets() {
+    let (sink, receiver) = authority_relay_mailbox(2, TEST_BYTES, TEST_MAX_PARENTS).unwrap();
+    for byte in [1, 2, 3] {
+        sink.publish(TxVerificationResult::Reject {
+            tx_hash: Byte32::new([byte; 32]),
+        });
+    }
+    assert!(matches!(
+        receiver.drain(1).as_slice(),
+        [TxVerificationResult::GenerationReset]
+    ));
+    assert!(
+        matches!(receiver.drain(8).as_slice(), [TxVerificationResult::Reject { tx_hash }] if *tx_hash == Byte32::new([3; 32]))
+    );
+    assert_eq!(receiver.observation(), (0, 0));
+
+    for corrupted in [0, usize::MAX] {
+        let (sink, receiver) = authority_relay_mailbox(2, TEST_BYTES, TEST_MAX_PARENTS).unwrap();
+        sink.publish(TxVerificationResult::Reject {
+            tx_hash: Byte32::new([7; 32]),
+        });
+        receiver.corrupt_bytes_for_test(corrupted);
+        assert!(matches!(
+            receiver.drain(2).as_slice(),
+            [TxVerificationResult::GenerationReset]
+        ));
+        assert_eq!(receiver.observation(), (0, 0));
+    }
+}

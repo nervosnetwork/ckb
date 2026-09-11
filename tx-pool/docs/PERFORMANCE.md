@@ -1,183 +1,268 @@
-# Transaction-pool performance report
+# Transaction-pool performance evidence
 
-**Final delivery study completed on 2026-09-10, with exclusions.** A/A and develop A/B retained 2,600 executions and passed independent record/arithmetic audits. Three of eight rows qualify for directional comparisons. Both runners exited 2 because some rows failed the declared quality or terminal gates; successful audit does not turn those rows into passes.
+The final frozen candidate improves all seven qualified receive-to-terminal
+workloads against the prepared develop basis. Eight-worker secp throughput improves
+by 0.48%; always-success and dependent-forest throughput improve by 146% and 199%.
+Those gains have costs: all observed primary lifetime RSS comparisons increase,
+and several concurrent cheap-script workloads use more process CPU. Reorg completes
+its functional contract but fails the CPU precision gate, so it has no qualified
+overall performance ranking.
 
-The qualified results show a workload-dependent tradeoff. With eight workers, `always_success` throughput is 2.9684× develop, with 18.18% more target-window CPU and 8.85% higher process peak RSS. `secp256k1` throughput is 1.90% lower, with CPU 3.24% higher and RSS 9.47% higher. The in-flight reorg workload has 4.10% higher throughput and 32.74% lower CPU, with 11.12% higher RSS. Percentages use medians of paired ratios.
+This evidence supports the complete migration's correctness, capacity and concurrent
+throughput benefits. Secp throughput alone would not justify its API and maintenance
+cost. The conclusion is a finite engineering assessment on this host, not a claim
+of universally better resource efficiency or an independent maintainer approval.
 
-This is not evidence of an across-the-board improvement. Five rows cannot support formal performance directions in this study. The [benchmark guide](BENCHMARK.md#aa-and-final-delivery-protocol) owns the prospectively declared rules; [profiling](PROFILING.md) describes separate attribution methods.
+[Architecture](ARCHITECTURE.md) explains the mechanisms and ownership boundaries.
+[Benchmarking](BENCHMARK.md) defines workloads and qualification;
+[profiling](PROFILING.md) separates causal diagnostics from acceptance timing.
+[Maintenance](MAINTENANCE.md) describes migration and operating costs.
 
-## Frozen inputs
+## Source and measurement contract
 
-| Identity | Value |
-|---|---|
-| Candidate production and prepared commit | `f9c6843ca91d95e96b4d6ad29aab5bb08fed0bc4` |
-| Develop production basis | `cdfde29e45dfbe9443be66083241ebc1acca9fe6` |
-| Develop prepared measurement commit | `af398a174af432c92ca456a856a4c7504412a282` |
-| Study identifier | `final-delivery-cdfde29e-r1` |
-| Execution manifest SHA-256 | `1be516dbb66904f84754d95a27d15e4a39e5b8aebe47aafa33e73bc17bb10b43` |
-| Host | macOS-26.6.2-arm64-arm-64bit-Mach-O; 18 logical CPUs |
-| Toolchain | Rust 1.95.0 / Cargo 1.95.0; aarch64-apple-darwin; Python 3.14.7 |
-| Build | `prod`; profiling, Console and allocation observation disabled |
-| CKB-VM | `ckb-vm` and `ckb-vm-definitions` 0.24.15; identical locked packages and enabled features |
+Candidate `604edc2231b68b0e79a949f511112c1e1fa02c49` is the immutable executable
+source snapshot. Develop production basis is
+`95fd03933ce2a396b84aed12caaa0f984165cd6c`; prepared commit
+`6f63f5992cef9b6f6496cf4ce2c04aca0f028d7f` adds the same measurement bundle and
+legacy adapter without changing develop production Rust. Both use locked CKB-VM
+0.24.15 with matching enabled VM features; there is no VM fork, patch or vendoring.
+Results were collected on macOS 26.6.2 arm64, 18 logical CPUs, Rust 1.95.0, profile
+`prod`. Profiling, Console and allocation observation were disabled. Four simulated
+peers were used throughout. Reporting edits after measurement do not change
+executable inputs; the evidence records their separate hashes.
 
-Develop production Rust is unchanged by the measurement adapter. Its patch contains only `Cargo.lock`, `tx-pool/Cargo.toml` and the three shared harness files. Both sides use byte-identical harness files; legacy ingress submits transactions individually and candidate ingress uses the production bounded batch interface. The two binaries were built serially after invalidating every local workspace package, and copied before the next build. No local source artifact was reused.
+Each row has 24 paired samples of four fresh-process replicates per side, plus
+two retained pilots. Pair order is balanced and prospectively randomized. The
+unchanged gates require every target window ≥0.25 s, throughput paired relative
+MAD ≤1.5%, and each primary 95% ratio interval width ≤4%. A/A additionally requires
+all three complete primary intervals within [0.98, 1.02]. All eight A/A rows pass.
+Seven A/B rows pass all three primary gates; reorg remains `imprecise`, and the A/B
+runner correctly exits 2. No failed or imprecise result was replaced.
 
-| Binary | SHA-256 |
-|---|---|
-| candidate | `01d462ecb55320fc15279b15f8587fbe108be857c7e1d7a6f1341d4025fdc810` |
-| develop | `f111343f363520c34555a6a9128e552be9f5d585dcb72baa2ab71271ea7ef2bb` |
+The frozen ascending calibration ladder retained 14 populations/28 pilots,
+including six short populations, before fixing the eight formal populations.
+Each complete A/A and A/B study retains 1,552 successful executions. Together with
+two original fanout stress executions and the 294 secp attribution executions,
+the final evidence contains 3,428 native executions. Successful executions do not
+turn an imprecise row into a pass.
 
-| Measurement source | SHA-256 |
-|---|---|
-| tx-pool/benches/profile_one_shot.rs | `36f098fb626669819567322d84ba74b363c26af743af9aa51b696402476e8769` |
-| tx-pool/benches/profile_spans/mod.rs | `66170faff688cac499c827724ca44c8ca1d7074645aa99cb697d2fbcfae2dc50` |
-| tx-pool/benches/relay_batches/mod.rs | `6098d040dd9efa62b9c1937a723c288747057bae8c94f195a23456bfe4215953` |
-| cross_version_benchmark.py | `815cfd03a7b7d5681a5676a225acbce511c7f1439e5f6b5a67b31bf788322816` |
-| measurement_process.py | `801fdeba50cf1d925e02c3d7a5826ba340a6014aea97997e06c17a0fa38e0463` |
+Target elapsed time uses one monotonic clock from submission start to required
+callback/relay completion; fixture construction and post-window set validation are
+excluded. CPU is process user+system time over that window. RSS is each process's
+lifetime peak, including setup, warmup and shutdown; the primary sample uses the
+mean of all four peaks, and their maximum remains diagnostic. CPU is not wall time,
+allocation traffic is not retained memory, and pool budgets are not an RSS limit.
 
-Native engineering validation covered 405 passing Nextest tests (two skipped), strict workspace Clippy, all 176 release integration cases and generated RPC documentation. The final Python metadata stream correction passed 51 measurement-script tests; Rust inputs were unchanged after the native checks. This report adds no cross-platform CI evidence. The measured candidate commit stays the reference even if a later documentation-only commit contains this report.
+Earlier phase probes localized RSS spread mainly to target/reorg work after a
+stable fixture/service setup. They did not isolate allocator retention, transient
+queue occupancy or runtime scheduling as a unique cause. The former maximum of
+four peaks estimated an extreme; the prospectively declared mean estimates the
+average replicate lifetime peak and retains the extreme as a diagnostic. This is
+an explicit change of measurement question, not proof that OS memory variability
+disappeared. The old failed A/A remains failed; the new A/A checks the new question
+under its declared unchanged precision and equivalence margins.
 
-## Method and full matrix
+Bracketed wall anchors independently qualify profiler alignment. Two A/A and five
+A/B attempts fail that diagnostic and remain unsuitable for aligned profiling;
+their monotonic timing and terminal contracts pass. A disagreement between
+separately sampled clocks no longer corrupts the target duration or rejects it.
+This prospective protocol repair does not requalify old failed attempts.
 
-A/A ran 2026-09-10 06:06:37–08:53:31 Asia/Shanghai; A/B ran 08:53:31–11:26:37. They retained 1,393 and 1,207 attempts respectively: 2,593 successful executions and seven rejected executions. The maximum declared population was 1,552 attempts per study. Unexecuted samples after a failed row are not silently replaced.
+## Final develop comparison
 
-Every row prescribed one pilot per side and 24 pairs, each containing four fresh executions per side. Side order alternated within the pair. Controls were a 30-second initial cooldown, five seconds after every attempt, a 180-second outer attempt timeout, a 0.25-second minimum individual target window, throughput-ratio MAD at most 1.5%, and primary ratio interval relative width at most 4%. The harness also has a 120-second completion wait. A/A requires all three primary intervals inside [0.98, 1.02]. A/B directions require the matching A/A row, complete A/B quality and the metric interval excluding one.
+Absolute values below are medians over the 24 replicate aggregates, shown as
+develop → candidate. CPU is normalized by target transactions (four times the
+listed target per aggregate); RSS is MiB. Ratios below are medians of paired ratios,
+so they need not equal the ratio of these separate medians.
 
-Intervals below are conservative exact-binomial order-statistic intervals for the median paired ratio, with requested 95% pointwise confidence. For 24 pairs the selected ranks are 7 and 18 (97.734% coverage under stable independent sampling). Neither balanced ordering nor these intervals prove sampling independence or simultaneous coverage of the matrix.
+| Workload / workers | Target / warm per process | Transactions/s | CPU µs/target tx | Mean lifetime peak RSS MiB |
+|---|---:|---:|---:|---:|
+| `always_success / 1` | 16,000 / 1,000 | 11,223.4 → 16,414.6 | 124.50 → 93.94 | 176.48 → 207.12 |
+| `always_success / 8` | 32,000 / 1,000 | 26,013.9 → 64,160.3 | 136.12 → 157.93 | 248.77 → 290.16 |
+| `secp256k1 / 1` | 4,000 / 100 | 1,158.3 → 1,171.2 | 899.36 → 888.53 | 122.35 → 136.26 |
+| `secp256k1 / 8` | 4,000 / 100 | 7,973.2 → 8,015.6 | 1,041.74 → 1,038.97 | 149.90 → 163.59 |
+| `dependent_forest_10 / 8` | 32,000 / 1,000 | 20,948.3 → 62,665.6 | 142.80 → 159.15 | 227.66 → 293.41 |
+| `fanout_ready_64_reverse / 8` | 8,320 / 0 | 11,593.9 → 20,383.1 | 128.51 → 195.53 | 115.36 → 145.40 |
+| `rbf_pairs / 8` | 32,768 / 32,768 | 44,853.6 → 50,538.8 | 116.63 → 187.65 | 298.20 → 365.13 |
+| `reorg_in_flight / 8 †` | 2,000 / 100 | 1,252.3 → 1,304.9 | 290.67 → 171.29 | 111.88 → 126.32 |
 
-| Scenario / workers | Target / warm | Peers | A/A pairs; outcome | A/B pairs; outcome | Formal directions |
-|---|---|---|---|---|---|
-| always_success / 1 | 16,000 / 1,000 | 4 | 22/24; Clock mismatch | 14/24; Clock mismatch | No |
-| always_success / 8 | 16,000 / 1,000 | 4 | 24/24; Qualified | 24/24; Qualified | Yes |
-| secp256k1 / 1 | 4,000 / 100 | 4 | 17/24; Clock mismatch | 17/24; Clock mismatch | No |
-| secp256k1 / 8 | 4,000 / 100 | 4 | 24/24; Qualified | 24/24; Qualified | Yes |
-| dependent_forest_10 / 8 | 16,000 / 1,000 | 4 | 24/24; Qualified | 21/24; Clock mismatch | No |
-| fanout_reverse / 8 | 5,752 / 0 | 4 | 11/24; Relay reset | 0/24; Baseline pilot timeout | No |
-| rbf_pairs / 8 | 16,384 / 16,384 | 4 | 24/24; RSS interval too wide | 24/24; Quality passed | No; descriptive only |
-| reorg_in_flight / 8 | 2,000 / 100 | 4 | 24/24; Qualified | 24/24; Qualified | Yes |
+Higher throughput is better; lower CPU/RSS is better. Brackets are conservative
+95% pointwise median intervals, conditional on stable independent sampling.
+Balanced order and low MAD do not prove sampling independence or simultaneous
+coverage across the matrix.
 
-## Primary measurements
-
-Absolute values are medians across the 24 four-execution side samples. A sample pools throughput as total target transactions divided by summed target elapsed time, sums target-window process CPU, and takes the maximum process-lifetime peak RSS. CPU seconds below therefore cover four executions, not one; divide by four to obtain the average per execution. RSS is MiB (2²⁰ bytes), including setup, warmup and shutdown. It is not a tx-pool-owned-memory measurement.
-
-Ratios are medians of within-pair candidate/develop ratios, not ratios of the two displayed medians. Throughput benefits from higher values; CPU and RSS from lower values. `—` means no complete-row estimate: incomplete prefixes remain in the raw packet but are not summarized into a substitute result. `†` marks the complete RBF A/B observation whose failed A/A gate prevents formal ranking.
-
-### Throughput
-
-| Scenario / workers | Develop (tx/s) | Candidate (tx/s) | Candidate / develop [interval] |
+| Workload / workers | Throughput ratio [interval] | CPU ratio [interval] | RSS ratio [interval] |
 |---|---|---|---|
-| always_success / 1 | — | — | — |
-| always_success / 8 | 21,112.90 | 62,704.56 | 2.9684 [2.9598, 2.9830] |
-| secp256k1 / 1 | — | — | — |
-| secp256k1 / 8 | 8,140.26 | 7,984.21 | 0.9810 [0.9788, 0.9819] |
-| dependent_forest_10 / 8 | — | — | — |
-| fanout_reverse / 8 | — | — | — |
-| rbf_pairs / 8 † | 50,056.86 | 49,608.68 | 0.9923 [0.9903, 0.9969] |
-| reorg_in_flight / 8 | 1,257.11 | 1,309.67 | 1.0409 [1.0403, 1.0427] |
+| `always_success / 1` | 1.4618 [1.4591, 1.4657] | 0.7542 [0.7530, 0.7567] | 1.1715 [1.1691, 1.1773] |
+| `always_success / 8` | 2.4642 [2.4587, 2.4742] | 1.1599 [1.1585, 1.1616] | 1.1660 [1.1617, 1.1708] |
+| `secp256k1 / 1` | 1.0111 [1.0102, 1.0125] | 0.9881 [0.9868, 0.9888] | 1.1140 [1.1117, 1.1165] |
+| `secp256k1 / 8` | 1.0048 [1.0037, 1.0075] | 0.9975 [0.9951, 0.9988] | 1.0906 [1.0897, 1.0942] |
+| `dependent_forest_10 / 8` | 2.9923 [2.9812, 3.0035] | 1.1145 [1.1110, 1.1180] | 1.2897 [1.2837, 1.2928] |
+| `fanout_ready_64_reverse / 8` | 1.7539 [1.7504, 1.7701] | 1.5236 [1.5150, 1.5256] | 1.2594 [1.2562, 1.2650] |
+| `rbf_pairs / 8` | 1.1284 [1.1234, 1.1326] | 1.6097 [1.6043, 1.6125] | 1.2239 [1.2156, 1.2347] |
+| `reorg_in_flight / 8 †` | 1.0448 [1.0431, 1.0462] | 0.5878 [0.5721, 0.6065] | 1.1289 [1.1206, 1.1371] |
 
-### Target-window process CPU
+† Reorg values are descriptive. Its CPU interval width is 5.8592%, exceeding the
+unchanged 4% gate; the entire row is excluded from overall performance ranking.
+Across its 96 formal executions per side, develop CPU ranges from 449.930 to
+878.493 ms (median 585.416); candidate ranges from 331.924 to 352.975 ms (median
+341.779). This establishes greater observed develop CPU dispersion, not an
+isolated scheduler or lock cause. Develop has no duplicate callbacks; candidate
+has permitted reacceptance callbacks with weak CPU/duplicate correlation (0.128).
+Duplicate counts therefore do not explain the develop dispersion.
 
-| Scenario / workers | Develop (CPU seconds / 4 executions) | Candidate (CPU seconds / 4 executions) | Candidate / develop [interval] |
-|---|---|---|---|
-| always_success / 1 | — | — | — |
-| always_success / 8 | 8.591705 | 10.164616 | 1.1818 [1.1773, 1.1849] |
-| secp256k1 / 1 | — | — | — |
-| secp256k1 / 8 | 16.229890 | 16.753979 | 1.0324 [1.0312, 1.0336] |
-| dependent_forest_10 / 8 | — | — | — |
-| fanout_reverse / 8 | — | — | — |
-| rbf_pairs / 8 † | 6.641757 | 12.748278 | 1.9145 [1.9093, 1.9214] |
-| reorg_in_flight / 8 | 2.115832 | 1.424751 | 0.6726 [0.6646, 0.6827] |
+The reorg fixture observes one callback in flight before requesting the tip update,
+with an artificial 500 µs callback delay. That event proves overlap, not a fixed
+amount of pending computation. Both implementations complete the same corpus and
+required terminal contract. The window is not block acceptance or completed
+reconciliation; API-return and stop observations also cannot rank joined node
+shutdown. The raw data and source-bound dispersion analysis retain this limitation.
 
-### Process-lifetime peak RSS
+Ready reverse fanout submits independent 64-child cohorts below the legacy orphan
+capacity, with public orphan-count barriers. Their query and waiting costs are
+inside the target window: median barrier fractions are 0.75% for develop and 4.24%
+for candidate. This is a submission/recovery/barrier workload, not isolated graph
+processing. Its original 5,752-transaction single-parent stress remains separate:
+candidate accepts all 5,752; develop accepts 101 and explicitly rejects 5,651. Both
+settle complete disjoint terminal sets with zero unresolved entries, duplicates or
+generation resets. Unequal accepted populations permit a capacity/recovery result,
+not a throughput ratio.
 
-| Scenario / workers | Develop (MiB) | Candidate (MiB) | Candidate / develop [interval] |
-|---|---|---|---|
-| always_success / 1 | — | — | — |
-| always_success / 8 | 202.227 | 219.867 | 1.0885 [1.0756, 1.1026] |
-| secp256k1 / 1 | — | — | — |
-| secp256k1 / 8 | 151.141 | 165.594 | 1.0947 [1.0934, 1.0982] |
-| dependent_forest_10 / 8 | — | — | — |
-| fanout_reverse / 8 | — | — | — |
-| rbf_pairs / 8 † | 219.547 | 250.328 | 1.1337 [1.1237, 1.1498] |
-| reorg_in_flight / 8 | 114.852 | 127.578 | 1.1112 [1.1096, 1.1131] |
+RBF performs actual victim replacement. Candidate also settles one mandatory
+victim rejection notice for each of the 32,768 warm transactions, whereas develop
+does not expose those notices. Its 12.84% throughput improvement and 60.97% higher
+CPU are the complete delivered behavior, not a pure equal-effect efficiency test.
+More broadly, concurrent cheap-script gains trade increased parallel computation
+and publication work for shorter completion time. The measurements do not isolate
+how much each mechanism contributes to that CPU cost.
 
-RBF’s descriptive A/B medians show a throughput ratio of 0.9923, CPU ratio of 1.9145 and RSS ratio of 1.1337. These resource observations are retained, but the missing A/A qualification prevents a formal RBF direction. Its A/A RSS interval was [0.977618, 1.024041], with 4.636% relative width: it failed both the 4% precision rule and the ±2% equivalence margin.
+## Controlled secp attribution
 
-## Ancillary observations
+The historical slowdown is retained and independently attributed with six arms:
+A is old `190a8140` with its original harness; B uses that production with the prior
+`f9c6843c` harness; C is prior `f9c6843c` with its own harness; D uses prior production
+with the final harness; E is final `604edc22`; F is the byte-identical final control.
+All historical arms were rebuilt serially with the final Rust toolchain and profile,
+invalidating workspace package artifacts. All use 4,000 targets, 100 warm, eight
+workers and four peers with identical transaction/cycle corpora.
 
-P99 is the maximum of four per-execution target callback-latency p99 values within each sample, then the median across samples. It is not a pooled transaction percentile or network latency. Reorg and stop are separately timed controller observations, not additive target phases. The primary A/A gate does not establish ancillary A/A equivalence.
+The prospective six-arm design has six pilots plus 24 blocks × two replicates ×
+six arms. Positions and directed predecessor pairs are balanced. Original narrow
+throughput gates remain: individual duration ≥0.25 s, MAD ≤1.5%, interval width
+≤0.5%, and same-binary control wholly within ±0.25%. All contrast quality gates and
+the same-binary equivalence gate pass. A direction still requires its interval to
+exclude 1. CPU/RSS are described separately from this narrow throughput gate.
 
-### Callback P99
+| Controlled contrast | Throughput ratio [95% interval] | Disposition |
+|---|---|---|
+| Prior delivered / old delivered (C/A) | 0.984333 [0.983149, 0.986383] | Lower |
+| Prior / old production, fixed prior harness (C/B) | 0.988091 [0.986474, 0.989867] | Lower |
+| Prior / original harness, fixed old production (B/A) | 0.997327 [0.995981, 0.998060] | Lower |
+| Current / prior harness, fixed prior production (D/C) | 0.998865 [0.997220, 1.001498] | Unresolved |
+| Final / prior production, fixed current harness (E/D) | 1.020627 [1.019341, 1.022652] | Higher |
+| Final delivered / old delivered (E/A) | 1.006080 [1.003038, 1.007734] | Higher |
+| Byte-identical final control (E/F) | 0.999778 [0.997936, 1.000972] | Equivalent within ±0.25% |
 
-| Scenario / workers | Develop (ms) | Candidate (ms) | Candidate / develop [interval] |
-|---|---|---|---|
-| always_success / 1 | — | — | — |
-| always_success / 8 | 759.232 | 253.477 | 0.3341 [0.3329, 0.3350] |
-| secp256k1 / 1 | — | — | — |
-| secp256k1 / 8 | 487.355 | 496.390 | 1.0184 [1.0156, 1.0213] |
-| dependent_forest_10 / 8 | — | — | — |
-| fanout_reverse / 8 | — | — | — |
-| rbf_pairs / 8 † | 325.514 | 328.527 | 1.0062 [1.0017, 1.0114] |
-| reorg_in_flight / 8 | 1,580.492 | 1,514.006 | 0.9590 [0.9556, 0.9600] |
+At fixed final harness, final production improves secp throughput 2.06% over the
+prior candidate, with CPU ratio 0.98006 [0.97795, 0.98048] and mean peak RSS ratio
+0.98583 [0.98432, 0.98789]. The former delivered regression contains both production
+and harness contributions. The prior harness delta changes callback/relay atomic
+observation orderings; allocation-counter changes in that patch are disabled in
+these timing builds. The controlled whole-harness effect does not isolate one
+atomic operation. The latest harness effect on prior production is unresolved.
 
-### Reorg request return
+Historical v2 outputs retain their schema: native `BENCH_RESULT` supplies the
+original monotonic Instant duration, while unbracketed wall endpoints cannot
+qualify aligned profiling. They are never rewritten as v3 or used to recover an
+old failed-study pass. The former cross-batch 0.271% observation is not the new
+controlled harness estimate. Production contrasts include non-VM dependency changes
+and do not isolate one pool optimization. Paired median contrasts also need not
+multiply exactly into the total delivered ratio.
 
-| Scenario / workers | Develop (ms) | Candidate (ms) | Candidate / develop [interval] |
-|---|---|---|---|
-| always_success / 1 | — | — | — |
-| always_success / 8 | 0.006208 | 17.100438 | 2850.5359 [2606.5334, 3686.4318] |
-| secp256k1 / 1 | — | — | — |
-| secp256k1 / 8 | 0.004729 | 3.427625 | 740.2294 [672.4472, 786.5521] |
-| dependent_forest_10 / 8 | — | — | — |
-| fanout_reverse / 8 | — | — | — |
-| rbf_pairs / 8 † | 0.006854 | 20.249522 | 2944.4079 [2779.4912, 3282.9484] |
-| reorg_in_flight / 8 | 0.002105 | 7.615500 | 3211.2816 [908.4496, 5537.5455] |
+## Resource and maintenance decision
 
-The develop controller returns after `reorg_sender.try_send`; the candidate performs synchronous reconciliation work before returning. In ordinary rows this request is after the target window; `reorg_in_flight` issues it while submissions/callbacks are active. These numbers measure different return boundaries and cannot rank completed reorg latency. The reorg workload’s primary throughput/CPU numbers describe its target-terminal fixture window, not block acceptance or complete chain recovery.
+The retained improvements reduce repeated owner/index traversal, active-account
+construction, graph calculation, root-program parsing and syscall data reads.
+Temporary dense ordinals/marks replace repeated graph bookkeeping; they do not
+add a persistent membership cache. Bounded program metadata reuse retains its
+thread-local cost and excludes VM execution state. The exact validity, invalidation
+and ownership rules are in [commit](architecture/COMMIT.md#current-optimizations)
+and [execution](architecture/EXECUTION.md#current-optimizations).
 
-### Stop observation
+Focused packets preserve allocation and adverse results independently of the
+final timing matrix. Earlier source-bound secp sampling exposed VM execution,
+VM setup and publication/scheduling work, which selected the bounded metadata,
+data-read and singleton-publication changes for controlled investigation. A
+parked stack is not CPU time spent waiting, overlapping spans are not additive,
+and those instrumented weights do not prove a lock-contention bottleneck. The
+final controlled production comparison measures the combined result.
 
-| Scenario / workers | Develop (ms) | Candidate (ms) | Candidate / develop [interval] |
-|---|---|---|---|
-| always_success / 1 | — | — | — |
-| always_success / 8 | 0.860541 | 1.011980 | 1.1992 [0.9334, 1.6760] |
-| secp256k1 / 1 | — | — | — |
-| secp256k1 / 8 | 1.352167 | 0.944416 | 0.7057 [0.6669, 0.7430] |
-| dependent_forest_10 / 8 | — | — | — |
-| fanout_reverse / 8 | — | — | — |
-| rbf_pairs / 8 † | 0.215188 | 1.307667 | 6.0769 [5.4518, 7.9481] |
-| reorg_in_flight / 8 | 1.229437 | 1.129438 | 0.9120 [0.9049, 0.9905] |
+For example, a real-snapshot DAO small-churn fixture with
+16,584 live cells improves median memo work from 15.022 to 3.631 ms and requested
+allocation traffic from 8,173,732 to 6,998,332 bytes per call, but a full scan changes
+15.131 to 16.428 ms. This supports the simpler bounded LRU replacement in that
+workload; it does not establish a production hit rate or RSS reduction. Relay
+prefix reuse removes one observed singleton allocation (320 bytes/two calls to
+256 bytes/one call). Allocation instrumentation is excluded from final timing.
 
-The candidate calls `stop()`, observes `service_started == false`, and joins the relay observer; service workers and publication can still be joining. Develop broadcasts exit signals and joins the observer, then exits without ordinary destructors. These times cannot rank full service join, persistence or whole-node shutdown. For example, the secp stop ratio interval [0.6669, 0.7430] describes only these narrower observations; it is not evidence that candidate node shutdown is faster.
+Packing improvements retain complete-package refusal and bounded cycle fallback,
+but develop is still faster in most larger, partial-budget focused comparisons.
+The prospective packing A/A study establishes its ±5% elapsed equivalence for only
+one of ten cases; the other nine remain unresolved. Publisher polling, broad
+persistent aggregate caching and index sorting were not adopted where observed
+benefit or integration cost failed to justify them. Fixed 1,024 shards were rejected
+at the user's direction after source-cost review; no native speedup is claimed.
+The candidate index and source-bound decisions preserve all explored alternatives.
 
-## Every rejected execution
+The pool occupies 16,005 physical Rust lines in 45 production files, including
+inline tests, versus the accepted 15,319-line/42-file reference. Separate tests,
+shared-crate changes and measurement tools are disclosed outside both counts.
+No logic was moved or compressed to hide that cost. The maintained design owns
+original observations, atomic coupled commits, bounded retained/transient work,
+and ordered effect obligations through the actual producer/consumer paths. Shared
+quotas, FIFO publication, shard collisions, full-population operations and caches
+remain maintenance and resource costs. Synchronous callbacks/providers must return
+for their joins to complete.
 
-Each failed pilot prevented pairing for its row; each paired failure stopped that row immediately. The exact identifiers below are suffixes after `scenario-tTARGET-wWARM-vWORKERS-pPEERS/` in the retained JSON. A/A side labels refer to the same candidate binary.
+The engineering recommendation is to proceed with the complete refactor for these
+contracts, capacity and substantial cheap-script/dependency throughput benefits,
+accepting the measured RSS and CPU costs. It is not a recommendation based on the
+small secp gain alone. The intentional Rust API change requires a SemVer-major
+release relative to the published crate; upgrading existing configuration and
+persistence remains supported. Downgrade conversion and parent-directory fsync
+are outside the declared contract. Independent maintainer approval and release
+decisions remain separate from this implementing-agent assessment.
 
-| Study | Row | Attempt suffix | Rejection |
-|---|---|---|---|
-| A/A | always_success-t16000-w1000-v1-p4 | pair-23/replicate-3/candidate | Clock mismatch: wall − monotonic +2.010375 ms; tolerance 1 ms |
-| A/A | secp256k1-t4000-w100-v1-p4 | pair-18/replicate-3/candidate | Clock mismatch: wall − monotonic +197.837833 ms; tolerance 1 ms |
-| A/A | fanout_reverse-t5752-w0-v8-p4 | pair-12/replicate-3/baseline | Exit 1: relay generation_resets=1; duplicate_ok=0; duplicate_reject=0; unknown_parents=8893 |
-| A/B | always_success-t16000-w1000-v1-p4 | pair-15/replicate-1/baseline | Clock mismatch: wall − monotonic +58.538459 ms; tolerance 1 ms |
-| A/B | secp256k1-t4000-w100-v1-p4 | pair-18/replicate-2/baseline | Clock mismatch: wall − monotonic +1.545458 ms; tolerance 1 ms |
-| A/B | dependent_forest_10-t16000-w1000-v8-p4 | pair-22/replicate-2/baseline | Clock mismatch: wall − monotonic -97.187042 ms; tolerance 1 ms |
-| A/B | fanout_reverse-t5752-w0-v8-p4 | pilot/baseline | Exit 1 after ~120.186 s: accepted 101/5752 transactions, then completion timeout |
+## Verification and portable evidence
 
-The clock gate compares independently captured wall and monotonic durations. These retained records identify the disagreements, not their operating-system cause. Clock adjustment and scheduling around the separate reads were not isolated. The threshold was not relaxed and rejected records were not converted into performance samples.
+The final executable inputs pass strict workspace all-target Clippy with repository
+lint/features, 1,422 isolated Nextest tests including ignored tests (no skips or
+leaked pipes), 46 doctests, and all 176 release integration specs without retries.
+RPC Markdown regeneration is byte-identical. The 75 Python checks remain applicable
+to unchanged measurement scripts, and seven attribution-parser checks cover native
+v2/v3 handling and rejection. Rust formatting, documentation links and executable
+source identity are checked separately after reporting edits.
 
-The candidate fanout execution violated the prospectively required exact relay stream. [Relay mailbox reconciliation](../src/authority/relay.rs) can produce a reset on overflow or accounting mismatch; explicit reset effects are also present in the implementation. The retained observation has no producer tag, so it does not isolate which route caused this reset or prove a consensus failure. The develop fanout pilot timed out on this supplied reverse-fanout corpus. Neither observation establishes a universal failure rate, and this row has no valid performance comparison.
+The delivery packet `tx-pool-g0-20260911-evidence.tar.gz` contains a manifest/index,
+raw attempts and failures, original plans/tools, source archives including gitlinks,
+binary hashes and binaries, validation receipts, optimization decisions and
+independent replay. Extract it and run `python3 -B replay.py` from the packet root.
+Replay verifies hashes and reconstructs observations, corpora, complete attempt
+order, replicate arithmetic and every original qualification; it does not execute
+the native binaries or recreate operating-system behavior. The separately supplied
+`.sha256` file identifies the archive without embedding a self-referential hash.
 
-## Interpretation and remaining limits
+The earlier `final-delivery-cdfde29e-r1` packet is retained unchanged inside the
+delivery evidence. Its archive SHA-256 is
+`f68e7b3c33d2deb1b07f8877a359b20b755cc87b99410931625b63414fa21e31`.
+That earlier study retained 2,600 executions: 2,593 successes and seven rejections;
+only three of eight rows qualified. Its secp throughput ratio 0.9810 and CPU ratio
+1.0324, clock failures, fanout reset/timeout and RBF RSS precision/equivalence failure
+remain historical results. The new protocol and measurements supersede their use
+for current-source claims without erasing those failures.
 
-The accepted rows establish a substantial cheap-script throughput gain, a small but resolved secp throughput regression, and an in-flight-reorg fixture throughput/CPU gain. All three qualified rows use more process peak RSS. The architecture mechanisms in [the architecture guide](ARCHITECTURE.md) may explain costs or benefits, but this whole-change comparison does not isolate any one mechanism’s contribution.
-
-Broad performance acceptance remains open. The material unresolved work is to explain the clock disagreements, characterize the fanout relay/reset and baseline completion behavior, and investigate the secp CPU/RSS cost with separately declared diagnostics. This batch was completed as frozen; no follow-on optimization, resampling or relaxed qualification was folded into it. Finite native measurements do not prove global optimality, cross-platform performance, full shutdown completion or absence of regressions outside these workloads.
-
-## Reproduction and evidence
-
-The accompanying `tx-pool-final-delivery-20260910-evidence.tar.gz` packet contains both complete raw JSON files, all seven rejected outputs, both independent adjudications, exact commands and exits, preflight/completion process observations, source/build identities, both production-relative patches, shared harness and measurement tools, and a portable arithmetic replay. It excludes native executable payloads; their hashes and source-bound build receipts are retained.
-
-Extract the archive, enter its `tx-pool-final-delivery-20260910-evidence` directory and run `python3 -B replay.py`. The replay checks the packet inventory and recomputes every retained successful/failed record, pair reduction, interval and qualification without starting a benchmark. It compares the result to both archived audits. It does not rebuild binaries or independently recreate historical OS observations. The original frozen source checkouts and native binaries remain available in the local delivery evidence directory.
-
-Evidence archive SHA-256: `f68e7b3c33d2deb1b07f8877a359b20b755cc87b99410931625b63414fa21e31`. The archive contains 103 files and is 2,637,994 bytes. A fresh extraction completed both offline replays successfully.
+Finite evidence does not establish a mathematical global optimum, cross-platform
+performance, production workload frequencies, whole-node RSS bounds or independent
+human acceptance. Every planned final scenario has a qualified performance or
+explicit functional result; reorg CPU precision and focused packing equivalence
+limits remain visible rather than being converted into passes.

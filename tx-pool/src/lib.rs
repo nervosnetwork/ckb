@@ -55,6 +55,10 @@ pub mod internal_test_support;
 #[path = "tests/support.rs"]
 pub(crate) mod test_support;
 
+#[cfg(feature = "packing-bench")]
+#[doc(hidden)]
+pub use authority::packing_bench;
+
 pub use ckb_jsonrpc_types::BlockTemplate;
 pub use component::entry::{TxEntry, TxEntrySnapshot};
 pub use component::recent_reject::RecentReject;

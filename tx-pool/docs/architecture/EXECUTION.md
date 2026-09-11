@@ -34,7 +34,7 @@ local admission installs an Accepted owner, and dry-run installs none.
 | Replaced | Optional transaction body and all/any blocker predicates |
 
 [Queue](../../src/authority/queue.rs) selection transfers an immutable owner and
-active reservation to one non-Clone Job. It does not add a Working phase. A fixed
+its non-Clone `ActivePermit` together to one non-Clone Job. It does not add a Working phase. A fixed
 worker retains its completed result while awaiting settlement, so no Ready owner
 or completed-result exchange is needed. A successor owner invalidates old jobs.
 Unexpected drop of a current Job faults the generation; orderly cancellation
@@ -91,6 +91,11 @@ flowchart TB
 | Structural fault | Generation stops normal use and becomes ineligible for persistence |
 | Orderly cancellation | Worker settles/requeues work or observes its successor before leaving |
 
+`Pool::commit_attempt` returns the successful attempt's result. Local admission
+pairs its rejection outcome with the committed batch; reconciliation pairs the
+batch with whether bounded recovery was used. Failed retries leave no separate
+completion result for the caller to reconcile with the returned batch.
+
 ## Resource and lifetime bounds
 
 [ResidencyLimits](../../src/constants.rs) derives byte ceilings from serialized
@@ -108,6 +113,13 @@ capacity, shared by admission, reorg payload and persistence-read bounds.
 | Replacement history | Charged to pipeline and smaller optional-history quotas |
 | Effects | Complete batches reserved before commit, with remote limits and trusted/critical headroom |
 | Scratch/concurrency | Bounded captures and graphs, fixed workers, bounded channels/read handlers and paged maintenance/relay work |
+
+Each active permit reserves the same immutable per-job byte/edge envelope, so
+active capacity is represented by total, remote and per-peer job counts. Those
+counts have a separate mutex from owner charges. Selection obtains its permit
+before removing queue work; refusal changes neither counters nor selection.
+The permit retains its original peer until drop, even if a later owner promotion
+changes the transaction's source.
 
 Accepted owners retain input cells, but reduce cell-dep and dep-group cells to
 identity/provenance fields. A selected Verify job keeps its full resolved owner
@@ -147,6 +159,10 @@ timestamp. Recovery returns its body to verification; replay restores neither
 accepted proof nor old blocker predicates. GenerationReset clears sync's known
 and pending relay state; RelayDrain reconstructs current waiting-parent notices
 in bounded pages after the mailbox drains, not all accepted transaction results.
+The [relay module](../../src/authority/relay.rs) owns both the mailbox and this
+reconstruction cursor. It holds Store weakly; the public receiver cannot prolong
+the service generation. Batched drains reserve a bounded prefix before removal
+and preserve reset order and ownership on allocation refusal.
 
 ## Ordered publication and projections
 
@@ -189,6 +205,21 @@ additions need not invalidate output; selected-owner replacement and same-tip cl
 do. Mandatory base bytes are checked before optional fitting. A refresh wait has
 one 30-second deadline; it does not bound synchronous work or stop the shared driver.
 
+The driver reuses only cellbase and extension payloads within the same lifecycle
+view. It computes DAO for the final selection and assigns each attempt a fresh
+work ID and time. DAO cell-liveness memoization is a separate, block-size-bounded
+LRU keyed by compact outpoints; a tip change clears it, and unknown results are
+cached too. Hits refresh recency. This preserves hot entries through same-tip
+churn but adds LRU maintenance to full scans.
+
+[Packing](../../src/authority/packing.rs) keeps package selection and
+[conditional ordering](../../src/authority/packing/ordering.rs) separate.
+Package selection updates scores from newly selected members and their causal
+descendants. Ordering builds the selected read-before-spend graph once, then
+uses induced subgraphs as cycle resolution drops packages. It retains the same
+deterministic tie breaks, complete causal packages and bounded cycle fallback.
+These graphs and ordinal arrays live only for this calculation.
+
 ## Startup and shutdown
 
 ```mermaid
@@ -224,9 +255,27 @@ file sync/rename alone does not promise universal crash durability.
 | One canonical resolution per attempt | Avoids preliminary spender scan and strict/permissive retry | Original producer/spender reads and complete RBF backing checks remain necessary |
 | Shared detached cell backing | Avoids repeated input/dependency materialization copies | Sharing and reservation must compose through the actual resolver |
 | Compact accepted owners | Discards resolved dependency payload after admission | Canonical verification metadata must be complete before discard |
+| Counted active envelopes | Avoids constructing owner-account deltas for fixed-size active permits | Per-job byte/edge limits are immutable; owner and active capacity remain distinct |
 | State-relevant notifications | Queue/capacity subscriptions end when a job is selected; unrelated commits do not repoll its active VM | Dependency, capacity and lifecycle changes must still wake the responsible work |
+| Cooperative remote batches and paged wake reuse | Avoids unconditional yields and repeated readiness reads for one page's trigger | Long batches consume Tokio's cooperative budget; every used readiness fact stays in the Plan's original reads |
 | Bounded ready-prefix publication | Amortizes endpoint handoffs across ready batches | FIFO order and per-batch settlement/release remain intact |
+| Summary and targeted fee reads | Summary uses derived phase/queue counts and accepted charges; replacement-fee reads capture only the target's descendants | Counts change with their owner/queue projection; complete descendant reads are validated, and optional fee overflow preserves transaction visibility |
 | Validated template captures | Keeps graph/packing work outside owner guards | Selected-source invalidation can require a rebuild |
+| Buffered persistence | Combines small writes to the existing v2 temporary file | Flush must succeed before file sync and rename; file-format and crash-durability limits are unchanged |
+
+Summary and descendant captures hold the paired view and all owner read guards
+for a coherent cut. Their savings come from avoiding full owner copies and
+unrelated graph calculations; the guarded shard population remains complete.
+
+The shared script crate also avoids repeated immutable work.
+[Root-program metadata](../../../script/src/program_cache.rs) caches one parsed
+ELF per thread, keyed by actual program data hash and VM version. Only metadata
+with at most 64 allocated action slots is retained; the cache owns no program
+bytes, transaction, snapshot or VM state. Root loading still computes each
+attempt's mapping receipt and charges its own active time. A miss, unavailable
+slot or oversized parse uses the canonical parser. Cell-data syscalls reuse the
+bytes already loaded for their length check while preserving Snapshot2 page
+tracking, memory-write order and cycle accounting. CKB-VM itself is unchanged.
 
 These mechanisms preserve the common commit contract. Their throughput, CPU and
 memory tradeoffs need [measurement](../BENCHMARK.md), while resource release and

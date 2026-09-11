@@ -127,6 +127,9 @@ class ProfileAnalyzerTests(unittest.TestCase):
             "start_unix_nanos": 1_001_000_000,
             "end_unix_nanos": 1_003_000_000,
             "elapsed_nanos": 2_000_000,
+            "start_clock_uncertainty_nanos": 0,
+            "end_clock_uncertainty_nanos": 0,
+            "observed_end_unix_nanos": 1_003_000_000,
         }
         scenario = self.scenario()
         observation = self.observation(scenario, elapsed_nanos=window["elapsed_nanos"],
@@ -177,7 +180,7 @@ class ProfileAnalyzerTests(unittest.TestCase):
             "span_stdout": "span.stdout.log",
             "span_stderr": "span.stderr.log",
         }
-        sources = [PROFILE.ONE_SHOT_SOURCE, PROFILE.SPAN_SOURCE, PROFILE.SCRIPT_SOURCE, PROFILE.PROCESS_SOURCE]
+        sources = PROFILE.harness_sources()
         manifest = {
             "schema_version": PROFILE.MANIFEST_SCHEMA_VERSION,
             "harness": "profile_one_shot",
@@ -228,6 +231,33 @@ class ProfileAnalyzerTests(unittest.TestCase):
             )
         self.assertEqual(binary, executable.resolve())
         self.assertEqual(command[command.index("--profile") + 1], "prod")
+
+    def test_all_harness_and_clock_helpers_are_frozen(self) -> None:
+        sources = PROFILE.harness_sources()
+        expected = [PROFILE.ONE_SHOT_SOURCE.parent / directory / "mod.rs"
+                    for directory in ("profile_spans", "relay_batches", "measurement_clock", "resource_phases")]
+        expected.append(PROFILE.WINDOW_SOURCE)
+        self.assertTrue(set(expected).issubset(sources))
+        manifest_path = self.bundle("helper-drift", absolute_time=True)
+        original_read = Path.read_bytes
+        for changed in expected:
+            def read(path):
+                value = original_read(path)
+                return value + b"changed" if path == changed else value
+            with mock.patch.object(Path, "read_bytes", read):
+                with self.assertRaisesRegex(PROFILE.ProfileError, "different harness/analyzer source"):
+                    PROFILE.analyze_manifest(manifest_path)
+        with mock.patch.object(PROFILE, "harness_sources", return_value=sources + [self.root / "new.rs"]):
+            with self.assertRaisesRegex(PROFILE.ProfileError, "bundle membership changed"):
+                PROFILE.capture_source_identity(sources)
+
+    def test_future_rust_module_is_automatically_included(self) -> None:
+        source = self.root / "benches/profile_one_shot.rs"
+        future = source.parent / "future_module/nested/helper.rs"
+        future.parent.mkdir(parents=True)
+        future.write_text("future module")
+        with mock.patch.object(PROFILE, "ONE_SHOT_SOURCE", source):
+            self.assertIn(future, PROFILE.harness_sources())
 
     def test_source_drift_during_build_stops_before_capture(self) -> None:
         args = argparse.Namespace(**self.scenario(), output_prefix=self.root / "source-drift",
@@ -282,13 +312,29 @@ class ProfileAnalyzerTests(unittest.TestCase):
         self.assertEqual(result["leaf_hotspots"][0]["estimated_cpu_weight_micros"], 30)
 
     def test_monotonic_and_profile_windows_must_agree(self) -> None:
-        observation = self.observation(self.scenario())
-        PROFILE.validate_window_observation(dict(scenario="always_success", elapsed_nanos=1_000_000_100), observation)
-        with self.assertRaisesRegex(PROFILE.ProfileError, "wall window differs"):
-            PROFILE.validate_window_observation(dict(scenario="always_success", elapsed_nanos=1_010_000_000), observation)
-        invalid = self.observation(self.scenario(), throughput_tps=2.0)
-        with self.assertRaisesRegex(PROFILE.ProfileError, "throughput differs"):
-            PROFILE.parse_observation(f"{PROFILE.OBSERVATION_PREFIX}{json.dumps(invalid)}\n", self.scenario())
+        window = dict(schema_version=3, scenario="always_success", start_unix_nanos=1_000_000_000,
+                      end_unix_nanos=2_000_000_000, elapsed_nanos=1_000_000_000,
+                      start_clock_uncertainty_nanos=0, end_clock_uncertainty_nanos=0,
+                      observed_end_unix_nanos=2_000_000_000)
+        observation = dict(scenario="always_success", elapsed_nanos=1_000_000_000)
+        with self.assertRaisesRegex(PROFILE.ProfileError, "diagnostic instrumentation"):
+            PROFILE.parse_marker("BENCH_DIAGNOSTICS resource_phases=true\n" + PROFILE.MARKER_PREFIX + json.dumps(window))
+        PROFILE.validate_window_observation(window, observation)
+        for elapsed in (1_000_000_001, 1_010_000_000):
+            with self.assertRaisesRegex(PROFILE.ProfileError, "observation differ"):
+                PROFILE.validate_window_observation(window, dict(observation, elapsed_nanos=elapsed))
+        for changes in (dict(observed_end_unix_nanos=2_200_000_000),
+                        dict(start_clock_uncertainty_nanos=600_000, end_clock_uncertainty_nanos=600_000)):
+            uncertain = dict(window, **changes)
+            self.assertEqual(PROFILE.parse_marker(PROFILE.MARKER_PREFIX + json.dumps(uncertain)), uncertain)
+            with self.assertRaisesRegex(PROFILE.ProfileError, "wall alignment is uncertain"):
+                PROFILE.validate_window_observation(uncertain, observation)
+        for changes in (dict(schema_version=2), dict(start_clock_uncertainty_nanos=-1),
+                        dict(end_clock_uncertainty_nanos=True), dict(end_unix_nanos=2_000_000_001)):
+            with self.assertRaises(PROFILE.ProfileError):
+                PROFILE.parse_marker(PROFILE.MARKER_PREFIX + json.dumps(dict(window, **changes)))
+        with self.assertRaises(PROFILE.ProfileError):
+            PROFILE.parse_marker((PROFILE.MARKER_PREFIX + json.dumps(window) + "\n") * 2)
 
     def test_timeout_preserves_failed_capture_logs(self) -> None:
         paths = self.root / "stdout.log", self.root / "stderr.log"
@@ -363,6 +409,12 @@ class ProfileAnalyzerTests(unittest.TestCase):
         # A span created before capture can be observed entirely through its
         # already-entered interval, without a creation or new enter in capture.
         current["spans"][0].update(start_count=0, enter_count=0, active_at_start=1, active_at_end=1)
+        # Prefix buckets describe selections through creation only. They are
+        # observed even though their entered-duration measurement stays zero.
+        current["spans"].append({"name": "tx_pool.publisher.ready_2_4", "start_count": 4,
+                                 "enter_count": 0, "active_at_start": 0, "active_at_end": 0,
+                                 "elapsed_nanos": 0})
+        current["spans"].sort(key=lambda span: span["name"])
         self.write_json(path, current)
         result = PROFILE.analyze_spans(manifest, path)
         self.assertEqual(result["unobserved_span_names"], [])

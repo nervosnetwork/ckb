@@ -2,9 +2,9 @@
 //! prepares charges, locks, validates observations, reserves capacity, mutates
 //! and appends notices.
 use super::{
-    budget::{Budget, Limits, OwnerDelta},
+    budget::{Amount, Budget, Limits, OwnerDelta},
     jobs::Job,
-    model::{DependencyKey, Entry, Error, FullReason, Phase, RelationKey},
+    model::{DependencyKey, Entry, Error, FullReason, Phase, RelationKey, Status},
     notice::{self, Batch, Class, Effect, Outbox},
     queue::{Queues, WorkStage},
 };
@@ -44,6 +44,9 @@ pub(super) const CHILD: u8 = 8;
 const ACCEPTED_ROLES: u8 = INPUT | DEP | CHILD;
 const WAKE_PAGE: usize = 32;
 
+// Unique owner hashes in order, each paired with its old and new membership.
+type MemberChanges<T> = Vec<(Byte32, (T, T))>;
+
 /// Every decision read is kept, including negative owner/spender observations.
 /// Successful resolution keeps producer identities and point spender facts;
 /// membership separately observes complete reader and descendant relations.
@@ -65,6 +68,9 @@ fn same_weak<T>(a: &Option<Weak<T>>, b: &Option<Weak<T>>) -> bool {
     }
 }
 impl ReadSet {
+    pub(super) fn observed_owner(&self, hash: &Byte32) -> Option<&Option<Weak<Entry>>> {
+        self.owners.get(hash)
+    }
     pub(super) fn owner(&mut self, hash: &Byte32, entry: Option<&Arc<Entry>>) -> Result<(), Error> {
         let observed = entry.map(Arc::downgrade);
         if let Some(old) = self.owners.get(hash) {
@@ -78,42 +84,40 @@ impl ReadSet {
     }
     pub(super) fn merge(&mut self, other: &Self) -> Result<(), Error> {
         for (hash, entry) in &other.owners {
-            if self
-                .owners
-                .get(hash)
-                .is_some_and(|old| !same_weak(old, entry))
-            {
-                return Err(Error::Stale);
+            if let Some(old) = self.owners.get(hash) {
+                if !same_weak(old, entry) {
+                    return Err(Error::Stale);
+                }
+            } else {
+                self.owners.insert(hash.clone(), entry.clone());
             }
-            self.owners
-                .entry(hash.clone())
-                .or_insert_with(|| entry.clone());
         }
         for (point, spender) in &other.spenders {
-            if self.spenders.get(point).is_some_and(|old| old != spender) {
-                return Err(Error::Stale);
+            if let Some(old) = self.spenders.get(point) {
+                if old != spender {
+                    return Err(Error::Stale);
+                }
+            } else {
+                self.spenders.insert(point.clone(), spender.clone());
             }
-            self.spenders
-                .entry(point.clone())
-                .or_insert_with(|| spender.clone());
         }
         for (key, read) in &other.relations {
-            if self
-                .relations
-                .get(key)
-                .is_some_and(|old| !same_weak(old, read))
-            {
-                return Err(Error::Stale);
+            if let Some(old) = self.relations.get(key) {
+                if !same_weak(old, read) {
+                    return Err(Error::Stale);
+                }
+            } else {
+                self.relations.insert(key.clone(), read.clone());
             }
-            self.relations
-                .entry(key.clone())
-                .or_insert_with(|| read.clone());
         }
         for (key, read) in &other.peers {
-            if self.peers.get(key).is_some_and(|old| !same_weak(old, read)) {
-                return Err(Error::Stale);
+            if let Some(old) = self.peers.get(key) {
+                if !same_weak(old, read) {
+                    return Err(Error::Stale);
+                }
+            } else {
+                self.peers.insert(*key, read.clone());
             }
-            self.peers.entry(*key).or_insert_with(|| read.clone());
         }
         for (own, incoming) in [
             (&mut self.all, &other.all),
@@ -231,9 +235,21 @@ struct Shard {
     proposals: BTreeMap<[u8; ProposalShortId::TOTAL_SIZE], Byte32>,
     deadlines: BTreeSet<(Instant, Byte32)>,
     accepted_times: BTreeSet<(u64, Byte32)>,
+    // Derived only by owner edits; proposed is refreshed with a new snapshot.
+    orphan: usize,
+    proposed: usize,
     revision: u64,
     accepted_revision: u64,
 }
+pub(super) struct Summary {
+    pub(super) snapshot: Arc<Snapshot>,
+    pub(super) accepted: Amount,
+    pub(super) orphan: usize,
+    pub(super) proposed: usize,
+    pub(super) queued: usize,
+    pub(super) last_updated: u64,
+}
+
 #[derive(Clone, Debug)]
 struct Wake {
     pass: u64,
@@ -248,6 +264,7 @@ struct RelationMember {
 }
 #[derive(Debug, Default)]
 struct Relation {
+    // INPUT is held only by spender; this map stores DEP, WAIT and CHILD.
     members: BTreeMap<Byte32, RelationMember>,
     spender: Option<Byte32>,
     // Weak observations keep each retired marker allocation unique until the
@@ -255,6 +272,19 @@ struct Relation {
     accepted_version: Arc<()>,
     wake: Option<Wake>,
     next_pass: u64,
+}
+impl Relation {
+    fn roles(&self, hash: &Byte32) -> u8 {
+        self.members.get(hash).map_or(0, |member| member.roles)
+            | if self.spender.as_ref() == Some(hash) {
+                INPUT
+            } else {
+                0
+            }
+    }
+    fn is_empty(&self) -> bool {
+        self.spender.is_none() && self.members.is_empty() && self.wake.is_none()
+    }
 }
 #[derive(Debug, Default)]
 struct Peer {
@@ -450,6 +480,28 @@ fn visit_roles(entry: &Entry, mut add: impl FnMut(RelationKey, u8)) {
         Phase::Resolve | Phase::Verify(_) => {}
     }
 }
+// A roleless side cannot cancel a visited role. Stream that common transition
+// directly; two role-bearing sides still need a bounded owner-local merge.
+fn visit_role_changes(edit: &Edit, mut add: impl FnMut(RelationKey, u8, u8)) {
+    let has_roles = |entry: &&Entry| !matches!(entry.phase, Phase::Resolve | Phase::Verify(_));
+    let before = edit.before.as_deref().filter(has_roles);
+    let after = edit.after.as_deref().filter(has_roles);
+    match (before, after) {
+        (None, Some(after)) => visit_roles(after, |key, role| add(key, 0, role)),
+        (Some(before), None) => visit_roles(before, |key, role| add(key, role, 0)),
+        (Some(before), Some(after)) => {
+            let mut roles: BTreeMap<RelationKey, (u8, u8)> = BTreeMap::new();
+            visit_roles(before, |key, role| roles.entry(key).or_default().0 |= role);
+            visit_roles(after, |key, role| roles.entry(key).or_default().1 |= role);
+            for (key, (old, new)) in roles {
+                if old != new {
+                    add(key, old, new);
+                }
+            }
+        }
+        (None, None) => {}
+    }
+}
 fn peer(entry: &Entry) -> Option<PeerIndex> {
     entry
         .preaccepted()
@@ -541,7 +593,7 @@ impl Store {
         self.changed.notify_waiters();
         self.template_changed.notify_waiters();
         self.work.notify_waiters();
-        self.outbox.completed.notify_waiters();
+        self.outbox.failed.notify_waiters();
         self.outbox.changed.notify_waiters();
     }
     pub(super) fn is_faulted(&self) -> bool {
@@ -803,13 +855,15 @@ impl Store {
         let key = RelationKey::Dependency(DependencyKey::Cell(point.clone()));
         let row = self.relation(&key);
         let spender = row.as_ref().and_then(|row| row.lock().spender.clone());
-        if reads.spenders.get(point).is_some_and(|old| old != &spender) {
-            return Err(Error::Stale);
+        if let Some(old) = reads.spenders.get(point) {
+            if old != &spender {
+                return Err(Error::Stale);
+            }
+        } else {
+            reads
+                .spenders
+                .insert(compact_packed(point), spender.clone());
         }
-        reads
-            .spenders
-            .entry(compact_packed(point))
-            .or_insert_with(|| spender.clone());
         Ok(spender)
     }
     pub(super) fn members(
@@ -821,26 +875,27 @@ impl Store {
         let row = self.relation(key);
         let (version, members) = row.as_ref().map_or((None, Vec::new()), |row| {
             let row = row.lock();
-            (
-                Some(Arc::downgrade(&row.accepted_version)),
-                row.members
-                    .iter()
-                    .filter(|(_, member)| member.roles & role != 0)
-                    .map(|(hash, _)| hash.clone())
-                    .collect(),
-            )
+            let mut members: Vec<_> = row
+                .members
+                .iter()
+                .filter(|(_, member)| member.roles & role != 0)
+                .map(|(hash, _)| hash.clone())
+                .collect();
+            if role & INPUT != 0
+                && let Some(spender) = &row.spender
+                && let Err(index) = members.binary_search(spender)
+            {
+                members.insert(index, spender.clone());
+            }
+            (Some(Arc::downgrade(&row.accepted_version)), members)
         });
-        if reads
-            .relations
-            .get(key)
-            .is_some_and(|old| !same_weak(old, &version))
-        {
-            return Err(Error::Stale);
+        if let Some(old) = reads.relations.get(key) {
+            if !same_weak(old, &version) {
+                return Err(Error::Stale);
+            }
+        } else {
+            reads.relations.insert(compact_relation(key), version);
         }
-        reads
-            .relations
-            .entry(compact_relation(key))
-            .or_insert(version);
         Ok(members)
     }
     pub(super) fn peer_members(
@@ -903,22 +958,70 @@ impl Store {
         };
         (view.revision, Arc::clone(&view.snapshot), entries, reads)
     }
-    /// Membership and queued-work counts share one cut. Selected jobs are not
-    /// in either queue; a simultaneous commit cannot be counted in both places.
-    pub(super) fn capture_summary(&self) -> (Arc<Snapshot>, Vec<Arc<Entry>>, usize) {
+    /// Capture one accepted descendant closure at a coherent cut. Every CHILD
+    /// membership update holds an owner writer, so these read guards stabilize
+    /// the existing relation rows too. Caller owns a bounded read/capture slot.
+    #[expect(
+        clippy::indexing_slicing,
+        clippy::arithmetic_side_effects,
+        reason = "Keyed routing indexes SHARDS guards; the cursor visits each captured owner once and cannot exceed the bounded Vec length."
+    )]
+    pub(super) fn capture_descendants(
+        &self,
+        hash: &Byte32,
+    ) -> Result<(Arc<Snapshot>, Vec<Arc<Entry>>), Error> {
+        let view = self.view.read();
+        let guards = self.shards.each_ref().map(RwLock::read);
+        let snapshot = Arc::clone(&view.snapshot);
+        let Some(root) = guards[self.owner_shard(hash)]
+            .owners
+            .get(hash)
+            .filter(|entry| entry.accepted().is_some())
+        else {
+            return Ok((snapshot, Vec::new()));
+        };
+        let mut owners = vec![Arc::clone(root)];
+        let mut seen = BTreeSet::from([hash.clone()]);
+        let mut cursor = 0;
+        while let Some(parent) = owners.get(cursor) {
+            if let Some(row) = self.relation(&RelationKey::Children(parent.hash())) {
+                let row = row.lock();
+                for (hash, member) in &row.members {
+                    if member.roles & CHILD != 0 && seen.insert(hash.clone()) {
+                        let child = guards[self.owner_shard(hash)]
+                            .owners
+                            .get(hash)
+                            .filter(|entry| entry.accepted().is_some())
+                            .ok_or(Error::Stale)?;
+                        owners.push(Arc::clone(child));
+                    }
+                }
+            }
+            cursor += 1;
+        }
+        Ok((snapshot, owners))
+    }
+    /// Owner reservations settle before their guards open, so the accepted
+    /// account and owner/queue projections describe this same complete cut.
+    pub(super) fn capture_summary(&self) -> Summary {
         #[cfg(feature = "profiling")]
         let _span =
             tracing::trace_span!(target: "ckb_tx_pool_profile", "tx_pool.authority.capture")
                 .entered();
         let view = self.view.read();
         let guards = self.shards.each_ref().map(RwLock::read);
-        let entries = guards
-            .iter()
-            .flat_map(|shard| shard.owners.values())
-            .cloned()
-            .collect();
-        let queued = self.queues.queued_len();
-        (Arc::clone(&view.snapshot), entries, queued)
+        Summary {
+            snapshot: Arc::clone(&view.snapshot),
+            accepted: self.budget.accepted_usage(),
+            orphan: guards.iter().map(|shard| shard.orphan).sum(),
+            proposed: guards.iter().map(|shard| shard.proposed).sum(),
+            queued: self.queues.queued_len(),
+            last_updated: guards
+                .iter()
+                .filter_map(|shard| shard.accepted_times.last().map(|(time, _)| *time))
+                .max()
+                .unwrap_or(0),
+        }
     }
     /// Validate captured facts before bounded synchronous publication, including
     /// candidate pruning and replacement of the current template.
@@ -1008,12 +1111,8 @@ impl Store {
         let wake = relation.wake.as_ref()?;
         let hashes = relation
             .members
-            .iter()
-            .filter(|(hash, flags)| {
-                flags.roles & WAIT != 0
-                    && wake.pass > flags.wait_after_pass
-                    && wake.after.as_ref().is_none_or(|after| *hash > after)
-            })
+            .range((wake.after.as_ref().map_or(Unbounded, Excluded), Unbounded))
+            .filter(|(_, flags)| flags.roles & WAIT != 0 && wake.pass > flags.wait_after_pass)
             .take(WAKE_PAGE)
             .map(|(hash, _)| hash.clone())
             .collect::<Vec<_>>();
@@ -1109,7 +1208,7 @@ impl Store {
     /// expected failures precede the first owner/index mutation.
     #[expect(
         clippy::arithmetic_side_effects,
-        reason = "The complete counter delta is checked under these same exclusive guards before the first mutation."
+        reason = "Revision deltas are prechecked; exact validated owner edits preserve bounded phase counts."
     )]
     fn apply_plan(
         &self,
@@ -1137,8 +1236,10 @@ impl Store {
         let mut dependency_footprint = LockFootprint::default();
         let mut peer_footprint = LockFootprint::default();
         let mut owner_edits = Vec::with_capacity(plan.edits.len());
-        let mut delta: BTreeMap<RelationKey, BTreeMap<Byte32, (u8, u8)>> = BTreeMap::new();
-        let mut peer_delta: BTreeMap<PeerIndex, BTreeMap<Byte32, (bool, bool)>> = BTreeMap::new();
+        // Plan hashes are unique and ordered; the last per-key change can merge
+        // repeated roles of the current owner without another lookup tree.
+        let mut delta: BTreeMap<RelationKey, MemberChanges<u8>> = BTreeMap::new();
+        let mut peer_delta: BTreeMap<PeerIndex, MemberChanges<bool>> = BTreeMap::new();
         for (hash, edit) in &plan.edits {
             let index = self.owner_shard(hash);
             owner_footprint.insert(index, true);
@@ -1146,22 +1247,20 @@ impl Store {
             if plan.clear_all {
                 continue;
             }
-            let mut roles: BTreeMap<RelationKey, (u8, u8)> = BTreeMap::new();
-            if let Some(before) = &edit.before {
-                visit_roles(before, |key, role| roles.entry(key).or_default().0 |= role);
-            }
-            if let Some(after) = &edit.after {
-                visit_roles(after, |key, role| roles.entry(key).or_default().1 |= role);
-            }
-            for (key, (old, new)) in roles {
-                if old != new {
-                    delta
-                        .entry(compact_relation(&key))
-                        .or_default()
-                        .insert(hash.clone(), (old, new));
-                    dependency_footprint.insert(self.route(&key), (old | new) & INPUT != 0);
+            visit_role_changes(edit, |key, old, new| {
+                if let Some(changes) = delta.get_mut(&key) {
+                    // Ordered owners keep duplicate roles in the final item.
+                    if let Some((_, roles)) = changes.last_mut().filter(|(last, _)| last == hash) {
+                        roles.0 |= old;
+                        roles.1 |= new;
+                    } else {
+                        changes.push((hash.clone(), (old, new)));
+                    }
+                } else {
+                    delta.insert(compact_relation(&key), vec![(hash.clone(), (old, new))]);
                 }
-            }
+                dependency_footprint.insert(self.route(&key), (old | new) & INPUT != 0);
+            });
             let old_peer = edit.before.as_deref().and_then(peer);
             let new_peer = edit.after.as_deref().and_then(peer);
             if edit.after.is_none()
@@ -1177,10 +1276,13 @@ impl Store {
             for peer in old_peer.into_iter().chain(new_peer) {
                 peer_footprint.insert(self.route(&peer), false);
                 if old_peer != new_peer {
-                    peer_delta.entry(peer).or_default().insert(
-                        hash.clone(),
-                        (old_peer == Some(peer), new_peer == Some(peer)),
-                    );
+                    peer_delta
+                        .entry(peer)
+                        .or_insert_with(|| Vec::with_capacity(1))
+                        .push((
+                            hash.clone(),
+                            (old_peer == Some(peer), new_peer == Some(peer)),
+                        ));
                 }
             }
             for entry in edit
@@ -1202,7 +1304,9 @@ impl Store {
         // Route edits once before locking; both guarded passes retain the original
         // shard-major, full-hash order using this bounded borrowed scratch.
         owner_edits.sort_unstable_by_key(|(index, hash, _)| (*index, *hash));
-        if plan.clear_all {
+        if plan.clear_all || plan.snapshot.is_some() {
+            // The lifecycle writer already excludes ordinary commits. Refresh
+            // proposal counts for unchanged owners in the same snapshot cut.
             for index in 0..SHARDS {
                 owner_footprint.insert(index, true);
             }
@@ -1404,13 +1508,7 @@ impl Store {
             let row = row.as_ref().map(|row| row.lock());
             let mut spender = row.as_ref().and_then(|row| row.spender.clone());
             for (hash, (old, _)) in changes {
-                if row
-                    .as_ref()
-                    .and_then(|row| row.members.get(hash))
-                    .map(|member| member.roles)
-                    .unwrap_or(0)
-                    != *old
-                {
+                if row.as_ref().map_or(0, |row| row.roles(hash)) != *old {
                     return Err(Error::Fault("relation projection"));
                 }
                 if old & INPUT != 0 && spender.as_ref() == Some(hash) {
@@ -1502,13 +1600,23 @@ impl Store {
                     remaining_edits = remaining;
                     for (_, hash, edit) in edits.iter().copied() {
                         let proposal = proposal_key(hash);
+                        let before_deadline = edit.before.as_deref().and_then(deadline);
+                        let after_deadline = edit.after.as_deref().and_then(deadline);
                         if let Some(before) = &edit.before {
+                            // Exact owner validation and the population bound
+                            // make these derived phase-count updates infallible.
+                            shard.orphan -= usize::from(matches!(before.phase, Phase::Waiting(_)));
+                            shard.proposed -= usize::from(before.accepted().is_some_and(|value| {
+                                value.status(&view.get().snapshot) == Status::Proposed
+                            }));
                             // A prior edit in this same plan may already have
                             // transferred this proposal ID to its new owner.
-                            if shard.proposals.get(proposal) == Some(hash) {
+                            if edit.after.is_none() && shard.proposals.get(proposal) == Some(hash) {
                                 shard.proposals.remove(proposal);
                             }
-                            if let Some(deadline) = deadline(before) {
+                            if before_deadline != after_deadline
+                                && let Some(deadline) = before_deadline
+                            {
                                 shard.deadlines.remove(&(deadline, hash.clone()));
                             }
                             if let Some(accepted) = before.accepted() {
@@ -1521,8 +1629,17 @@ impl Store {
                             }
                         }
                         if let Some(after) = &edit.after {
-                            shard.proposals.insert(*proposal, hash.clone());
-                            if let Some(deadline) = deadline(after) {
+                            shard.orphan += usize::from(matches!(after.phase, Phase::Waiting(_)));
+                            shard.proposed += usize::from(after.accepted().is_some_and(|value| {
+                                value.status(&view.get().snapshot) == Status::Proposed
+                            }));
+                            // An owner update keeps its hash and proposal mapping.
+                            if edit.before.is_none() {
+                                shard.proposals.insert(*proposal, hash.clone());
+                            }
+                            if before_deadline != after_deadline
+                                && let Some(deadline) = after_deadline
+                            {
                                 shard.deadlines.insert((deadline, hash.clone()));
                             }
                             if let Some(accepted) = after.accepted() {
@@ -1596,6 +1713,21 @@ impl Store {
             }
             if let Some(page) = &plan.wake_advance {
                 self.advance_wake(page);
+            }
+            if let Some(snapshot) = &plan.snapshot {
+                for (_, guard) in &mut owners {
+                    if let Some(shard) = guard.get_mut() {
+                        shard.proposed = shard
+                            .owners
+                            .values()
+                            .filter(|entry| {
+                                entry
+                                    .accepted()
+                                    .is_some_and(|value| value.status(snapshot) == Status::Proposed)
+                            })
+                            .count();
+                    }
+                }
             }
             if let Some(view) = view.get_mut() {
                 if let Some(snapshot) = plan.snapshot.take() {
@@ -1716,7 +1848,7 @@ impl Store {
     fn apply_relation(
         &self,
         key: RelationKey,
-        changes: BTreeMap<Byte32, (u8, u8)>,
+        changes: MemberChanges<u8>,
         edits: &BTreeMap<Byte32, Edit>,
         wake: &BTreeSet<DependencyKey>,
     ) {
@@ -1730,11 +1862,15 @@ impl Store {
                 row.spender = None;
             }
         }
+        // Use the final spender, independent of the order of owner hashes.
+        // A newly blocked history cannot recover during its creation event.
+        let spent = row.spender.is_some() || changes.iter().any(|(_, (_, new))| new & INPUT != 0);
         let accepted_changed = changes
-            .values()
-            .any(|(old, new)| old & ACCEPTED_ROLES != new & ACCEPTED_ROLES);
+            .iter()
+            .any(|(_, (old, new))| old & ACCEPTED_ROLES != new & ACCEPTED_ROLES);
         for (hash, (_, new)) in changes {
-            if new == 0 {
+            let other_roles = new & !INPUT;
+            if other_roles == 0 {
                 row.members.remove(&hash);
             } else {
                 let deferred = matches!(&key, RelationKey::Dependency(key) if wake.contains(key))
@@ -1745,9 +1881,9 @@ impl Store {
                             matches!(
                                 entry.phase,
                                 Phase::Replaced {
-                                    require_all: false,
+                                    require_all,
                                     ..
-                                }
+                                } if !require_all || spent
                             )
                         });
                 let wait_after_pass = match row.next_pass.checked_add(u64::from(deferred)) {
@@ -1760,7 +1896,7 @@ impl Store {
                 row.members.insert(
                     hash.clone(),
                     RelationMember {
-                        roles: new,
+                        roles: other_roles,
                         wait_after_pass,
                     },
                 );
@@ -1772,7 +1908,17 @@ impl Store {
         if accepted_changed {
             row.accepted_version = Arc::new(());
         }
-        let empty = row.members.is_empty() && row.wake.is_none();
+        if row.members.is_empty() {
+            // Release the empty BTreeMap root leaf for a spender-only row.
+            row.members.clear();
+            if row.spender.is_none()
+                && row.wake.take().is_some()
+                && let RelationKey::Dependency(key) = &key
+            {
+                self.dirty.lock().remove(key);
+            }
+        }
+        let empty = row.is_empty();
         drop(row);
         if empty {
             collection.remove(&key);
@@ -1789,17 +1935,32 @@ impl Store {
             return;
         };
         let mut row = row.lock();
-        if !row.members.values().any(|member| member.roles & WAIT != 0) {
+        let was_queued = row.wake.is_some();
+        let mut waiters = row
+            .members
+            .values()
+            .filter(|member| member.roles & WAIT != 0);
+        let Some(first) = waiters.next() else {
             return;
-        }
+        };
         if let Some(pass) = row.next_pass.checked_add(1) {
+            let eligible =
+                pass > first.wait_after_pass || waiters.any(|member| pass > member.wait_after_pass);
+            // Consume even a deferred event so the next event is eligible.
             row.next_pass = pass;
+            if !eligible {
+                return;
+            }
             row.wake = Some(Wake { pass, after: None });
         } else {
             self.faulted.store(true, Ordering::Release);
             return;
         }
-        self.dirty.lock().insert(compact_dependency(key));
+        // Wake and dirty membership change under this same row lock. A newer
+        // pass keeps the existing key and does not need another dirty lookup.
+        if !was_queued {
+            self.dirty.lock().insert(compact_dependency(key));
+        }
     }
     #[expect(
         clippy::indexing_slicing,
@@ -1809,7 +1970,7 @@ impl Store {
         let key = RelationKey::Dependency(page.key.clone());
         let mut collection = self.relations[self.route(&key)].lock();
         let Some(row) = collection.get(&key) else {
-            self.faulted.store(true, Ordering::Release);
+            // Preflight validated the row; this commit retired its last member.
             return;
         };
         let mut row = row.lock();
@@ -1817,11 +1978,10 @@ impl Store {
         if row.wake.as_ref().is_none_or(|wake| wake.pass != page.pass) {
             return;
         }
-        let more = row.members.iter().any(|(hash, flags)| {
-            flags.roles & WAIT != 0
-                && page.pass > flags.wait_after_pass
-                && page.after.as_ref().is_none_or(|after| hash > after)
-        });
+        let more = row
+            .members
+            .range((page.after.as_ref().map_or(Unbounded, Excluded), Unbounded))
+            .any(|(_, flags)| flags.roles & WAIT != 0 && page.pass > flags.wait_after_pass);
         if more {
             row.wake = Some(Wake {
                 pass: page.pass,
@@ -1831,7 +1991,7 @@ impl Store {
             row.wake = None;
             self.dirty.lock().remove(&page.key);
         }
-        let empty = row.members.is_empty() && row.wake.is_none();
+        let empty = row.is_empty();
         drop(row);
         if empty {
             collection.remove(&key);

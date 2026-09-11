@@ -13,6 +13,9 @@ mod membership;
 mod model;
 mod notice;
 mod packing;
+#[cfg(feature = "packing-bench")]
+#[path = "../../benches/packing/current_adapter.rs"]
+pub mod packing_bench;
 pub(crate) mod query;
 mod queue;
 mod relay;

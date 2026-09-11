@@ -2,7 +2,7 @@
 //! through admission/discard. Selection does not rewrite the immutable owner.
 use super::model::DependencyKey;
 use super::{
-    budget::Reservation,
+    budget::ActivePermit,
     model::{Entry, Error, Phase, Resolved, Status, status},
     store::{ReadSet, Store},
 };
@@ -43,7 +43,7 @@ pub(super) struct Job {
     pub(super) store: Arc<Store>,
     pub(super) entry: Arc<Entry>,
     pub(super) view: u64,
-    _memory: Reservation,
+    _memory: ActivePermit,
     done: bool,
 }
 impl Job {
@@ -53,7 +53,7 @@ impl Job {
         store: Arc<Store>,
         entry: Arc<Entry>,
         view: u64,
-        memory: Reservation,
+        memory: ActivePermit,
     ) -> Self {
         Self {
             store,

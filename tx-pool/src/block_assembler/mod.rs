@@ -9,7 +9,6 @@ mod template;
 #[cfg(test)]
 mod tests;
 
-use crate::component::entry::TxEntry;
 use crate::error::BlockAssemblerError;
 use crate::util::block_offload;
 pub(crate) use candidate_uncles::CandidateUncleSourceReceipt;
@@ -46,7 +45,7 @@ use std::sync::{
 };
 use std::{cmp, iter};
 
-pub(crate) use template::{BlockTemplate, CurrentTemplate, TemplateSize};
+pub(crate) use template::{BlockTemplate, CurrentTemplate};
 
 /// Deterministic optional-content prefix compiled against one exact block-byte
 /// budget. Proposals retain score order, uncles retain candidate order, and
@@ -124,9 +123,9 @@ impl BlockAssembler {
 
     /// Build a fresh base template from `snapshot`.
     ///
-    /// Construction and each driver rebuild share the mandatory cellbase, DAO
-    /// and extension calculations. The sole driver adds transactions, proposals
-    /// and uncles after selection.
+    /// Construction needs a valid empty template before the driver starts.
+    /// The driver reuses mandatory parts within one lifecycle view and computes
+    /// DAO for its final selected contents.
     pub(crate) fn build_base_template(
         config: &BlockAssemblerConfig,
         work_id: &AtomicU64,
@@ -163,11 +162,8 @@ impl BlockAssembler {
         )?;
         template.extension = extension;
 
-        let size = TemplateSize { total: fixed_size };
-
         Ok(CurrentTemplate {
             template,
-            size,
             source: None,
         })
     }
@@ -434,12 +430,5 @@ impl BlockAssembler {
                 .build()
         };
         block.serialized_size_without_uncle_proposals()
-    }
-
-    pub(crate) fn checked_entries_size(entries: &[TxEntry]) -> Result<usize, BlockAssemblerError> {
-        entries.iter().try_fold(0usize, |sum, tx| {
-            sum.checked_add(tx.size)
-                .ok_or(BlockAssemblerError::Overflow)
-        })
     }
 }

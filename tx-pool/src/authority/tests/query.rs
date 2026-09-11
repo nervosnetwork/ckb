@@ -306,6 +306,14 @@ fn replacement_fee_walks_only_target_descendants_and_counts_shared_fanout_once()
         max_ancestors_count: 1,
         ..rbf_config()
     };
+    let (_, captured) = store.capture_descendants(&hash).unwrap();
+    assert_eq!(captured.len(), readers.len() + 2);
+    assert_eq!(captured.first().unwrap().hash(), hash);
+    assert!(
+        captured
+            .iter()
+            .all(|entry| entry.hash() != output_tx(6301).hash())
+    );
     let found = transaction(&store, &hash, &configuration).unwrap().unwrap();
     assert_eq!(
         found.min_replace_fee,
@@ -381,4 +389,155 @@ fn detail_rank_preserves_ordering_equivalence_arrival_hash_and_status() {
             .entry_status,
         "unknown"
     );
+}
+
+#[test]
+fn summary_tracks_phase_and_snapshot_changes_without_retaining_removed_maximum() {
+    let store = store();
+    let a = accept(&store, tx(6490), 1, 7, Status::Pending);
+    let before = store.point(&a).1.unwrap();
+    let mut accepted = before.accepted().unwrap().clone();
+    accepted.forced_status = None;
+    accepted.timestamp = 77;
+    let a = replace(&store, before, Phase::Accepted(accepted));
+    let b = accept(&store, tx(6491), 1, 11, Status::Proposed);
+    let before = store.point(&b).1.unwrap();
+    let mut accepted = before.accepted().unwrap().clone();
+    accepted.timestamp = 88;
+    let b = replace(&store, before, Phase::Accepted(accepted));
+    let waiting = entry(&store, tx(6492), Source::Local).with_phase(Phase::Waiting(
+        [super::super::model::DependencyKey::Cell(OutPoint::new(
+            tx(6493).hash(),
+            0,
+        ))]
+        .into(),
+    ));
+    insert(&store, Arc::clone(&waiting));
+    let bytes = a.accepted().unwrap().size + b.accepted().unwrap().size;
+    let info = summary(&store, &config()).unwrap();
+    assert_eq!(
+        (info.pending_size, info.proposed_size, info.orphan_size),
+        (1, 1, 1)
+    );
+    assert_eq!(
+        (
+            info.total_tx_size,
+            info.total_tx_cycles,
+            info.last_txs_updated_at
+        ),
+        (bytes, 18, 88)
+    );
+
+    // The accepted Arc is unchanged by this snapshot-only publication.
+    let (view, base, _, reads) = store.capture(false);
+    let backing = ckb_test_chain_utils::MockStore::default();
+    let next = Arc::new(Snapshot::new(
+        base.tip_header().clone(),
+        base.total_difficulty().clone(),
+        base.epoch_ext().clone(),
+        backing.store().get_snapshot(),
+        ckb_proposal_table::ProposalView::new([], [a.proposal()]),
+        base.cloned_consensus(),
+    ));
+    let mut plan = Plan::new(view, Class::Critical);
+    plan.reads = reads;
+    plan.snapshot = Some(next);
+    store.apply(plan).unwrap();
+    assert!(Arc::ptr_eq(&store.point(&a.hash()).1.unwrap(), &a));
+    let info = summary(&store, &config()).unwrap();
+    assert_eq!(
+        (info.pending_size, info.proposed_size, info.orphan_size),
+        (0, 2, 1)
+    );
+    assert_eq!(
+        (
+            info.total_tx_size,
+            info.total_tx_cycles,
+            info.last_txs_updated_at
+        ),
+        (bytes, 18, 88)
+    );
+
+    replace(&store, waiting, Phase::Resolve);
+    let mut removal = Plan::new(store.snapshot().0, Class::Trusted);
+    removal.edit(Some(Arc::clone(&b)), None).unwrap();
+    store.apply(removal).unwrap();
+    let info = summary(&store, &config()).unwrap();
+    assert_eq!(
+        (
+            info.pending_size,
+            info.proposed_size,
+            info.orphan_size,
+            info.verify_queue_size
+        ),
+        (0, 1, 0, 1)
+    );
+    assert_eq!(
+        (
+            info.total_tx_size,
+            info.total_tx_cycles,
+            info.last_txs_updated_at
+        ),
+        (a.accepted().unwrap().size, 7, 77)
+    );
+
+    let mut stale = Plan::new(store.snapshot().0, Class::Trusted);
+    stale.edit(Some(b), None).unwrap();
+    assert!(matches!(store.apply(stale), Err(Error::Stale)));
+    assert_eq!(summary(&store, &config()).unwrap().proposed_size, 1);
+    store
+        .apply(super::super::chain::clear(&store, None, false).unwrap())
+        .unwrap();
+    let info = summary(&store, &config()).unwrap();
+    assert_eq!(
+        (
+            info.pending_size,
+            info.proposed_size,
+            info.orphan_size,
+            info.verify_queue_size
+        ),
+        (0, 0, 0, 0)
+    );
+    assert_eq!(
+        (
+            info.total_tx_size,
+            info.total_tx_cycles,
+            info.last_txs_updated_at
+        ),
+        (0, 0, 0)
+    );
+}
+
+#[test]
+fn replacement_fee_zero_increment_keeps_saturated_descendant_fee() {
+    let store = store();
+    let parent = output_tx(6590);
+    let hash = accept(&store, parent, u64::MAX - 1, 1, Status::Pending);
+    accept(
+        &store,
+        spend(6591, &[], &[OutPoint::new(hash.clone(), 0)]),
+        1,
+        1,
+        Status::Pending,
+    );
+    // Each child's ancestor sum fits u64, while their shared parent's total
+    // descendant fee exceeds u64. Both admissions are individually valid.
+    accept(
+        &store,
+        spend(6592, &[], &[OutPoint::new(hash.clone(), 0)]),
+        1,
+        1,
+        Status::Pending,
+    );
+    let configuration = TxPoolConfig {
+        min_rbf_rate: FeeRate::from_u64(1),
+        ..config()
+    };
+    let size = store.point(&hash).1.unwrap().accepted().unwrap().size;
+    assert_eq!(
+        configuration.min_rbf_rate.fee(size as u64),
+        Capacity::zero()
+    );
+    let found = transaction(&store, &hash, &configuration).unwrap().unwrap();
+    assert_eq!(found.min_replace_fee, Some(Capacity::shannons(u64::MAX)));
 }

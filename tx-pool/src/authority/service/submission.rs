@@ -93,6 +93,8 @@ impl Pool {
                 return (completed, Some(error));
             }
             completed += 1;
+            // Fresh ingress can commit without polling any Tokio resource.
+            tokio::task::coop::consume_budget().await;
         }
         (completed, None)
     }
@@ -106,6 +108,7 @@ impl Pool {
                 Source::Proposal { remote: None },
             )
             .await?;
+            tokio::task::coop::consume_budget().await;
         }
         Ok(())
     }
@@ -183,36 +186,30 @@ impl Pool {
                     result => return result,
                 }
             }
-            let resolution = self.run_compute(&cpu, || {
+            let resolution = match self.run_compute(&cpu, || {
                 jobs::resolve(&self.store, &candidate, &self.config)
-            });
+            }) {
+                Ok(Resolution::Ready(resolved)) => Ok(resolved),
+                Ok(Resolution::Waiting(keys, observed)) => Err((
+                    Reject::Resolve(OutPointError::Unknown(
+                        keys.into_iter()
+                            .find_map(|key| match key {
+                                DependencyKey::Cell(point) => Some(point),
+                                _ => None,
+                            })
+                            .ok_or(Error::Fault("missing cell condition"))?,
+                    )),
+                    observed,
+                )),
+                Ok(Resolution::Rejected(reject, observed)) => Err((reject, observed)),
+                Err(Error::Stale) => continue,
+                Err(Error::Full(reason)) => return Ok(Err(Reject::Full(reason.to_string()))),
+                Err(error) => return Err(error),
+            };
             let resolved = match resolution {
-                Ok(Resolution::Ready(resolved)) => resolved,
-                result => {
+                Ok(resolved) => resolved,
+                Err((reject, observed)) => {
                     drop(cpu);
-                    let (reject, observed) = match result {
-                        Ok(Resolution::Waiting(keys, observed)) => (
-                            Reject::Resolve(OutPointError::Unknown(
-                                keys.into_iter()
-                                    .filter_map(|key| match key {
-                                        DependencyKey::Cell(point) => Some(point),
-                                        _ => None,
-                                    })
-                                    .next()
-                                    .ok_or(Error::Fault("missing cell condition"))?,
-                            )),
-                            observed,
-                        ),
-                        Ok(Resolution::Rejected(reject, observed)) => (reject, observed),
-                        Err(Error::Stale) => continue,
-                        Err(Error::Full(reason)) => {
-                            return Ok(Err(Reject::Full(reason.to_string())));
-                        }
-                        Err(error) => return Err(error),
-                        Ok(Resolution::Ready(_)) => {
-                            return Err(Error::Fault("local resolution outcome"));
-                        }
-                    };
                     reads.merge(&observed)?;
                     match self
                         .reject_local(view, &transaction.hash(), reject, reads, dry_run)
@@ -252,7 +249,6 @@ impl Pool {
                 Err(error) => return Err(error),
             };
             let mut retain_history = !dry_run;
-            let mut rejection = None;
             let mut attempt = || {
                 self.open()?;
                 let (mut plan, reject) = membership::admission(
@@ -263,14 +259,14 @@ impl Pool {
                     &self.config,
                     retain_history,
                 )?;
-                rejection = reject;
-                if dry_run {
+                let applied = if dry_run {
                     plan.dry_run = true;
                     plan.effects.clear();
                     self.store.apply(plan)
                 } else {
                     self.store.apply_admission(plan, &mut retain_history)
-                }
+                };
+                applied.map(|batch| (batch, reject))
             };
             let applied = if dry_run {
                 attempt()
@@ -278,7 +274,7 @@ impl Pool {
                 self.commit_attempt(attempt).await
             };
             match applied {
-                Ok(batch) => {
+                Ok((batch, rejection)) => {
                     self.published(batch).await?;
                     return Ok(rejection.map_or_else(
                         || {

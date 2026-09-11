@@ -198,6 +198,176 @@ fn owner_preflight_preserves_shard_order_between_collision_and_counter_errors() 
 }
 
 #[test]
+fn coupled_spender_transfer_preserves_roles_in_both_hash_orders() {
+    for (old_id, new_id) in [(1, 2), (2, 1)] {
+        let store = store();
+        let point = OutPoint::new(tx(7710).hash(), 0);
+        let key = RelationKey::Dependency(DependencyKey::Cell(point.clone()));
+        let transaction = spend(
+            7711,
+            std::slice::from_ref(&point),
+            &[point.clone(), point.clone()],
+        )
+        .fake_hash(Byte32::new([old_id; 32]));
+        let old_hash = accept(&store, transaction, 1, 1, Status::Pending);
+        let old = store.point(&old_hash).1.unwrap();
+        let transaction = old
+            .transaction
+            .as_ref()
+            .clone()
+            .fake_hash(Byte32::new([new_id; 32]));
+        let mut accepted = old.accepted().unwrap().clone();
+        let mut resolved = accepted.transaction.as_ref().clone();
+        resolved.transaction = transaction.clone();
+        accepted.transaction = Arc::new(resolved);
+        let new = entry(&store, transaction, Source::Local).with_phase(Phase::Accepted(accepted));
+        let queued = entry(
+            &store,
+            tx(7712),
+            crate::authority::ingress::remote_source(94.into(), 1).unwrap(),
+        );
+        let before = store.capture(false);
+        let budget = store.budget.accepted_usage();
+        let mut conflict = Plan::new(store.snapshot().0, Class::Trusted);
+        conflict.edit(None, Some(Arc::clone(&queued))).unwrap();
+        conflict.edit(None, Some(Arc::clone(&new))).unwrap();
+        assert!(matches!(
+            store.apply(conflict),
+            Err(Error::Fault("multiple accepted spenders"))
+        ));
+        assert!(store.read_selected(before.0, &before.3, || ()).is_ok());
+        assert_eq!(store.budget.accepted_usage(), budget);
+        assert!(store.point(&queued.hash()).1.is_none());
+        assert!(store.point(&new.hash()).1.is_none());
+        assert!(
+            store
+                .peer_members(94.into(), &mut ReadSet::default())
+                .unwrap()
+                .is_empty()
+        );
+        assert_eq!(
+            store.spender(&point, &mut ReadSet::default()).unwrap(),
+            Some(old_hash.clone())
+        );
+
+        let mut transfer = Plan::new(store.snapshot().0, Class::Trusted);
+        transfer.edit(Some(old), None).unwrap();
+        transfer.edit(None, Some(Arc::clone(&new))).unwrap();
+        transfer.edit(None, Some(Arc::clone(&queued))).unwrap();
+        store.apply(transfer).unwrap();
+        assert!(store.point(&old_hash).1.is_none());
+        assert!(Arc::ptr_eq(&store.point(&new.hash()).1.unwrap(), &new));
+        assert_eq!(
+            store.spender(&point, &mut ReadSet::default()).unwrap(),
+            Some(new.hash())
+        );
+        assert_eq!(
+            store
+                .members(&key, INPUT | DEP, &mut ReadSet::default())
+                .unwrap(),
+            vec![new.hash()]
+        );
+        assert_eq!(
+            store
+                .relation(&key)
+                .unwrap()
+                .lock()
+                .members
+                .get(&new.hash())
+                .unwrap()
+                .roles,
+            DEP
+        );
+        assert_eq!(
+            store
+                .peer_members(94.into(), &mut ReadSet::default())
+                .unwrap(),
+            vec![queued.hash()]
+        );
+        let mut removal = Plan::new(store.snapshot().0, Class::Trusted);
+        removal.edit(Some(new), None).unwrap();
+        removal.edit(Some(queued), None).unwrap();
+        store.apply(removal).unwrap();
+        assert!(store.relation(&key).is_none());
+        assert!(
+            store
+                .peer_members(94.into(), &mut ReadSet::default())
+                .unwrap()
+                .is_empty()
+        );
+        assert!(!store.is_faulted());
+    }
+}
+
+#[test]
+fn spender_only_relation_survives_reader_and_wake_retirement() {
+    let store = store();
+    let point = OutPoint::new(tx(7713).hash(), 0);
+    let dependency = DependencyKey::Cell(point.clone());
+    let key = RelationKey::Dependency(dependency.clone());
+    let spender = accept(
+        &store,
+        spend(7714, std::slice::from_ref(&point), &[]).fake_hash(Byte32::new([2; 32])),
+        1,
+        1,
+        Status::Pending,
+    );
+    assert!(store.relation(&key).unwrap().lock().members.is_empty());
+    let readers = [1, 3].map(|id| {
+        accept(
+            &store,
+            spend(7715, &[], std::slice::from_ref(&point)).fake_hash(Byte32::new([id; 32])),
+            1,
+            1,
+            Status::Pending,
+        )
+    });
+    assert_eq!(
+        store
+            .members(&key, INPUT | DEP, &mut ReadSet::default())
+            .unwrap(),
+        vec![readers[0].clone(), spender.clone(), readers[1].clone()]
+    );
+    let mut remove = Plan::new(store.snapshot().0, Class::Trusted);
+    for reader in &readers {
+        remove.edit(store.point(reader).1, None).unwrap();
+    }
+    store.apply(remove).unwrap();
+    assert!(store.relation(&key).unwrap().lock().members.is_empty());
+    let waiter = entry(&store, tx(7716), Source::Local)
+        .with_phase(Phase::Waiting(BTreeSet::from([dependency.clone()])));
+    insert(&store, Arc::clone(&waiter));
+    let mut signal = Plan::new(store.snapshot().0, Class::Trusted);
+    signal.wake.insert(dependency);
+    store.apply(signal).unwrap();
+    let mut remove = Plan::new(store.snapshot().0, Class::Trusted);
+    remove.edit(Some(waiter), None).unwrap();
+    store.apply(remove).unwrap();
+    store
+        .apply(
+            super::super::waiting::wake(&store, &mut None)
+                .unwrap()
+                .unwrap(),
+        )
+        .unwrap();
+    assert!(store.wake_page(&mut None).is_none());
+    assert_eq!(
+        store.spender(&point, &mut ReadSet::default()).unwrap(),
+        Some(spender.clone())
+    );
+    assert_eq!(
+        store.members(&key, INPUT, &mut ReadSet::default()).unwrap(),
+        vec![spender.clone()]
+    );
+    assert!(store.relation(&key).unwrap().lock().members.is_empty());
+    let mut remove = Plan::new(store.snapshot().0, Class::Trusted);
+    remove.edit(store.point(&spender).1, None).unwrap();
+    store.apply(remove).unwrap();
+    assert!(store.relation(&key).is_none());
+    assert!(!store.is_faulted());
+}
+
+#[test]
 fn projection_role_union_survives_phase_changes_and_duplicate_dependencies() {
     let store = store();
     let parent = accept(&store, output_tx(7700), 1, 1, Status::Pending);
@@ -221,7 +391,8 @@ fn projection_role_union_survives_phase_changes_and_duplicate_dependencies() {
     let roles = |key: &RelationKey| {
         store
             .relation(key)
-            .and_then(|row| row.lock().members.get(&hash).map(|member| member.roles))
+            .map(|row| row.lock().roles(&hash))
+            .filter(|roles| *roles != 0)
     };
     assert_eq!(roles(&cell_key), Some(INPUT | DEP));
     assert_eq!(roles(&child_key), Some(CHILD));
@@ -1164,6 +1335,93 @@ fn conflicting_input_commits_cannot_both_enter_the_validated_owner_cut() {
 }
 
 #[test]
+fn phase_and_source_updates_keep_current_proposal_and_exact_expiry() {
+    for accept_final in [false, true] {
+        let store = store();
+        let due = Instant::now() + Duration::from_secs(60);
+        let later = due + Duration::from_secs(60);
+        let remote = |deadline| Source::Remote {
+            peer: 96.into(),
+            deadline,
+            cycles: Some(1),
+        };
+        let owner = entry(&store, tx(7720), remote(due));
+        let proposal = owner.proposal();
+        insert(&store, Arc::clone(&owner));
+        let phase = Phase::Verify(Arc::clone(
+            verified(&store, &owner, 1, 1, Status::Pending).resolved(),
+        ));
+        let verifying = replace(&store, owner, phase);
+        let lookup = |expected: &Arc<Entry>| {
+            let (_, found, committed) = store.compact_lookup(std::slice::from_ref(&proposal));
+            assert!(committed.is_empty());
+            assert_eq!(found.len(), 1);
+            assert!(Arc::ptr_eq(&found[0].1, expected));
+        };
+        lookup(&verifying);
+        assert!(
+            store
+                .expired(due - Duration::from_nanos(1), 0, 10)
+                .is_empty()
+        );
+        let expired = store.expired(due, 0, 10);
+        assert_eq!(expired.len(), 1);
+        assert!(Arc::ptr_eq(&expired[0], &verifying));
+
+        let extended = Arc::new(Entry {
+            source: remote(later),
+            ..verifying.as_ref().clone()
+        });
+        let mut update = Plan::new(store.snapshot().0, Class::Trusted);
+        update
+            .edit(Some(Arc::clone(&verifying)), Some(Arc::clone(&extended)))
+            .unwrap();
+        store.apply(update).unwrap();
+        lookup(&extended);
+        assert!(store.expired(due, 0, 10).is_empty());
+        let expired = store.expired(later, 0, 10);
+        assert_eq!(expired.len(), 1);
+        assert!(Arc::ptr_eq(&expired[0], &extended));
+
+        let mut stale = Plan::new(store.snapshot().0, Class::Trusted);
+        stale.edit(Some(verifying), None).unwrap();
+        assert!(matches!(store.apply(stale), Err(Error::Stale)));
+        lookup(&extended);
+        let expired = store.expired(later, 0, 10);
+        assert_eq!(expired.len(), 1);
+        assert!(Arc::ptr_eq(&expired[0], &extended));
+
+        let final_owner = if accept_final {
+            let (plan, reject) =
+                admission(&store, &extended, 1, 1, Status::Pending, &config()).unwrap();
+            assert!(reject.is_none());
+            store.apply(plan).unwrap();
+            let accepted = store.point(&extended.hash()).1.unwrap();
+            assert!(accepted.accepted().is_some());
+            accepted
+        } else {
+            let local = Arc::new(Entry {
+                source: Source::Local,
+                ..extended.as_ref().clone()
+            });
+            let mut promotion = Plan::new(store.snapshot().0, Class::Trusted);
+            promotion
+                .edit(Some(extended), Some(Arc::clone(&local)))
+                .unwrap();
+            store.apply(promotion).unwrap();
+            local
+        };
+        lookup(&final_owner);
+        assert!(store.expired(later, 0, 10).is_empty());
+        let clear = crate::authority::chain::clear(&store, None, false).unwrap();
+        store.apply(clear).unwrap();
+        assert!(store.compact_lookup(&[proposal]).1.is_empty());
+        assert!(store.expired(later, 0, 10).is_empty());
+        assert!(!store.is_faulted());
+    }
+}
+
+#[test]
 fn expiry_capture_and_metrics_are_bounded_read_only_projections() {
     let store = store();
     let now = Instant::now();
@@ -1352,5 +1610,262 @@ fn settled_capacity_refusal_and_dry_run_preserve_the_entire_owner_cut() {
         assert!(store.outbox.pending_reject(&candidate.hash()).is_none());
     }
     assert!(store.point(&incumbent).1.is_some());
+    assert!(!store.is_faulted());
+}
+
+#[test]
+fn roleless_owner_transition_combines_duplicate_roles_and_preserves_waiters() {
+    let store = store();
+    let point = OutPoint::new(tx(7720).hash(), 0);
+    let key = RelationKey::Dependency(DependencyKey::Cell(point.clone()));
+    let waiter =
+        entry(&store, tx(7721), Source::Recovery).with_phase(Phase::Waiting(BTreeSet::from([
+            DependencyKey::Cell(point.clone()),
+        ])));
+    insert(&store, Arc::clone(&waiter));
+    let pending = entry(
+        &store,
+        spend(
+            7722,
+            std::slice::from_ref(&point),
+            &[point.clone(), point.clone()],
+        ),
+        Source::Local,
+    );
+    let verified = verified(&store, &pending, 1, 1, Status::Pending);
+    let verifying = pending.with_phase(Phase::Verify(Arc::clone(verified.resolved())));
+    insert(&store, Arc::clone(&verifying));
+    let (plan, reject) = admission(&store, &verifying, 1, 1, Status::Pending, &config()).unwrap();
+    assert!(reject.is_none());
+    store.apply(plan).unwrap();
+    let accepted = store.point(&verifying.hash()).1.unwrap();
+    let relation = store.relation(&key).unwrap();
+    {
+        let row = relation.lock();
+        assert_eq!(row.roles(&accepted.hash()), INPUT | DEP);
+        assert_eq!(row.members.get(&accepted.hash()).unwrap().roles, DEP);
+        assert_eq!(row.roles(&waiter.hash()), WAIT);
+    }
+    let view = store.snapshot().0;
+    let mut reads = ReadSet::default();
+    assert_eq!(
+        store.members(&key, INPUT | DEP, &mut reads).unwrap(),
+        vec![accepted.hash()]
+    );
+    let mut observed = Plan::new(view, Class::Trusted);
+    observed.reads = reads;
+    observed.dry_run = true;
+    store.apply(observed.clone()).unwrap();
+    let hash = accepted.hash();
+    replace(&store, accepted, Phase::Resolve);
+    assert!(matches!(store.apply(observed), Err(Error::Stale)));
+    let row = relation.lock();
+    assert_eq!(row.roles(&hash), 0);
+    assert!(row.spender.is_none());
+    assert_eq!(row.roles(&waiter.hash()), WAIT);
+    assert_eq!(row.members.len(), 1);
+    assert!(!store.is_faulted());
+}
+
+#[test]
+fn history_capacity_retry_rebuilds_relation_changes_after_dropping_history() {
+    let (store, plan, victim, candidate) = history_pressure_plan();
+    let keys: BTreeSet<_> = plan
+        .edits
+        .values()
+        .filter_map(|edit| {
+            edit.after.as_ref().and_then(|entry| match &entry.phase {
+                Phase::Replaced { triggers, .. } => Some(triggers),
+                _ => None,
+            })
+        })
+        .flatten()
+        .cloned()
+        .collect();
+    assert!(!keys.is_empty());
+    let mut retain_history = true;
+    store.apply_admission(plan, &mut retain_history).unwrap();
+    assert!(!retain_history);
+    assert!(store.point(&victim).1.is_none());
+    assert!(
+        store
+            .point(&candidate.hash())
+            .1
+            .unwrap()
+            .accepted()
+            .is_some()
+    );
+    for key in keys {
+        assert!(
+            !store
+                .members(&RelationKey::Dependency(key), WAIT, &mut ReadSet::default(),)
+                .unwrap()
+                .contains(&victim)
+        );
+    }
+    assert!(!store.is_faulted());
+}
+
+#[test]
+fn dirty_keys_retire_with_their_last_owner_without_maintenance() {
+    let store = store();
+    for nonce in 30_000..30_064 {
+        let parent = output_tx(nonce);
+        let key = DependencyKey::Cell(ckb_types::packed::OutPoint::new(parent.hash(), 0));
+        let waiter = entry(&store, tx(nonce + 100), Source::Recovery)
+            .with_phase(Phase::Waiting([key.clone()].into()));
+        insert(&store, Arc::clone(&waiter));
+        let producer = accept(&store, parent, 1, 1, Status::Pending);
+        assert_eq!(store.dirty.lock().len(), 1);
+        let row = store
+            .relation(&RelationKey::Dependency(key.clone()))
+            .unwrap();
+        let retired = Arc::downgrade(&row);
+        drop(row);
+        store.apply(delete(&store, waiter)).unwrap();
+        assert!(store.dirty.lock().is_empty());
+        assert!(store.relation(&RelationKey::Dependency(key)).is_none());
+        assert!(retired.upgrade().is_none());
+        store
+            .apply(delete(&store, store.point(&producer).1.unwrap()))
+            .unwrap();
+        assert!(store.capture(false).2.is_empty());
+    }
+    assert!(store.relations.iter().all(|rows| rows.lock().is_empty()));
+    assert!(!store.is_faulted());
+}
+
+#[test]
+fn wake_completion_can_retire_its_row_and_old_pass_cannot_erase_reinserted_work() {
+    let store = store();
+    let parent = output_tx(30_200);
+    let key = DependencyKey::Cell(ckb_types::packed::OutPoint::new(parent.hash(), 0));
+    let waiter =
+        entry(&store, tx(30_201), remote(1, 1)).with_phase(Phase::Waiting([key.clone()].into()));
+    insert(&store, Arc::clone(&waiter));
+    let producer = accept(&store, parent.clone(), 1, 1, Status::Pending);
+    let mut old = Plan::new(store.snapshot().0, Class::Trusted);
+    old.advance(store.wake_page(&mut None).unwrap());
+    store
+        .apply(
+            crate::authority::waiting::wake(&store, &mut None)
+                .unwrap()
+                .unwrap(),
+        )
+        .unwrap();
+    assert!(store.dirty.lock().is_empty());
+    assert!(
+        store
+            .relation(&RelationKey::Dependency(key.clone()))
+            .is_none()
+    );
+    assert!(matches!(
+        store.point(&waiter.hash()).1.unwrap().phase,
+        Phase::Resolve
+    ));
+    store
+        .apply(delete(&store, store.point(&producer).1.unwrap()))
+        .unwrap();
+    replace(
+        &store,
+        store.point(&waiter.hash()).1.unwrap(),
+        Phase::Waiting([key].into()),
+    );
+    accept(&store, parent, 1, 1, Status::Pending);
+    assert!(matches!(store.apply(old), Err(Error::Stale)));
+    assert_eq!(store.dirty.lock().len(), 1);
+    store
+        .apply(
+            crate::authority::waiting::wake(&store, &mut None)
+                .unwrap()
+                .unwrap(),
+        )
+        .unwrap();
+    assert!(store.dirty.lock().is_empty());
+    assert!(matches!(
+        store.point(&waiter.hash()).1.unwrap().phase,
+        Phase::Resolve
+    ));
+    assert!(!store.is_faulted());
+}
+
+#[test]
+fn dirty_retirement_preserves_a_spender_and_clear_releases_all_queued_keys() {
+    let store = store();
+    let parent = output_tx(30_300);
+    let point = ckb_types::packed::OutPoint::new(parent.hash(), 0);
+    let key = DependencyKey::Cell(point.clone());
+    let waiter =
+        entry(&store, tx(30_301), remote(1, 1)).with_phase(Phase::Waiting([key.clone()].into()));
+    insert(&store, Arc::clone(&waiter));
+    accept(&store, parent, 1, 1, Status::Pending);
+    let spender = accept(
+        &store,
+        spend(30_302, std::slice::from_ref(&point), &[]),
+        1,
+        1,
+        Status::Pending,
+    );
+    store.apply(delete(&store, waiter)).unwrap();
+    assert_eq!(
+        store.spender(&point, &mut ReadSet::default()).unwrap(),
+        Some(spender.clone())
+    );
+    assert_eq!(store.dirty.lock().len(), 1);
+    store
+        .apply(delete(&store, store.point(&spender).1.unwrap()))
+        .unwrap();
+    assert!(store.dirty.lock().is_empty());
+    assert!(
+        store
+            .relation(&RelationKey::Dependency(key.clone()))
+            .is_none()
+    );
+    let waiter =
+        entry(&store, tx(30_303), remote(1, 1)).with_phase(Phase::Waiting([key.clone()].into()));
+    insert(&store, waiter);
+    store.start_wake(&key);
+    let mut stale = Plan::new(store.snapshot().0, Class::Trusted);
+    stale.advance(store.wake_page(&mut None).unwrap());
+    let (view, _, owners, reads) = store.capture(false);
+    let mut clear = Plan::new(view, Class::Trusted);
+    clear.reads = reads;
+    clear.invalidate_view = true;
+    clear.clear_all = true;
+    for owner in owners {
+        clear.edit(Some(owner), None).unwrap();
+    }
+    store.apply(clear).unwrap();
+    assert!(store.dirty.lock().is_empty());
+    assert!(store.relations.iter().all(|rows| rows.lock().is_empty()));
+    assert!(matches!(store.apply(stale), Err(Error::Stale)));
+    let waiter =
+        entry(&store, tx(30_304), remote(1, 1)).with_phase(Phase::Waiting([key.clone()].into()));
+    insert(&store, waiter);
+    store.start_wake(&key);
+    assert_eq!(store.dirty.lock().len(), 1);
+    assert_eq!(store.wake_page(&mut None).unwrap().key, key);
+    assert!(!store.is_faulted());
+}
+
+#[test]
+fn repeated_availability_advances_pass_without_duplicating_dirty_membership() {
+    let store = store();
+    let key = DependencyKey::Cell(ckb_types::packed::OutPoint::new(tx(30_400).hash(), 0));
+    let waiter =
+        entry(&store, tx(30_401), remote(1, 1)).with_phase(Phase::Waiting([key.clone()].into()));
+    insert(&store, waiter);
+    store.start_wake(&key);
+    let first = store.wake_page(&mut None).unwrap();
+    for _ in 0..64 {
+        store.start_wake(&key);
+    }
+    assert_eq!(store.dirty.lock().len(), 1);
+    let current = store.wake_page(&mut None).unwrap();
+    assert!(current.pass > first.pass);
+    let mut stale = Plan::new(store.snapshot().0, Class::Trusted);
+    stale.advance(first);
+    assert!(matches!(store.apply(stale), Err(Error::Stale)));
+    assert_eq!(store.dirty.lock().len(), 1);
     assert!(!store.is_faulted());
 }

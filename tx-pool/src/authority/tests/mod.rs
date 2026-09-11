@@ -5,6 +5,7 @@ pub(in crate::authority) mod common;
 mod contracts;
 mod ingress_contracts;
 mod membership;
+mod membership_aggregates;
 mod relay;
 mod residency;
 mod waiting;

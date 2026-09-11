@@ -4,7 +4,7 @@
 //! no pool state and performs no I/O, so neither service path has to depend on
 //! the other's mutable authority merely to establish deterministic ordering.
 
-use ckb_types::{core::TransactionView, packed::OutPoint};
+use ckb_types::{core::TransactionView, packed::Byte32, prelude::*};
 use std::collections::{HashMap, VecDeque};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -49,25 +49,26 @@ pub(crate) fn sort_by_dependencies<T>(
         return Ok(());
     }
 
-    let initial_outputs = items
-        .len()
-        .checked_mul(2)
-        .ok_or(DependencySortError::Arithmetic("output index estimate"))?;
-    let mut output_to_index: HashMap<OutPoint, usize> = HashMap::new();
-    output_to_index
-        .try_reserve(initial_outputs)
-        .map_err(|_| DependencySortError::Allocation("output index"))?;
+    // Canonical raw hashes identify the complete output vector. Keep the last
+    // cohort member for duplicate hashes, including different witnesses.
+    let mut producers: HashMap<Byte32, (usize, usize)> = HashMap::new();
+    producers
+        .try_reserve(items.len())
+        .map_err(|_| DependencySortError::Allocation("producer index"))?;
     for (index, item) in items.iter().enumerate() {
-        let tx_hash = transaction(item).hash();
-        for output in 0..transaction(item).outputs().len() {
-            let output = u32::try_from(output)
-                .map_err(|_| DependencySortError::Arithmetic("transaction output index"))?;
-            output_to_index
-                .try_reserve(1)
-                .map_err(|_| DependencySortError::Allocation("output index growth"))?;
-            output_to_index.insert(OutPoint::new(tx_hash.clone(), output), index);
+        let tx = transaction(item);
+        let outputs = tx.outputs().len();
+        if outputs != 0 {
+            producers.insert(tx.hash(), (index, outputs));
         }
     }
+    let producer = |point: &ckb_types::packed::OutPoint| {
+        let output: u32 = point.index().unpack();
+        producers
+            .get(&point.tx_hash())
+            .filter(|(_, outputs)| (output as usize) < *outputs)
+            .map(|(index, _)| *index)
+    };
 
     let mut in_degree = Vec::new();
     in_degree
@@ -82,7 +83,7 @@ pub(crate) fn sort_by_dependencies<T>(
     for (index, item) in items.iter().enumerate() {
         let tx = transaction(item);
         for input in tx.input_pts_iter() {
-            if let Some(&parent) = output_to_index.get(&input)
+            if let Some(parent) = producer(&input)
                 && parent != index
             {
                 register_edge(
@@ -95,7 +96,7 @@ pub(crate) fn sort_by_dependencies<T>(
             }
         }
         for dependency in tx.cell_deps_iter() {
-            if let Some(&parent) = output_to_index.get(&dependency.out_point())
+            if let Some(parent) = producer(&dependency.out_point())
                 && parent != index
             {
                 register_edge(

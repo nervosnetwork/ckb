@@ -20,7 +20,9 @@ pub(super) fn available(
 ) -> Result<bool, Error> {
     use ckb_types::core::cell::{CellProvider, CellStatus, HeaderChecker};
     match key {
-        DependencyKey::Header(hash) => Ok(snapshot.check_valid(hash).is_ok()),
+        DependencyKey::Header(hash) => {
+            Ok(crate::util::block_offload(|| snapshot.check_valid(hash)).is_ok())
+        }
         DependencyKey::Cell(point) => {
             if store.spender(point, reads)?.is_some() {
                 return Ok(false);
@@ -31,7 +33,10 @@ pub(super) fn available(
                 let index: u32 = point.index().into();
                 return Ok((index as usize) < owner.transaction.outputs().len());
             }
-            Ok(matches!(snapshot.cell(point, false), CellStatus::Live(_)))
+            Ok(matches!(
+                crate::util::block_offload(|| snapshot.cell(point, false)),
+                CellStatus::Live(_)
+            ))
         }
     }
 }
@@ -59,6 +64,9 @@ pub(super) fn wake(
     let _span =
         tracing::trace_span!(target: "ckb_tx_pool_profile", "tx_pool.maintenance.wake").entered();
     let mut plan = Plan::new(view, Class::Trusted);
+    // The page shares one trigger. Its first observation stays in plan.reads
+    // and is validated for every waiter when the whole plan commits.
+    let mut trigger_ready = None;
     for hash in &page.hashes {
         let Some(entry) = store.get(hash, &mut plan.reads)? else {
             continue;
@@ -75,8 +83,18 @@ pub(super) fn wake(
         let mut all_ready = true;
         let mut lost = None;
         for key in keys {
-            let ready =
-                crate::util::block_offload(|| available(store, &snapshot, key, &mut plan.reads))?;
+            let ready = if key == &page.key {
+                match trigger_ready {
+                    Some(ready) => ready,
+                    None => {
+                        let ready = available(store, &snapshot, key, &mut plan.reads)?;
+                        trigger_ready = Some(ready);
+                        ready
+                    }
+                }
+            } else {
+                available(store, &snapshot, key, &mut plan.reads)?
+            };
             any_ready |= ready;
             all_ready &= ready;
             if !ready
@@ -86,6 +104,13 @@ pub(super) fn wake(
                 && !pending_producer(store, point, &mut plan.reads)?
             {
                 lost = Some(point.clone());
+                break;
+            }
+            // Trusted waiting must still find a terminal missing producer on
+            // later keys. Other decisions need only their first decisive key.
+            if (history || !entry.source.requires_known_producer())
+                && ((require_all && !ready) || (!require_all && ready))
+            {
                 break;
             }
         }

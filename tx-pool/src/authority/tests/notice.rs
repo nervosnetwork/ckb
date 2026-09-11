@@ -515,58 +515,70 @@ async fn unregistered_callbacks_do_not_cross_the_blocking_boundary() {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn publication_selection_excludes_later_activation_and_append() {
-    let (entered, mut events) = tokio::sync::mpsc::unbounded_channel();
-    let (release, waiting) = std::sync::mpsc::channel();
-    let waiting = std::sync::Mutex::new(waiting);
-    let calls = std::sync::atomic::AtomicUsize::new(0);
-    let mut callbacks = Callbacks::new();
-    callbacks.register_pending(Box::new(move |_| {
-        if calls.fetch_add(1, Ordering::AcqRel) == 0 {
-            entered.send(()).unwrap();
-            waiting
-                .lock()
-                .unwrap()
-                .recv_timeout(Duration::from_secs(5))
-                .unwrap();
-        }
-    }));
-    let (outbox, mut endpoints, receiver) = fixture(callbacks);
-    let first = append(&outbox, vec![callback_effect(805)]);
-    let second = append(&outbox, vec![callback_effect(806)]);
-    let third = append(&outbox, vec![effect(807)]);
-    let fourth = append(&outbox, vec![effect(808)]);
-    first.activate(&outbox);
-    second.activate(&outbox);
-    fourth.activate(&outbox);
-    let publishing = Arc::clone(&outbox);
-    let operation = tokio::spawn(async move {
-        let result = publishing.publish_ready(&mut endpoints);
-        (result, endpoints)
-    });
-    tokio::time::timeout(Duration::from_secs(5), events.recv())
-        .await
-        .unwrap()
-        .unwrap();
-    third.activate(&outbox);
-    let fifth = append(&outbox, vec![effect(809)]);
-    fifth.activate(&outbox);
-    outbox.close();
-    release.send(()).unwrap();
-    let (result, endpoints) = operation.await.unwrap();
-    assert!(result.unwrap());
-    assert!(first.published.load(Ordering::Acquire));
-    assert!(second.published.load(Ordering::Acquire));
-    for batch in [&third, &fourth, &fifth] {
-        assert!(!batch.published.load(Ordering::Acquire));
-    }
-    Arc::clone(&outbox).run(endpoints).await.unwrap();
-    for nonce in 805..=809 {
-        assert!(
-            matches!(receiver.try_recv(), Some(TxVerificationResult::Reject { tx_hash }) if tx_hash == tx(nonce).hash())
+    for (initial_count, callback_head) in [(1, true), (2, true), (2, false)] {
+        let (entered, mut events) = tokio::sync::mpsc::unbounded_channel();
+        let (release, waiting) = std::sync::mpsc::channel();
+        let waiting = std::sync::Mutex::new(waiting);
+        let calls = std::sync::atomic::AtomicUsize::new(0);
+        let mut callbacks = Callbacks::new();
+        callbacks.register_pending(Box::new(move |_| {
+            if calls.fetch_add(1, Ordering::AcqRel) == 0 {
+                entered.send(()).unwrap();
+                waiting
+                    .lock()
+                    .unwrap()
+                    .recv_timeout(Duration::from_secs(5))
+                    .unwrap();
+            }
+        }));
+        let (outbox, mut endpoints, receiver) = fixture(callbacks);
+        let first = append(
+            &outbox,
+            vec![if callback_head {
+                callback_effect(805)
+            } else {
+                effect(805)
+            }],
         );
+        let second = append(&outbox, vec![callback_effect(806)]);
+        let third = append(&outbox, vec![effect(807)]);
+        let fourth = append(&outbox, vec![effect(808)]);
+        first.activate(&outbox);
+        if initial_count == 2 {
+            second.activate(&outbox);
+        }
+        fourth.activate(&outbox);
+        let publishing = Arc::clone(&outbox);
+        let operation = tokio::spawn(async move {
+            let result = publishing.publish_ready(&mut endpoints);
+            (result, endpoints)
+        });
+        tokio::time::timeout(Duration::from_secs(5), events.recv())
+            .await
+            .unwrap()
+            .unwrap();
+        second.activate(&outbox);
+        third.activate(&outbox);
+        let fifth = append(&outbox, vec![effect(809)]);
+        fifth.activate(&outbox);
+        outbox.close();
+        release.send(()).unwrap();
+        let (result, endpoints) = operation.await.unwrap();
+        assert!(result.unwrap());
+        assert!(first.published.load(Ordering::Acquire));
+        assert_eq!(second.published.load(Ordering::Acquire), initial_count == 2);
+        for batch in [&third, &fourth, &fifth] {
+            assert!(!batch.published.load(Ordering::Acquire));
+        }
+        Arc::clone(&outbox).run(endpoints).await.unwrap();
+        for nonce in 805..=809 {
+            assert!(
+                matches!(receiver.try_recv(), Some(TxVerificationResult::Reject { tx_hash }) if tx_hash == tx(nonce).hash())
+            );
+        }
+        assert!(receiver.try_recv().is_none());
+        assert!(outbox.drained());
     }
-    assert!(receiver.try_recv().is_none());
-    assert!(outbox.drained());
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 3)]
@@ -672,4 +684,261 @@ async fn unregistered_callback_prefix_is_bounded_without_a_blocking_boundary() {
     }
     assert!(receiver.try_recv().is_none());
     assert!(outbox.drained());
+}
+
+#[derive(Default)]
+struct PublicationWakeCount(std::sync::atomic::AtomicUsize);
+
+impl std::task::Wake for PublicationWakeCount {
+    fn wake(self: Arc<Self>) {
+        self.wake_by_ref();
+    }
+    fn wake_by_ref(self: &Arc<Self>) {
+        self.0.fetch_add(1, Ordering::AcqRel);
+    }
+}
+
+#[test]
+fn completion_wakes_only_its_batch_and_preserves_multiple_and_cancelled_waiters() {
+    let (outbox, mut endpoints, receiver) = fixture(Callbacks::new());
+    let batches = (900..916)
+        .map(|nonce| append(&outbox, vec![effect(nonce)]))
+        .collect::<Vec<_>>();
+    let mut waiters = batches
+        .iter()
+        .flat_map(|batch| {
+            [
+                Some(Box::pin(batch.wait(&outbox))),
+                Some(Box::pin(batch.wait(&outbox))),
+            ]
+        })
+        .collect::<Vec<_>>();
+    let counters = (0..waiters.len())
+        .map(|_| Arc::new(PublicationWakeCount::default()))
+        .collect::<Vec<_>>();
+    let wakers = counters
+        .iter()
+        .map(|counter| std::task::Waker::from(Arc::clone(counter)))
+        .collect::<Vec<_>>();
+    for (waiter, waker) in waiters.iter_mut().zip(&wakers) {
+        assert!(
+            waiter
+                .as_mut()
+                .unwrap()
+                .as_mut()
+                .poll(&mut std::task::Context::from_waker(waker))
+                .is_pending()
+        );
+    }
+    // Dropping one listener unregisters it without cancelling its batch or
+    // the other listener. Closing likewise leaves committed work pending.
+    const CANCELLED: usize = 5;
+    drop(waiters[CANCELLED].take());
+    outbox.close();
+    assert!(
+        counters
+            .iter()
+            .all(|counter| counter.0.load(Ordering::Acquire) == 0)
+    );
+    for (published, batch) in batches.iter().enumerate() {
+        batch.activate(&outbox);
+        assert!(outbox.publish_ready(&mut endpoints).unwrap());
+        for (index, ((waiter, waker), counter)) in
+            waiters.iter_mut().zip(&wakers).zip(&counters).enumerate()
+        {
+            assert_eq!(
+                counter.0.load(Ordering::Acquire),
+                usize::from(index / 2 <= published && index != CANCELLED),
+                "listener {index}, published batch {published}"
+            );
+            if let Some(waiting) = waiter.as_mut() {
+                let polled = waiting
+                    .as_mut()
+                    .poll(&mut std::task::Context::from_waker(waker));
+                if index / 2 == published {
+                    assert!(matches!(polled, std::task::Poll::Ready(Ok(()))));
+                    drop(waiter.take());
+                } else {
+                    // Model promptly repolling handlers between completions;
+                    // the shared broadcast would repeatedly wake these tasks.
+                    assert!(polled.is_pending());
+                }
+            }
+        }
+    }
+    assert!(waiters.iter().all(Option::is_none));
+    assert!(outbox.drained());
+    for nonce in 900..916 {
+        assert!(
+            matches!(receiver.try_recv(), Some(TxVerificationResult::Reject { tx_hash }) if tx_hash == tx(nonce).hash())
+        );
+    }
+    assert!(receiver.try_recv().is_none());
+}
+
+#[test]
+fn store_fault_and_publisher_cancellation_wake_every_unfinished_batch() {
+    for cancel in [false, true] {
+        let store = store();
+        let outbox = Arc::clone(&store.outbox);
+        let (_, mut endpoints, _receiver) = fixture(Callbacks::new());
+        let finished = append(&outbox, vec![effect(920)]);
+        finished.activate(&outbox);
+        assert!(outbox.publish_ready(&mut endpoints).unwrap());
+        let batches = [
+            append(&outbox, vec![effect(921)]),
+            append(&outbox, vec![effect(922)]),
+        ];
+        let counters = batches
+            .each_ref()
+            .map(|_| Arc::new(PublicationWakeCount::default()));
+        let wakers = counters
+            .each_ref()
+            .map(|counter| std::task::Waker::from(Arc::clone(counter)));
+        let mut waiters = batches
+            .each_ref()
+            .map(|batch| Box::pin(batch.wait(&outbox)));
+        for (waiter, waker) in waiters.iter_mut().zip(&wakers) {
+            assert!(
+                waiter
+                    .as_mut()
+                    .poll(&mut std::task::Context::from_waker(waker))
+                    .is_pending()
+            );
+        }
+        let mut publisher = Box::pin(Arc::clone(&outbox).run(endpoints));
+        poll_pending(publisher.as_mut());
+        outbox.close();
+        assert!(
+            counters
+                .iter()
+                .all(|counter| counter.0.load(Ordering::Acquire) == 0)
+        );
+        if !cancel {
+            store.fault();
+            assert!(
+                counters
+                    .iter()
+                    .all(|counter| counter.0.load(Ordering::Acquire) > 0)
+            );
+        }
+        drop(publisher);
+        for ((waiter, waker), counter) in waiters.iter_mut().zip(&wakers).zip(&counters) {
+            assert!(counter.0.load(Ordering::Acquire) > 0);
+            assert!(matches!(
+                waiter
+                    .as_mut()
+                    .poll(&mut std::task::Context::from_waker(waker)),
+                std::task::Poll::Ready(Err(Error::Fault(_)))
+            ));
+        }
+        // A completed obligation remains successful even after generation
+        // failure, including a listener created only after both events.
+        assert!(matches!(
+            Box::pin(finished.wait(&outbox))
+                .as_mut()
+                .poll(&mut std::task::Context::from_waker(std::task::Waker::noop())),
+            std::task::Poll::Ready(Ok(()))
+        ));
+        assert!(
+            batches
+                .iter()
+                .all(|batch| !batch.published.load(Ordering::Acquire))
+        );
+        assert_eq!(outbox.state.lock().usage[2].items, 2);
+        assert!(!outbox.drained());
+    }
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn release_fault_wakes_later_batch_before_the_next_callback_returns() {
+    let store = store();
+    let outbox = Arc::clone(&store.outbox);
+    let first = append(&outbox, vec![effect(930)]);
+    let second = append(&outbox, vec![callback_effect(931)]);
+    let last = append(&outbox, vec![effect(932)]);
+    let counter = Arc::new(PublicationWakeCount::default());
+    let waker = std::task::Waker::from(Arc::clone(&counter));
+    let mut waiter = Box::pin(last.wait(&outbox));
+    assert!(
+        waiter
+            .as_mut()
+            .poll(&mut std::task::Context::from_waker(&waker))
+            .is_pending()
+    );
+    let (entered, mut events) = tokio::sync::mpsc::unbounded_channel();
+    let (release, waiting) = std::sync::mpsc::channel();
+    let waiting = std::sync::Mutex::new(waiting);
+    let mut callbacks = Callbacks::new();
+    callbacks.register_pending(Box::new(move |_| {
+        entered.send(()).unwrap();
+        waiting
+            .lock()
+            .unwrap()
+            .recv_timeout(Duration::from_secs(5))
+            .unwrap();
+    }));
+    let (_, mut endpoints, _receiver) = fixture(callbacks);
+    first.activate(&outbox);
+    second.activate(&outbox);
+    // The first release cannot subtract its charge from this ledger. Other
+    // counters still release, and publication reaches the next callback.
+    outbox.state.lock().usage[1].bytes = 0;
+    let publishing = Arc::clone(&outbox);
+    let publisher = tokio::spawn(async move { publishing.publish_ready(&mut endpoints) });
+    tokio::time::timeout(Duration::from_secs(5), events.recv())
+        .await
+        .unwrap()
+        .unwrap();
+    let woke_before_callback_return = counter.0.load(Ordering::Acquire) > 0;
+    let failed_while_callback_waits = waiter
+        .as_mut()
+        .poll(&mut std::task::Context::from_waker(&waker));
+    let first_completed = Box::pin(first.wait(&outbox))
+        .as_mut()
+        .poll(&mut std::task::Context::from_waker(std::task::Waker::noop()));
+    // Always release and join before asserting the recorded ordering.
+    release.send(()).unwrap();
+    assert!(
+        tokio::time::timeout(Duration::from_secs(5), publisher)
+            .await
+            .unwrap()
+            .unwrap()
+            .unwrap()
+    );
+    assert!(woke_before_callback_return);
+    assert!(matches!(
+        failed_while_callback_waits,
+        std::task::Poll::Ready(Err(Error::Fault(_)))
+    ));
+    assert!(matches!(first_completed, std::task::Poll::Ready(Ok(()))));
+    assert!(second.published.load(Ordering::Acquire));
+    assert!(!last.published.load(Ordering::Acquire));
+}
+
+#[test]
+fn unappended_release_fault_wakes_committed_waiter_without_a_publisher() {
+    let (outbox, _, _receiver) = fixture(Callbacks::new());
+    let batch = append(&outbox, vec![effect(940)]);
+    let reservation = outbox.reserve(vec![effect(941)], Class::Trusted).unwrap();
+    let counter = Arc::new(PublicationWakeCount::default());
+    let waker = std::task::Waker::from(Arc::clone(&counter));
+    let mut waiter = Box::pin(batch.wait(&outbox));
+    assert!(
+        waiter
+            .as_mut()
+            .poll(&mut std::task::Context::from_waker(&waker))
+            .is_pending()
+    );
+    outbox.state.lock().usage[1].bytes = 0;
+    drop(reservation);
+    assert!(counter.0.load(Ordering::Acquire) > 0);
+    assert!(matches!(
+        waiter
+            .as_mut()
+            .poll(&mut std::task::Context::from_waker(&waker)),
+        std::task::Poll::Ready(Err(Error::Fault(_)))
+    ));
+    assert!(!batch.published.load(Ordering::Acquire));
+    assert_eq!(outbox.state.lock().queue.len(), 1);
 }

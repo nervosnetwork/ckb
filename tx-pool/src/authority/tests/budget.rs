@@ -52,7 +52,7 @@ fn remote_active_limits_leave_trusted_headroom_and_release_on_cancellation() {
     let trusted = store.budget.active(Source::Local).unwrap();
     assert!(matches!(
         store.budget.active(Source::Local),
-        Err(Error::Full(FullReason::Other("active work")))
+        Err(Error::Full(FullReason::Active))
     ));
     drop(first);
     let replacement = store.budget.active(remote(1, 1)).unwrap();
@@ -162,7 +162,7 @@ fn active_pipeline_reserves_execution_population_within_the_derived_budget() {
         let trusted = store.budget.active(Source::Local).unwrap();
         assert!(matches!(
             store.budget.active(Source::Local),
-            Err(Error::Full(FullReason::Other("active work")))
+            Err(Error::Full(FullReason::Active))
         ));
         drop(remote_jobs.pop());
         let replacement = store.budget.active(remote(5, 1)).unwrap();
@@ -227,7 +227,7 @@ fn four_peers_can_use_remote_slots_without_consuming_trusted_headroom() {
     let trusted = store.budget.active(Source::Local).unwrap();
     assert!(matches!(
         store.budget.active(Source::Local),
-        Err(Error::Full(FullReason::Other("active work")))
+        Err(Error::Full(FullReason::Active))
     ));
     drop((reservations, trusted));
     let first_peer = store.budget.active(remote(1, 1)).unwrap();

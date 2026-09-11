@@ -185,6 +185,7 @@ pub(super) struct Batch {
     class: Class,
     ready: AtomicBool,
     published: AtomicBool,
+    completed: Notify,
 }
 impl Batch {
     /// Open publication only after Store::apply has released its commit guards.
@@ -199,14 +200,21 @@ impl Batch {
     /// cancel the committed batch.
     pub(super) async fn wait(&self, outbox: &Outbox) -> Result<(), Error> {
         loop {
-            let changed = outbox.completed.notified();
+            // Each notification is created before checking its factual flag.
+            // notify_waiters is observed even if it precedes the first poll.
+            let completed = self.completed.notified();
+            let failed = outbox.failed.notified();
             if self.published.load(Ordering::Acquire) {
                 return Ok(());
             }
             if outbox.faulted.load(Ordering::Acquire) {
                 return Err(Error::Fault("notice publisher"));
             }
-            changed.await;
+            tokio::select! {
+                biased;
+                _ = completed => {},
+                _ = failed => {},
+            }
         }
     }
 }
@@ -223,7 +231,7 @@ pub(super) struct Outbox {
     batch_effects: [usize; 3],
     faulted: Arc<AtomicBool>,
     pub(super) changed: Notify,
-    pub(super) completed: Notify,
+    pub(super) failed: Notify,
     pub(super) room: Notify,
 }
 pub(super) struct Reservation {
@@ -311,7 +319,7 @@ impl Outbox {
             batch_effects: [effects, effects, all_effects],
             faulted,
             changed: Notify::new(),
-            completed: Notify::new(),
+            failed: Notify::new(),
             room: Notify::new(),
         }))
     }
@@ -347,6 +355,7 @@ impl Outbox {
             class,
             ready: AtomicBool::new(false),
             published: AtomicBool::new(false),
+            completed: Notify::new(),
         });
         let mut state = self.state.lock();
         if state.closed {
@@ -377,14 +386,17 @@ impl Outbox {
                 .map(|(_, reject, _)| reject.clone())
         })
     }
-    fn release(&self, batch: &Batch, state: &mut State) {
+    fn release(&self, batch: &Batch, state: &mut State) -> bool {
+        let mut failed = false;
         for usage in state.usage.iter_mut().skip(batch.class.index()) {
             if let Some(next) = usage.sub(batch.charge) {
                 *usage = next;
             } else {
                 self.faulted.store(true, Ordering::Release);
+                failed = true;
             }
         }
+        failed
     }
     pub(super) fn publish_metrics(&self) {
         let snapshot = {
@@ -434,18 +446,40 @@ impl Outbox {
                 .iter()
                 .filter_map(|effect| effect.callback.as_ref())
                 .any(|event| endpoints.callback_enabled(event));
-        // Keep no extra reference to an earlier batch while a later endpoint runs.
-        drop(head);
+        // One publisher owns removal, and readiness only opens. Transfer the
+        // selected head directly; groups still release each earlier batch
+        // before running a later endpoint.
+        let mut next = Some(head);
+        #[cfg(feature = "profiling")]
+        let _group_span = tracing::trace_span!(
+            target: "ckb_tx_pool_profile", "tx_pool.publisher.group"
+        )
+        .entered();
+        #[cfg(feature = "profiling")]
+        {
+            // Count the selected ready prefix without holding the FIFO lock.
+            // These creation-only markers have no entered-duration meaning.
+            let _prefix_span = match count {
+                1 => tracing::trace_span!(
+                    target: "ckb_tx_pool_profile", "tx_pool.publisher.ready_1"
+                ),
+                2..=4 => tracing::trace_span!(
+                    target: "ckb_tx_pool_profile", "tx_pool.publisher.ready_2_4"
+                ),
+                5..=8 => tracing::trace_span!(
+                    target: "ckb_tx_pool_profile", "tx_pool.publisher.ready_5_8"
+                ),
+                9..=16 => tracing::trace_span!(
+                    target: "ckb_tx_pool_profile", "tx_pool.publisher.ready_9_16"
+                ),
+                _ => tracing::trace_span!(
+                    target: "ckb_tx_pool_profile", "tx_pool.publisher.ready_17_32"
+                ),
+            };
+        }
         let mut publish = || {
-            for _ in 0..count {
-                let batch = self
-                    .state
-                    .lock()
-                    .queue
-                    .front()
-                    .filter(|batch| batch.ready.load(Ordering::Acquire))
-                    .cloned()
-                    .ok_or(Error::Fault("notice FIFO head"))?;
+            for remaining in (0..count).rev() {
+                let batch = next.take().ok_or(Error::Fault("notice FIFO head"))?;
                 // No await in a batch terminal: cancellation cannot replay a prefix.
                 for effect in &batch.effects {
                     endpoints.publish(effect);
@@ -469,16 +503,31 @@ impl Outbox {
                     }
                 }
                 let retired = state.queue.pop_front();
-                self.release(&batch, &mut state);
+                let failed = self.release(&batch, &mut state);
+                if remaining > 0 {
+                    next = state
+                        .queue
+                        .front()
+                        .filter(|batch| batch.ready.load(Ordering::Acquire))
+                        .cloned();
+                }
                 drop(state);
                 batch.published.store(true, Ordering::Release);
-                self.completed.notify_waiters();
+                batch.completed.notify_waiters();
+                if failed {
+                    self.failed.notify_waiters();
+                }
                 self.room.notify_waiters();
                 drop(retired);
             }
             Ok(true)
         };
         if offload {
+            #[cfg(feature = "profiling")]
+            let _offload_span = tracing::trace_span!(
+                target: "ckb_tx_pool_profile", "tx_pool.publisher.offload"
+            )
+            .entered();
             block_offload(publish)
         } else {
             publish()
@@ -496,7 +545,7 @@ impl Outbox {
                         crate::metrics::FailureBoundary::EffectPublisher,
                     );
                     self.outbox.faulted.store(true, Ordering::Release);
-                    self.outbox.completed.notify_waiters();
+                    self.outbox.failed.notify_waiters();
                     self.outbox.room.notify_waiters();
                 }
             }
@@ -542,8 +591,11 @@ impl Drop for Reservation {
     fn drop(&mut self) {
         if !self.appended {
             let mut state = self.outbox.state.lock();
-            self.outbox.release(&self.batch, &mut state);
+            let failed = self.outbox.release(&self.batch, &mut state);
             drop(state);
+            if failed {
+                self.outbox.failed.notify_waiters();
+            }
             self.outbox.room.notify_waiters();
             self.outbox.changed.notify_one();
         }

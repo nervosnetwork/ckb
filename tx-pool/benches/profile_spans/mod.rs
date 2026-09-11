@@ -7,10 +7,10 @@
 
 use std::{
     sync::{Arc, Mutex},
-    time::{Instant, SystemTime, UNIX_EPOCH},
+    time::Instant,
 };
 
-const NAMES: [&str; 11] = [
+const NAMES: [&str; 18] = [
     "tx_pool.authority.acquire",
     "tx_pool.authority.apply",
     "tx_pool.authority.capture",
@@ -20,6 +20,13 @@ const NAMES: [&str; 11] = [
     "tx_pool.ingress.remote_batch",
     "tx_pool.maintenance.wake",
     "tx_pool.membership.admission",
+    "tx_pool.publisher.group",
+    "tx_pool.publisher.offload",
+    "tx_pool.publisher.ready_1",
+    "tx_pool.publisher.ready_17_32",
+    "tx_pool.publisher.ready_2_4",
+    "tx_pool.publisher.ready_5_8",
+    "tx_pool.publisher.ready_9_16",
     "tx_pool.stage.resolve",
     "tx_pool.stage.verify",
 ];
@@ -53,7 +60,10 @@ struct State {
 struct Counters(Mutex<State>);
 
 impl Counters {
-    fn begin(&self) -> Result<(), String> {
+    fn begin(
+        &self,
+        map_to_unix: impl FnOnce(Instant) -> Result<u128, String>,
+    ) -> Result<(), String> {
         let mut state = self.0.lock().expect("profile counter lock poisoned");
         if state.started.is_some() {
             return Err("profile counter window is already active".into());
@@ -66,11 +76,12 @@ impl Counters {
             };
         }
         state.unknown = 0;
-        state.start_unix_nanos = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .map_err(|error| error.to_string())?
-            .as_nanos();
-        state.started = Some(Instant::now());
+        // The caller maps this Instant through the benchmark's bracketed
+        // anchor. A second wall-clock read would reintroduce an unbounded
+        // scheduling gap between the two capture clocks.
+        let started = Instant::now();
+        state.start_unix_nanos = map_to_unix(started)?;
+        state.started = Some(started);
         Ok(())
     }
 
@@ -212,8 +223,11 @@ impl ProfileSpanRecorder {
         }
     }
 
-    pub(crate) fn begin(&self) -> Result<(), String> {
-        self.counters.begin()
+    pub(crate) fn begin(
+        &self,
+        map_to_unix: impl FnOnce(Instant) -> Result<u128, String>,
+    ) -> Result<(), String> {
+        self.counters.begin(map_to_unix)
     }
 
     pub(crate) fn finish(&mut self, window: &serde_json::Value) -> Result<(), String> {
@@ -268,7 +282,7 @@ mod tests {
         let mut recorder = ProfileSpanRecorder::new(output);
         let subscriber = tracing_subscriber::registry().with(recorder.layer());
         tracing::subscriber::with_default(subscriber, || {
-            recorder.begin().unwrap();
+            recorder.begin(|_| Ok(1_000)).unwrap();
             {
                 let _span = tracing::info_span!("tx_pool.stage.resolve").entered();
             }
@@ -289,7 +303,15 @@ mod tests {
                 - window["start_unix_nanos"].as_u64().unwrap(),
             window["elapsed_nanos"].as_u64().unwrap()
         );
-        assert_eq!(value["spans"][9]["enter_count"], 1);
+        let spans = value["spans"].as_array().unwrap();
+        assert!(NAMES.windows(2).all(|pair| pair[0] < pair[1]));
+        assert_eq!(
+            spans
+                .iter()
+                .find(|span| span["name"] == "tx_pool.stage.resolve")
+                .unwrap()["enter_count"],
+            1
+        );
     }
 
     #[test]
@@ -307,7 +329,7 @@ mod tests {
     fn retained_children_and_repeated_entries_do_not_delay_cutoff() {
         let counters = Arc::new(Counters::default());
         tracing::subscriber::with_default(subscriber(&counters), || {
-            counters.begin().unwrap();
+            counters.begin(|_| Ok(1_000)).unwrap();
             let parent =
                 tracing::info_span!(target: "ckb_tx_pool_profile", "tx_pool.effects.publish");
             let child = {
@@ -349,7 +371,7 @@ mod tests {
                     });
                 }
                 barrier.wait();
-                counters.begin().unwrap();
+                counters.begin(|_| Ok(1_000)).unwrap();
                 let (snapshot, _) = counters.finish().unwrap();
                 assert_eq!(snapshot[5]["active_at_start"], 2);
                 assert_eq!(snapshot[5]["active_at_end"], 2);
@@ -358,7 +380,7 @@ mod tests {
                 barrier.wait();
             });
             assert_eq!(counters.0.lock().unwrap().spans[5].active, 0);
-            counters.begin().unwrap();
+            counters.begin(|_| Ok(1_000)).unwrap();
             let (snapshot, _) = counters.finish().unwrap();
             assert_eq!(snapshot[5]["active_at_start"], 0);
             assert_eq!(snapshot[5]["elapsed_nanos"], 0);

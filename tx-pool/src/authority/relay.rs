@@ -5,6 +5,7 @@
 //! a slow or absent relayer cannot retain an effect lease, compute capability,
 //! authority guard, or shutdown edge.
 
+use super::store::Store;
 use crate::service::TxVerificationResult;
 use ckb_types::packed::Byte32;
 use ckb_util::Mutex;
@@ -12,7 +13,7 @@ use std::{
     collections::{HashSet, VecDeque},
     mem::size_of,
     sync::{
-        Arc,
+        Arc, Weak,
         atomic::{AtomicBool, Ordering},
     },
 };
@@ -271,6 +272,23 @@ impl AuthorityRelayReceiver {
     pub(super) fn try_recv(&self) -> Option<TxVerificationResult> {
         self.inner.state.lock().pop_front()
     }
+    /// Reserve outside the mailbox lock, then move one bounded prefix while
+    /// holding it once. A concurrent reset may shorten or replace that prefix.
+    pub(super) fn drain(&self, limit: usize) -> Vec<TxVerificationResult> {
+        let count = self.inner.state.lock().queue.len().min(limit);
+        let mut drained = Vec::new();
+        if count == 0 || drained.try_reserve(count).is_err() {
+            return drained;
+        }
+        let mut state = self.inner.state.lock();
+        for _ in 0..count {
+            let Some(result) = state.pop_front() else {
+                break;
+            };
+            drained.push(result);
+        }
+        drained
+    }
 }
 
 #[cfg(test)]
@@ -291,6 +309,77 @@ impl Drop for AuthorityRelayReceiver {
         let mut state = self.inner.state.lock();
         state.queue.clear();
         state.bytes = 0;
+    }
+}
+
+/// A reset may discard an UnknownParents event. Rebuild the still-live waiting
+/// levels in bounded pages only when the mailbox has drained; no relay task or
+/// extra transaction ownership is required.
+pub(crate) struct RelayDrain {
+    receiver: AuthorityRelayReceiver,
+    store: Weak<Store>,
+    cursor: Mutex<Option<(u64, usize, Option<Byte32>)>>,
+}
+impl RelayDrain {
+    pub(super) fn new(receiver: AuthorityRelayReceiver, store: &Arc<Store>) -> Self {
+        Self {
+            receiver,
+            store: Arc::downgrade(store),
+            cursor: Mutex::new(None),
+        }
+    }
+    pub(crate) fn try_recv(&self) -> Option<TxVerificationResult> {
+        if let Some(result) = self.receiver.try_recv() {
+            if matches!(result, TxVerificationResult::GenerationReset) {
+                self.reset_cursor();
+            }
+            return Some(result);
+        }
+        let store = self.store.upgrade()?;
+        let mut cursor = self.cursor.lock();
+        for _ in 0..4 {
+            let current = cursor.as_mut()?;
+            let (result, complete) = store.next_missing(current, 64);
+            if complete {
+                *cursor = None;
+            }
+            if result.is_some() {
+                return result;
+            }
+        }
+        None
+    }
+    fn reset_cursor(&self) {
+        *self.cursor.lock() = self
+            .store
+            .upgrade()
+            .map(|store| (store.snapshot().0, 0, None));
+    }
+    pub(crate) fn drain(&self, limit: usize) -> Vec<TxVerificationResult> {
+        let mut drained = self.receiver.drain(limit);
+        // No reconstruction or external consumer runs within the raw prefix,
+        // so only its final reset determines the following rebuild cursor.
+        if drained
+            .iter()
+            .any(|result| matches!(result, TxVerificationResult::GenerationReset))
+        {
+            self.reset_cursor();
+        }
+        while drained.len() < limit {
+            // Reserve before consuming newly arrived data or a rebuild result.
+            // Failure leaves every unobserved result with its current owner.
+            if drained.try_reserve(1).is_err() {
+                break;
+            }
+            let Some(result) = self.try_recv() else {
+                break;
+            };
+            drained.push(result);
+        }
+        drained
+    }
+    pub(crate) async fn wait_for_drain(&self) {
+        self.receiver.wait_for_drain().await;
     }
 }
 

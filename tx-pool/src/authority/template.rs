@@ -8,8 +8,8 @@ use super::{
 };
 use crate::{
     block_assembler::{
-        BlockAssembler, CandidateUnclePrune, CandidateUncleSourceReceipt, CurrentTemplate,
-        TemplateSize,
+        BlockAssembler, BlockTemplate, CandidateUnclePrune, CandidateUncleSourceReceipt,
+        CurrentTemplate,
     },
     error::BlockAssemblerError,
     util::block_offload,
@@ -148,23 +148,44 @@ impl Driver {
             .prepare_uncles(&snapshot, &epoch)
             .map_err(|error| ckb_error::OtherError::new(format!("uncle preparation: {error:?}")))?
             .into_parts();
-        let base = BlockAssembler::build_base_template(
-            &self.assembler.config,
-            &self.assembler.work_id,
-            Arc::clone(&snapshot),
-            &epoch,
-            &self.assembler.cell_liveness_memo,
-        )?;
+        // Mandatory parts depend on this lifecycle view and the assembler's
+        // immutable config, even when selected owners have since changed.
+        // Clone only their compact payloads; do not retain the old template's
+        // transaction, proposal or uncle collections through this build.
+        let reused = {
+            let current = self.assembler.current.read();
+            current
+                .source
+                .as_ref()
+                .filter(|source| source.view == view)
+                .map(|_| {
+                    (
+                        current.template.cellbase.clone(),
+                        current.template.extension.clone(),
+                    )
+                })
+        };
+        let (cellbase, extension) = match reused {
+            Some(parts) => parts,
+            None => (
+                BlockAssembler::build_cellbase(&self.assembler.config, &snapshot)?,
+                BlockAssembler::build_extension(&snapshot)?,
+            ),
+        };
         let maximum = BlockAssembler::max_block_bytes(&snapshot)?;
-        let proposals = selection
-            .proposal_short_ids(snapshot.consensus().max_block_proposals_limit())
-            .map_err(Error::from)?;
+        let fixed_size = BlockAssembler::basic_block_size(
+            cellbase.data(),
+            &[],
+            std::iter::empty(),
+            extension.clone(),
+        );
+        if fixed_size > maximum {
+            return Err(BlockAssemblerError::Overflow.into());
+        }
+        let proposals =
+            selection.proposal_short_ids(snapshot.consensus().max_block_proposals_limit());
         let optional = BlockAssembler::fit_optional_content(
-            &snapshot,
-            proposals,
-            &prepared,
-            base.size.total,
-            maximum,
+            &snapshot, proposals, &prepared, fixed_size, maximum,
         )
         .ok_or(BlockAssemblerError::Overflow)?;
         let selected = selection
@@ -178,11 +199,10 @@ impl Driver {
         let (dao, transactions) = BlockAssembler::calc_dao(
             &snapshot,
             &epoch,
-            base.template.cellbase.clone(),
+            cellbase.clone(),
             selected,
             &self.assembler.cell_liveness_memo,
         )?;
-        let bytes = BlockAssembler::checked_entries_size(&transactions)?;
         let mut reads = ReadSet::default();
         for transaction in &transactions {
             let hash = transaction.transaction().hash();
@@ -194,21 +214,29 @@ impl Driver {
                 reads.owner(hash, Some(entry))?;
             }
         }
-        let size = TemplateSize {
-            total: optional
-                .total_size
-                .checked_add(bytes)
-                .ok_or(BlockAssemblerError::Overflow)?,
-        };
-        let mut template = base.template;
+        // Compute DAO only for the final selected contents. Work IDs and time
+        // belong to this publication attempt, not the reused mandatory parts.
+        let mut template = BlockTemplate::new(
+            &snapshot,
+            &epoch,
+            cellbase,
+            BlockAssembler::take_counter(&self.assembler.work_id, "work id")?,
+            dao,
+            unix_time_as_millis().max(
+                snapshot
+                    .tip_header()
+                    .timestamp()
+                    .checked_add(1)
+                    .ok_or(BlockAssemblerError::Overflow)?,
+            ),
+        )?;
+        template.extension = extension;
         template.transactions = transactions;
         template.proposals = optional.proposals;
         template.uncles = optional.uncles;
-        template.dao = dao;
         Ok((
             Arc::new(CurrentTemplate {
                 template,
-                size,
                 source: Some(TemplateSource { view, reads }),
             }),
             prune,

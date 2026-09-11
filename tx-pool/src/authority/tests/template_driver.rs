@@ -46,10 +46,16 @@ fn selected(driver: &Driver) -> Arc<CurrentTemplate> {
     Arc::clone(&driver.assembler.current.read())
 }
 
+fn template_bytes(current: &CurrentTemplate) -> usize {
+    // Exercise the public miner conversion, including all selected contents.
+    let block: ckb_types::packed::Block = JsonBlockTemplate::from(&current.template).into();
+    block.serialized_size_without_uncle_proposals()
+}
+
 #[test]
 fn mandatory_template_accepts_exact_byte_limit_and_rejects_one_byte_less() {
     let initial = BlockAssembler::new(template_config(), template_snapshot()).unwrap();
-    let required = initial.current.read().size.total;
+    let required = template_bytes(&initial.current.read());
     assert!(required > 0);
     let snapshot = |limit| {
         template_snapshot_with_consensus(
@@ -59,7 +65,7 @@ fn mandatory_template_accepts_exact_byte_limit_and_rejects_one_byte_less() {
     };
     let exact = BlockAssembler::new(template_config(), snapshot(required as u64)).unwrap();
     let current = exact.current.read();
-    assert_eq!(current.size.total, required);
+    assert_eq!(template_bytes(&current), required);
     assert_eq!(current.template.bytes_limit, required as u64);
     assert!(current.template.transactions.is_empty());
     assert!(current.template.proposals.is_empty());
@@ -118,6 +124,7 @@ fn template_build_reproposes_a_recovered_gap_then_packs_it_after_proposal() {
         output.template.transactions[0].transaction().hash(),
         gap.hash()
     );
+    assert!(template_bytes(&output) as u64 <= output.template.bytes_limit);
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -258,4 +265,76 @@ async fn template_refresh_wait_has_one_deadline_and_keeps_valid_cache_available(
     assert!(driver.read().await.unwrap().proposals.is_empty());
     driver.store.stop();
     assert!(matches!(driver.read().await, Err(Error::Closed)));
+}
+
+#[test]
+fn same_view_reuses_only_mandatory_payloads_and_consumes_a_fresh_work_id() {
+    use ckb_types::prelude::Entity;
+    let driver = fixture();
+    driver.rebuild().unwrap();
+    let old = selected(&driver);
+    let previous_references = Arc::strong_count(&old);
+    let point = old.template.cellbase.data().as_slice().as_ptr();
+    accept(&driver.store, tx(7190), 1, 1, Status::Pending);
+    let (prepared, _, _) = driver.prepare().unwrap();
+    assert_eq!(
+        prepared.source.as_ref().unwrap().view,
+        old.source.as_ref().unwrap().view
+    );
+    assert_eq!(prepared.template.cellbase.data().as_slice().as_ptr(), point);
+    assert_eq!(prepared.template.extension, old.template.extension);
+    assert_eq!(prepared.template.work_id, old.template.work_id + 1);
+    assert!(old.template.proposals.is_empty());
+    assert_eq!(prepared.template.proposals.len(), 1);
+    assert_eq!(Arc::strong_count(&old), previous_references);
+    driver.assembler.work_id.store(u64::MAX, Ordering::Release);
+    let error = driver
+        .prepare()
+        .err()
+        .expect("a reused basis must still check work-ID exhaustion");
+    assert!(matches!(
+        error.downcast_ref::<BlockAssemblerError>(),
+        Some(BlockAssemblerError::CounterExhausted("work id"))
+    ));
+}
+
+#[test]
+fn identical_tip_new_view_rebuilds_mandatory_parts_and_enforces_its_byte_limit() {
+    use ckb_types::prelude::Entity;
+    let driver = fixture();
+    driver.rebuild().unwrap();
+    let old = selected(&driver);
+    let point = old.template.cellbase.data().as_slice().as_ptr();
+    driver
+        .store
+        .apply(chain::clear(&driver.store, None, false).unwrap())
+        .unwrap();
+    let (prepared, _, _) = driver.prepare().unwrap();
+    assert_ne!(
+        prepared.source.as_ref().unwrap().view,
+        old.source.as_ref().unwrap().view
+    );
+    assert_eq!(prepared.template.parent_hash, old.template.parent_hash);
+    assert_ne!(prepared.template.cellbase.data().as_slice().as_ptr(), point);
+    assert_eq!(prepared.template.cellbase, old.template.cellbase);
+    let too_small = template_snapshot_with_consensus(
+        None,
+        Arc::new(
+            ConsensusBuilder::default()
+                .max_block_bytes((template_bytes(&old) - 1) as u64)
+                .build(),
+        ),
+    );
+    driver
+        .store
+        .apply(chain::clear(&driver.store, Some(too_small), false).unwrap())
+        .unwrap();
+    let error = driver
+        .prepare()
+        .err()
+        .expect("the new view cannot reuse the old byte limit");
+    assert!(matches!(
+        error.downcast_ref::<BlockAssemblerError>(),
+        Some(BlockAssemblerError::Overflow)
+    ));
 }

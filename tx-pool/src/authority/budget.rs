@@ -2,8 +2,8 @@
 //!
 //! Usage is live owner charge plus outstanding positive reservations. The
 //! exact old-owner check in Store::apply prevents double borrowing victims.
-//! Owner reservations exist only inside the validated owner cut; active work
-//! reservations belong to independent accounts and the running computation.
+//! Owner reservations exist only inside the validated owner cut. Active work
+//! owns a fixed envelope through a separate count and the running computation.
 use super::model::{Entry, Error, FullReason, Phase, Source};
 use super::residency::{accepted_transaction_charge_bytes, resolved_transaction_charge_bytes};
 use crate::constants::ResidencyLimits;
@@ -102,9 +102,6 @@ enum Account {
     Remote,
     Peer(PeerIndex),
     History,
-    Active,
-    ActiveRemote,
-    ActivePeer(PeerIndex),
 }
 
 /// Limits are derived once from existing configuration and canonical consensus.
@@ -115,9 +112,9 @@ pub(super) struct Limits {
     remote: Amount,
     peer: Amount,
     history: Amount,
-    active: Amount,
-    active_remote: Amount,
-    active_peer: Amount,
+    active_jobs: usize,
+    remote_active_jobs: usize,
+    peer_active_jobs: usize,
     pub(super) per_job: Amount,
     pub(super) workers: usize,
     pub(super) max_block_bytes: usize,
@@ -184,18 +181,6 @@ impl Limits {
         let remote = pipeline.fraction(7, 8).ok_or_else(bad)?;
         let peer = remote.fraction(1, 8).ok_or_else(bad)?.nonzero();
         let peer_items = remote_items.div_ceil(4);
-        let active_remote = Amount {
-            items: remote_items,
-            bytes: job_bytes.checked_mul(remote_items).ok_or_else(bad)?,
-            edges: job_edges.checked_mul(remote_items).ok_or_else(bad)?,
-            ..Amount::default()
-        };
-        let active_peer = Amount {
-            items: peer_items,
-            bytes: job_bytes.checked_mul(peer_items).ok_or_else(bad)?,
-            edges: job_edges.checked_mul(peer_items).ok_or_else(bad)?,
-            ..Amount::default()
-        };
         let history = Amount {
             items: (pipeline.items / 16).clamp(1, 10_000),
             bytes: (pipeline.bytes / 16).clamp(1, 50_000_000),
@@ -216,9 +201,9 @@ impl Limits {
             remote,
             peer,
             history,
-            active,
-            active_remote,
-            active_peer,
+            active_jobs: active_items,
+            remote_active_jobs: remote_items,
+            peer_active_jobs: peer_items,
             per_job: Amount {
                 items: 1,
                 bytes: job_bytes,
@@ -237,9 +222,6 @@ impl Limits {
             Account::Remote => self.remote,
             Account::Peer(_) => self.peer,
             Account::History => self.history,
-            Account::Active => self.active,
-            Account::ActiveRemote => self.active_remote,
-            Account::ActivePeer(_) => self.active_peer,
         }
     }
     pub(super) fn resolved_fits(&self, entry: &Entry) -> Result<(), Error> {
@@ -414,9 +396,78 @@ impl OwnerDelta {
     }
 }
 
+// Every active permit reserves the same immutable per_job envelope. Counts
+// therefore bound items, bytes and edges together; owner quotas are disjoint.
+#[derive(Default)]
+struct Active {
+    total: usize,
+    remote: usize,
+    peers: BTreeMap<PeerIndex, usize>,
+}
+impl Active {
+    fn reserve(&mut self, peer: Option<PeerIndex>, limits: &Limits) -> Result<(), Error> {
+        let total = self
+            .total
+            .checked_add(1)
+            .filter(|total| *total <= limits.active_jobs)
+            .ok_or(Error::Full(FullReason::Active))?;
+        if let Some(peer) = peer {
+            let remote = self
+                .remote
+                .checked_add(1)
+                .filter(|remote| *remote <= limits.remote_active_jobs)
+                .ok_or(Error::Full(FullReason::Other("remote active work")))?;
+            let count = self
+                .peers
+                .get(&peer)
+                .copied()
+                .unwrap_or(0)
+                .checked_add(1)
+                .filter(|count| *count <= limits.peer_active_jobs)
+                .ok_or(Error::Full(FullReason::Other("peer active work")))?;
+            // All expected refusals precede the first counter change.
+            self.peers.insert(peer, count);
+            self.remote = remote;
+        }
+        self.total = total;
+        Ok(())
+    }
+    fn release(&mut self, peer: Option<PeerIndex>) -> Option<()> {
+        let total = self.total.checked_sub(1)?;
+        if let Some(peer) = peer {
+            let remote = self.remote.checked_sub(1)?;
+            let count = self.peers.get(&peer)?.checked_sub(1)?;
+            if count == 0 {
+                self.peers.remove(&peer);
+            } else {
+                self.peers.insert(peer, count);
+            }
+            self.remote = remote;
+        }
+        self.total = total;
+        Some(())
+    }
+}
+
+/// One non-Clone activity envelope, held through computation and settlement.
+/// Its original peer identity stays fixed even if the owner is superseded.
+pub(super) struct ActivePermit {
+    budget: Arc<Budget>,
+    peer: Option<PeerIndex>,
+}
+impl Drop for ActivePermit {
+    fn drop(&mut self) {
+        if self.budget.active.lock().release(self.peer).is_none() {
+            self.budget.faulted.store(true, Ordering::Release);
+        }
+        self.budget.changed.notify_waiters();
+    }
+}
+
 pub(super) struct Budget {
     pub(super) limits: Limits,
     usage: Mutex<BTreeMap<Account, Amount>>,
+    active: Mutex<Active>,
     faulted: AtomicBool,
     pub(super) changed: Notify,
 }
@@ -432,6 +483,7 @@ impl Budget {
         Arc::new(Self {
             limits,
             usage: Mutex::new(BTreeMap::new()),
+            active: Mutex::new(Active::default()),
             faulted: AtomicBool::new(false),
             changed: Notify::new(),
         })
@@ -440,7 +492,7 @@ impl Budget {
         self.faulted.load(Ordering::Acquire)
     }
     pub(super) fn publish_metrics(&self) {
-        let snapshot = {
+        let mut snapshot = {
             let usage = self.usage.lock();
             let get = |account| usage.get(&account).copied().unwrap_or_default();
             let pipeline = get(Account::Pipeline);
@@ -453,9 +505,10 @@ impl Budget {
                 remote_bytes: remote.bytes,
                 conflict_entries: history.items,
                 conflict_bytes: history.bytes,
-                active_work: get(Account::Active).items,
+                active_work: 0,
             }
         };
+        snapshot.active_work = self.active.lock().total;
         snapshot.publish();
     }
     pub(super) fn accepted_usage(&self) -> Amount {
@@ -465,14 +518,16 @@ impl Budget {
             .copied()
             .unwrap_or_default()
     }
-    pub(super) fn active(self: &Arc<Self>, source: Source) -> Result<Reservation, Error> {
-        let mut positive = Vec::with_capacity(3);
-        positive.push((Account::Active, self.limits.per_job));
-        if let Some(peer) = source.compute_peer() {
-            positive.push((Account::ActiveRemote, self.limits.per_job));
-            positive.push((Account::ActivePeer(peer), self.limits.per_job));
+    pub(super) fn active(self: &Arc<Self>, source: Source) -> Result<ActivePermit, Error> {
+        if self.faulted() {
+            return Err(Error::Fault("quota counter"));
         }
-        self.reserve_changes(positive, Vec::new())
+        let peer = source.compute_peer();
+        self.active.lock().reserve(peer, &self.limits)?;
+        Ok(ActivePermit {
+            budget: Arc::clone(self),
+            peer,
+        })
     }
     fn reserve_changes(
         self: &Arc<Self>,
@@ -496,9 +551,6 @@ impl Budget {
                     Account::Remote => FullReason::Other("remote pipeline"),
                     Account::Peer(_) => FullReason::Other("peer pipeline"),
                     Account::History => FullReason::History,
-                    Account::Active => FullReason::Other("active work"),
-                    Account::ActiveRemote => FullReason::Other("remote active work"),
-                    Account::ActivePeer(_) => FullReason::Other("peer active work"),
                 }));
             }
         }

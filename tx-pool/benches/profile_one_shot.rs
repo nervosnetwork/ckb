@@ -1,5 +1,8 @@
 //! One-shot, fixed-workload tx-pool profiling harness.
 
+mod allocation_observation;
+use allocation_observation::{begin_allocation_window, end_allocation_window};
+
 #[cfg(all(feature = "tokio-trace", not(tokio_unstable)))]
 compile_error!("the `tokio-trace` benchmark requires RUSTFLAGS=\"--cfg tokio_unstable\"");
 
@@ -36,8 +39,6 @@ use ckb_types::{
     utilities::difficulty_to_compact,
 };
 use ckb_verification::cache::init_cache;
-#[cfg(feature = "allocation-observation")]
-use std::alloc::{GlobalAlloc, Layout, System};
 #[cfg(feature = "cross-version-legacy-bench-adapter")]
 use std::io::Write;
 #[cfg(unix)]
@@ -49,7 +50,7 @@ use std::{
         Arc, Mutex, OnceLock,
         atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering},
     },
-    time::{Duration, Instant, SystemTime, UNIX_EPOCH},
+    time::{Duration, Instant},
 };
 use tempfile::TempDir;
 #[cfg(feature = "cross-version-legacy-bench-adapter")]
@@ -59,6 +60,7 @@ use tokio::sync::{Notify, RwLock};
 const MAX_TX_VERIFY_CYCLES: u64 = 70_000_000;
 const ISSUE_CAPACITY_BYTES: usize = 500_000;
 const FANOUT_OUTPUT_CAPACITY_BYTES: usize = 100;
+const FANOUT_COHORT_SIZE: usize = fanout_readiness::CHILDREN + 1;
 const COMPLETION_COUNTER_SHARDS: usize = 64;
 const SECP_PRIVKEY: H256 =
     h256!("0xb2b3324cece882bca684eaf202667bb56ed8e8c2fd4b4dc71f615ebd6d9055a5");
@@ -80,69 +82,6 @@ fn require(condition: bool, message: impl ToString) -> BenchResult<()> {
 
 fn lock<T>(mutex: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
     mutex.lock().expect("benchmark observer lock poisoned")
-}
-
-#[cfg(feature = "allocation-observation")]
-struct CountingAllocator;
-
-#[cfg(feature = "allocation-observation")]
-#[global_allocator]
-static ALLOCATOR: CountingAllocator = CountingAllocator;
-#[cfg(feature = "allocation-observation")]
-static ALLOCATION_WINDOW_ACTIVE: AtomicBool = AtomicBool::new(false);
-#[cfg(feature = "allocation-observation")]
-static ALLOCATION_CALLS: AtomicU64 = AtomicU64::new(0);
-#[cfg(feature = "allocation-observation")]
-static ALLOCATION_BYTES: AtomicU64 = AtomicU64::new(0);
-
-#[cfg(feature = "allocation-observation")]
-unsafe impl GlobalAlloc for CountingAllocator {
-    unsafe fn alloc(&self, layout: Layout) -> *mut u8 {
-        if ALLOCATION_WINDOW_ACTIVE.load(Ordering::Acquire) {
-            ALLOCATION_CALLS.fetch_add(1, Ordering::AcqRel);
-            ALLOCATION_BYTES.fetch_add(layout.size() as u64, Ordering::AcqRel);
-        }
-        // SAFETY: this allocator delegates every operation to the system allocator.
-        unsafe { System.alloc(layout) }
-    }
-
-    unsafe fn dealloc(&self, pointer: *mut u8, layout: Layout) {
-        // SAFETY: `pointer` and `layout` are forwarded unchanged to their owner.
-        unsafe { System.dealloc(pointer, layout) }
-    }
-
-    unsafe fn realloc(&self, pointer: *mut u8, layout: Layout, size: usize) -> *mut u8 {
-        if ALLOCATION_WINDOW_ACTIVE.load(Ordering::Acquire) {
-            ALLOCATION_CALLS.fetch_add(1, Ordering::AcqRel);
-            ALLOCATION_BYTES.fetch_add(size as u64, Ordering::AcqRel);
-        }
-        // SAFETY: the complete reallocation request is delegated unchanged.
-        unsafe { System.realloc(pointer, layout, size) }
-    }
-}
-
-#[cfg(feature = "allocation-observation")]
-fn begin_allocation_window() {
-    ALLOCATION_CALLS.store(0, Ordering::Release);
-    ALLOCATION_BYTES.store(0, Ordering::Release);
-    ALLOCATION_WINDOW_ACTIVE.store(true, Ordering::Release);
-}
-
-#[cfg(not(feature = "allocation-observation"))]
-fn begin_allocation_window() {}
-
-#[cfg(feature = "allocation-observation")]
-fn end_allocation_window() -> (u64, u64) {
-    ALLOCATION_WINDOW_ACTIVE.store(false, Ordering::Release);
-    (
-        ALLOCATION_CALLS.load(Ordering::Acquire),
-        ALLOCATION_BYTES.load(Ordering::Acquire),
-    )
-}
-
-#[cfg(not(feature = "allocation-observation"))]
-fn end_allocation_window() -> (u64, u64) {
-    (0, 0)
 }
 
 fn hex_bytes(bytes: &[u8]) -> String {
@@ -731,11 +670,48 @@ impl RelayCompletion {
         Ok(())
     }
 
+    fn validate_stress(
+        &self,
+        completion: &Completion,
+        expected: &RelayOkSet,
+        allowed: &HashMap<PeerIndex, HashSet<Byte32>>,
+    ) -> BenchResult<()> {
+        let accepted = expected
+            .iter()
+            .filter(|(hash, _)| {
+                completion.indexes.get(hash).is_some_and(|&index| {
+                    completion.timestamps_ns[index].load(Ordering::Acquire) != 0
+                })
+            })
+            .cloned()
+            .collect::<RelayOkSet>();
+        let rejects = lock(&self.rejects).clone();
+        if self.generation_resets.load(Ordering::Acquire) == 0 {
+            return self.validate(&accepted, &rejects, Some(allowed));
+        }
+        // Reset does not replay historical Ok results. Check every retained
+        // observation's ownership; the stress report explicitly marks history
+        // as incomplete and never emits a throughput result.
+        require(
+            lock(&self.ok).is_subset(&accepted),
+            "stress relay Ok has wrong hash or original peer",
+        )?;
+        require(
+            lock(&self.unknown_parents).keys().all(|(peer, parents)| {
+                !parents.is_empty()
+                    && parents
+                        .iter()
+                        .all(|parent| allowed.get(peer).is_some_and(|set| set.contains(parent)))
+            }),
+            "stress relay requested an unexpected parent",
+        )
+    }
+
     fn validate(
         &self,
         expected_ok: &RelayOkSet,
         expected_rejects: &RelayRejectSet,
-        allowed_unknown_parents: Option<&HashSet<Byte32>>,
+        allowed_unknown_parents: Option<&HashMap<PeerIndex, HashSet<Byte32>>>,
     ) -> BenchResult<()> {
         let ok = lock(&self.ok);
         require(
@@ -760,10 +736,12 @@ impl RelayCompletion {
         let unknown_parent_observations = lock(&self.unknown_parents);
         let unknown_parents: usize = unknown_parent_observations.values().sum();
         let invalid_unknown_parent = match allowed_unknown_parents {
-            Some(allowed) => unknown_parent_observations
-                .keys()
-                .flat_map(|(_, parents)| parents)
-                .any(|parent| !allowed.contains(parent)),
+            Some(allowed) => unknown_parent_observations.keys().any(|(peer, parents)| {
+                parents.is_empty()
+                    || parents
+                        .iter()
+                        .any(|parent| !allowed.get(peer).is_some_and(|set| set.contains(parent)))
+            }),
             None => !unknown_parent_observations.is_empty(),
         };
         let generation_resets = self.generation_resets.load(Ordering::Acquire);
@@ -777,6 +755,110 @@ impl RelayCompletion {
             ),
         )
     }
+}
+
+/// Emit the actual partial terminal state on every early return, including
+/// submission and callback timeouts which otherwise suppress relay diagnostics.
+struct TerminalDiagnosticsGuard {
+    completion: Arc<Completion>,
+    relay: Arc<RelayCompletion>,
+    armed: bool,
+}
+
+fn terminal_diagnostics(completion: &Completion, relay: &RelayCompletion) -> serde_json::Value {
+    let rejects = lock(&relay.rejects);
+    let accepted = completion
+        .indexes
+        .iter()
+        .filter_map(|(hash, &index)| {
+            (completion.timestamps_ns[index].load(Ordering::Acquire) != 0).then_some(hash.clone())
+        })
+        .collect::<HashSet<_>>();
+    let mut unresolved = completion
+        .indexes
+        .keys()
+        .filter(|hash| !accepted.contains(*hash) && !rejects.contains(*hash))
+        .map(|hash| hex_bytes(hash.as_slice()))
+        .collect::<Vec<_>>();
+    unresolved.sort_unstable();
+    let mut rejected_hashes = rejects
+        .iter()
+        .map(|hash| hex_bytes(hash.as_slice()))
+        .collect::<Vec<_>>();
+    rejected_hashes.sort_unstable();
+    let overlapping = accepted.intersection(&rejects).count();
+    let unexpected_rejects = rejects
+        .iter()
+        .filter(|hash| !completion.indexes.contains_key(*hash))
+        .count();
+    let rejected = rejects.len();
+    drop(rejects);
+    let observation = relay.observation();
+    let mut accepted_hashes = accepted
+        .iter()
+        .map(|hash| hex_bytes(hash.as_slice()))
+        .collect::<Vec<_>>();
+    accepted_hashes.sort_unstable();
+    let mut relay_ok = lock(&relay.ok)
+        .iter()
+        .map(|(hash, peer)| (hex_bytes(hash.as_slice()), peer.map(|peer| peer.value())))
+        .collect::<Vec<_>>();
+    relay_ok.sort_unstable();
+    serde_json::json!({
+        "planned": completion.indexes.len(), "accepted": accepted.len(),
+        "unresolved_scope": "planned corpus without a terminal; may include transactions not submitted",
+        "accepted_hashes": accepted_hashes, "relay_ok_observations": relay_ok,
+        "rejected": rejected, "rejected_hashes": rejected_hashes,
+        "unresolved": unresolved.len(), "unresolved_hashes": unresolved,
+        "accepted_rejected_overlap": overlapping, "unexpected_rejects": unexpected_rejects,
+        "callback_duplicates": completion.duplicate_callbacks.load(Ordering::Acquire),
+        "unexpected_callbacks": completion.unexpected_callbacks.load(Ordering::Acquire),
+        "relay_ok": observation.ok, "relay_duplicate_ok": observation.duplicate_ok,
+        "relay_duplicate_reject": relay.duplicate_reject.load(Ordering::Acquire),
+        "relay_generation_resets": observation.generation_resets,
+        "relay_unknown_parent_observations": observation.unknown_parent_observations,
+    })
+}
+
+impl Drop for TerminalDiagnosticsGuard {
+    fn drop(&mut self) {
+        if self.armed {
+            eprintln!(
+                "BENCH_FAILURE_TERMINALS {}",
+                terminal_diagnostics(&self.completion, &self.relay)
+            );
+        }
+    }
+}
+
+async fn wait_for_stress_settlement(
+    completion: &Completion,
+    relay: &RelayCompletion,
+    deadline: tokio::time::Instant,
+) -> bool {
+    tokio::time::timeout_at(deadline, async {
+        loop {
+            let callback_changed = completion.changed.notified();
+            let relay_changed = relay.changed.notified();
+            let settled = {
+                let rejects = lock(&relay.rejects);
+                completion.indexes.iter().all(|(hash, &index)| {
+                    completion.timestamps_ns[index].load(Ordering::Acquire) != 0
+                        || rejects.contains(hash)
+                })
+            };
+            let (ok, _) = relay.terminal_counts();
+            if settled
+                && (ok >= completion.accepted_count()
+                    || relay.generation_resets.load(Ordering::Acquire) != 0)
+            {
+                break;
+            }
+            tokio::select! { _ = callback_changed => {}, _ = relay_changed => {} }
+        }
+    })
+    .await
+    .is_ok()
 }
 
 #[cfg(feature = "cross-version-legacy-bench-adapter")]
@@ -806,6 +888,10 @@ impl RelayDrainGuard {
         let completion = Arc::new(RelayCompletion::default());
         let thread_stop = Arc::clone(&stop);
         let thread_completion = Arc::clone(&completion);
+        #[cfg(not(feature = "cross-version-legacy-bench-adapter"))]
+        let timer = tokio::runtime::Builder::new_current_thread()
+            .enable_time()
+            .build()?;
         let handle = std::thread::Builder::new()
             .name("txpool-bench-relay-drain".to_owned())
             .spawn(move || {
@@ -819,7 +905,22 @@ impl RelayDrainGuard {
                         break;
                     }
                     if !drained {
-                        std::thread::sleep(Duration::from_millis(1));
+                        #[cfg(not(feature = "cross-version-legacy-bench-adapter"))]
+                        timer.block_on(async {
+                            // A sparse ordinary outcome has no producer wake; keep
+                            // a bounded fallback, also bounding stop/join latency.
+                            let _ = tokio::time::timeout(
+                                Duration::from_millis(1),
+                                receiver.wait_for_drain(),
+                            )
+                            .await;
+                        });
+                        #[cfg(feature = "cross-version-legacy-bench-adapter")]
+                        match receiver.recv_timeout(Duration::from_millis(1)) {
+                            Ok(result) => thread_completion.record(result),
+                            Err(ckb_channel::RecvTimeoutError::Timeout) => {}
+                            Err(ckb_channel::RecvTimeoutError::Disconnected) => break,
+                        }
                     }
                 }
             })?;
@@ -1291,6 +1392,33 @@ fn build_workload(
             }
             Ok((consensus, transactions))
         }
+        "fanout_ready_64_reverse" => {
+            require(
+                transaction_count != 0 && transaction_count.is_multiple_of(FANOUT_COHORT_SIZE),
+                "fanout cohorts require a positive multiple of 65 transactions",
+            )?;
+            let cohort_count = transaction_count / FANOUT_COHORT_SIZE;
+            let (consensus, issue_tx) =
+                test_consensus_with_capacity(cohort_count, Capacity::bytes(ISSUE_CAPACITY_BYTES)?);
+            let mut transactions = Vec::with_capacity(transaction_count);
+            for cohort in 0..cohort_count {
+                let parent = build_fanout_parent(
+                    OutPoint::new(issue_tx.hash(), u32::try_from(cohort)?),
+                    FANOUT_COHORT_SIZE - 1,
+                );
+                require(
+                    parent.data().serialized_size_in_block() as u64 <= TRANSACTION_SIZE_LIMIT,
+                    "fanout cohort parent exceeds transaction size limit",
+                )?;
+                transactions.extend(
+                    (0..FANOUT_COHORT_SIZE - 1)
+                        .rev()
+                        .map(|index| build_tx(OutPoint::new(parent.hash(), index as u32))),
+                );
+                transactions.push(parent);
+            }
+            Ok((consensus, transactions))
+        }
         "fanout" | "fanout_reverse" => {
             require(
                 transaction_count >= 2,
@@ -1349,17 +1477,18 @@ fn peer_ranges(len: usize, peers: usize) -> Vec<(usize, usize)> {
         .collect()
 }
 
+mod fanout_readiness;
+mod measurement_clock;
 #[cfg(not(feature = "cross-version-legacy-bench-adapter"))]
 mod relay_batches;
+mod resource_phases;
 
 #[cfg(not(feature = "cross-version-legacy-bench-adapter"))]
-async fn submit_batch(
+async fn submit_requests(
     controller: &TxPoolController,
-    completion: &Completion,
     transactions: Arc<Vec<TransactionView>>,
     cycles: Arc<Vec<u64>>,
     peers: usize,
-    expected_total: usize,
 ) -> BenchResult<()> {
     let ranges = peer_ranges(transactions.len(), peers);
     let mut responses = Vec::with_capacity(ranges.len());
@@ -1395,27 +1524,27 @@ async fn submit_batch(
     for response in futures_util::future::join_all(responses).await {
         response?;
     }
-    completion.wait_for(expected_total).await
+    Ok(())
 }
 
 #[cfg(feature = "cross-version-legacy-bench-adapter")]
-async fn submit_batch(
+async fn submit_requests(
     controller: &TxPoolController,
-    completion: &Completion,
     transactions: Arc<Vec<TransactionView>>,
     cycles: Arc<Vec<u64>>,
     peers: usize,
-    expected_total: usize,
 ) -> BenchResult<()> {
     let ranges = peer_ranges(transactions.len(), peers);
     let barrier = Arc::new(Barrier::new(ranges.len() + 1));
-    let mut submissions = Vec::with_capacity(ranges.len());
+    // Dropping the set on a failed response or deadline aborts all remaining
+    // peer submissions. Detached JoinHandles would keep submitting afterwards.
+    let mut submissions = tokio::task::JoinSet::new();
     for (peer, (start, end)) in ranges.into_iter().enumerate() {
         let controller = controller.clone();
         let transactions = Arc::clone(&transactions);
         let cycles = Arc::clone(&cycles);
         let barrier = Arc::clone(&barrier);
-        submissions.push(tokio::spawn(async move {
+        submissions.spawn(async move {
             barrier.wait().await;
             for index in start..end {
                 controller
@@ -1428,12 +1557,40 @@ async fn submit_batch(
                     .map_err(|error| std::io::Error::other(error.to_string()))?;
             }
             Ok::<(), std::io::Error>(())
-        }));
+        });
     }
     barrier.wait().await;
-    for submission in submissions {
-        submission.await??;
+    while let Some(submission) = submissions.join_next().await {
+        submission??;
     }
+    Ok(())
+}
+
+async fn submit_only(
+    controller: &TxPoolController,
+    transactions: Arc<Vec<TransactionView>>,
+    cycles: Arc<Vec<u64>>,
+    peers: usize,
+) -> BenchResult<()> {
+    // Leave time for terminal diagnostics and cleanup before the external
+    // process deadline. Admission replies cannot bypass every internal timer.
+    tokio::time::timeout(
+        Duration::from_secs(90),
+        submit_requests(controller, transactions, cycles, peers),
+    )
+    .await
+    .map_err(|_| bench_error("remote submission exceeded 90 seconds"))?
+}
+
+async fn submit_batch(
+    controller: &TxPoolController,
+    completion: &Completion,
+    transactions: Arc<Vec<TransactionView>>,
+    cycles: Arc<Vec<u64>>,
+    peers: usize,
+    expected_total: usize,
+) -> BenchResult<()> {
+    submit_only(controller, transactions, cycles, peers).await?;
     completion.wait_for(expected_total).await
 }
 
@@ -1477,6 +1634,7 @@ enum SubmissionOrder {
     Concurrent,
     Forest(usize),
     ParentFirst,
+    ReverseFanoutCohorts,
 }
 
 async fn submit_workload(
@@ -1487,8 +1645,47 @@ async fn submit_workload(
     order: SubmissionOrder,
     peers: usize,
     accepted_before: usize,
-) -> BenchResult<()> {
-    if let SubmissionOrder::Forest(depth) = order {
+) -> BenchResult<fanout_readiness::Readiness> {
+    let mut readiness = fanout_readiness::Readiness::default();
+    if matches!(order, SubmissionOrder::ReverseFanoutCohorts) {
+        require(
+            transactions.len().is_multiple_of(FANOUT_COHORT_SIZE),
+            "incomplete fanout cohort",
+        )?;
+        for (cohort, (transactions, cycles)) in transactions
+            .chunks_exact(FANOUT_COHORT_SIZE)
+            .zip(cycles.chunks_exact(FANOUT_COHORT_SIZE))
+            .enumerate()
+        {
+            let query = || {
+                controller
+                    .get_tx_pool_info()
+                    .map(|info| info.orphan_size)
+                    .map_err(|error| error.to_string())
+            };
+            readiness.wait(0, query).await.map_err(bench_error)?;
+            let parent = FANOUT_COHORT_SIZE - 1;
+            submit_only(
+                controller,
+                Arc::new(transactions[..parent].to_vec()),
+                Arc::new(cycles[..parent].to_vec()),
+                peers,
+            )
+            .await?;
+            // Only these 64 unique children have been submitted since the
+            // observed empty orphan pool. Thus size=64 proves all are stored.
+            readiness.wait(parent, query).await.map_err(bench_error)?;
+            submit_batch(
+                controller,
+                completion,
+                Arc::new(transactions[parent..].to_vec()),
+                Arc::new(cycles[parent..].to_vec()),
+                peers,
+                accepted_before + (cohort + 1) * FANOUT_COHORT_SIZE,
+            )
+            .await?;
+        }
+    } else if let SubmissionOrder::Forest(depth) = order {
         submit_dependency_forest(
             controller,
             completion,
@@ -1498,7 +1695,7 @@ async fn submit_workload(
             peers,
             accepted_before,
         )
-        .await
+        .await?;
     } else if matches!(order, SubmissionOrder::ParentFirst) && !transactions.is_empty() {
         // A forward fanout promises no missing-parent notices. Its ordering in
         // the vector does not order verification across remote batches/workers.
@@ -1520,7 +1717,7 @@ async fn submit_workload(
             peers,
             accepted_before + transactions.len(),
         )
-        .await
+        .await?;
     } else {
         let expected = accepted_before + transactions.len();
         submit_batch(
@@ -1531,8 +1728,9 @@ async fn submit_workload(
             peers,
             expected,
         )
-        .await
+        .await?;
     }
+    Ok(readiness)
 }
 
 fn extend_expected_relay_batch(
@@ -1557,7 +1755,17 @@ fn expected_relay_batch(
     peers: usize,
 ) -> RelayOkSet {
     let mut expected = HashSet::with_capacity(transactions.len());
-    if let SubmissionOrder::Forest(depth) = order {
+    if matches!(order, SubmissionOrder::ReverseFanoutCohorts) {
+        for cohort in transactions.chunks_exact(FANOUT_COHORT_SIZE) {
+            let parent = FANOUT_COHORT_SIZE - 1;
+            extend_expected_relay_batch(
+                &mut expected,
+                &cohort[..parent].iter().collect::<Vec<_>>(),
+                peers,
+            );
+            extend_expected_relay_batch(&mut expected, &[&cohort[parent]], peers);
+        }
+    } else if let SubmissionOrder::Forest(depth) = order {
         let chain_count = transactions.len() / depth;
         for level in 0..depth {
             let layer = (0..chain_count)
@@ -1576,7 +1784,37 @@ fn expected_relay_batch(
     expected
 }
 
+/// The reverse fixture may only request actual in-corpus input parents from
+/// the peer that supplied that child. Notification multiplicity is not fixed.
+fn expected_unknown_parents(
+    transactions: &[TransactionView],
+    expected: &RelayOkSet,
+    corpus_hashes: &HashSet<Byte32>,
+) -> HashMap<PeerIndex, HashSet<Byte32>> {
+    let peers = expected
+        .iter()
+        .filter_map(|(hash, peer)| peer.map(|peer| (hash, peer)))
+        .collect::<HashMap<_, _>>();
+    let mut allowed = HashMap::<PeerIndex, HashSet<Byte32>>::new();
+    for transaction in transactions {
+        if let Some(peer) = peers.get(&transaction.hash()) {
+            for input in transaction.input_pts_iter() {
+                let parent = input.tx_hash();
+                if corpus_hashes.contains(&parent) {
+                    allowed.entry(*peer).or_default().insert(parent);
+                }
+            }
+        }
+    }
+    allowed
+}
+
 fn main() -> BenchResult<()> {
+    let mut resource_phases =
+        resource_phases::ResourcePhases::from_environment().map_err(bench_error)?;
+    resource_phases
+        .capture("process_start")
+        .map_err(bench_error)?;
     let mut args = std::env::args().skip(1);
     let scenario = args.next().unwrap_or_else(|| "always_success".to_owned());
     let mut number = |default| match args.next() {
@@ -1608,8 +1846,16 @@ fn main() -> BenchResult<()> {
         "RBF workload requires equal warm and target counts",
     )?;
     require(
-        !workload_scenario.ends_with("_reverse") || warm_count == 0,
+        !workload_scenario.ends_with("_reverse")
+            || workload_scenario == "fanout_ready_64_reverse"
+            || warm_count == 0,
         "reverse dependency workloads require warm=0",
+    )?;
+    require(
+        workload_scenario != "fanout_ready_64_reverse"
+            || (target_count.is_multiple_of(FANOUT_COHORT_SIZE)
+                && warm_count.is_multiple_of(FANOUT_COHORT_SIZE)),
+        "fanout cohort target and warm counts must each be multiples of 65",
     )?;
     // This changes only the observer's expected contract. The separately built
     // diagnostic candidate must actually omit victim effects; normal production
@@ -1634,6 +1880,9 @@ fn main() -> BenchResult<()> {
     #[cfg(feature = "profiling")]
     let mut observability = init_observability().map_err(std::io::Error::other)?;
     let (consensus, transactions) = build_workload(workload_scenario, transaction_count)?;
+    resource_phases
+        .capture("fixture_ready")
+        .map_err(bench_error)?;
     let runtime_threads = std::thread::available_parallelism().map_or(8, |count| count.get());
     let (handle, _handle_stop, runtime) = new_global_runtime(Some(runtime_threads));
     let consensus = Arc::new(consensus);
@@ -1669,6 +1918,11 @@ fn main() -> BenchResult<()> {
     let relay_guard = RelayDrainGuard::start(relay_receiver)?;
     let relay_completion = relay_guard.completion();
     let completion = Arc::new(Completion::new(&transactions, warm_count, reorg_in_flight)?);
+    let mut diagnostics = TerminalDiagnosticsGuard {
+        completion: Arc::clone(&completion),
+        relay: Arc::clone(&relay_completion),
+        armed: true,
+    };
     let pending_completion = Arc::clone(&completion);
     builder.register_pending(Box::new(move |entry| {
         pending_completion.begin_callback();
@@ -1690,6 +1944,9 @@ fn main() -> BenchResult<()> {
         .get_tx_pool_info()
         .map_err(|error| std::io::Error::other(error.to_string()))?;
 
+    resource_phases
+        .capture("service_ready")
+        .map_err(bench_error)?;
     let sample_cycles = |transaction: &TransactionView| {
         controller
             .test_accept_tx(transaction.clone())
@@ -1734,6 +1991,9 @@ fn main() -> BenchResult<()> {
         (vec![sample_cycles(sample)?; transactions.len()], 1)
     };
     let corpus = corpus_observation(&consensus, &transactions, &cycles, script_preflight_count)?;
+    resource_phases
+        .capture("preflight_complete")
+        .map_err(bench_error)?;
 
     let warm = Arc::new(transactions[..warm_count].to_vec());
     let target = Arc::new(transactions[warm_count..].to_vec());
@@ -1746,6 +2006,11 @@ fn main() -> BenchResult<()> {
         .map(str::parse::<usize>)
         .transpose()?
         .map_or(SubmissionOrder::Concurrent, SubmissionOrder::Forest);
+    let order = if workload_scenario == "fanout_ready_64_reverse" {
+        SubmissionOrder::ReverseFanoutCohorts
+    } else {
+        order
+    };
     let warm_order = if workload_scenario == "fanout" && warm_count != 0 {
         SubmissionOrder::ParentFirst
     } else {
@@ -1773,7 +2038,98 @@ fn main() -> BenchResult<()> {
         .iter()
         .map(TransactionView::hash)
         .collect::<HashSet<_>>();
+    let (allowed_unknown, warm_allowed_unknown) = if workload_scenario.ends_with("_reverse") {
+        (
+            expected_unknown_parents(&transactions, &all_expected_relay, &corpus_hashes),
+            expected_unknown_parents(
+                &transactions[..warm_count],
+                &warm_expected_relay,
+                &corpus_hashes,
+            ),
+        )
+    } else {
+        (HashMap::new(), HashMap::new())
+    };
     relay_completion.reserve(transactions.len(), all_expected_rejects.len())?;
+    if workload_scenario == "fanout_reverse" {
+        // Capacity stress has a different terminal contract from throughput:
+        // legacy orphan eviction is an observable rejection, not a hang.
+        completion.begin_target(Instant::now());
+        let started = Instant::now();
+        let deadline = tokio::time::Instant::now() + Duration::from_secs(120);
+        let submission = runtime.block_on(submit_only(
+            &controller,
+            Arc::clone(&target),
+            Arc::clone(&target_cycles),
+            peers,
+        ));
+        let settled = submission.is_ok()
+            && runtime.block_on(wait_for_stress_settlement(
+                &completion,
+                &relay_completion,
+                deadline,
+            ));
+        let elapsed_ns = started.elapsed().as_nanos();
+        resource_phases
+            .capture("target_complete")
+            .map_err(bench_error)?;
+        #[cfg(not(feature = "cross-version-legacy-bench-adapter"))]
+        {
+            controller.stop();
+            runtime.block_on(async {
+                tokio::time::timeout(Duration::from_secs(30), async {
+                    while controller.service_started() {
+                        tokio::task::yield_now().await;
+                    }
+                })
+                .await
+            })?;
+        }
+        #[cfg(feature = "cross-version-legacy-bench-adapter")]
+        broadcast_exit_signals();
+        relay_guard.stop()?;
+        resource_phases
+            .capture("shutdown_complete")
+            .map_err(bench_error)?;
+        resource_phases.finish();
+        let terminals = terminal_diagnostics(&completion, &relay_completion);
+        let reset = relay_completion.generation_resets.load(Ordering::Acquire) != 0;
+        println!(
+            "BENCH_STRESS_RESULT {}",
+            serde_json::json!({
+                "schema_version": 1, "scenario": scenario, "contract": "capacity_recovery",
+                "target": target_count, "warm": warm_count, "workers": workers, "peers": peers,
+                "settled": settled, "submission_complete": submission.is_ok(), "exact_relay_history": !reset,
+                "elapsed_ns": elapsed_ns, "terminals": terminals,
+                "submission_error": submission.as_ref().err().map(ToString::to_string),
+                "corpus": corpus,
+            })
+        );
+        submission?;
+        require(
+            settled,
+            "capacity stress left unresolved transactions; see BENCH_STRESS_RESULT",
+        )?;
+        let observation = terminal_diagnostics(&completion, &relay_completion);
+        require(
+            observation["accepted_rejected_overlap"] == 0
+                && observation["unexpected_rejects"] == 0
+                && observation["unexpected_callbacks"] == 0
+                && observation["callback_duplicates"] == 0
+                && observation["relay_duplicate_ok"] == 0
+                && observation["relay_duplicate_reject"] == 0,
+            "capacity stress terminal ownership violation; see BENCH_STRESS_RESULT",
+        )?;
+        relay_completion.validate_stress(&completion, &all_expected_relay, &allowed_unknown)?;
+        diagnostics.armed = false;
+        #[cfg(feature = "cross-version-legacy-bench-adapter")]
+        {
+            std::io::stdout().flush()?;
+            std::process::exit(0)
+        }
+        #[cfg(not(feature = "cross-version-legacy-bench-adapter"))]
+        return Ok(());
+    }
     let reorg_snapshot = reorg_in_flight.then(|| {
         snapshot_with_proposed(
             &snapshot,
@@ -1793,17 +2149,29 @@ fn main() -> BenchResult<()> {
     runtime.block_on(
         relay_completion.wait_for_terminals(warm_expected_relay.len(), warm_expected_rejects.len()),
     )?;
-    relay_completion.validate(&warm_expected_relay, &warm_expected_rejects, None)?;
+    relay_completion.validate(
+        &warm_expected_relay,
+        &warm_expected_rejects,
+        workload_scenario
+            .ends_with("_reverse")
+            .then_some(&warm_allowed_unknown),
+    )?;
     completion.validate(warm_count, false)?;
-    let profile_started_unix_ns = SystemTime::now().duration_since(UNIX_EPOCH)?.as_nanos();
-    let started = Instant::now();
-    completion.begin_target(started);
+    resource_phases
+        .capture("warm_complete")
+        .map_err(bench_error)?;
+    let start_anchor = measurement_clock::ClockAnchor::capture().map_err(bench_error)?;
     begin_allocation_window();
-    let (target_user_cpu_started, target_system_cpu_started) = process_cpu_nanos()?;
     #[cfg(feature = "profiling")]
     if let Some(recorder) = observability.recorder.as_ref() {
-        recorder.begin().map_err(std::io::Error::other)?;
+        recorder
+            .begin(|started| start_anchor.map(started))
+            .map_err(std::io::Error::other)?;
     }
+    let (target_user_cpu_started, target_system_cpu_started) = process_cpu_nanos()?;
+    let started = Instant::now();
+    completion.begin_target(started);
+    let mut target_readiness = fanout_readiness::Readiness::default();
     let (reorg_latency_ns, reorg_overlap_callbacks) = if reorg_in_flight {
         let reorg_snapshot = reorg_snapshot.expect("reorg snapshot follows scenario identity");
         runtime.block_on(async {
@@ -1833,7 +2201,7 @@ fn main() -> BenchResult<()> {
             reorg_result
         })?
     } else {
-        runtime.block_on(submit_workload(
+        target_readiness = runtime.block_on(submit_workload(
             &controller,
             &completion,
             target,
@@ -1849,10 +2217,14 @@ fn main() -> BenchResult<()> {
     )?;
     // Stop all measurement clocks at terminal completion. Exact set validation
     // and latency sorting remain mandatory, but are harness post-processing.
-    let elapsed = started.elapsed();
-    let profile_ended_unix_ns = SystemTime::now().duration_since(UNIX_EPOCH)?.as_nanos();
+    let ended = Instant::now();
     let (target_user_cpu_ended, target_system_cpu_ended) = process_cpu_nanos()?;
     let (allocation_calls, allocated_bytes) = end_allocation_window();
+    let end_anchor = measurement_clock::ClockAnchor::capture().map_err(bench_error)?;
+    resource_phases
+        .capture("target_complete")
+        .map_err(bench_error)?;
+    let elapsed = ended.duration_since(started);
     let target_user_cpu_ns = target_user_cpu_ended
         .checked_sub(target_user_cpu_started)
         .ok_or_else(|| std::io::Error::other("target user CPU clock moved backwards"))?;
@@ -1862,13 +2234,9 @@ fn main() -> BenchResult<()> {
     let target_cpu_ns = target_user_cpu_ns
         .checked_add(target_system_cpu_ns)
         .ok_or_else(|| std::io::Error::other("target-window process CPU time overflow"))?;
-    let profile_window = serde_json::json!({
-        "schema_version": 2,
-        "scenario": scenario,
-        "start_unix_nanos": profile_started_unix_ns,
-        "end_unix_nanos": profile_ended_unix_ns,
-        "elapsed_nanos": profile_ended_unix_ns.saturating_sub(profile_started_unix_ns),
-    });
+    let profile_window = start_anchor
+        .window(&scenario, started, ended, &end_anchor)
+        .map_err(bench_error)?;
     #[cfg(feature = "profiling")]
     if let Some(recorder) = observability.recorder.as_mut() {
         recorder
@@ -1880,10 +2248,11 @@ fn main() -> BenchResult<()> {
         &all_expected_rejects,
         workload_scenario
             .ends_with("_reverse")
-            .then_some(&corpus_hashes),
+            .then_some(&allowed_unknown),
     )?;
     completion.validate(transactions.len(), reorg_in_flight)?;
     let p99_latency_ns = completion.end_target();
+    resource_phases.capture("validated").map_err(bench_error)?;
     let reorg_latency_ns = if reorg_in_flight {
         reorg_latency_ns
     } else {
@@ -1898,6 +2267,9 @@ fn main() -> BenchResult<()> {
             .map_err(|error| std::io::Error::other(error.to_string()))?;
         reorg_started.elapsed().as_nanos()
     };
+    resource_phases
+        .capture("reorg_complete")
+        .map_err(bench_error)?;
     let shutdown_started = Instant::now();
     #[cfg(not(feature = "cross-version-legacy-bench-adapter"))]
     {
@@ -1917,6 +2289,10 @@ fn main() -> BenchResult<()> {
     }
     relay_guard.stop()?;
     let shutdown_latency_ns = shutdown_started.elapsed().as_nanos();
+    resource_phases
+        .capture("shutdown_complete")
+        .map_err(bench_error)?;
+    resource_phases.finish();
     #[cfg(feature = "tokio-trace")]
     {
         // This diagnostic-only grace is outside all benchmark windows. It
@@ -1966,7 +2342,7 @@ fn main() -> BenchResult<()> {
         "bounded_remote_batch"
     };
     println!(
-        "BENCH_BUILD profiling={} allocation_observation={} callback_observer=preallocated_atomic_slots_sharded_completion adapter={} debug_assertions={} measurement_window=terminal_completion_v2 comparison_contract={}",
+        "BENCH_BUILD profiling={} allocation_observation={} callback_observer=preallocated_atomic_slots_sharded_completion adapter={} debug_assertions={} measurement_window=terminal_completion_v3 comparison_contract={}",
         cfg!(feature = "profiling"),
         cfg!(feature = "allocation-observation"),
         adapter,
@@ -1978,6 +2354,18 @@ fn main() -> BenchResult<()> {
         },
     );
     println!("BENCH_CORPUS {corpus}");
+    if matches!(target_order, SubmissionOrder::ReverseFanoutCohorts) {
+        println!(
+            "BENCH_READINESS {}",
+            serde_json::json!({
+                "schema_version": 1,
+                "policy": "public_orphan_size_0_then_64_yield_v1",
+                "query_count": target_readiness.queries,
+                "completed_barriers": target_readiness.barriers,
+                "elapsed_nanos": target_readiness.elapsed_nanos,
+            })
+        );
+    }
     println!(
         "BENCH_TERMINALS {}",
         serde_json::json!({
@@ -2001,8 +2389,10 @@ fn main() -> BenchResult<()> {
     println!("TX_POOL_PROFILE_OBSERVATION {profile_observation}");
     println!("TX_POOL_PROFILE_WINDOW {profile_window}");
     println!(
-        "PROFILE_WINDOW start_unix_ns={profile_started_unix_ns} end_unix_ns={profile_ended_unix_ns}"
+        "PROFILE_WINDOW start_unix_ns={} end_unix_ns={}",
+        profile_window["start_unix_nanos"], profile_window["end_unix_nanos"]
     );
+    diagnostics.armed = false;
     #[cfg(feature = "cross-version-legacy-bench-adapter")]
     {
         std::io::stdout().flush()?;

@@ -44,9 +44,11 @@ impl Pool {
             })
             .await;
         match result {
-            Ok(batch) => {
+            Ok(_) => {
+                // The committed outbox owns publication through drain or fault.
+                // Background work can return its worker and active reservation.
                 job.complete();
-                self.published(batch).await
+                Ok(())
             }
             Err(Error::Stale) => self.requeue(job).await,
             Err(error) => Err(error),

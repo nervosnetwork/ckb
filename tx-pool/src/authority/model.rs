@@ -23,6 +23,7 @@ pub(crate) enum FullReason {
     History,
     NoticeOutbox,
     ChainTransition,
+    Active,
     Other(&'static str),
 }
 impl From<&'static str> for FullReason {
@@ -38,6 +39,7 @@ impl fmt::Display for FullReason {
             Self::History => "replacement history",
             Self::NoticeOutbox => "notice outbox",
             Self::ChainTransition => "chain transition",
+            Self::Active => "active work",
             Self::Other(reason) => reason,
         })
     }

@@ -74,8 +74,8 @@ fn transaction_with_replacement_fee(
 ) -> Result<Option<TransactionWithStatus>, Error> {
     // A chain update can return the point-read target to resolution. Only
     // owners still accepted in this cut can supply public status and fee.
-    let (_, snapshot, owners, _) = store.capture(true);
-    let Some(entry) = owners.iter().find(|entry| entry.hash() == *hash) else {
+    let (snapshot, owners) = store.capture_descendants(hash)?;
+    let Some(entry) = owners.first() else {
         return Ok(None);
     };
     let Some(mut result) = live_transaction(entry, &snapshot) else {
@@ -85,66 +85,40 @@ fn transaction_with_replacement_fee(
         && value.status(&snapshot) != Status::Proposed
     {
         let increment = config.min_rbf_rate.fee(value.size as u64);
-        let members: Members = owners
-            .into_iter()
-            .map(|entry| (entry.hash(), entry))
-            .collect();
-        let descendants = membership::descendant_hashes(
-            &membership::children(&members),
-            [hash.clone()],
-            members.len(),
-        )?;
-        result.min_replace_fee = membership::aggregate(&members, &descendants)?
-            .fee()
-            .safe_add(increment)
-            .ok();
+        // Match Aggregate::fee saturation before adding the optional increment.
+        // Other aggregate coordinates already fit the shared accepted account.
+        let fee = owners.iter().try_fold(Capacity::zero(), |sum, entry| {
+            let value = entry.accepted().ok_or(Error::Stale)?;
+            Ok::<_, Error>(
+                sum.safe_add(value.fee)
+                    .unwrap_or(Capacity::shannons(u64::MAX)),
+            )
+        })?;
+        result.min_replace_fee = fee.safe_add(increment).ok();
     }
     Ok(Some(result))
 }
-#[expect(
-    clippy::arithmetic_side_effects,
-    reason = "Each counter advances once per captured owner and cannot exceed the bounded Vec length."
-)]
 pub(super) fn summary(store: &Store, config: &TxPoolConfig) -> Result<TxPoolInfo, Error> {
-    let (snapshot, owners, queued) = store.capture_summary();
-    let mut summary = TxPoolInfo {
-        tip_hash: snapshot.tip_hash(),
-        tip_number: snapshot.tip_number(),
-        pending_size: 0,
-        proposed_size: 0,
-        orphan_size: 0,
-        total_tx_size: 0,
-        total_tx_cycles: 0,
+    let summary = store.capture_summary();
+    Ok(TxPoolInfo {
+        tip_hash: summary.snapshot.tip_hash(),
+        tip_number: summary.snapshot.tip_number(),
+        pending_size: summary
+            .accepted
+            .items
+            .checked_sub(summary.proposed)
+            .ok_or(Error::Fault("summary proposal count"))?,
+        proposed_size: summary.proposed,
+        orphan_size: summary.orphan,
+        total_tx_size: summary.accepted.serialized,
+        total_tx_cycles: summary.accepted.cycles,
         min_fee_rate: config.min_fee_rate,
         min_rbf_rate: config.min_rbf_rate,
-        last_txs_updated_at: 0,
+        last_txs_updated_at: summary.last_updated,
         tx_size_limit: TRANSACTION_SIZE_LIMIT,
         max_tx_pool_size: config.max_tx_pool_size as u64,
-        verify_queue_size: queued,
-    };
-    for owner in owners {
-        match &owner.phase {
-            Phase::Accepted(value) => {
-                if value.status(&snapshot) == Status::Proposed {
-                    summary.proposed_size += 1;
-                } else {
-                    summary.pending_size += 1;
-                }
-                summary.total_tx_size = summary
-                    .total_tx_size
-                    .checked_add(value.size)
-                    .ok_or(Error::Full("query bytes".into()))?;
-                summary.total_tx_cycles = summary
-                    .total_tx_cycles
-                    .checked_add(value.cycles)
-                    .ok_or(Error::Full("query cycles".into()))?;
-                summary.last_txs_updated_at = summary.last_txs_updated_at.max(value.timestamp);
-            }
-            Phase::Waiting(_) => summary.orphan_size += 1,
-            _ => {}
-        }
-    }
-    Ok(summary)
+        verify_queue_size: summary.queued,
+    })
 }
 pub(super) fn ids(store: &Store) -> TxPoolIds {
     let (_, snapshot, owners, _) = store.capture(true);

@@ -16,13 +16,11 @@ use ckb_types::{
     packed::{Byte32, ProposalShortId},
 };
 use std::{
-    borrow::Cow,
     cmp::Ordering,
     collections::{BTreeSet, HashMap, hash_map::Entry},
     sync::Arc,
 };
 
-const MAX_CONDITIONAL_CYCLE_ROUNDS: usize = 64;
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) enum PackingError {
     Arithmetic,
@@ -134,34 +132,13 @@ impl Selection {
         &self.candidates
     }
 
-    pub(super) fn proposal_short_ids(
-        &self,
-        limit: u64,
-    ) -> Result<Vec<ProposalShortId>, PackingError> {
-        let mut ordered = Vec::with_capacity(self.candidates.len());
-        ordered.extend(
-            self.candidates
-                .iter()
-                .enumerate()
-                .filter_map(|(index, candidate)| {
-                    (candidate.status == Status::Pending).then_some(index)
-                }),
-        );
-        let selected = match usize::try_from(limit) {
-            Ok(limit) => limit.min(ordered.len()),
-            Err(_) => ordered.len(),
-        };
-        let mut proposals = Vec::with_capacity(selected);
-        for index in ordered.into_iter().take(selected) {
-            proposals.push(
-                self.candidates
-                    .get(index)
-                    .ok_or(PackingError::Projection)?
-                    .proposal_short_id()
-                    .clone(),
-            );
-        }
-        Ok(proposals)
+    pub(super) fn proposal_short_ids(&self, limit: u64) -> Vec<ProposalShortId> {
+        self.candidates
+            .iter()
+            .filter(|candidate| candidate.status == Status::Pending)
+            .take(usize::try_from(limit).unwrap_or(usize::MAX))
+            .map(|candidate| candidate.proposal_short_id().clone())
+            .collect()
     }
 
     fn candidate_index(&self) -> Result<HashMap<Byte32, usize>, PackingError> {
@@ -264,7 +241,6 @@ fn package_indices(
 }
 
 const MAX_CONSECUTIVE_PACKING_FAILURES: usize = 4_000;
-const DESCENDANTS_CACHE_MEMBER_BUDGET: usize = 200_000;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) struct TemplatePackingLimits {
@@ -387,86 +363,6 @@ enum CandidatePackingState {
     Selected,
 }
 
-struct DescendantsCache {
-    cached: HashMap<usize, Vec<usize>>,
-    cached_members: usize,
-    marks: Vec<u64>,
-    generation: u64,
-    stack: Vec<usize>,
-}
-
-impl DescendantsCache {
-    fn new(candidate_count: usize, eligible_count: usize) -> Self {
-        let cached = HashMap::with_capacity(eligible_count);
-        let marks = vec![0; candidate_count];
-        let stack = Vec::with_capacity(candidate_count);
-        Self {
-            cached,
-            cached_members: 0,
-            marks,
-            generation: 0,
-            stack,
-        }
-    }
-
-    fn descendants<'cache>(
-        &'cache mut self,
-        start: usize,
-        children: &[Vec<usize>],
-    ) -> Result<Cow<'cache, [usize]>, PackingError> {
-        if self.cached.contains_key(&start) {
-            let cached = self.cached.get(&start).ok_or(PackingError::Projection)?;
-            return Ok(Cow::Borrowed(cached));
-        }
-
-        self.generation = match self.generation.checked_add(1) {
-            Some(generation) => generation,
-            None => {
-                self.marks.fill(0);
-                1
-            }
-        };
-        self.stack.clear();
-        self.stack.extend(
-            children
-                .get(start)
-                .ok_or(PackingError::Projection)?
-                .iter()
-                .copied(),
-        );
-        let mut descendants = Vec::with_capacity(children.len());
-        while let Some(index) = self.stack.pop() {
-            let mark = self.marks.get_mut(index).ok_or(PackingError::Projection)?;
-            if *mark == self.generation {
-                continue;
-            }
-            *mark = self.generation;
-            descendants.push(index);
-            self.stack.extend(
-                children
-                    .get(index)
-                    .ok_or(PackingError::Projection)?
-                    .iter()
-                    .copied(),
-            );
-        }
-
-        let projected = self
-            .cached_members
-            .checked_add(descendants.len())
-            .ok_or(PackingError::Arithmetic)?;
-        if projected <= DESCENDANTS_CACHE_MEMBER_BUDGET {
-            self.cached_members = projected;
-            match self.cached.entry(start) {
-                Entry::Vacant(slot) => Ok(Cow::Borrowed(slot.insert(descendants))),
-                Entry::Occupied(_) => Err(PackingError::Projection),
-            }
-        } else {
-            Ok(Cow::Owned(descendants))
-        }
-    }
-}
-
 impl Selection {
     pub(super) fn pack_transactions(
         &self,
@@ -549,7 +445,6 @@ impl Selection {
         let mut selected_bytes = 0usize;
         let mut selected_cycles = 0u64;
         let mut consecutive_failures = 0usize;
-        let mut descendants = DescendantsCache::new(candidate_count, eligible.len());
         let mut package_marks = vec![0u64; candidate_count];
         let mut package_generation = 0u64;
         let mut package = Vec::with_capacity(candidate_count);
@@ -679,7 +574,26 @@ impl Selection {
 
                 let delta =
                     PackageAggregate::one(candidates.get(member).ok_or(PackingError::Projection)?);
-                for descendant in descendants.descendants(member, &children)?.iter().copied() {
+                // Each member reaches Selected once, so its descendants have
+                // one consumer. Reuse the completed package walk's scratch.
+                package_generation = match package_generation.checked_add(1) {
+                    Some(generation) => generation,
+                    None => {
+                        package_marks.fill(0);
+                        1
+                    }
+                };
+                stack.clear();
+                stack.extend(children.get(member).ok_or(PackingError::Projection)?);
+                while let Some(descendant) = stack.pop() {
+                    let mark = package_marks
+                        .get_mut(descendant)
+                        .ok_or(PackingError::Projection)?;
+                    if *mark == package_generation {
+                        continue;
+                    }
+                    *mark = package_generation;
+                    stack.extend(children.get(descendant).ok_or(PackingError::Projection)?);
                     if matches!(states.get(descendant), Some(CandidatePackingState::Queued)) {
                         match adjustments.entry(descendant) {
                             Entry::Occupied(mut slot) => {

@@ -2,6 +2,7 @@
 pub mod cost_model;
 mod error;
 mod initial_load;
+mod program_cache;
 mod scheduler;
 mod syscalls;
 mod type_id;

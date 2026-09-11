@@ -9,6 +9,7 @@ import json
 import math
 import os
 import platform
+import random
 import re
 import resource
 import shlex
@@ -21,6 +22,7 @@ import tomllib
 from pathlib import Path
 
 from measurement_process import run_process
+from measurement_window import parse_measurement_window, parse_readiness, wall_alignment
 
 
 RESULT = re.compile(
@@ -37,10 +39,6 @@ RESULT = re.compile(
     r"reorg_latency_ns=(?P<reorg_latency_ns>\d+) "
     r"reorg_overlap_callbacks=(?P<reorg_overlap_callbacks>\d+) "
     r"shutdown_latency_ns=(?P<shutdown_latency_ns>\d+)$",
-    re.MULTILINE,
-)
-WINDOW = re.compile(
-    r"^PROFILE_WINDOW start_unix_ns=(?P<start>\d+) end_unix_ns=(?P<end>\d+)$",
     re.MULTILINE,
 )
 RESOURCE_RESULT = re.compile(
@@ -60,11 +58,9 @@ BUILD = re.compile(
 )
 CORPUS_PREFIX = "BENCH_CORPUS "
 TERMINALS_PREFIX = "BENCH_TERMINALS "
-MIN_CLOCK_TOLERANCE_NS = 1_000_000
-CLOCK_TOLERANCE_DIVISOR = 10_000
 MAX_SCENARIO_TRANSACTIONS = 65_536
 FINAL_BUILD_PROFILE = "prod"
-SCHEMA_VERSION = 10
+SCHEMA_VERSION = 11
 PROTOCOL_CONTRACT = "protocol"
 RBF_ABLATION_CONTRACT = "rbf-victim-notice-ablation"
 CONSENSUS_LOCK_PACKAGES = ("ckb-vm", "ckb-vm-definitions")
@@ -110,20 +106,57 @@ SUMMARY_METRICS = (
     "allocation_calls",
     "allocated_bytes",
     "peak_rss_bytes",
+    "mean_peak_rss_bytes",
     "voluntary_context_switches",
     "involuntary_context_switches",
     "reorg_latency_ns",
     "shutdown_latency_ns",
 )
-PRECISION_METRICS = ("throughput_tps", "target_cpu_ns", "peak_rss_bytes")
+PRECISION_METRICS = ("throughput_tps", "target_cpu_ns", "mean_peak_rss_bytes")
 METRIC_SCOPES = {
     "target_terminal_window": ["elapsed_ns", "throughput_tps", "target_cpu_ns",
                                "allocation_calls", "allocated_bytes"],
     "target_callback_latencies": ["p99_latency_ns"],
-    "whole_process_lifetime": ["peak_rss_bytes", "voluntary_context_switches",
+    "whole_process_lifetime": ["peak_rss_bytes", "mean_peak_rss_bytes", "voluntary_context_switches",
                                "involuntary_context_switches"],
     "separately_timed_operations": ["reorg_latency_ns", "shutdown_latency_ns"],
 }
+
+
+HARNESS_FILES = ("tx-pool/benches/profile_one_shot.rs",
+                 "tx-pool/benches/allocation_observation/mod.rs",
+                 "tx-pool/benches/profile_spans/mod.rs",
+                 "tx-pool/benches/relay_batches/mod.rs",
+                 "tx-pool/benches/measurement_clock/mod.rs",
+                 "tx-pool/benches/resource_phases/mod.rs")
+
+
+def harness_bundle(root: Path) -> dict[str, str]:
+    paths = set(HARNESS_FILES)
+    paths.update(str(path.relative_to(root)) for path in
+                 (root / "tx-pool/benches").rglob("*.rs") if path.is_file())
+    return {path: sha256(root / path) for path in sorted(paths)}
+
+
+def bundle_hash(root: Path) -> str:
+    return hashlib.sha256(json.dumps(harness_bundle(root), sort_keys=True).encode()).hexdigest()
+
+
+def balanced_schedule(runs: int, replicates: int, seed: int, key: str) -> list[list[list[str]]]:
+    """Freeze randomized balanced AB/BA blocks; replicates remain one sampling unit."""
+    rng = random.Random(f"txpool-order-v1:{seed}:{key}")
+    if replicates == 1:
+        starts = [0, 1] * (runs // 2)
+        rng.shuffle(starts)
+        blocks = [[start] for start in starts]
+    else:
+        blocks = []
+        for _ in range(runs):
+            block = [0, 1] * (replicates // 2)
+            rng.shuffle(block)
+            blocks.append(block)
+    return [[["baseline", "candidate"] if start == 0 else ["candidate", "baseline"]
+             for start in block] for block in blocks]
 
 
 def sha256(path: Path) -> str:
@@ -455,18 +488,20 @@ def timing_build_observation(
     output: str, spans: object, allocation_observation: str,
     comparison_contract: str = PROTOCOL_CONTRACT,
 ) -> tuple[dict[str, str] | None, str | None]:
+    if any(line.startswith("BENCH_DIAGNOSTICS ") for line in output.splitlines()):
+        return None, "final timing contains diagnostic instrumentation"
     matches = list(BUILD.finditer(output))
     if len(matches) != 1:
         return None, f"observed {len(matches)} BENCH_BUILD records"
     build = matches[0].groupdict()
-    # Window-v2 binaries without a contract marker are production-only.
+    # Binaries without a contract marker are production-only.
     build["comparison_contract"] = build["comparison_contract"] or PROTOCOL_CONTRACT
     if build["comparison_contract"] != comparison_contract:
         return None, "benchmark comparison contract differs"
     expected_allocation = "true" if allocation_observation == "enabled" else "false"
     if build["profiling"] != "false" or build["debug_assertions"] != "false":
         return None, "final timing binary enables profiling or debug assertions"
-    if build["measurement_window"] != "terminal_completion_v2":
+    if build["measurement_window"] != "terminal_completion_v3":
         return None, "timing measurement window is unsupported"
     if build["allocation_observation"] != expected_allocation:
         return None, "allocation observation build identity differs"
@@ -596,7 +631,6 @@ def run_attempt(
         )
     try:
         result = unique_match(RESULT, completed.stdout, "BENCH_RESULT")
-        window = unique_match(WINDOW, completed.stdout, "PROFILE_WINDOW")
         resources = unique_match(RESOURCE_RESULT, completed.stdout, "RESOURCE_RESULT")
         corpus = parse_json_record(completed.stdout, CORPUS_PREFIX)
         terminals = parse_json_record(completed.stdout, TERMINALS_PREFIX)
@@ -654,8 +688,8 @@ def run_attempt(
         if error is not None:
             raise ValueError(error)
         elapsed_ns = int(result["elapsed_ns"])
-        wall_ns = int(window["end"]) - int(window["start"])
-        tolerance = max(MIN_CLOCK_TOLERANCE_NS, elapsed_ns // CLOCK_TOLERANCE_DIVISOR)
+        window = parse_measurement_window(completed.stdout, str(scenario["name"]), elapsed_ns)
+        readiness = parse_readiness(completed.stdout, str(scenario["name"]), int(scenario["target"]), elapsed_ns)
         metrics = {
             "elapsed_ns": elapsed_ns,
             "throughput_tps": float(result["throughput"]),
@@ -679,14 +713,12 @@ def run_attempt(
             "reorg_latency_ns",
             "shutdown_latency_ns",
         )
-        if wall_ns <= 0 or any(not math.isfinite(metrics[name]) or metrics[name] <= 0 for name in positive):
+        if any(not math.isfinite(metrics[name]) or metrics[name] <= 0 for name in positive):
             raise ValueError("benchmark emitted a non-positive required metric")
         throughput = int(scenario["target"]) * 1e9 / elapsed_ns
         if not math.isclose(metrics["throughput_tps"], throughput, rel_tol=1e-12, abs_tol=0.00051):
             raise ValueError("throughput differs from target count and elapsed time")
         metrics["throughput_tps"] = throughput
-        if abs(wall_ns - elapsed_ns) > tolerance:
-            raise ValueError("target wall-clock window differs from monotonic elapsed time")
         allocations = metrics["allocation_calls"], metrics["allocated_bytes"]
         if allocation_observation == "enabled" and min(allocations) <= 0:
             raise ValueError("enabled allocation observation is empty")
@@ -713,12 +745,9 @@ def run_attempt(
         "ended_unix_ns": time.time_ns(),
         "scenario": scenario,
         "build": build,
-        "window": {
-            "start_unix_ns": int(window["start"]),
-            "end_unix_ns": int(window["end"]),
-            "wall_ns": wall_ns,
-            "clock_tolerance_ns": tolerance,
-        },
+        "window": window,
+        "wall_alignment": wall_alignment(window),
+        "readiness": readiness,
         "corpus": corpus,
         "terminals": terminals,
         "relay_unknown_parents": counts["relay_unknown_parents"],
@@ -732,6 +761,7 @@ def aggregate_side(attempts: list[dict[str, object]], target_per_attempt: int) -
     target = target_per_attempt * len(attempts)
     aggregate = {name: sum(int(row[name]) for row in metrics) for name in SUM_METRICS}
     aggregate.update({name: max(int(row[name]) for row in metrics) for name in MAX_METRICS})
+    aggregate["mean_peak_rss_bytes"] = statistics.mean(row["peak_rss_bytes"] for row in metrics)
     aggregate["throughput_tps"] = target * 1e9 / aggregate["elapsed_ns"]
     return {
         "attempt_ids": [attempt["id"] for attempt in attempts],
@@ -826,8 +856,21 @@ def summarize_pairs(
         if imprecise
         else "comparable"
     )
+    metric_quality = {}
+    for name, metric in metrics.items():
+        interval = metric["median_ratio_interval"]
+        quality = (
+            "allocation_observation" if mode == "enabled"
+            else "short_target_window" if minimum_elapsed < min_target_seconds * 1e9
+            else "noisy" if name == "throughput_tps" and throughput_mad > max_mad
+            else "imprecise" if interval is None or interval["relative_width_percent"] > max_interval_width
+            else "comparable"
+        )
+        metric_quality[name] = {"status": quality, "required_for_overall": name in PRECISION_METRICS,
+                                "aa_disposition": "not_evaluated"}
     return {
         "status": status,
+        "metric_quality": metric_quality,
         "corpus": corpus,
         "paired_samples": samples,
         "metrics": metrics,
@@ -865,6 +908,11 @@ def classify_aa_equivalence(summary: dict[str, object], margin_percent: float) -
         interval = summary.get("metrics", {}).get(name, {}).get("median_ratio_interval")
         within[name] = (interval is not None and interval["lower"] >= lower
                         and interval["upper"] <= upper)
+    for name, quality in summary.get("metric_quality", {}).items():
+        interval = summary["metrics"][name]["median_ratio_interval"]
+        equivalent = (quality["status"] == "comparable" and interval is not None
+                      and interval["lower"] >= lower and interval["upper"] <= upper)
+        quality["aa_disposition"] = "equivalent" if equivalent else "unresolved"
     quality_status = summary["status"]
     passed = quality_status == "comparable" and all(within.values())
     summary["aa_equivalence"] = {
@@ -926,6 +974,7 @@ def arguments() -> argparse.Namespace:
     parser.add_argument("--resume", action="store_true")
     parser.add_argument("--runs", type=int, default=10)
     parser.add_argument("--replicates-per-sample", type=int, default=1)
+    parser.add_argument("--order-seed", type=int, default=0, help="Frozen balanced block-order seed")
     parser.add_argument("--initial-cooldown-seconds", type=float, default=15.0)
     parser.add_argument("--cooldown-seconds", type=float, default=10.0)
     parser.add_argument("--max-paired-mad-percent", type=float, default=1.5)
@@ -996,6 +1045,8 @@ def configuration(args: argparse.Namespace, scenarios: list[dict[str, object]]) 
         "candidate_build_features": args.candidate_build_features,
         "scenarios": scenarios,
         "runs": args.runs,
+        "order_seed": args.order_seed,
+        "schedule": {scenario_key(scenario): balanced_schedule(args.runs, args.replicates_per_sample, args.order_seed, scenario_key(scenario)) for scenario in scenarios},
         "replicates_per_sample": args.replicates_per_sample,
         "initial_cooldown_seconds": args.initial_cooldown_seconds,
         "cooldown_seconds": args.cooldown_seconds,
@@ -1143,12 +1194,11 @@ def run_scenario(
         return
     samples = []
     failures = []
+    schedule = balanced_schedule(args.runs, args.replicates_per_sample, args.order_seed, key)
     for pair_number in range(1, args.runs + 1):
         paired: dict[str, list[dict[str, object]]] = {"baseline": [], "candidate": []}
         for replicate in range(1, args.replicates_per_sample + 1):
-            order = ["baseline", "candidate"]
-            if (pair_number + replicate) % 2:
-                order.reverse()
+            order = schedule[pair_number - 1][replicate - 1]
             for side in order:
                 attempt = obtain_attempt(
                     record,
@@ -1224,6 +1274,8 @@ def validate_frozen(
         raise RuntimeError("benchmark runner changed")
     if record.get("process_runner_sha256") != sha256(Path(__file__).with_name("measurement_process.py")):
         raise RuntimeError("measurement process runner changed")
+    if record.get("measurement_window_sha256") != sha256(Path(__file__).with_name("measurement_window.py")):
+        raise RuntimeError("measurement window parser changed")
     if record.get("harness_sha256") != harness_hash or record.get("host") != host:
         raise RuntimeError("benchmark harness or host identity changed")
     recorded = record.get("sides")
@@ -1236,7 +1288,7 @@ def validate_frozen(
         if frozen.get("source") != current["source"] or frozen.get("consensus") != current["consensus"]:
             raise RuntimeError(f"{side} source or consensus identity changed")
         root = Path(current["source"]["root"])
-        if git_record(root) != current["source"] or sha256(root / "tx-pool/benches/profile_one_shot.rs") != harness_hash:
+        if git_record(root) != current["source"] or bundle_hash(root) != harness_hash:
             raise RuntimeError(f"{side} source changed during measurement")
         if binary_record(Path(str(frozen["binary"]["path"]))) != frozen["binary"]:
             raise RuntimeError(f"{side} binary changed")
@@ -1253,9 +1305,8 @@ def main() -> None:
     roots = {side: getattr(args, f"{side}_root").resolve() for side in ("baseline", "candidate")}
     if roots["baseline"] == roots["candidate"] and args.comparison != "aa":
         raise RuntimeError("baseline and candidate roots must be distinct")
-    harness = Path("tx-pool/benches/profile_one_shot.rs")
-    harness_hash = sha256(roots["baseline"] / harness)
-    if sha256(roots["candidate"] / harness) != harness_hash:
+    harness_hash = bundle_hash(roots["baseline"])
+    if bundle_hash(roots["candidate"]) != harness_hash:
         raise RuntimeError("baseline and candidate harnesses differ")
     contexts = {
         side: {
@@ -1300,6 +1351,8 @@ def main() -> None:
             "runner_sha256": sha256(Path(__file__)),
             "process_runner_sha256": sha256(Path(__file__).with_name("measurement_process.py")),
             "harness_sha256": harness_hash,
+            "harness_bundle": harness_bundle(roots["baseline"]),
+            "measurement_window_sha256": sha256(Path(__file__).with_name("measurement_window.py")),
             "host": host,
             "configuration": config,
             "metric_scopes": METRIC_SCOPES,

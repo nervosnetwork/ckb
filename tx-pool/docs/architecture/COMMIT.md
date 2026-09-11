@@ -66,6 +66,12 @@ escape a refused commit. Dry-run shares membership policy and final capacity
 validation, then stops without installing owners or effects. Capacity trimming
 can enlarge the RBF victim set, so complete backing is rechecked for that final set.
 
+Replacement history is optional. If only its pipeline/history capacity is lost,
+`apply_admission` removes the proposed history owners and retries the same Plan
+once synchronously, retaining its exact effect reservation. Every original read
+and final owner charge is checked again. The reservation never escapes into an
+asynchronous wait; later replanning carries the decision to omit history.
+
 All fallible policy, arithmetic and capacity checks precede mutation.
 `commit_infallibly` takes a unit-returning closure, so an accidental `?` in that
 tail does not compile. This narrow guard does not prove preflight completeness,
@@ -142,8 +148,20 @@ optional fee overflow must not poison unrelated admission or query paths.
 | Sparse original observations | Ordinary Plans avoid full shard-revision arrays | Full captures still retain and validate every required revision |
 | Weak owner/relation identities | Stale work does not pin retired payloads or need finite marker-version reservations | Weak control blocks remain while observations exist |
 | Prepared shard support | Ordinary Apply visits affected shards | Fixed routing can create conservative collisions; full operations still visit all shards |
+| Fixed bitsets for lock support | Avoids per-Plan ordered maps for three guard families | Writer bits dominate reader bits; ascending traversal preserves lock order |
 | Owner edits routed and sorted once | Preflight/mutation avoid scanning all edits per shard | Preparation vector and sorting add scratch; a stale Plan discards that work |
+| Flat per-relation owner changes | Merges repeated roles of each ordered owner without nested maps | The Plan's unique hash order is required; preflight checks every original role before mutation |
+| Direct spender projection | Point conflict reads avoid scanning dependency readers | Only Apply changes the spender; full relation reads still include it and preserve their version premise |
 | Derived owner charge deltas | Capacity reservation uses exact validated changes | Before/after ownership and release order must remain consistent |
+| Original graph reads reused within a decision | Avoids rereading already observed owners and absences | A retired weak owner makes the decision stale; Apply still validates the original identities |
+
+Membership calculation remains transient. Complete aggregate queries reuse
+ordinal marks and one traversal scratch area across roots, enforcing the same
+ancestor, cycle and arithmetic checks as a point walk. Removal notices calculate
+totals for their actual victims; capacity trimming combines each removed closure's
+contribution before updating surviving ranks. Shared descendants count once,
+and no subsequent victim is chosen before those rank updates finish. These
+calculations add bounded scratch, not persistent transitive membership.
 
 These choices reduce particular kinds of work; they do not imply zero contention
 or universal speedup. [Representative checks](../REVIEW_GUIDE.md#representative-checks)

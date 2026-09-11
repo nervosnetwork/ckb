@@ -368,19 +368,14 @@ pub(super) fn reconcile(
                     }),
                 );
             } else {
-                let mut value = value.clone();
-                value.parents.retain(|parent| !attached.contains(parent));
-                let unchanged = entry
-                    .accepted()
-                    .is_some_and(|old| old.parents == value.parents);
-                after.insert(
-                    hash.clone(),
-                    if unchanged {
-                        Arc::clone(entry)
-                    } else {
-                        entry.with_phase(Phase::Accepted(value))
-                    },
-                );
+                let next = if value.parents.iter().any(|parent| attached.contains(parent)) {
+                    let mut value = value.clone();
+                    value.parents.retain(|parent| !attached.contains(parent));
+                    entry.with_phase(Phase::Accepted(value))
+                } else {
+                    Arc::clone(entry)
+                };
+                after.insert(hash.clone(), next);
             }
             continue;
         }

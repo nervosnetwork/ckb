@@ -37,22 +37,37 @@ can invalidate or retire the same owned data.
 | Serialized-size compatibility, execution room for small pools, proportional larger limits and overflow rejection | [budget.rs](../src/authority/tests/budget.rs); [configuration conversion](../../util/app-config/src/legacy/tx_pool.rs) and [bundled network configs](../../util/app-config/src/tests/app_config.rs) |
 | One detached cell shared across input/dependency roles remains charged and fits its final owner | [verification.rs](../src/authority/tests/verification.rs), `resolution_shares_one_detached_cell_across_input_and_dependency_roles` |
 | RBF exact fees, shared descendant accounting, conditional reads and capacity rejection | [membership.rs](../src/authority/tests/membership.rs) |
+| Complete graph totals and batched eviction rank changes | [membership_aggregates.rs](../src/authority/tests/membership_aggregates.rs), exhaustive five-node DAGs plus limit/cycle/overflow refusal; [membership_trim.rs](../src/authority/tests/membership_trim.rs), shared-ancestor changes before the next victim choice |
 | Canonical resolution, VM cache/rules, since/maturity, exact declared cycles and initial-load refusal | [pool verification](../src/authority/tests/verification.rs); [cache identity](../../verification/src/tests/cache.rs) and [contextual block checks](../../verification/contextual/src/tests/contextual_block_verifier.rs), including fresh proof publication and task completion before the assume-valid negative assertion |
 | Peer revocation rejects stale workers and late cohort changes | [ingress_contracts.rs](../src/authority/tests/ingress_contracts.rs) |
 | FIFO, fixed ready-prefix selection, per-batch release, endpoint failure and cancellation | [notice.rs](../src/authority/tests/notice.rs) |
+| Relay prefix allocation, reset ordering and waiting-parent reconstruction | [relay.rs](../src/authority/tests/relay.rs) and `public_relay_batch_drain_keeps_raw_reset_order_before_waiter_reconstruction` in [execution.rs](../src/authority/tests/execution.rs) |
 | Queue-only changes stay quiet; dependency, capacity and lifecycle changes wake required work | [contracts.rs](../src/authority/tests/contracts.rs), maintenance/worker notification tests |
 | Chain invalidation, bounded recovery and proposal provenance | [pool chain tests](../src/authority/tests/chain.rs), [proposal projection tests](../../util/proposal-table/src/tests.rs), and [reorg integration](../../test/src/specs/tx_pool/reorg_recovers_dependent.rs), which commits transactions before detaching and after recovery |
 | Reliable reorg delivery, clear ordering and compact bounded public inputs | [controller.rs](../src/service/tests/controller.rs) |
 | Block priority gates queued/direct computation, preserves chain progress and restores after backlog/unwind | [execution.rs](../src/authority/tests/execution.rs), pause/suspended tests; [chain priority tests](../../chain/src/tests/verification_priority.rs) |
-| CPFP, complete ancestors and read-before-spend ordering | [packing.rs](../src/authority/tests/packing.rs) |
-| Exact mandatory byte fit, selected-owner ABA and stale template refusal | [template_driver.rs](../src/authority/tests/template_driver.rs) |
+| CPFP, complete ancestors and read-before-spend ordering | [packing.rs](../src/authority/tests/packing.rs); [packing_ordering.rs](../src/authority/tests/packing_ordering.rs), induced subsets versus fresh graphs and complete package drops |
+| Exact mandatory byte fit, selected-owner ABA, mandatory-payload reuse and stale template refusal | [template_driver.rs](../src/authority/tests/template_driver.rs) |
+| DAO memo capacity, hot-entry retention, tip invalidation and fresh in-block overlay | [block-assembler tests](../src/block_assembler/tests/mod.rs) |
 | Accepted-only public proofs, full-hash identity and history visibility | [query.rs](../src/authority/tests/query.rs) and public-query execution tests |
+| Root metadata content/version identity, per-attempt load receipt and thread-exit cleanup | [program-cache tests](../../script/src/program_cache.rs); [VM budget tests](../../script/src/verify/tests/active_budget.rs) |
+| Cell-data reuse preserves offsets, size writes, page tracking and cycle/error behavior | [current-VM syscall tests](../../script/src/syscalls/tests/vm_latest/syscalls_1.rs) |
 | Callback reads, rejected mutation reentry and faulted-save preservation | [execution.rs](../src/authority/tests/execution.rs) and controller tests |
 | Exhaustive rejection policy and preserved legacy normalization | [Reject tests](../../util/types/src/core/tx_pool.rs) and [configuration tests](../../util/app-config/src/legacy/tx_pool.rs) |
 
 Use observable barriers and outcomes to establish concurrency ordering. Sleeps,
 stress, diagnostic task counts and passing aggregate totals alone do not prove
 these contracts. Test scopes overlap and must not be added into a unique total.
+
+On macOS, a Nextest `LEAK` report means an output pipe stayed open after its test
+process exited. Concurrent process startup can pass that pipe to a sibling test;
+this was observed with Nextest 0.9.143 through kernel pipe identities and inherited
+descriptors. Use `--test-threads 1` on this affected runner to serialize test
+processes. Each test remains isolated, and its own Rust threads and Tokio tasks
+still exercise the concurrency under test. Keep output capture and the normal
+leak timeout enabled: a deliberately retained descendant pipe must still be
+detected. Diagnose new reports through pipe ownership, following
+[Nextest's leak guidance](https://nexte.st/docs/features/leaky-tests/).
 
 ## Check resource composition
 

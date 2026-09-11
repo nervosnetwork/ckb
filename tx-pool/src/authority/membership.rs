@@ -17,7 +17,7 @@ use ckb_app_config::TxPoolConfig;
 use ckb_snapshot::Snapshot;
 use ckb_types::{
     core::{Capacity, FeeRate, error::OutPointError, tx_pool::get_transaction_weight},
-    packed::Byte32,
+    packed::{Byte32, OutPoint},
 };
 use std::{
     collections::{BTreeMap, BTreeSet},
@@ -156,9 +156,13 @@ pub(super) fn aggregate(members: &Members, hashes: &BTreeSet<Byte32>) -> Result<
         )?))
     })
 }
-/// Recompute each member's ancestor closure and accumulate descendant totals.
-/// Walks follow direct parent edges and enforce the configured ancestor bound;
-/// no persistent transitive sets are retained.
+/// Recompute each member's bounded ancestor closure and descendant totals.
+/// Reuse ordinal marks and scratch across roots; no transitive sets or owner
+/// references survive this calculation. The returned map remains the only totals.
+#[expect(
+    clippy::indexing_slicing,
+    reason = "Ordinals come from the same sorted Members keys as the entries, marks and mutable totals rows."
+)]
 pub(super) fn aggregates(
     members: &Members,
     max_ancestors: usize,
@@ -167,18 +171,56 @@ pub(super) fn aggregates(
         .keys()
         .map(|hash| (hash.clone(), (Aggregate::default(), Aggregate::default())))
         .collect();
-    for (hash, entry) in members {
-        let ancestors = ancestor_hashes(members, hash, max_ancestors)?;
-        let total = aggregate(members, &ancestors)?;
-        totals.get_mut(hash).ok_or(Error::Stale)?.0 = total;
-        let own = Aggregate::one(accepted(entry)?);
-        for parent in ancestors {
-            let value = &mut totals.get_mut(&parent).ok_or(Error::Stale)?.1;
-            *value = value.add(own)?;
+    let entries: Vec<_> = members.iter().collect();
+    let positions: std::collections::HashMap<_, _> = members
+        .keys()
+        .enumerate()
+        .map(|(index, hash)| (hash, index))
+        .collect();
+    let mut rows: Vec<_> = totals.values_mut().collect();
+    let mut seen = vec![usize::MAX; entries.len()];
+    let mut ancestors = Vec::new();
+    let mut stack = Vec::new();
+    for (root, &(hash, entry)) in entries.iter().enumerate() {
+        let own = accepted(entry)?;
+        seen[root] = root;
+        ancestors.clear();
+        ancestors.push(root);
+        stack.extend(own.parents.iter());
+        while let Some(parent) = stack.pop() {
+            if parent == hash {
+                return Err(causal_cycle(hash));
+            }
+            let index = positions.get(parent).copied();
+            if index.is_some_and(|index| seen[index] == root) {
+                continue;
+            }
+            // Check a new parent before loading it, matching ancestor_hashes:
+            // even an absent parent first exceeds an already full closure.
+            if ancestors.len() >= max_ancestors {
+                return Err(Reject::ExceededMaximumAncestorsCount.into());
+            }
+            let index = index.ok_or(Error::Stale)?;
+            seen[index] = root;
+            ancestors.push(index);
+            stack.extend(accepted(entries[index].1)?.parents.iter());
+        }
+        if ancestors.len() > max_ancestors {
+            return Err(Reject::ExceededMaximumAncestorsCount.into());
+        }
+        rows[root].0 = ancestors
+            .iter()
+            .try_fold(Aggregate::default(), |sum, index| {
+                sum.add(Aggregate::one(accepted(entries[*index].1)?))
+            })?;
+        let own = Aggregate::one(own);
+        for index in &ancestors {
+            rows[*index].1 = rows[*index].1.add(own)?;
         }
     }
     Ok(totals)
 }
+
 pub(super) fn snapshot(
     entry: &Entry,
     ancestors: Aggregate,
@@ -222,10 +264,14 @@ impl<'a> Graph<'a> {
         if let Some(entry) = self.entries.get(hash) {
             return Ok(Some(Arc::clone(entry)));
         }
-        let entry = self
-            .store
-            .get(hash, &mut self.reads)?
-            .filter(|entry| entry.accepted().is_some());
+        // Reuse the original observation, including absence. Every consumer
+        // carries these reads to Apply, which still validates current identity.
+        let entry = match self.reads.observed_owner(hash) {
+            Some(None) => None,
+            Some(Some(owner)) => Some(owner.upgrade().ok_or(Error::Stale)?),
+            None => self.store.get(hash, &mut self.reads)?,
+        }
+        .filter(|entry| entry.accepted().is_some());
         if let Some(entry) = &entry {
             self.entries.insert(compact_packed(hash), Arc::clone(entry));
         }
@@ -277,6 +323,43 @@ impl<'a> Graph<'a> {
             stack.extend(accepted(&entry)?.parents.iter().cloned());
         }
         Ok(result)
+    }
+    /// Compute original totals only for entries that need removal notices.
+    /// Observe each descendant relation once, then reuse immutable parent edges.
+    pub(super) fn removal_totals(
+        &mut self,
+        hashes: &[Byte32],
+        max_ancestors: usize,
+    ) -> Result<BTreeMap<Byte32, (Aggregate, Aggregate)>, Error> {
+        let mut totals = BTreeMap::new();
+        for hash in hashes {
+            let ancestors = self.ancestors([hash.clone()], &BTreeSet::new(), max_ancestors)?;
+            totals.insert(
+                compact_packed(hash),
+                (aggregate(&self.entries, &ancestors)?, Aggregate::default()),
+            );
+        }
+        let descendants = self.descendants(
+            hashes.iter().cloned(),
+            &BTreeSet::new(),
+            self.store.budget.limits.accepted.items,
+        )?;
+        for hash in &descendants {
+            let own = Aggregate::one(accepted(self.entries.get(hash).ok_or(Error::Stale)?)?);
+            let mut seen = BTreeSet::new();
+            let mut stack = vec![hash.clone()];
+            while let Some(parent) = stack.pop() {
+                if !descendants.contains(&parent) || !seen.insert(parent.clone()) {
+                    continue;
+                }
+                if let Some((_, total)) = totals.get_mut(&parent) {
+                    *total = total.add(own)?;
+                }
+                let entry = self.entries.get(&parent).ok_or(Error::Stale)?;
+                stack.extend(accepted(entry)?.parents.iter().cloned());
+            }
+        }
+        Ok(totals)
     }
     pub(super) fn entry_snapshot(
         &mut self,
@@ -441,15 +524,13 @@ fn rbf(
     }
     Ok(removed)
 }
-fn validate_backing(verified: &Verified, removed: &BTreeSet<Byte32>) -> Result<(), Error> {
+fn validate_backing(
+    verified: &Verified,
+    inputs: &BTreeSet<OutPoint>,
+    removed: &BTreeSet<Byte32>,
+) -> Result<(), Error> {
     // Inputs require atomic replacement of their spender. A cell-dep reader
     // may precede an existing spender in a block; packing enforces that order.
-    let inputs: BTreeSet<_> = verified
-        .resolved()
-        .transaction
-        .transaction
-        .input_pts_iter()
-        .collect();
     if let Some((point, _)) = verified
         .resolved()
         .reads
@@ -587,7 +668,8 @@ fn prepare_admission(
         .iter()
         .map(|hash| (hash.clone(), Removal::Replacement))
         .collect();
-    validate_backing(verified, &removed)?;
+    let inputs = candidate.transaction.input_pts_iter().collect();
+    validate_backing(verified, &inputs, &removed)?;
     let parents = candidate_parents(graph, candidate, verified, &removed)?;
     let ancestors = graph.ancestors(
         parents.iter().cloned(),
@@ -656,6 +738,9 @@ fn prepare_admission(
         .checked_sub(released)
         .and_then(|usage| usage.checked_add(added));
     if optimistic.is_none_or(|usage| !usage.fits(store.budget.limits.accepted)) {
+        // This speculative map will be rebuilt from the full cut below.
+        // Release it before the full capture and replacement map overlap.
+        drop(virtual_entries);
         let (full_view, _, all, reads) = store.capture(true);
         if full_view != view {
             return Err(Error::Stale);
@@ -682,12 +767,22 @@ fn prepare_admission(
             store.budget.limits.accepted,
         )?;
     }
-    validate_backing(verified, &removed)?;
+    validate_backing(verified, &inputs, &removed)?;
     let mut plan = Plan::new(view, ingress::class(candidate.source));
     let order = removal_order(&graph.entries, &removed)?;
+    let removed_totals = if order.len() > 1 {
+        Some(graph.removal_totals(&order, config.max_ancestors_count)?)
+    } else {
+        None
+    };
     for hash in order {
         let old = graph.require(&hash)?;
-        let old_snapshot = graph.entry_snapshot(&hash, config.max_ancestors_count)?;
+        let old_snapshot = if let Some(totals) = &removed_totals {
+            let (ancestors, descendants) = totals.get(&hash).ok_or(Error::Stale)?;
+            self::snapshot(&old, *ancestors, *descendants)?
+        } else {
+            graph.entry_snapshot(&hash, config.max_ancestors_count)?
+        };
         let reason =
             causes
                 .get(&hash)
@@ -696,7 +791,7 @@ fn prepare_admission(
         plan.effects
             .push(Effect::rejected(&hash, reason, Some(old_snapshot), true)?);
         let history = if retain_history {
-            history(&old, candidate, &removed, graph)?
+            history(&old, &inputs, &removed, graph)?
         } else {
             None
         };
@@ -712,12 +807,21 @@ fn prepare_admission(
         &admitted.hash(),
         config.max_ancestors_count,
     )?;
-    let descendants = descendant_hashes(
-        &children(&virtual_entries),
-        [admitted.hash()],
-        store.budget.limits.accepted.items,
+    let descendants = if late.is_empty() {
+        Aggregate::one(accepted(&admitted)?)
+    } else {
+        let descendants = descendant_hashes(
+            &children(&virtual_entries),
+            [admitted.hash()],
+            store.budget.limits.accepted.items,
+        )?;
+        aggregate(&virtual_entries, &descendants)?
+    };
+    let accepted_snapshot = self::snapshot(
+        &admitted,
+        aggregate(&virtual_entries, &ancestors)?,
+        descendants,
     )?;
-    let accepted_snapshot = snapshot_entry(&admitted, &virtual_entries, &ancestors, &descendants)?;
     plan.effects.push(Effect::accepted(
         accepted_snapshot,
         accepted(&admitted)?.status(snapshot),
@@ -727,19 +831,6 @@ fn prepare_admission(
     plan.reads.merge(&graph.reads)?;
     Ok(plan)
 }
-fn snapshot_entry(
-    entry: &Entry,
-    members: &Members,
-    ancestors: &BTreeSet<Byte32>,
-    descendants: &BTreeSet<Byte32>,
-) -> Result<TxEntrySnapshot, Error> {
-    snapshot(
-        entry,
-        aggregate(members, ancestors)?,
-        aggregate(members, descendants)?,
-    )
-}
-
 #[expect(
     clippy::too_many_arguments,
     reason = "One bounded virtual membership operation; arguments are its existing inputs and outputs."
@@ -800,6 +891,15 @@ fn trim_virtual(
         if touched.len() > MAX_POOL_MUTATION_CANDIDATES {
             return Err(component_limit(false));
         }
+        let mut update_rank = |ancestor: &Byte32, reduction: Aggregate| -> Result<(), Error> {
+            let parent = entries.get(ancestor).ok_or(Error::Stale)?;
+            let total = descendants.get_mut(ancestor).ok_or(Error::Stale)?;
+            ranks.remove(&EvictionRank::new(parent, *total, snapshot)?);
+            *total = total.sub(reduction)?;
+            ranks.insert(EvictionRank::new(parent, *total, snapshot)?);
+            Ok(())
+        };
+        let mut reductions: BTreeMap<Byte32, Aggregate> = BTreeMap::new();
         for hash in &closure {
             let entry = entries.get(hash).ok_or(Error::Stale)?;
             let own = Aggregate::one(accepted(entry)?);
@@ -807,12 +907,18 @@ fn trim_virtual(
                 if closure.contains(&ancestor) {
                     continue;
                 }
-                let parent = entries.get(&ancestor).ok_or(Error::Stale)?;
-                let total = descendants.get_mut(&ancestor).ok_or(Error::Stale)?;
-                ranks.remove(&EvictionRank::new(parent, *total, snapshot)?);
-                *total = total.sub(own)?;
-                ranks.insert(EvictionRank::new(parent, *total, snapshot)?);
+                if closure.len() == 1 {
+                    update_rank(&ancestor, own)?;
+                } else {
+                    let reduction = reductions.entry(ancestor).or_default();
+                    *reduction = reduction.add(own)?;
+                }
             }
+        }
+        // No selection occurs within a closure: settle every surviving rank
+        // once before the next round chooses its root.
+        for (ancestor, reduction) in reductions {
+            update_rank(&ancestor, reduction)?;
         }
         for hash in closure {
             let entry = entries.remove(&hash).ok_or(Error::Stale)?;
@@ -869,13 +975,12 @@ pub(super) fn removal_order(
 }
 fn history(
     old: &Entry,
-    candidate: &Entry,
+    candidate_inputs: &BTreeSet<OutPoint>,
     removed: &BTreeSet<Byte32>,
     graph: &mut Graph<'_>,
 ) -> Result<Option<Arc<Entry>>, Error> {
     let accepted = accepted(old)?;
     let mut triggers = BTreeSet::new();
-    let candidate_inputs: BTreeSet<_> = candidate.transaction.input_pts_iter().collect();
     for cell in accepted
         .transaction
         .resolved_inputs
@@ -939,13 +1044,22 @@ pub(super) fn removal(
         } else {
             MAX_POOL_MUTATION_CANDIDATES
         };
-        for hash in removal_order(&graph.entries, &removed)?
-            .into_iter()
-            .take(limit)
-        {
+        let mut order = removal_order(&graph.entries, &removed)?;
+        order.truncate(limit);
+        let removed_totals = if reason.is_some() && order.len() > 1 {
+            Some(graph.removal_totals(&order, config.max_ancestors_count)?)
+        } else {
+            None
+        };
+        for hash in order {
             let old = graph.require(&hash)?;
             if let Some(reason) = &reason {
-                let snapshot = graph.entry_snapshot(&hash, config.max_ancestors_count)?;
+                let snapshot = if let Some(totals) = &removed_totals {
+                    let (ancestors, descendants) = totals.get(&hash).ok_or(Error::Stale)?;
+                    self::snapshot(&old, *ancestors, *descendants)?
+                } else {
+                    graph.entry_snapshot(&hash, config.max_ancestors_count)?
+                };
                 plan.effects.push(Effect::rejected(
                     &hash,
                     reason.clone(),
@@ -962,3 +1076,7 @@ pub(super) fn removal(
     plan.reads.merge(&graph.reads)?;
     Ok(plan)
 }
+
+#[cfg(test)]
+#[path = "tests/membership_trim.rs"]
+mod trim_tests;

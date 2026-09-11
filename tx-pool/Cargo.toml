@@ -74,7 +74,26 @@ required-features = ["profiling"]
 name = "relay_batches"
 path = "benches/relay_batches/mod.rs"
 
+[[test]]
+name = "measurement_clock"
+path = "benches/measurement_clock/mod.rs"
+
+[[test]]
+name = "fanout_readiness"
+path = "benches/fanout_readiness/mod.rs"
+
+[[bench]]
+name = "packing_one_shot"
+harness = false
+required-features = ["packing-bench"]
+
+[[test]]
+name = "packing_contract"
+path = "benches/packing/contract.rs"
+required-features = ["packing-bench"]
+
 [features]
+packing-bench = []
 allocation-observation = []
 cross-version-legacy-bench-adapter = []
 internal = []

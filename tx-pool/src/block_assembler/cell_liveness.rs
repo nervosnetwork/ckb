@@ -8,7 +8,8 @@ use ckb_types::{
     prelude::Entity,
 };
 use ckb_util::Mutex;
-use std::collections::HashMap;
+use lru::LruCache;
+use std::collections::hash_map::RandomState;
 
 use crate::util::compact_packed;
 
@@ -26,21 +27,21 @@ use crate::util::compact_packed;
 /// fresh.
 pub(crate) struct CellLivenessMemo {
     pub(crate) tip_hash: Option<Byte32>,
-    pub(crate) inner: HashMap<OutPoint, Option<bool>>,
-    /// Hard bound proportional to the maximum number of serialized
-    /// outpoints that can fit in one block. Without it, same-tip mempool churn
-    /// can grow this optimization forever even though the pool itself stays
-    /// within its resident budget.
-    max_entries: usize,
+    /// The entry cap follows the block byte limit. Refreshing hits and evicting
+    /// one least-recently-used key preserves hot lookups through bounded churn.
+    /// Keys have compact backing; values include cached unknown results.
+    pub(crate) inner: LruCache<OutPoint, Option<bool>, RandomState>,
 }
 
 impl CellLivenessMemo {
     pub(crate) fn for_block_bytes(max_block_bytes: usize) -> Self {
         let packed_out_point_bytes = OutPoint::default().as_slice().len().max(1);
+        // Set the bound without eagerly reserving a maximum-sized hash table.
+        let mut inner = LruCache::with_hasher(0, RandomState::new());
+        inner.resize(max_block_bytes.div_ceil(packed_out_point_bytes).max(1));
         Self {
             tip_hash: None,
-            inner: HashMap::new(),
-            max_entries: max_block_bytes.div_ceil(packed_out_point_bytes).max(1),
+            inner,
         }
     }
 
@@ -58,13 +59,7 @@ impl CellLivenessMemo {
             return live;
         }
         let live = snapshot.is_live(out_point);
-        if self.inner.len() >= self.max_entries {
-            // A whole-map reset is O(1) amortized and keeps the hot path free
-            // of an LRU list. The cap covers a complete maximum-sized block,
-            // so ordinary template reuse is unaffected.
-            self.inner.clear();
-        }
-        self.inner.insert(compact_packed(out_point), live);
+        self.inner.put(compact_packed(out_point), live);
         live
     }
 }

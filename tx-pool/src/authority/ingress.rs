@@ -144,11 +144,27 @@ pub(super) fn prepare(
         Some(old) => old.arrival,
         None => store.next_arrival()?,
     };
+    let phase = match current.as_deref() {
+        Some(old)
+            if matches!(source, Source::Proposal { .. })
+                && old.transaction.witness_hash() == transaction.witness_hash() =>
+        {
+            // Resolution is source-independent once successful. Verification
+            // still validates its original view/reads and uses the new policy.
+            match &old.phase {
+                Phase::Verify(resolved) if resolved.view == view => {
+                    Phase::Verify(Arc::clone(resolved))
+                }
+                _ => Phase::Resolve,
+            }
+        }
+        _ => Phase::Resolve,
+    };
     let after = Arc::new(Entry {
         transaction,
         arrival,
         source,
-        phase: Phase::Resolve,
+        phase,
     });
     store.budget.limits.resolved_fits(&after)?;
     plan.edit(current, Some(after))?;

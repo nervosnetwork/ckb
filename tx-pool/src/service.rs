@@ -153,19 +153,6 @@ impl TxVerificationResultReceiver {
     /// Allocation pressure returns the successfully reserved prefix and leaves
     /// every remaining result in the bounded authority-owned channel.
     pub fn drain(&self, limit: usize) -> Vec<TxVerificationResult> {
-        let mut drained = Vec::new();
-        while drained.len() < limit {
-            // Relay observations are non-authoritative and nonblocking. Reserve
-            // before consuming so allocation pressure returns the exact prefix
-            // and leaves every unobserved result in the bounded channel.
-            if drained.try_reserve(1).is_err() {
-                break;
-            }
-            let Some(result) = self.try_recv() else {
-                break;
-            };
-            drained.push(result);
-        }
-        drained
+        self.0.drain(limit)
     }
 }

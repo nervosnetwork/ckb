@@ -19,6 +19,7 @@ from pathlib import Path
 from typing import Any
 
 from measurement_process import run_process
+from measurement_window import parse_measurement_window, parse_readiness, wall_alignment
 
 
 WORKSPACE_ROOT = Path(__file__).resolve().parents[2]
@@ -26,14 +27,15 @@ ONE_SHOT_SOURCE = WORKSPACE_ROOT / "tx-pool" / "benches" / "profile_one_shot.rs"
 SPAN_SOURCE = ONE_SHOT_SOURCE.with_name("profile_spans") / "mod.rs"
 SCRIPT_SOURCE = Path(__file__).resolve()
 PROCESS_SOURCE = SCRIPT_SOURCE.with_name("measurement_process.py")
+WINDOW_SOURCE = SCRIPT_SOURCE.with_name("measurement_window.py")
 REMAPPED_SOURCE_ROOT = "/ckb-txpool-profile-source"
 MARKER_PREFIX = "TX_POOL_PROFILE_WINDOW "
 OBSERVATION_PREFIX = "TX_POOL_PROFILE_OBSERVATION "
 ONE_SHOT_FEATURES = ("profiling",)
-PROFILE_SCHEMA_VERSION = 2
+PROFILE_SCHEMA_VERSION = 3
 OBSERVATION_SCHEMA_VERSION = 2
-MANIFEST_SCHEMA_VERSION = 8
-SUMMARY_SCHEMA_VERSION = 7
+MANIFEST_SCHEMA_VERSION = 9
+SUMMARY_SCHEMA_VERSION = 8
 FINAL_BUILD_PROFILE = "prod"
 ARTIFACT_SUFFIXES = {
     "profile": ".json.gz",
@@ -359,29 +361,13 @@ def tagged_json(stdout: str, prefix: str, label: str) -> dict[str, Any]:
 
 
 def parse_marker(stdout: str) -> dict[str, Any]:
+    if any(line.startswith("BENCH_DIAGNOSTICS ") for line in stdout.splitlines()):
+        raise ProfileError("profile contains additional diagnostic instrumentation")
     marker = tagged_json(stdout, MARKER_PREFIX, "profile window")
-    if set(marker) != {
-        "schema_version",
-        "scenario",
-        "start_unix_nanos",
-        "end_unix_nanos",
-        "elapsed_nanos",
-    } or marker["schema_version"] != PROFILE_SCHEMA_VERSION:
-        raise ProfileError("profile window schema is unsupported")
-    start, end, elapsed = (
-        marker["start_unix_nanos"],
-        marker["end_unix_nanos"],
-        marker["elapsed_nanos"],
-    )
-    if (
-        any(type(value) is not int for value in (start, end, elapsed))
-        or start >= end
-        or end - start != elapsed
-    ):
-        raise ProfileError("profile window timestamps are inconsistent")
-    if not isinstance(marker["scenario"], str) or not marker["scenario"]:
-        raise ProfileError("profile scenario name is empty")
-    return marker
+    try:
+        return parse_measurement_window(stdout, marker.get("scenario"), marker.get("elapsed_nanos"))
+    except ValueError as error:
+        raise ProfileError(str(error)) from error
 
 
 def parse_observation(stdout: str, expected: dict[str, Any]) -> dict[str, Any]:
@@ -408,6 +394,10 @@ def parse_observation(stdout: str, expected: dict[str, Any]) -> dict[str, Any]:
     ):
         raise ProfileError("profile observation throughput is invalid")
     elapsed = observation["elapsed_nanos"]
+    try:
+        parse_readiness(stdout, expected["scenario"], expected["target"], elapsed)
+    except ValueError as error:
+        raise ProfileError(str(error)) from error
     if elapsed <= 0 or not math.isclose(throughput, expected["target"] * 1e9 / elapsed, rel_tol=1e-9):
         raise ProfileError("profile throughput differs from target count and elapsed time")
     if (
@@ -460,10 +450,14 @@ def parse_observation(stdout: str, expected: dict[str, Any]) -> dict[str, Any]:
 
 
 def validate_window_observation(window: dict[str, Any], observation: dict[str, Any]) -> None:
-    elapsed = observation["elapsed_nanos"]
-    tolerance = max(1_000_000, elapsed // 10_000)
-    if window["scenario"] != observation["scenario"] or abs(window["elapsed_nanos"] - elapsed) > tolerance:
-        raise ProfileError("profile wall window differs from monotonic observation")
+    try:
+        parse_measurement_window(MARKER_PREFIX + json.dumps(window),
+                                 observation["scenario"], observation["elapsed_nanos"])
+        alignment = wall_alignment(window)
+    except ValueError as error:
+        raise ProfileError(str(error)) from error
+    if not alignment["profile_alignment_valid"]:
+        raise ProfileError(f"profile wall alignment is uncertain: {alignment}")
 
 
 def git_identity() -> dict[str, str]:
@@ -512,7 +506,17 @@ def file_identity(path: Path) -> dict[str, Any]:
     }
 
 
+def harness_sources() -> list[Path]:
+    sources = {ONE_SHOT_SOURCE, SCRIPT_SOURCE, PROCESS_SOURCE, WINDOW_SOURCE}
+    for directory in ("profile_spans", "relay_batches", "measurement_clock", "resource_phases", "allocation_observation"):
+        sources.add(ONE_SHOT_SOURCE.parent / directory / "mod.rs")
+    sources.update(path for path in ONE_SHOT_SOURCE.parent.rglob("*.rs") if path.is_file())
+    return sorted(sources)
+
+
 def capture_source_identity(sources: list[Path]) -> dict[str, Any]:
+    if sources != harness_sources():
+        raise ProfileError("harness source bundle membership changed")
     return {
         "git": git_identity(),
         "inputs": {
@@ -528,7 +532,7 @@ def capture_source_identity(sources: list[Path]) -> dict[str, Any]:
 def capture(args: argparse.Namespace) -> Path:
     paths = output_paths(args.output_prefix)
     prepare_outputs(paths, args.force)
-    sources = [ONE_SHOT_SOURCE, SPAN_SOURCE, SCRIPT_SOURCE, PROCESS_SOURCE]
+    sources = harness_sources()
     frozen_source = capture_source_identity(sources)
     scenario = {name: getattr(args, name) for name in SCENARIO_FIELDS}
     runtime_args = [str(scenario[name]) for name in SCENARIO_FIELDS]
@@ -594,6 +598,7 @@ def capture(args: argparse.Namespace) -> Path:
         "features": list(ONE_SHOT_FEATURES),
         "scenario": scenario,
         "observation": observation,
+        "readiness": parse_readiness(completed.stdout, scenario["scenario"], scenario["target"], observation["elapsed_nanos"]),
         "window": window,
         "capture": {
             "sample_rate_hz": args.rate,
@@ -602,7 +607,8 @@ def capture(args: argparse.Namespace) -> Path:
             "build_command": build_command,
             "build_profile": FINAL_BUILD_PROFILE,
         },
-        "span_capture": {"command": span_command, "window": span_window},
+        "span_capture": {"command": span_command, "window": span_window,
+                         "readiness": parse_readiness(span_completed.stdout, scenario["scenario"], scenario["target"], span_observation["elapsed_nanos"])},
         "environment": environment_identity(build_env),
         "inputs": {
             **frozen_source["inputs"],
@@ -889,7 +895,8 @@ def analyze_spans(manifest: dict[str, Any], path: Path) -> dict[str, Any]:
         "total_starts": starts,
         "total_elapsed_nanos": sum(span["elapsed_nanos"] for span in spans),
         "spans": spans,
-        "unobserved_span_names": [span["name"] for span in spans if observed(span) == 0],
+        "unobserved_span_names": [span["name"] for span in spans
+                                  if observed(span) == 0 and span["start_count"] == 0],
         **({"capture_window": counters["capture_window"]} if entered else {}),
         "interpretation": (
             "Inclusive entered-scope/poll wall time inside the separately reported capture window, using a Unix-anchored monotonic clock. "
@@ -923,7 +930,12 @@ def analyze_profile(manifest: dict[str, Any], bundle_dir: Path) -> dict[str, Any
     validate_window_observation(window, observation)
     if observation != manifest.get("observation"):
         raise ProfileError("profile observation differs from its manifest")
-    validate_window_observation(span_window, parse_observation(span_stdout, expected))
+    span_observation = parse_observation(span_stdout, expected)
+    validate_window_observation(span_window, span_observation)
+    readiness = parse_readiness(stdout, expected["scenario"], expected["target"], observation["elapsed_nanos"])
+    span_readiness = parse_readiness(span_stdout, expected["scenario"], expected["target"], span_observation["elapsed_nanos"])
+    if readiness != manifest.get("readiness") or span_readiness != manifest.get("span_capture", {}).get("readiness"):
+        raise ProfileError("readiness observation differs from its manifest")
     profile = read_json(paths["profile"])
     samples = analyze_samples(
         profile,
@@ -934,6 +946,8 @@ def analyze_profile(manifest: dict[str, Any], bundle_dir: Path) -> dict[str, Any
         "schema_version": SUMMARY_SCHEMA_VERSION,
         "scenario": expected,
         "observation": observation,
+        "readiness": readiness,
+        "span_readiness": span_readiness,
         **samples,
         "sampling": {
             "requested_rate_hz": manifest["capture"]["sample_rate_hz"],
@@ -952,7 +966,7 @@ def analyze_manifest(manifest_path: Path) -> Path:
         "features"
     ) != list(ONE_SHOT_FEATURES):
         raise ProfileError("manifest harness identity is unsupported")
-    sources = [ONE_SHOT_SOURCE, SPAN_SOURCE, SCRIPT_SOURCE, PROCESS_SOURCE]
+    sources = harness_sources()
     inputs = manifest.get("inputs")
     if (
         not isinstance(inputs, dict)

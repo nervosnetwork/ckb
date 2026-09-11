@@ -1,7 +1,7 @@
 //! Two factual queues with separate locks. Pop releases its lane before acquiring owner guards.
 use super::{
-    budget::{Budget, Reservation},
-    model::{Entry, Error, Phase},
+    budget::{ActivePermit, Budget},
+    model::{Entry, Error, FullReason, Phase},
 };
 use ckb_app_config::VerifyOrdering;
 use ckb_network::PeerIndex;
@@ -65,6 +65,8 @@ struct OwnerQueue {
 struct Lane {
     owners: BTreeMap<WorkOwner, OwnerQueue>,
     cursor: Option<WorkOwner>,
+    // Exact entries across small/large maps, including uncollected stale Weak values.
+    len: usize,
 }
 
 pub(super) struct Queues {
@@ -88,11 +90,7 @@ impl Queues {
     pub(super) fn queued_len(&self) -> usize {
         let resolve = self.resolve.lock();
         let verify = self.verify.lock();
-        [&*resolve, &*verify]
-            .into_iter()
-            .flat_map(|lane| lane.owners.values())
-            .flat_map(|queue| [queue.small.len(), queue.large.len()])
-            .sum()
+        [resolve.len, verify.len].into_iter().sum()
     }
     pub(super) fn take(&self) -> Self {
         // Clear owns the lifecycle and all owner guards. Like summary capture,
@@ -147,6 +145,10 @@ impl Queues {
             },
         ))
     }
+    #[expect(
+        clippy::arithmetic_side_effects,
+        reason = "The count grows only for a newly allocated map entry; live entries cannot exceed usize."
+    )]
     pub(super) fn insert(&self, entry: &Arc<Entry>) {
         let Some((stage, large, owner, key)) = self.key(entry) else {
             return;
@@ -158,8 +160,14 @@ impl Queues {
         } else {
             &mut queue.small
         };
-        entries.insert(key, Arc::downgrade(entry));
+        if entries.insert(key, Arc::downgrade(entry)).is_none() {
+            lane.len += 1;
+        }
     }
+    #[expect(
+        clippy::arithmetic_side_effects,
+        reason = "Each successful removal owns one entry already included in the lane count."
+    )]
     pub(super) fn remove(&self, entry: &Arc<Entry>) {
         let Some((stage, large, owner, key)) = self.key(entry) else {
             return;
@@ -171,25 +179,31 @@ impl Queues {
             } else {
                 &mut queue.small
             };
-            if entries
+            let removed = entries
                 .get(&key)
                 .is_some_and(|old| old.ptr_eq(&Arc::downgrade(entry)))
-            {
-                entries.remove(&key);
+                && entries.remove(&key).is_some();
+            let empty = queue.small.is_empty() && queue.large.is_empty();
+            if removed {
+                lane.len -= 1;
             }
-            if queue.small.is_empty() && queue.large.is_empty() {
+            if empty {
                 lane.owners.remove(&owner);
             }
         }
     }
     /// Active memory/peer capacity is reserved before removing the exact item.
     /// Neither this queue nor the budget mutex ever waits for an owner lock.
+    #[expect(
+        clippy::arithmetic_side_effects,
+        reason = "Each successful pop removes one entry already included in the lane count."
+    )]
     pub(super) fn pop(
         &self,
         stage: WorkStage,
         small_only: bool,
         budget: &Arc<Budget>,
-    ) -> Result<Option<(Arc<Entry>, Reservation)>, Error> {
+    ) -> Result<Option<(Arc<Entry>, ActivePermit)>, Error> {
         let mut lane = self.lane(stage).lock();
         let mut cursor = lane.cursor;
         let bound = lane.owners.len();
@@ -222,25 +236,33 @@ impl Queues {
             let Some((large, key, entry)) = selected else {
                 continue;
             };
-            let reserved = match entry.as_ref().map(|entry| budget.active(entry.source)) {
-                Some(Ok(reservation)) => Some(reservation),
-                Some(Err(Error::Full(_))) => continue,
-                Some(Err(error)) => return Err(error),
+            let selected = match entry {
+                Some(entry) => match budget.active(entry.source) {
+                    Ok(reservation) => Some((entry, reservation)),
+                    // Total capacity blocks every peer and both work stages.
+                    Err(error @ Error::Full(FullReason::Active)) => return Err(error),
+                    Err(Error::Full(_)) => continue,
+                    Err(error) => return Err(error),
+                },
                 None => None,
             };
             if let Some(queue) = lane.owners.get_mut(&owner) {
-                if large {
-                    queue.large.remove(&key);
+                let removed = if large {
+                    queue.large.remove(&key)
                 } else {
-                    queue.small.remove(&key);
+                    queue.small.remove(&key)
+                };
+                let empty = queue.small.is_empty() && queue.large.is_empty();
+                if removed.is_some() {
+                    lane.len -= 1;
                 }
-                if queue.small.is_empty() && queue.large.is_empty() {
+                if empty {
                     lane.owners.remove(&owner);
                 }
             }
-            if let (Some(entry), Some(reservation)) = (entry, reserved) {
+            if let Some(selected) = selected {
                 lane.cursor = Some(owner);
-                return Ok(Some((entry, reservation)));
+                return Ok(Some(selected));
             }
         }
         Ok(None)

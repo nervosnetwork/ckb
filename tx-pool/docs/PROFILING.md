@@ -13,6 +13,7 @@ service and validates exact callback/relay terminals.
 | Which pool paths execute, and how often? | `profiling` + `TX_POOL_PROFILE_TRACE_PATH` | Entered-scope wall time and counts in a separate run |
 | Which tasks poll, wait or wake repeatedly? | `tokio-trace` + Tokio Console | Runtime scheduling events; busy time is not CPU time |
 | Does a change reduce allocation traffic? | `allocation-observation` through the comparison runner | Allocation calls and requested bytes inside the target window |
+| Which workload boundaries raise resident memory? | `TX_POOL_BENCH_RESOURCE_PHASES=1` on the finite executor | Resident bytes and cumulative lifetime high-water marks outside timing |
 | Does the change improve production behavior? | Uninstrumented A/A and A/B | Throughput, target process CPU and process-lifetime peak RSS |
 
 Default builds enable none of these diagnostics. `tokio-trace` includes
@@ -47,10 +48,13 @@ a debug binary into a production build. `--target-dir` changes the isolated buil
 directory; the capture CLI has no arbitrary build-feature option.
 
 Other useful workloads are `always_success`, `secp256k1`, `dependent`,
-`dependent_reverse`, `dependent_forest_10`, `fanout`, `fanout_reverse`,
+`dependent_reverse`, `dependent_forest_10`, `fanout`, `fanout_ready_64_reverse`,
 `reorg_in_flight` and `always_success_callback_500us`. Reverse workloads require
-`warm=0`; RBF requires equal warm and target counts. The current fanout fixture
-supports at most 5,752 transactions. The [benchmark guide](BENCHMARK.md#workload-integrity)
+`warm=0`, except independent fanout cohorts, whose target and warm counts must
+each be multiples of 65; RBF requires equal warm and target counts. Single-parent
+fanout supports at most 5,752 transactions. `fanout_reverse` is a capacity stress
+with a separate result contract and is not accepted by the profile analyzer.
+The [benchmark guide](BENCHMARK.md#workload-integrity)
 explains fixture and terminal constraints. Peer ranges are split into contiguous
 batches using actual relay count/byte limits, preserving peer and cycle identity.
 
@@ -68,9 +72,11 @@ For prefix `rbf`, keep the complete bundle together:
 
 Analysis verifies artifact paths, sizes and SHA-256 before consuming them. The
 bundle can move and no longer needs the capture binary. Preserve the analyzer
-and its [process helper](../scripts/measurement_process.py) with an immutable study;
+and its [process helper](../scripts/measurement_process.py) and
+[window parser](../scripts/measurement_window.py) with an immutable study;
 use the matching analyzer for each bundle schema. Current manifest/summary/window
-schemas are 8/7/2, and current span output is schema 4. Reanalysis is not a new
+schemas are 9/8/3, and current span output is schema 4. All Rust harness modules
+are included in source identity. Reanalysis is not a new
 timing run.
 
 ### Read the result correctly
@@ -91,6 +97,8 @@ into one execution timeline.
 | `authority.acquire` | Sequential acquisition/bookkeeping, partly with guards already held; not pure lock wait |
 | `stage.verify` | Entered verifier-driver scope; separately spawned VM work is outside that driver scope |
 | `effects.publish` | Synchronous endpoint work; a blocked callback can increase wall time without consuming CPU |
+| `publisher.group` / `publisher.offload` | Selected ready-prefix publication and its grouped blocking boundary |
+| `publisher.ready_*` | Creation counts by selected prefix size; these markers are never entered and have no duration meaning |
 
 Schema 4 records starts, entries, active counts at capture boundaries and cumulative
 entered wall time clipped to its own window, including scopes entered before it.
@@ -99,8 +107,27 @@ scope remains included. Nested/concurrent entries overlap.
 
 CPU analysis includes only complete intervals whose preceding sample is already
 inside the window. Inspect observed-CPU coverage and missing-stack weight before
-attribution. A waiting stack is not proof of CPU spent waiting. Wall and monotonic
-windows must agree within `max(1 ms, elapsed / 10,000)`.
+attribution. A waiting stack is not proof of CPU spent waiting. The target marker
+projects one monotonic window through bracketed wall anchors; its duration must
+exactly match the target observation. Profile attribution additionally requires
+the independent end-anchor discrepancy plus both anchor uncertainties to fit
+`max(1 ms, elapsed / 10,000)`. A wall adjustment or slow anchor read rejects profile
+alignment without corrupting the separate monotonic throughput measurement.
+
+## Observe memory by phase
+
+Run a finite executor directly with `TX_POOL_BENCH_RESOURCE_PHASES=1`, preserving
+its binary/source identity and using the same owned-process timeout as other
+diagnostics. `BENCH_RESOURCE_PHASES` reports process start, fixture, service,
+preflight, warmup, target completion, validation, reorg and shutdown boundaries.
+The observations include resident bytes and cumulative lifetime peak RSS on
+macOS/Linux. A later high-water mark retains all earlier peaks: subtracting two
+marks does not measure allocations or the memory cost of that phase.
+
+This mode adds OS reads and retained observations. Its diagnostic marker makes
+both formal timing and CPU-profile analysis reject the run. Use its snapshots
+to form a memory hypothesis, then verify that hypothesis with the appropriate
+source/allocation evidence and an uninstrumented comparison.
 
 ## Observe tasks with Tokio Console
 
@@ -170,6 +197,8 @@ supplied binary must already include it. Only allocation calls/bytes may rank
 that experiment; the recorded timing and RSS remain diagnostic. Allocation bytes
 are traffic, not retained memory or a leak measurement. Compare source/destination
 sharing and lifetime with the [resource review](REVIEW_GUIDE.md#check-resource-composition).
+
+The separate [template selection benchmark](BENCHMARK.md#measure-template-transaction-selection) calls the production packing algorithm directly. Its per-call windows, setup cost, selected fees and capacity utilization have a distinct contract from admission. Use its default-off `packing-bench` feature without tracing for timing; the admission profile analyzer does not consume packing markers.
 
 ## Investigate a performance problem
 

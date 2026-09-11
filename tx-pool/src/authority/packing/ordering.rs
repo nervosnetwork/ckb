@@ -1,8 +1,10 @@
 //! Conditional read-before-spend ordering for an already selected transaction set.
 
-use super::{EvictionRank, MAX_CONDITIONAL_CYCLE_ROUNDS, PackingError, Selection};
+use super::{EvictionRank, PackingError, Selection};
 use ckb_types::packed::{Byte32, OutPoint};
 use std::collections::{BTreeSet, HashMap, HashSet};
+
+const MAX_CONDITIONAL_CYCLE_ROUNDS: usize = 64;
 
 impl Selection {
     pub(super) fn order_packed_indices(
@@ -26,10 +28,12 @@ impl Selection {
             *active.get_mut(index).ok_or(PackingError::Projection)? = true;
         }
 
+        // A unique spender and fixed package parents make every later graph
+        // the induced subgraph of this selection. Drops cannot create edges.
+        let graph = self.conditional_graph(&active, by_hash)?;
         let mut cycle_round = 0usize;
         let mut eviction = None;
         loop {
-            let graph = self.conditional_graph(&active, by_hash)?;
             let ordered = topological_active_order(&active, &rank, &graph.children)?;
             if ordered.len() == active.iter().filter(|is_active| **is_active).count() {
                 return Ok(ordered);
@@ -279,8 +283,12 @@ fn topological_active_order(
             continue;
         }
         for child in next {
-            if !active.get(*child).is_some_and(|is_active| *is_active) {
-                return Err(PackingError::Projection);
+            if !active
+                .get(*child)
+                .copied()
+                .ok_or(PackingError::Projection)?
+            {
+                continue;
             }
             let degree = indegree.get_mut(*child).ok_or(PackingError::Projection)?;
             *degree = degree.checked_add(1).ok_or(PackingError::Arithmetic)?;
@@ -307,6 +315,13 @@ fn topological_active_order(
     while let Some((_position, index)) = ready.pop_first() {
         ordered.push(index);
         for child in children.get(index).ok_or(PackingError::Projection)? {
+            if !active
+                .get(*child)
+                .copied()
+                .ok_or(PackingError::Projection)?
+            {
+                continue;
+            }
             let degree = indegree.get_mut(*child).ok_or(PackingError::Projection)?;
             *degree = degree.checked_sub(1).ok_or(PackingError::Projection)?;
             if *degree == 0 {
@@ -365,8 +380,12 @@ fn strongly_connected_active(
                 .iter()
                 .rev()
             {
-                if !active.get(*child).is_some_and(|is_active| *is_active) {
-                    return Err(PackingError::Projection);
+                if !active
+                    .get(*child)
+                    .copied()
+                    .ok_or(PackingError::Projection)?
+                {
+                    continue;
                 }
                 if !visited
                     .get(*child)
@@ -389,6 +408,13 @@ fn strongly_connected_active(
             continue;
         }
         for child in next {
+            if !active
+                .get(*child)
+                .copied()
+                .ok_or(PackingError::Projection)?
+            {
+                continue;
+            }
             let count = parent_counts
                 .get_mut(*child)
                 .ok_or(PackingError::Projection)?;
@@ -409,6 +435,13 @@ fn strongly_connected_active(
             continue;
         }
         for child in next {
+            if !active
+                .get(*child)
+                .copied()
+                .ok_or(PackingError::Projection)?
+            {
+                continue;
+            }
             parents
                 .get_mut(*child)
                 .ok_or(PackingError::Projection)?
@@ -480,6 +513,13 @@ fn drop_package_descendants(
             .get(index)
             .ok_or(PackingError::Projection)?
         {
+            if !active
+                .get(*child)
+                .copied()
+                .ok_or(PackingError::Projection)?
+            {
+                continue;
+            }
             let child_dropped = dropped.get_mut(*child).ok_or(PackingError::Projection)?;
             if !*child_dropped {
                 *child_dropped = true;
@@ -494,3 +534,7 @@ fn drop_package_descendants(
     }
     Ok(())
 }
+
+#[cfg(test)]
+#[path = "../tests/packing_ordering.rs"]
+mod tests;

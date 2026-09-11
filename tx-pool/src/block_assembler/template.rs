@@ -73,14 +73,8 @@ impl BlockTemplate {
     }
 }
 
-#[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
-pub(crate) struct TemplateSize {
-    pub(crate) total: usize,
-}
-
 pub(crate) struct CurrentTemplate {
     pub(crate) template: BlockTemplate,
-    pub(crate) size: TemplateSize,
     pub(crate) source: Option<crate::authority::TemplateSource>,
 }
 

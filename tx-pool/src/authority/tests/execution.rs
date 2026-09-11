@@ -5,6 +5,7 @@ use crate::{
     network::DummyTxPoolNetwork,
 };
 use ckb_types::packed::OutPoint;
+use ckb_util::Mutex;
 use ckb_verification::cache::init_cache;
 use std::collections::BTreeSet;
 use std::future::Future;
@@ -1738,4 +1739,250 @@ async fn local_removal_completes_the_accepted_closure_beyond_an_expiry_page() {
     pool.close_outbox();
     within(publisher).await.unwrap().unwrap();
     assert!(pool.persistence_eligible());
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn background_rejection_releases_work_before_a_blocked_callback_and_preserves_join() {
+    for cancel_publisher in [false, true] {
+        let (pool, sink, drain, _) = fixture();
+        let victim = accept(&pool.store, output_tx(8120), 1, 1, Status::Pending);
+        let independent = fund(&pool, 8121);
+        let local = fund(&pool, 8122);
+        let (entered, mut events) = mpsc::unbounded_channel();
+        let (release, waiting) = std::sync::mpsc::channel();
+        let waiting = std::sync::Mutex::new(waiting);
+        let blocked = victim.clone();
+        let mut callbacks = Callbacks::new();
+        callbacks.register_reject(Box::new(move |entry, _| {
+            if entry.transaction.hash() == blocked {
+                entered.send(()).unwrap();
+                waiting
+                    .lock()
+                    .unwrap()
+                    .recv_timeout(Duration::from_secs(20))
+                    .unwrap();
+            }
+        }));
+        // Preaccepted rejection does not itself have an accepted-entry
+        // callback. An earlier real expiry callback blocks its FIFO publisher.
+        let head = pool
+            .store
+            .apply(
+                membership::removal(
+                    &pool.store,
+                    &pool.store.point(&victim).1.unwrap(),
+                    &pool.config,
+                    Some(Reject::Expiry(0)),
+                )
+                .unwrap(),
+            )
+            .unwrap()
+            .unwrap();
+        let publisher =
+            tokio::spawn(Arc::clone(&pool.store.outbox).run(endpoints(sink, callbacks)));
+        within(events.recv()).await.unwrap();
+        assert!(!publisher.is_finished());
+        let mut published = Box::pin(head.wait(&pool.store.outbox));
+        assert!(futures_util::poll!(published.as_mut()).is_pending());
+        drop(published);
+
+        let source = ingress::remote_source(8120.into(), 1).unwrap();
+        let rejected = entry(
+            &pool.store,
+            funded_tx(OutPoint::new(tx(8123).hash(), 0), 20_000_000_000)
+                .as_advanced_builder()
+                .header_dep(tx(8124).hash())
+                .build(),
+            source,
+        );
+        assert!(matches!(
+            jobs::resolve(&pool.store, &rejected, &pool.config),
+            Ok(Resolution::Rejected(Reject::Resolve(_), _))
+        ));
+        insert(&pool.store, Arc::clone(&rejected));
+        // Only one worker runs, so subsequent Resolve progress must come from
+        // the worker that rejected this transaction, not another verifier.
+        let worker = tokio::spawn(Arc::clone(&pool).worker(WorkStage::Resolve, 0));
+        within(async {
+            loop {
+                let changed = pool.store.budget.changed.notified();
+                tokio::pin!(changed);
+                changed.as_mut().enable();
+                if pool.store.point(&rejected.hash()).1.is_none()
+                    && let Ok(memory) = pool.store.budget.active(source)
+                {
+                    drop(memory);
+                    break;
+                }
+                assert!(!pool.is_faulted());
+                changed.await;
+            }
+        })
+        .await;
+        assert!(pool.store.outbox.pending_reject(&rejected.hash()).is_some());
+        assert!(!publisher.is_finished());
+        pool.submit_remote(bounded(independent.clone()), 1, 8120.into())
+            .await
+            .unwrap();
+        observe(&pool, &independent.hash(), |entry| {
+            matches!(entry.phase, Phase::Verify(_))
+        })
+        .await;
+
+        let local = if cancel_publisher {
+            None
+        } else {
+            let submitting = Arc::clone(&pool);
+            let expected = local.hash();
+            let response =
+                tokio::spawn(async move { submitting.submit_local(bounded(local), false).await });
+            observe(&pool, &expected, |entry| entry.accepted().is_some()).await;
+            // A committed direct local request still waits for its effects.
+            assert!(!response.is_finished());
+            Some(response)
+        };
+        pool.stop();
+        within(worker).await.unwrap().unwrap();
+        assert!(pool.verification.resume().is_err());
+        assert!(!publisher.is_finished());
+        assert!(!pool.persistence_eligible());
+        if let Some(response) = &local {
+            assert!(!response.is_finished());
+        }
+        if cancel_publisher {
+            publisher.abort();
+            assert!(!publisher.is_finished());
+        } else {
+            pool.close_outbox();
+        }
+        // Stop joined the background worker while the callback was blocked;
+        // publication still owns its batch and cannot join until release.
+        release.send(()).unwrap();
+        let result = within(publisher).await;
+        if cancel_publisher {
+            assert!(result.unwrap_err().is_cancelled());
+            assert!(pool.is_faulted());
+            assert!(matches!(pool.open(), Err(Error::Fault(_))));
+            pool.close_outbox();
+            assert!(!pool.persistence_eligible());
+        } else {
+            result.unwrap().unwrap();
+            assert!(within(local.unwrap()).await.unwrap().unwrap().is_ok());
+            assert!(pool.persistence_eligible());
+            assert!(!pool.is_faulted());
+        }
+        within(head.wait(&pool.store.outbox)).await.unwrap();
+        assert!(pool.store.budget.active(source).is_ok());
+        let mut saw_rejection = false;
+        while let Some(result) = drain.try_recv() {
+            if matches!(result, TxVerificationResult::Reject { tx_hash } if tx_hash == rejected.hash())
+            {
+                saw_rejection = true;
+            }
+        }
+        assert!(saw_rejection);
+    }
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 1)]
+async fn admitted_ingress_batch_returns_a_poll_boundary_and_preserves_the_stopped_prefix() {
+    for proposal in [false, true] {
+        let (pool, _, _, _) = fixture();
+        let transactions: Vec<_> = (8200..8712)
+            .map(|nonce| funded_tx(OutPoint::new(tx(nonce).hash(), 0), 20_000_000_000))
+            .collect();
+        let hashes: Vec<_> = transactions.iter().map(TransactionView::hash).collect();
+        let offered = transactions.len();
+        let (message, response) = if proposal {
+            (
+                crate::service::Message::NotifyTxs(crate::service::Notify::new(
+                    crate::service::NotifyTxBatch::try_new(transactions).unwrap(),
+                )),
+                None,
+            )
+        } else {
+            let batch = crate::service::RemoteTxSubmissionBatch::try_new(
+                transactions.into_iter().map(|tx| (tx, 1)).collect(),
+                62.into(),
+            )
+            .unwrap();
+            let (sender, response) = tokio::sync::oneshot::channel();
+            (
+                crate::service::Message::SubmitRemoteTxBatch(Request::call(batch, sender)),
+                Some(response),
+            )
+        };
+        let (observed, first_poll) = tokio::sync::oneshot::channel();
+        let (resume, resumed) = tokio::sync::oneshot::channel();
+        let running = Arc::clone(&pool);
+        // A real spawned Tokio handler has a cooperative budget. No pool
+        // workers or publisher can create unrelated awaits for these fresh,
+        // valid first installations; the public message bounds remain intact.
+        let handler = tokio::spawn(async move {
+            let mut processing = Box::pin(crate::service::process(Arc::clone(&running), message));
+            let first = futures_util::poll!(processing.as_mut());
+            let installed = running.store.capture(false).2.len();
+            observed.send((first.is_pending(), installed)).unwrap();
+            match first {
+                std::task::Poll::Ready(result) => result,
+                std::task::Poll::Pending => {
+                    // This test-only acknowledgement fixes Stop between two
+                    // production polls without assuming executor queue order.
+                    resumed.await.unwrap();
+                    processing.await
+                }
+            }
+        });
+        let (pending, installed) = within(first_poll).await.unwrap();
+        assert!(pending, "the admitted batch ran to completion in one poll");
+        assert!(installed > 0 && installed < offered);
+        for (index, hash) in hashes.iter().enumerate() {
+            assert_eq!(pool.store.point(hash).1.is_some(), index < installed);
+        }
+        pool.stop();
+        resume.send(()).unwrap();
+        within(handler).await.unwrap().unwrap();
+        if let Some(response) = response {
+            let (reported, completed, error) = within(response).await.unwrap().into_parts();
+            assert_eq!(reported, offered);
+            assert_eq!(completed, installed);
+            assert!(error.is_some());
+        }
+        assert_eq!(pool.store.capture(false).2.len(), installed);
+        assert!(pool.verification.resume().is_err());
+        pool.close_outbox();
+        assert!(pool.persistence_eligible());
+        assert!(!pool.is_faulted());
+    }
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn public_relay_batch_drain_keeps_raw_reset_order_before_waiter_reconstruction() {
+    for limit in [0, 1, 2, 3, usize::MAX] {
+        let (pool, sink, drain, _) = fixture();
+        let missing = tx(8130).hash();
+        let waiter = entry(&pool.store, tx(8131), remote(61, 1)).with_phase(Phase::Waiting(
+            [DependencyKey::Cell(OutPoint::new(missing.clone(), 0))].into(),
+        ));
+        insert(&pool.store, waiter);
+        sink.publish(TxVerificationResult::GenerationReset);
+        sink.publish(TxVerificationResult::Reject {
+            tx_hash: tx(8132).hash(),
+        });
+        let receiver = crate::service::TxVerificationResultReceiver::from_authority(drain);
+        let mut results = receiver.drain(limit);
+        assert_eq!(results.len(), limit.min(3));
+        results.extend(receiver.drain(16));
+        let [reset, rejected, rebuilt]: [TxVerificationResult; 3] = results.try_into().unwrap();
+        assert!(matches!(reset, TxVerificationResult::GenerationReset));
+        assert!(
+            matches!(rejected, TxVerificationResult::Reject { tx_hash } if tx_hash == tx(8132).hash())
+        );
+        assert!(
+            matches!(rebuilt, TxVerificationResult::UnknownParents { peer, parents } if peer == PeerIndex::from(61) && parents == [missing].into_iter().collect())
+        );
+        assert!(receiver.drain(16).is_empty());
+        assert!(receiver.try_recv().is_none());
+        assert!(!pool.is_faulted());
+    }
 }

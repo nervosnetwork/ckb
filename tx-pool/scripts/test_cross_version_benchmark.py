@@ -23,7 +23,33 @@ BENCHMARK = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(BENCHMARK)
 
 
+def window_record(scenario, elapsed, observed_offset=0):
+    return "TX_POOL_PROFILE_WINDOW " + json.dumps(dict(
+        schema_version=3, scenario=scenario, start_unix_nanos=1_000_000_000,
+        end_unix_nanos=1_000_000_000 + elapsed, elapsed_nanos=elapsed,
+        start_clock_uncertainty_nanos=0, end_clock_uncertainty_nanos=0,
+        observed_end_unix_nanos=1_000_000_000 + elapsed + observed_offset)) + "\n"
+
+
 class BuildProfileContractTest(unittest.TestCase):
+    def test_readiness_requires_exact_policy_and_complete_timed_barriers(self) -> None:
+        record = dict(schema_version=1, policy="public_orphan_size_0_then_64_yield_v1",
+                      query_count=7, completed_barriers=4, elapsed_nanos=100)
+        def output(value):
+            return "BENCH_READINESS " + json.dumps(value) + "\n"
+        parsed = BENCHMARK.parse_readiness(output(record), "fanout_ready_64_reverse", 130, 1000)
+        self.assertEqual(parsed["target_wall_fraction"], 0.1)
+        for changes in (dict(completed_barriers=3), dict(query_count=3), dict(elapsed_nanos=1001),
+                        dict(elapsed_nanos=0), dict(query_count=True), dict(policy="ungated")):
+            with self.subTest(changes=changes), self.assertRaises(ValueError):
+                BENCHMARK.parse_readiness(output(record | changes), "fanout_ready_64_reverse", 130, 1000)
+        for text in ("", output(record) * 2):
+            with self.assertRaises(ValueError):
+                BENCHMARK.parse_readiness(text, "fanout_ready_64_reverse", 130, 1000)
+        with self.assertRaises(ValueError):
+            BENCHMARK.parse_readiness(output(record), "always_success", 130, 1000)
+        self.assertIsNone(BENCHMARK.parse_readiness("", "always_success", 130, 1000))
+
     def test_cargo_metadata_diagnostics_do_not_corrupt_dependency_identity(self) -> None:
         metadata = {
             "packages": [{"id": name, "name": name} for name in BENCHMARK.CONSENSUS_LOCK_PACKAGES],
@@ -77,8 +103,8 @@ class BuildProfileContractTest(unittest.TestCase):
                 output = (
                     "BENCH_BUILD profiling=false allocation_observation=false "
                     "callback_observer=preallocated_atomic_slots_sharded_completion "
-                    "adapter=bounded_remote_batch debug_assertions=false measurement_window=terminal_completion_v2\n"
-                    f"PROFILE_WINDOW start_unix_ns=1000000000 end_unix_ns={1000000000 + elapsed}\n"
+                    "adapter=bounded_remote_batch debug_assertions=false measurement_window=terminal_completion_v3\n"
+                    f"{window_record('always_success', elapsed)}"
                     f"BENCH_CORPUS {json.dumps(corpus)}\nBENCH_TERMINALS {json.dumps(terminals)}\n"
                     "BENCH_RESULT scenario=always_success target=8 warm=0 workers=1 peers=1 "
                     f"elapsed_ns={elapsed} throughput_tps={8e9 / elapsed:.3f} accepted=8 callback_duplicates=0 "
@@ -102,8 +128,16 @@ class BuildProfileContractTest(unittest.TestCase):
                 BENCHMARK.classify_aa_equivalence(summary, 2)
                 self.assertEqual(summary["status"], "aa_equivalence_unresolved")
                 self.assertFalse(summary["aa_equivalence"]["passed"])
+            adjusted = output.replace('"observed_end_unix_nanos": 2200000000',
+                                      '"observed_end_unix_nanos": 2400000000')
+            binary.write_text(f"#!{sys.executable}\nprint({adjusted!r})\n")
+            result = BENCHMARK.run_attempt(BENCHMARK.binary_record(binary), root, scenario,
+                                           "baseline", "wall-adjustment", 5, "disabled")
+            self.assertEqual(result["outcome"], "success", result)
+            self.assertFalse(result["wall_alignment"]["profile_alignment_valid"])
+            self.assertEqual(result["metrics"]["elapsed_ns"], 1_200_000_000)
             for invalid in (output.replace("throughput_tps=6.667", "throughput_tps=8.000"),
-                            output.replace("end_unix_ns=2200000000", "end_unix_ns=2400000000"),
+                            output.replace('"end_unix_nanos": 2200000000', '"end_unix_nanos": 2400000000'),
                             output.replace("callback_duplicates=0", "callback_duplicates=1")):
                 binary.write_text(f"#!{sys.executable}\nprint({invalid!r})\n")
                 result = BENCHMARK.run_attempt(BENCHMARK.binary_record(binary), root, scenario,
@@ -113,7 +147,7 @@ class BuildProfileContractTest(unittest.TestCase):
     def test_completion_rechecks_source_instead_of_cached_identity(self) -> None:
         source = {"root": "/fixed-source", "commit": "before"}
         contexts = {"baseline": {"source": source, "consensus": {}}}
-        record = {"runner_sha256": "same", "process_runner_sha256": "same",
+        record = {"runner_sha256": "same", "process_runner_sha256": "same", "measurement_window_sha256": "same",
                   "harness_sha256": "same", "host": {}, "sides": contexts,
                   "metric_scopes": BENCHMARK.METRIC_SCOPES}
         with mock.patch.object(BENCHMARK, "sha256", return_value="same"), mock.patch.object(
@@ -179,11 +213,14 @@ class BuildProfileContractTest(unittest.TestCase):
             "BENCH_BUILD profiling=false allocation_observation=false "
             "callback_observer=preallocated_atomic_slots_sharded_completion "
             "adapter=bounded_remote_batch "
-            "debug_assertions=false measurement_window=terminal_completion_v2\n"
+            "debug_assertions=false measurement_window=terminal_completion_v3\n"
         )
         build, error = BENCHMARK.timing_build_observation(output, None, "disabled")
         self.assertIsNone(error)
         self.assertEqual(build["adapter"], "bounded_remote_batch")
+        _, diagnostic_error = BENCHMARK.timing_build_observation(
+            output + "BENCH_DIAGNOSTICS resource_phases=true\n", None, "disabled")
+        self.assertIn("diagnostic instrumentation", diagnostic_error)
         allocation_output = output.replace(
             "allocation_observation=false", "allocation_observation=true"
         )
@@ -210,7 +247,7 @@ class BuildProfileContractTest(unittest.TestCase):
                 None,
             ),
             (output.replace("debug_assertions=false", "debug_assertions=true"), None),
-            (output.replace("terminal_completion_v2", "legacy_validation_and_latency_sort"), None),
+            (output.replace("terminal_completion_v3", "legacy_validation_and_latency_sort"), None),
             (output, {}),
         ):
             with self.subTest(output=invalid_output, spans=spans):
@@ -448,6 +485,10 @@ class BuildProfileContractTest(unittest.TestCase):
             harness = root / "tx-pool/benches/profile_one_shot.rs"
             harness.parent.mkdir(parents=True)
             harness.write_text("fixed harness")
+            for name in BENCHMARK.HARNESS_FILES[1:]:
+                helper = root / name
+                helper.parent.mkdir(parents=True, exist_ok=True)
+                helper.write_text("fixed helper")
             for ratio in (1, 1.03):
                 output = root / f"result-{ratio}.json"
                 command = self.aa_command(root, output) + ["--aa-equivalence-margin-percent", "2"]
@@ -481,8 +522,19 @@ class BuildProfileContractTest(unittest.TestCase):
                     with mock.patch.object(sys, "argv", command + ["--resume", "--aa-equivalence-margin-percent", "3"]):
                         with self.assertRaisesRegex(RuntimeError, "configuration differs"):
                             BENCHMARK.main()
+                    with mock.patch.object(sys, "argv", command + ["--resume", "--order-seed", "42"]):
+                        with self.assertRaisesRegex(RuntimeError, "configuration differs"):
+                            BENCHMARK.main()
                     self.assertEqual(run.call_count, 14)
                     self.assertEqual(output.read_bytes(), before)
+                    archived = dict(record, schema=10)
+                    BENCHMARK.write_checkpoint(output, archived)
+                    with mock.patch.object(sys, "argv", command + ["--resume"]):
+                        with self.assertRaisesRegex(RuntimeError, "schema or configuration differs"):
+                            BENCHMARK.main()
+                    self.assertEqual(BENCHMARK.read_checkpoint(output)["schema"], 10)
+                    self.assertEqual(run.call_count, 14)
+
 
     def test_short_pilot_stops_before_comparative_measurement(self) -> None:
         scenario = BENCHMARK.parse_scenario("rbf_pairs,2000,2000,8,4")
@@ -549,8 +601,8 @@ class BuildProfileContractTest(unittest.TestCase):
             "BENCH_BUILD profiling=false allocation_observation=false "
             "callback_observer=preallocated_atomic_slots_sharded_completion "
             "adapter=bounded_remote_batch debug_assertions=false "
-            "measurement_window=terminal_completion_v2 comparison_contract=CONTRACT\n"
-            "PROFILE_WINDOW start_unix_ns=1000000000 end_unix_ns=2000000000\n"
+            "measurement_window=terminal_completion_v3 comparison_contract=CONTRACT\n"
+            f"{window_record('rbf_pairs', 1_000_000_000)}"
             f"BENCH_CORPUS {json.dumps(corpus)}\nBENCH_TERMINALS {json.dumps(terminals)}\n"
             "BENCH_RESULT scenario=rbf_pairs target=8 warm=8 workers=1 peers=1 "
             "elapsed_ns=1000000000 throughput_tps=8.000 accepted=16 callback_duplicates=0 "
@@ -594,7 +646,7 @@ class BuildProfileContractTest(unittest.TestCase):
         args = argparse.Namespace(calibration_only=False, allocation_observation="disabled",
                                   comparison="ab",
                                   comparison_contract=BENCHMARK.RBF_ABLATION_CONTRACT,
-                                  runs=6, replicates_per_sample=1, min_target_seconds=0.25,
+                                  runs=6, replicates_per_sample=1, order_seed=0, min_target_seconds=0.25,
                                   max_paired_mad_percent=1.5, confidence_level=0.95,
                                   max_ratio_interval_width_percent=4)
         with mock.patch.object(BENCHMARK, "obtain_attempt", return_value=attempt), mock.patch.object(BENCHMARK, "write_checkpoint"):
@@ -602,6 +654,66 @@ class BuildProfileContractTest(unittest.TestCase):
         summary = record["summary"][BENCHMARK.scenario_key(scenario)]
         self.assertEqual(summary["status"], "contract_diagnostic")
         self.assertFalse(summary["production_ranking_permitted"])
+
+
+class MeasurementRepairTest(unittest.TestCase):
+    def test_outlier_is_preserved_in_mean_and_maximum(self):
+        attempts = [{"id": str(i), "metrics": {name: 1 for name in
+                     set(BENCHMARK.SUM_METRICS + BENCHMARK.MAX_METRICS)}} for i in range(4)]
+        for attempt, rss in zip(attempts, [100, 100, 100, 500]):
+            attempt["metrics"]["peak_rss_bytes"] = rss
+        summary = BENCHMARK.aggregate_side(attempts, 1)
+        self.assertEqual(summary["metrics"]["mean_peak_rss_bytes"], 200)
+        self.assertEqual(summary["metrics"]["peak_rss_bytes"], 500)
+        self.assertEqual(summary["attempt_ids"], ["0", "1", "2", "3"])
+        self.assertEqual(attempts[-1]["metrics"]["peak_rss_bytes"], 500)
+
+    def test_memory_uncertainty_does_not_erase_throughput_quality(self):
+        samples = [{side: {"minimum_target_elapsed_ns": 1_000_000_000,
+                    "metrics": {name: 1 for name in BENCHMARK.SUMMARY_METRICS}}
+                    for side in ("baseline", "candidate")} for _ in range(10)]
+        for sample, ratio in zip(samples, [.9, .9] + [1] * 6 + [1.1, 1.1]):
+            sample["candidate"]["metrics"]["mean_peak_rss_bytes"] = ratio
+        summary = BENCHMARK.summarize_pairs(samples, {}, "disabled", 1.5)
+        BENCHMARK.classify_aa_equivalence(summary, 2)
+        self.assertEqual(summary["status"], "imprecise")
+        self.assertFalse(summary["aa_equivalence"]["passed"])
+        self.assertEqual(summary["metric_quality"]["throughput_tps"]["aa_disposition"], "equivalent")
+        self.assertEqual(summary["metric_quality"]["mean_peak_rss_bytes"]["aa_disposition"], "unresolved")
+
+    def test_seeded_schedule_is_balanced_and_reproducible(self):
+        for replicates in (1, 2, 4, 8):
+            schedule = BENCHMARK.balanced_schedule(24, replicates, 17, "scenario")
+            self.assertEqual(schedule, BENCHMARK.balanced_schedule(24, replicates, 17, "scenario"))
+            self.assertNotEqual(schedule, BENCHMARK.balanced_schedule(24, replicates, 18, "scenario"))
+            starts = [order[0] for block in schedule for order in block]
+            self.assertEqual(starts.count("baseline"), len(starts) // 2)
+            if replicates > 1:
+                self.assertTrue(all(sum(order[0] == "baseline" for order in block) == replicates // 2 for block in schedule))
+
+    def test_every_helper_and_added_file_changes_bundle_identity(self):
+        with tempfile.TemporaryDirectory() as raw:
+            root = Path(raw)
+            for name in BENCHMARK.HARNESS_FILES:
+                path = root / name
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_text("original")
+            original = BENCHMARK.bundle_hash(root)
+            for name in BENCHMARK.HARNESS_FILES:
+                path = root / name
+                path.write_text("changed")
+                self.assertNotEqual(BENCHMARK.bundle_hash(root), original)
+                path.write_text("original")
+            (root / "tx-pool/benches/future_helper").mkdir()
+            (root / "tx-pool/benches/future_helper/extra.rs").write_text("extra")
+            self.assertNotEqual(BENCHMARK.bundle_hash(root), original)
+
+    def test_window_parser_change_rejects_frozen_record(self):
+        record = dict(metric_scopes=BENCHMARK.METRIC_SCOPES,
+                      runner_sha256="same", process_runner_sha256="same", measurement_window_sha256="old")
+        with mock.patch.object(BENCHMARK, "sha256", return_value="same"):
+            with self.assertRaisesRegex(RuntimeError, "window parser changed"):
+                BENCHMARK.validate_frozen(record, {}, "same", {}, {})
 
 
 if __name__ == "__main__":

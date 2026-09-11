@@ -94,6 +94,11 @@ deciding. Preserve checked fee arithmetic and count shared descendants once.
 Capacity trimming can enlarge the victim set, so the later backing validation
 has a different input from the earlier check. Dry-run uses this policy and final
 validation without publishing effects or releasing incumbent ownership.
+If optional history loses capacity at commit, Store retries that same Plan once
+without history while retaining its effect reservation. Change history policy in
+membership and check this retry together; rejected work must not publish a partial
+victim set. Local completion returns the rejection from the successful Apply
+attempt alongside its batch, and only reports it after publication.
 
 In [membership tests](../src/authority/tests/membership.rs), start with
 `replacement_counts_shared_descendants_once_and_accepts_the_exact_fee_boundary`,
@@ -113,6 +118,10 @@ Representation changes also update the [residency calculation](../src/authority/
 Serialized accepted size, retained bytes, edges and active work are distinct limits.
 Check rejected reservation, stale Apply, cancellation and successful retirement;
 all must return the same owned capability exactly once and preserve trusted room.
+Active permits use fixed per-job envelopes and separate total/remote/peer counts.
+Their original peer survives source promotion until the permit drops. Changing
+the per-job envelope into variable-sized work would also require changing that
+count-based reservation model; modifying the owner ledger alone is insufficient.
 
 For scheduling, `max_tx_verify_cycles` separates remote declared-cycle lanes.
 [Queues](../src/authority/queue.rs) derives both Resolve and Verify lane choices
@@ -133,6 +142,8 @@ small and larger pools without changing the old serialized-size contract.
 [execution tests](../src/authority/tests/execution.rs) cover unusable configuration
 and trusted progress under notice pressure. The [queue boundary test](../src/authority/tests/queue.rs)
 `both_phases_use_the_same_declared_cycle_boundary` covers both ordering settings.
+`global_active_refusal_preserves_both_queues_and_observes_an_early_release` checks
+that pressure preserves queued work and a release before polling still wakes it.
 
 ## Add a rejection reason
 
@@ -202,6 +213,9 @@ In [Outbox](../src/authority/notice.rs), distinguish an unready FIFO head from a
 running endpoint and from a full outbox. A selected ready prefix remains bounded;
 each batch settles, returns capacity and releases FIFO/publisher references
 before the next. Waiting callers and callback-owned clones have their own lifetimes.
+The [relay module](../src/authority/relay.rs) owns mailbox consumption and bounded
+waiting-parent reconstruction after a reset. Those observations are downstream
+of committed effects; an empty raw mailbox can still have reconstruction work.
 Callbacks run without Store guards. Callback panic disables all callback kinds
 for that publisher; other endpoints can continue. A synchronous callback must
 return before its batch and publisher can finish: timeout/abort cannot stop it.

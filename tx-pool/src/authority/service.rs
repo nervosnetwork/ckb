@@ -4,9 +4,9 @@ pub(crate) use super::model::Error;
 pub(crate) use super::notice::Endpoints;
 #[cfg(feature = "internal")]
 use super::packing::Selection;
-pub(crate) use super::relay::AuthorityRelaySink as RelaySink;
+pub(crate) use super::relay::{AuthorityRelaySink as RelaySink, RelayDrain};
 use super::{
-    budget::Reservation,
+    budget::ActivePermit,
     chain, ingress,
     jobs::{self, Job, Resolution, Verified},
     membership,
@@ -14,7 +14,7 @@ use super::{
     notice::{Batch, Class, Effect},
     query,
     queue::WorkStage,
-    relay::{AuthorityRelayReceiver, production_authority_relay_mailbox},
+    relay::production_authority_relay_mailbox,
     store::{Plan, ReadSet, Store},
     template::Driver,
     waiting,
@@ -46,12 +46,11 @@ use ckb_types::{
     },
     packed::{Byte32, ProposalShortId},
 };
-use ckb_util::Mutex;
 use ckb_verification::cache::TxVerificationCache;
 #[cfg(feature = "internal")]
 use std::collections::BTreeSet;
 use std::{
-    sync::{Arc, Weak},
+    sync::Arc,
     time::{Duration, Instant},
 };
 use tokio::{
@@ -105,44 +104,6 @@ impl VerificationControl {
     #[cfg(feature = "internal")]
     pub(crate) fn subscribe(&self) -> watch::Receiver<ChunkCommand> {
         self.0.subscribe()
-    }
-}
-
-/// A reset may discard an UnknownParents event. Rebuild the still-live waiting
-/// levels in bounded pages only when the mailbox has drained; no relay task or
-/// extra transaction ownership is required.
-pub(crate) struct RelayDrain {
-    receiver: AuthorityRelayReceiver,
-    store: Weak<Store>,
-    cursor: Mutex<Option<(u64, usize, Option<Byte32>)>>,
-}
-impl RelayDrain {
-    pub(crate) fn try_recv(&self) -> Option<TxVerificationResult> {
-        if let Some(result) = self.receiver.try_recv() {
-            if matches!(result, TxVerificationResult::GenerationReset) {
-                *self.cursor.lock() = self
-                    .store
-                    .upgrade()
-                    .map(|store| (store.snapshot().0, 0, None));
-            }
-            return Some(result);
-        }
-        let store = self.store.upgrade()?;
-        let mut cursor = self.cursor.lock();
-        for _ in 0..4 {
-            let current = cursor.as_mut()?;
-            let (result, complete) = store.next_missing(current, 64);
-            if complete {
-                *cursor = None;
-            }
-            if result.is_some() {
-                return result;
-            }
-        }
-        None
-    }
-    pub(crate) async fn wait_for_drain(&self) {
-        self.receiver.wait_for_drain().await;
     }
 }
 
@@ -206,11 +167,7 @@ impl Pool {
             store.budget.limits.per_job.edges,
         )
         .map_err(|_| Error::Full("relay mailbox configuration".into()))?;
-        let drain = RelayDrain {
-            receiver,
-            store: Arc::downgrade(&store),
-            cursor: Mutex::new(None),
-        };
+        let drain = RelayDrain::new(receiver, &store);
         let template = assembler.map(|assembler| {
             Driver::new(Arc::clone(&store), assembler, config.max_ancestors_count)
         });
@@ -334,7 +291,7 @@ impl Pool {
     async fn direct_capacity(
         &self,
         wait: bool,
-    ) -> Result<(OwnedSemaphorePermit, Reservation), Error> {
+    ) -> Result<(OwnedSemaphorePermit, ActivePermit), Error> {
         if !wait {
             self.open()?;
             let cpu = Arc::clone(&self.cpu)
@@ -369,10 +326,10 @@ impl Pool {
     }
     /// Create broadcasts before planning: notify_waiters is observed even before
     /// the first poll, without registering a waiter on the successful path.
-    async fn commit_attempt(
+    async fn commit_attempt<T>(
         &self,
-        mut attempt: impl FnMut() -> Result<Option<Arc<Batch>>, Error>,
-    ) -> Result<Option<Arc<Batch>>, Error> {
+        mut attempt: impl FnMut() -> Result<T, Error>,
+    ) -> Result<T, Error> {
         loop {
             let changed = self.store.changed.notified();
             let room = self.store.outbox.room.notified();
@@ -398,25 +355,21 @@ impl Pool {
     }
     async fn reconcile(&self, command: &ChainReorgArgs) -> Result<(), Error> {
         let _pause = self.store.begin_chain()?;
-        let mut recovered = false;
-        let batch = self
+        let applied = self
             .commit_attempt(|| {
                 let (plan, recovery) = match chain::reconcile(&self.store, command, &self.config) {
                     Err(Error::Full(_)) => (chain::recover_bounded(&self.store, command)?, true),
                     result => (result?, false),
                 };
-                let batch = self.store.apply(plan)?;
-                recovered = recovery;
-                Ok(batch)
+                self.store.apply(plan).map(|batch| (batch, recovery))
             })
             .await;
-        let batch = match batch {
+        let (batch, recovered) = match applied {
             Err(Error::Full(_)) => {
                 let batch = self
                     .commit(|| chain::recover_bounded(&self.store, command))
                     .await?;
-                recovered = true;
-                batch
+                (batch, true)
             }
             result => result?,
         };

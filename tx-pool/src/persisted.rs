@@ -9,7 +9,7 @@ use ckb_types::{
 use std::{
     collections::HashSet,
     fs::OpenOptions,
-    io::{Read as _, Write as _},
+    io::{BufWriter, Read as _, Write as _},
     path::{Path, PathBuf},
     sync::{
         Arc,
@@ -302,7 +302,7 @@ pub(crate) fn write_snapshot(base: &Path, snapshot: PersistenceSnapshot) -> Resu
     let path = versioned_path(base, VERSION);
     let tmp = path.with_extension(format!("v{VERSION}.tmp"));
     let write_result = (|| -> Result<(), AnyError> {
-        let mut file = OpenOptions::new()
+        let file = OpenOptions::new()
             .create(true)
             .write(true)
             .truncate(true)
@@ -312,6 +312,7 @@ pub(crate) fn write_snapshot(base: &Path, snapshot: PersistenceSnapshot) -> Resu
                     "Failed to open temp file [{tmp:?}] for tx-pool persistence, cause: {err}"
                 ))
             })?;
+        let mut file = BufWriter::new(file);
         file.write_all(MAGIC)?;
         file.write_all(&accepted_len.to_le_bytes())?;
         file.write_all(&recovery_count.to_le_bytes())?;
@@ -323,7 +324,8 @@ pub(crate) fn write_snapshot(base: &Path, snapshot: PersistenceSnapshot) -> Resu
         }
         file.write_all(accepted.as_slice())?;
         file.write_all(recovery.as_slice())?;
-        file.sync_all().map_err(|err| {
+        file.flush()?;
+        file.get_ref().sync_all().map_err(|err| {
             OtherError::new(format!("Failed to sync temp file [{tmp:?}], cause: {err}"))
         })?;
         drop(file);
