@@ -386,7 +386,7 @@ impl CandidateUncleSnapshot {
             .try_reserve_exact(self.candidates.len())
             .map_err(|_| CandidateUncleMutationError::Allocation)?;
 
-        for uncle in &self.candidates {
+        for uncle in self.candidates {
             if uncles.len() == max_uncles_num {
                 break;
             }
@@ -401,13 +401,13 @@ impl CandidateUncleSnapshot {
                 // Wrong epoch/target, or already embedded/on the main
                 // chain: stale; drop it so it stops occupying the
                 // candidate budget.
-                removed.push(uncle.clone());
+                removed.push(uncle);
             } else if uncle.number() < candidate_number
                 && (uncles.iter().any(|u| u.hash() == parent_hash)
                     || snapshot.is_main_chain(&parent_hash)
                     || snapshot.is_uncle(&parent_hash))
             {
-                uncles.push(uncle.clone());
+                uncles.push(uncle);
             }
         }
 

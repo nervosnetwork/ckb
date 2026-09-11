@@ -431,29 +431,25 @@ impl<'a, 'b, CS: ChainStore + VersionbitsIndexer + 'static> BlockTxsVerifier<'a,
                             )
                         })
                 };
-                verified
-                    .map_err(|error| {
-                        BlockTransactionsError {
-                            index: index as u32,
-                            error,
-                        }
-                        .into()
+                let result = verified.map_err(|error| {
+                    Error::from(BlockTransactionsError {
+                        index: index as u32,
+                        error,
                     })
-                    .and_then(|result| {
-                        if self
-                            .context
-                            .consensus
-                            .rfc0044_active(self.parent.epoch().number())
-                        {
-                            DaoScriptSizeVerifier::new(
-                                Arc::clone(tx),
-                                Arc::clone(&self.context.consensus),
-                                self.context.store.as_data_loader(),
-                            )
-                            .verify()?;
-                        }
-                        Ok(result)
-                    })
+                })?;
+                if self
+                    .context
+                    .consensus
+                    .rfc0044_active(self.parent.epoch().number())
+                {
+                    DaoScriptSizeVerifier::new(
+                        Arc::clone(tx),
+                        Arc::clone(&self.context.consensus),
+                        self.context.store.as_data_loader(),
+                    )
+                    .verify()?;
+                }
+                Ok(result)
             })
             .skip(1) // skip cellbase tx
             .collect::<Result<Vec<(Completed, Option<ScriptVerificationProof>)>, Error>>()?;

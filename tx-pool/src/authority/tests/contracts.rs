@@ -156,6 +156,43 @@ fn a_read_set_cannot_replace_an_original_owner_observation() {
 }
 
 #[test]
+fn merging_observations_preserves_the_original_missing_spender() {
+    let store = store();
+    let point = OutPoint::new(tx(7802).hash(), 0);
+    let mut original = ReadSet::default();
+    assert!(store.spender(&point, &mut original).unwrap().is_none());
+    let hash = accept(
+        &store,
+        spend(7803, std::slice::from_ref(&point), &[]),
+        1,
+        1,
+        Status::Pending,
+    );
+    let mut fresh = ReadSet::default();
+    assert_eq!(
+        store.spender(&point, &mut fresh).unwrap(),
+        Some(hash.clone())
+    );
+    assert!(matches!(original.merge(&fresh), Err(Error::Stale)));
+    assert!(matches!(
+        store.read_selected(store.snapshot().0, &original, || ()),
+        Err(Error::Stale)
+    ));
+
+    store
+        .apply(delete(&store, store.point(&hash).1.unwrap()))
+        .unwrap();
+    let mut absent_again = ReadSet::default();
+    assert!(store.spender(&point, &mut absent_again).unwrap().is_none());
+    original.merge(&absent_again).unwrap();
+    assert!(
+        store
+            .read_selected(store.snapshot().0, &original, || ())
+            .is_ok()
+    );
+}
+
+#[test]
 fn absence_is_a_current_fact_and_allows_absent_present_absent_history() {
     let store = store();
     let original = entry(&store, tx(3), Source::Local);

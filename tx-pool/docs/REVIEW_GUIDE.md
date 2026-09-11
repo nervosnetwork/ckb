@@ -52,7 +52,6 @@ can invalidate or retire the same owned data.
 | DAO memo capacity, hot-entry retention, tip invalidation and fresh in-block overlay | [block-assembler tests](../src/block_assembler/tests/mod.rs) |
 | Accepted-only public proofs, full-hash identity and history visibility | [query.rs](../src/authority/tests/query.rs) and public-query execution tests |
 | Root metadata content/version identity, per-attempt load receipt and thread-exit cleanup | [program-cache tests](../../script/src/program_cache.rs); [VM budget tests](../../script/src/verify/tests/active_budget.rs) |
-| Cell-data reuse preserves offsets, size writes, page tracking and cycle/error behavior | [current-VM syscall tests](../../script/src/syscalls/tests/vm_latest/syscalls_1.rs) |
 | Callback reads, rejected mutation reentry and faulted-save preservation | [execution.rs](../src/authority/tests/execution.rs) and controller tests |
 | Exhaustive rejection policy and preserved legacy normalization | [Reject tests](../../util/types/src/core/tx_pool.rs) and [configuration tests](../../util/app-config/src/legacy/tx_pool.rs) |
 

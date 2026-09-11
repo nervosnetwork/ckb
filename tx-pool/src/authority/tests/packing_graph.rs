@@ -6,7 +6,7 @@ use ckb_proposal_table::ProposalView;
 use ckb_test_chain_utils::MockStore;
 use ckb_types::{
     bytes::Bytes,
-    core::{TransactionBuilder, cell::ResolvedTransaction},
+    core::{FeeRate, TransactionBuilder, cell::ResolvedTransaction},
     packed::{CellDep, CellInput, CellOutput, OutPoint},
     prelude::*,
 };
@@ -734,7 +734,19 @@ fn conditional_eviction_ranks_match_independent_descendant_sets() {
             assert_eq!(
                 Selection::new(&owners, &snapshot, 5)
                     .unwrap()
-                    .eviction_ranks(),
+                    .eviction_ranks()
+                    .map(|ranks| ranks
+                        .into_iter()
+                        .map(|rank| {
+                            (
+                                rank.status,
+                                rank.fee,
+                                rank.descendants,
+                                rank.arrival,
+                                rank.hash,
+                            )
+                        })
+                        .collect::<Vec<_>>()),
                 Ok(expected),
                 "mask={mask}"
             );
@@ -759,13 +771,13 @@ fn conditional_eviction_clamps_wide_fees_and_rejects_resource_overflow() {
         .map(|owner| owner.accepted().unwrap().size)
         .sum();
     assert_eq!(
-        ranks[0].1,
+        ranks[0].fee,
         FeeRate::calculate(
             Capacity::shannons(u64::MAX),
             get_transaction_weight(bytes, 3)
         )
     );
-    assert_eq!(ranks[0].2, 3);
+    assert_eq!(ranks[0].descendants, 3);
     for bytes in [true, false] {
         let mut owners = fixture(&parents, |_, _| (1, 1, 0));
         for child in 1..3 {

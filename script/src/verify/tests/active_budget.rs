@@ -1,5 +1,16 @@
-use super::super::{VmActiveTimeBudget, VmSlicePhase, VmSliceState};
+use super::super::{
+    InitialProgramLoadLimit, TxPoolVmExecutionMode, VmSlicePhase, VmSliceState,
+    VmVerificationBudget,
+};
 use std::time::{Duration, Instant};
+
+fn budget() -> VmVerificationBudget {
+    VmVerificationBudget::new(
+        Duration::from_millis(10),
+        InitialProgramLoadLimit::new(u64::MAX).expect("the fixture load limit is nonzero"),
+        TxPoolVmExecutionMode::Inline,
+    )
+}
 
 fn end_slice(
     state: VmSliceState,
@@ -16,7 +27,7 @@ fn end_slice(
 
 #[test]
 fn cache_hit_and_pre_vm_delay_charge_no_active_time() {
-    let budget = VmActiveTimeBudget::new(Duration::from_millis(10));
+    let budget = budget();
     let child_started = Instant::now() + Duration::from_secs(30);
 
     assert_eq!(
@@ -42,7 +53,7 @@ fn cache_hit_and_pre_vm_delay_charge_no_active_time() {
 #[test]
 fn suspend_idle_gap_is_not_charged() {
     let started_at = Instant::now();
-    let mut budget = VmActiveTimeBudget::new(Duration::from_millis(10));
+    let mut budget = budget();
     let first = end_slice(budget.state, started_at, Duration::from_millis(3), false);
     budget.observe(first);
 
@@ -57,7 +68,7 @@ fn suspend_idle_gap_is_not_charged() {
 #[test]
 fn script_groups_share_one_cumulative_budget() {
     let started_at = Instant::now();
-    let mut budget = VmActiveTimeBudget::new(Duration::from_millis(10));
+    let mut budget = budget();
     let first_group = end_slice(budget.state, started_at, Duration::from_millis(4), true);
     budget.observe(first_group);
 
@@ -77,7 +88,7 @@ fn script_groups_share_one_cumulative_budget() {
 #[test]
 fn child_receipt_decides_completion_timer_race() {
     let started_at = Instant::now();
-    let mut completed = VmActiveTimeBudget::new(Duration::from_millis(10));
+    let mut completed = budget();
     let running = completed
         .state
         .begin(started_at)
@@ -92,12 +103,12 @@ fn child_receipt_decides_completion_timer_race() {
     assert!(!completed.timer_still_applies(running.seq));
     assert!(!completed.exceeded());
 
-    let mut exact = VmActiveTimeBudget::new(Duration::from_millis(10));
+    let mut exact = budget();
     let finished_at_timer = end_slice(exact.state, started_at, Duration::from_millis(10), true);
     exact.observe(finished_at_timer);
     assert!(exact.exceeded(), "the exact boundary is exhausted");
 
-    let mut late = VmActiveTimeBudget::new(Duration::from_millis(10));
+    let mut late = budget();
     let finished_after_timer = end_slice(late.state, started_at, Duration::from_millis(11), true);
     assert_eq!(finished_after_timer.phase, VmSlicePhase::Finished);
     late.observe(finished_after_timer);

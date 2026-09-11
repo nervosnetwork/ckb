@@ -125,9 +125,9 @@ fn owner_edit_groups_cover_mixed_guards_and_empty_clear_shards() {
     // Clear takes all write guards, including shards with no remaining edits.
     // The second pass also checks a completely empty edit table.
     for _ in 0..2 {
-        let (view, _, owners, reads) = store.capture(false);
+        let (view, snapshot, owners, reads) = store.capture(false);
         let mut clear = Plan::new(view, Class::Trusted, reads);
-        clear.invalidate_view = true;
+        clear.snapshot = Some(snapshot);
         clear.clear_all = true;
         for owner in owners {
             clear.edit(Some(owner), None, None).unwrap();
@@ -917,7 +917,7 @@ fn remaining_counter_exhaustion_rejects_before_any_owner_or_notice_change() {
         )
         .unwrap();
         if counter == "view counter" {
-            plan.invalidate_view = true;
+            plan.snapshot = Some(Arc::clone(&before.1));
         }
         plan.wake.insert(key);
         plan.notify(
@@ -998,6 +998,9 @@ fn projection_versions_do_not_alias_after_complete_relation_or_peer_reentry() {
     removal.edit(Some(owner), None, None).unwrap();
     store.apply(removal).unwrap();
     accept(&store, transaction, 1, 1, Status::Pending);
+    let mut fresh = ReadSet::default();
+    assert_eq!(store.members(&key, DEP, &mut fresh).unwrap(), vec![hash]);
+    assert!(matches!(relation.merge(&fresh), Err(Error::Stale)));
     let stale = Plan::new(store.snapshot().0, Class::Trusted, relation);
     assert!(matches!(store.apply(stale), Err(Error::Stale)));
     let remote = entry(
@@ -1015,6 +1018,9 @@ fn projection_versions_do_not_alias_after_complete_relation_or_peer_reentry() {
     removal.edit(Some(Arc::clone(&remote)), None, None).unwrap();
     store.apply(removal).unwrap();
     insert(&store, remote);
+    let mut fresh = ReadSet::default();
+    store.peer_members(93.into(), &mut fresh).unwrap();
+    assert!(matches!(peers.merge(&fresh), Err(Error::Stale)));
     let stale = Plan::new(store.snapshot().0, Class::Trusted, peers);
     assert!(matches!(store.apply(stale), Err(Error::Stale)));
 }
@@ -1836,9 +1842,9 @@ fn dirty_retirement_preserves_a_spender_and_clear_releases_all_queued_keys() {
     store.start_wake(&key);
     let mut stale = Plan::new(store.snapshot().0, Class::Trusted, Default::default());
     stale.advance(store.wake_page(&mut None).unwrap());
-    let (view, _, owners, reads) = store.capture(false);
+    let (view, snapshot, owners, reads) = store.capture(false);
     let mut clear = Plan::new(view, Class::Trusted, reads);
-    clear.invalidate_view = true;
+    clear.snapshot = Some(snapshot);
     clear.clear_all = true;
     for owner in owners {
         clear.edit(Some(owner), None, None).unwrap();

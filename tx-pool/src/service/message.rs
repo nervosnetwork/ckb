@@ -242,6 +242,43 @@ impl std::fmt::Display for NotifyTxBatchError {
 
 impl std::error::Error for NotifyTxBatchError {}
 
+impl From<BoundedTransactionError> for NotifyTxBatchError {
+    fn from(error: BoundedTransactionError) -> Self {
+        match error {
+            BoundedTransactionError::TooLarge { actual, maximum } => {
+                Self::TransactionTooLarge { actual, maximum }
+            }
+            BoundedTransactionError::Allocation => Self::Allocation,
+        }
+    }
+}
+
+fn validate_relay_batch<'a>(
+    mut transactions: impl ExactSizeIterator<Item = &'a TransactionView>,
+    max_count: usize,
+    max_bytes: usize,
+) -> Result<(), NotifyTxBatchError> {
+    let actual = transactions.len();
+    if actual > max_count {
+        return Err(NotifyTxBatchError::TooMany {
+            actual,
+            maximum: max_count,
+        });
+    }
+    let bytes = transactions.try_fold(0usize, |total, tx| {
+        total
+            .checked_add(tx.data().total_size())
+            .ok_or(NotifyTxBatchError::SizeOverflow)
+    })?;
+    if bytes > max_bytes {
+        return Err(NotifyTxBatchError::TooLarge {
+            actual: bytes,
+            maximum: max_bytes,
+        });
+    }
+    Ok(())
+}
+
 impl NotifyTxBatch {
     pub(crate) fn try_new(txs: Vec<TransactionView>) -> Result<Self, AnyError> {
         Self::try_new_with_limits(
@@ -257,36 +294,13 @@ impl NotifyTxBatch {
         max_count: usize,
         max_bytes: usize,
     ) -> Result<Self, NotifyTxBatchError> {
-        if txs.len() > max_count {
-            return Err(NotifyTxBatchError::TooMany {
-                actual: txs.len(),
-                maximum: max_count,
-            });
-        }
-        let bytes = txs.iter().try_fold(0usize, |total, tx| {
-            total
-                .checked_add(tx.data().total_size())
-                .ok_or(NotifyTxBatchError::SizeOverflow)
-        })?;
-        if bytes > max_bytes {
-            return Err(NotifyTxBatchError::TooLarge {
-                actual: bytes,
-                maximum: max_bytes,
-            });
-        }
+        validate_relay_batch(txs.iter(), max_count, max_bytes)?;
         let mut transactions = Vec::new();
         transactions
             .try_reserve_exact(txs.len())
             .map_err(|_| NotifyTxBatchError::Allocation)?;
         for tx in txs {
-            transactions.push(
-                BoundedTransaction::try_new(tx).map_err(|error| match error {
-                    BoundedTransactionError::TooLarge { actual, maximum } => {
-                        NotifyTxBatchError::TransactionTooLarge { actual, maximum }
-                    }
-                    BoundedTransactionError::Allocation => NotifyTxBatchError::Allocation,
-                })?,
-            );
+            transactions.push(BoundedTransaction::try_new(tx)?);
         }
         Ok(Self { transactions })
     }
@@ -320,38 +334,18 @@ impl RemoteTxSubmissionBatch {
         submissions: Vec<(TransactionView, Cycle)>,
         peer: PeerIndex,
     ) -> Result<Self, AnyError> {
-        let actual = submissions.len();
-        if actual > ckb_constant::sync::MAX_RELAY_TXS_NUM_PER_BATCH {
-            return Err(NotifyTxBatchError::TooMany {
-                actual,
-                maximum: ckb_constant::sync::MAX_RELAY_TXS_NUM_PER_BATCH,
-            }
-            .into());
-        }
-        let bytes = submissions.iter().try_fold(0usize, |total, (tx, _)| {
-            total
-                .checked_add(tx.data().total_size())
-                .ok_or(NotifyTxBatchError::SizeOverflow)
-        })?;
-        if bytes > ckb_constant::sync::MAX_RELAY_TXS_BYTES_PER_BATCH {
-            return Err(NotifyTxBatchError::TooLarge {
-                actual: bytes,
-                maximum: ckb_constant::sync::MAX_RELAY_TXS_BYTES_PER_BATCH,
-            }
-            .into());
-        }
+        validate_relay_batch(
+            submissions.iter().map(|(tx, _)| tx),
+            ckb_constant::sync::MAX_RELAY_TXS_NUM_PER_BATCH,
+            ckb_constant::sync::MAX_RELAY_TXS_BYTES_PER_BATCH,
+        )?;
         let mut bounded = Vec::new();
         bounded
-            .try_reserve_exact(actual)
+            .try_reserve_exact(submissions.len())
             .map_err(|_| NotifyTxBatchError::Allocation)?;
         for (tx, declared_cycles) in submissions {
             bounded.push((
-                BoundedTransaction::try_new(tx).map_err(|error| match error {
-                    BoundedTransactionError::TooLarge { actual, maximum } => {
-                        NotifyTxBatchError::TransactionTooLarge { actual, maximum }
-                    }
-                    BoundedTransactionError::Allocation => NotifyTxBatchError::Allocation,
-                })?,
+                BoundedTransaction::try_new(tx).map_err(NotifyTxBatchError::from)?,
                 declared_cycles,
             ));
         }

@@ -251,29 +251,45 @@ pub(super) fn snapshot(
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
-struct EvictionRank {
-    status: Status,
-    fee: FeeRate,
-    descendants: usize,
-    arrival: u64,
-    hash: Byte32,
+pub(super) struct EvictionRank {
+    pub(super) status: Status,
+    pub(super) fee: FeeRate,
+    pub(super) descendants: usize,
+    pub(super) arrival: u64,
+    pub(super) hash: Byte32,
 }
 impl EvictionRank {
     fn new(entry: &Entry, descendants: Aggregate, snapshot: &Snapshot) -> Result<Self, Error> {
         let value = accepted(entry)?;
+        Ok(Self::for_accepted(
+            value,
+            value.status(snapshot),
+            descendants,
+            entry.arrival,
+            entry.hash(),
+        ))
+    }
+
+    pub(super) fn for_accepted(
+        value: &Accepted,
+        status: Status,
+        descendants: Aggregate,
+        arrival: u64,
+        hash: Byte32,
+    ) -> Self {
         let own_rate =
             FeeRate::calculate(value.fee, get_transaction_weight(value.size, value.cycles));
         let descendants_rate = FeeRate::calculate(
             descendants.fee(),
             get_transaction_weight(descendants.bytes, descendants.cycles),
         );
-        Ok(Self {
-            status: value.status(snapshot),
+        Self {
+            status,
             fee: own_rate.max(descendants_rate),
             descendants: descendants.count,
-            arrival: entry.arrival,
-            hash: entry.hash(),
-        })
+            arrival,
+            hash,
+        }
     }
 }
 #[derive(Clone, Copy)]

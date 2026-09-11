@@ -68,6 +68,25 @@ fn same_weak<T>(a: &Option<Weak<T>>, b: &Option<Weak<T>>) -> bool {
         _ => false,
     }
 }
+
+/// Preserve the first observation of each key, rejecting a different reread.
+fn merge_observations<K: Ord + Clone, V: Clone>(
+    own: &mut BTreeMap<K, V>,
+    incoming: &BTreeMap<K, V>,
+    same: impl Fn(&V, &V) -> bool,
+) -> Result<(), Error> {
+    for (key, value) in incoming {
+        if let Some(original) = own.get(key) {
+            if !same(original, value) {
+                return Err(Error::Stale);
+            }
+        } else {
+            own.insert(key.clone(), value.clone());
+        }
+    }
+    Ok(())
+}
+
 impl ReadSet {
     fn observed_owner(&self, hash: &Byte32) -> Option<&Option<Weak<Entry>>> {
         self.owners.get(hash)
@@ -88,42 +107,10 @@ impl ReadSet {
         Ok(())
     }
     pub(super) fn merge(&mut self, other: &Self) -> Result<(), Error> {
-        for (hash, entry) in &other.owners {
-            if let Some(old) = self.owners.get(hash) {
-                if !same_weak(old, entry) {
-                    return Err(Error::Stale);
-                }
-            } else {
-                self.owners.insert(hash.clone(), entry.clone());
-            }
-        }
-        for (point, spender) in &other.spenders {
-            if let Some(old) = self.spenders.get(point) {
-                if old != spender {
-                    return Err(Error::Stale);
-                }
-            } else {
-                self.spenders.insert(point.clone(), spender.clone());
-            }
-        }
-        for (key, read) in &other.relations {
-            if let Some(old) = self.relations.get(key) {
-                if !same_weak(old, read) {
-                    return Err(Error::Stale);
-                }
-            } else {
-                self.relations.insert(key.clone(), read.clone());
-            }
-        }
-        for (key, read) in &other.peers {
-            if let Some(old) = self.peers.get(key) {
-                if !same_weak(old, read) {
-                    return Err(Error::Stale);
-                }
-            } else {
-                self.peers.insert(*key, read.clone());
-            }
-        }
+        merge_observations(&mut self.owners, &other.owners, same_weak)?;
+        merge_observations(&mut self.spenders, &other.spenders, PartialEq::eq)?;
+        merge_observations(&mut self.relations, &other.relations, same_weak)?;
+        merge_observations(&mut self.peers, &other.peers, same_weak)?;
         for (own, incoming) in [
             (&mut self.all, &other.all),
             (&mut self.accepted, &other.accepted),
@@ -169,7 +156,6 @@ pub(super) struct Plan {
     effects: Vec<Effect>,
     class: Class,
     snapshot: Option<Arc<Snapshot>>,
-    invalidate_view: bool,
     dry_run: bool,
     clear_all: bool,
     committed: Vec<(ProposalShortId, Byte32)>,
@@ -187,7 +173,6 @@ impl Plan {
             effects: Vec::new(),
             class,
             snapshot: None,
-            invalidate_view: false,
             dry_run: false,
             clear_all: false,
             committed: Vec::new(),
@@ -263,7 +248,6 @@ impl Plan {
     /// Resetting the lifecycle and invalidating relay knowledge are one outcome.
     pub(super) fn reset(&mut self, snapshot: Arc<Snapshot>, clear_all: bool) {
         self.snapshot = Some(snapshot);
-        self.invalidate_view = true;
         self.clear_all = clear_all;
         self.notify(Effect::reset());
     }
@@ -1501,7 +1485,7 @@ impl Store {
             dependency_footprint
                 .insert(self.route(&RelationKey::Dependency(page.key.clone())), true);
         }
-        let lifecycle_write = plan.snapshot.is_some() || plan.invalidate_view;
+        let lifecycle_write = plan.snapshot.is_some();
         let work_changed = lifecycle_write
             || plan.edits.values().any(|edit| {
                 edit.after

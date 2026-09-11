@@ -204,10 +204,12 @@ impl VmSliceState {
 }
 
 #[cfg(not(target_family = "wasm"))]
-#[derive(Clone, Copy, Debug)]
-struct VmActiveTimeBudget {
+#[derive(Debug)]
+struct VmVerificationBudget {
     limit: Duration,
     state: VmSliceState,
+    initial_load_limit: InitialProgramLoadLimit,
+    execution_mode: TxPoolVmExecutionMode,
 }
 
 #[cfg(not(target_family = "wasm"))]
@@ -217,11 +219,17 @@ enum VmChildOutcome {
 }
 
 #[cfg(not(target_family = "wasm"))]
-impl VmActiveTimeBudget {
-    fn new(limit: Duration) -> Self {
+impl VmVerificationBudget {
+    fn new(
+        limit: Duration,
+        initial_load_limit: InitialProgramLoadLimit,
+        execution_mode: TxPoolVmExecutionMode,
+    ) -> Self {
         Self {
             limit,
             state: VmSliceState::default(),
+            initial_load_limit,
+            execution_mode,
         }
     }
 
@@ -231,15 +239,15 @@ impl VmActiveTimeBudget {
         self.state = state;
     }
 
-    fn remaining(self) -> Duration {
+    fn remaining(&self) -> Duration {
         self.limit.saturating_sub(self.state.charged)
     }
 
-    fn exceeded(self) -> bool {
+    fn exceeded(&self) -> bool {
         self.state.charged >= self.limit
     }
 
-    fn timer_deadline(self) -> Option<(u64, Instant)> {
+    fn timer_deadline(&self) -> Option<(u64, Instant)> {
         let VmSlicePhase::Running { started_at } = self.state.phase else {
             return None;
         };
@@ -248,7 +256,7 @@ impl VmActiveTimeBudget {
             .map(|deadline| (self.state.seq, deadline))
     }
 
-    fn timer_still_applies(self, seq: u64) -> bool {
+    fn timer_still_applies(&self, seq: u64) -> bool {
         self.state.seq == seq && matches!(self.state.phase, VmSlicePhase::Running { .. })
     }
 }
@@ -542,13 +550,7 @@ where
         command_rx: &mut Receiver<ChunkCommand>,
     ) -> Result<Cycle, Error> {
         match self
-            .resumable_verify_with_signal_control(
-                limit_cycles,
-                command_rx,
-                None,
-                None,
-                TxPoolVmExecutionMode::Inline,
-            )
+            .resumable_verify_with_signal_control(limit_cycles, command_rx, None)
             .await?
         {
             ResumableVerificationOutcome::Completed(cycles) => Ok(cycles),
@@ -573,9 +575,11 @@ where
         self.resumable_verify_with_signal_control(
             limit_cycles,
             command_rx,
-            Some(active_time_limit),
-            Some(initial_load_limit),
-            execution_mode,
+            Some(VmVerificationBudget::new(
+                active_time_limit,
+                initial_load_limit,
+                execution_mode,
+            )),
         )
         .await
     }
@@ -584,12 +588,9 @@ where
         &self,
         limit_cycles: Cycle,
         command_rx: &mut Receiver<ChunkCommand>,
-        active_time_limit: Option<Duration>,
-        initial_load_limit: Option<InitialProgramLoadLimit>,
-        execution_mode: TxPoolVmExecutionMode,
+        mut budget: Option<VmVerificationBudget>,
     ) -> Result<ResumableVerificationOutcome, Error> {
         let mut cycles = 0;
-        let mut active_budget = active_time_limit.map(VmActiveTimeBudget::new);
 
         for (_hash, group) in self.groups() {
             // vm should early return invalid cycles
@@ -599,14 +600,7 @@ where
             })?;
 
             match self
-                .verify_group_with_signal(
-                    group,
-                    remain_cycles,
-                    command_rx,
-                    active_budget.as_mut(),
-                    initial_load_limit,
-                    execution_mode,
-                )
+                .verify_group_with_signal(group, remain_cycles, command_rx, budget.as_mut())
                 .await
             {
                 Ok(ResumableVerificationOutcome::Completed(used_cycles)) => {
@@ -634,9 +628,7 @@ where
         group: &ScriptGroup,
         max_cycles: Cycle,
         command_rx: &mut Receiver<ChunkCommand>,
-        active_budget: Option<&mut VmActiveTimeBudget>,
-        initial_load_limit: Option<InitialProgramLoadLimit>,
-        execution_mode: TxPoolVmExecutionMode,
+        budget: Option<&mut VmVerificationBudget>,
     ) -> Result<ResumableVerificationOutcome, ScriptError> {
         if group.script.code_hash() == TYPE_ID_CODE_HASH.into()
             && Into::<u8>::into(group.script.hash_type()) == Into::<u8>::into(ScriptHashType::Type)
@@ -649,15 +641,8 @@ where
             let cycles = verifier.verify()?;
             Ok(ResumableVerificationOutcome::Completed(cycles))
         } else {
-            self.chunk_run_with_signal(
-                group,
-                max_cycles,
-                command_rx,
-                active_budget,
-                initial_load_limit,
-                execution_mode,
-            )
-            .await
+            self.chunk_run_with_signal(group, max_cycles, command_rx, budget)
+                .await
         }
     }
 
@@ -666,15 +651,10 @@ where
         script_group: &ScriptGroup,
         max_cycles: Cycle,
         signal: &mut Receiver<ChunkCommand>,
-        mut active_budget: Option<&mut VmActiveTimeBudget>,
-        initial_load_limit: Option<InitialProgramLoadLimit>,
-        execution_mode: TxPoolVmExecutionMode,
+        mut budget: Option<&mut VmVerificationBudget>,
     ) -> Result<ResumableVerificationOutcome, ScriptError> {
         let mut scheduler = self.create_scheduler(script_group)?;
-        if active_budget
-            .as_ref()
-            .is_some_and(|budget| budget.exceeded())
-        {
+        if budget.as_ref().is_some_and(|budget| budget.exceeded()) {
             return Ok(ResumableVerificationOutcome::DeadlineExceeded);
         }
         let mut pause = VMPause::new();
@@ -685,7 +665,7 @@ where
         // program load to start while waiting for a new edge.
         let initial_command = signal.borrow().to_owned();
         let (child_tx, mut child_rx) = watch::channel(initial_command.clone());
-        let initial_slice_state = active_budget
+        let initial_slice_state = budget
             .as_ref()
             .map_or_else(VmSliceState::default, |budget| {
                 budget.state.next_group_idle()
@@ -716,6 +696,12 @@ where
                 .lock()
                 .expect("the VM test probe is not poisoned") = Some(pause.clone());
         }
+        let initial_load_limit = budget.as_ref().map(|budget| budget.initial_load_limit);
+        let execution_mode = budget
+            .as_ref()
+            .map_or(TxPoolVmExecutionMode::Inline, |budget| {
+                budget.execution_mode
+            });
         let jh = tokio::spawn(async move {
             #[cfg(test)]
             let _active_vm_child = test_probe
@@ -809,16 +795,14 @@ where
             let armed_timer = if desired_command == ChunkCommand::Stop {
                 None
             } else {
-                active_budget
-                    .as_ref()
-                    .and_then(|budget| budget.timer_deadline())
+                budget.as_ref().and_then(|budget| budget.timer_deadline())
             };
             let armed_seq = armed_timer.map(|(seq, _)| seq);
             tokio::select! {
                 biased;
                 result = child.join() => {
                     latest_slice_state = *slice_rx.borrow_and_update();
-                    if let Some(budget) = active_budget.as_deref_mut() {
+                    if let Some(budget) = budget.as_deref_mut() {
                         budget.observe(latest_slice_state);
                     }
                     let res = match result {
@@ -829,7 +813,7 @@ where
                         Err(_) => return Err(ScriptError::Interrupts),
                     };
                     let budget_exceeded =
-                        active_budget.as_ref().is_some_and(|budget| budget.exceeded());
+                        budget.as_ref().is_some_and(|budget| budget.exceeded());
                     match res {
                         Ok(VmChildOutcome::InitialLoadExceeded) => {
                             return Ok(ResumableVerificationOutcome::InitialLoadExceeded);
@@ -855,7 +839,7 @@ where
                 }
                 Ok(_) = slice_rx.changed() => {
                     latest_slice_state = *slice_rx.borrow_and_update();
-                    if let Some(budget) = active_budget.as_deref_mut() {
+                    if let Some(budget) = budget.as_deref_mut() {
                         budget.observe(latest_slice_state);
                     }
                     match latest_slice_state.phase {
@@ -867,7 +851,7 @@ where
                         }
                         VmSlicePhase::Idle => {
                             run_requested = false;
-                            if active_budget.as_ref().is_some_and(|budget| budget.exceeded()) {
+                            if budget.as_ref().is_some_and(|budget| budget.exceeded()) {
                                 if desired_command != ChunkCommand::Stop {
                                     desired_command = ChunkCommand::Stop;
                                     child.send(ChunkCommand::Stop);
@@ -893,7 +877,7 @@ where
                         continue;
                     };
                     let current = *slice_rx.borrow();
-                    if let Some(budget) = active_budget.as_deref_mut() {
+                    if let Some(budget) = budget.as_deref_mut() {
                         budget.observe(current);
                         if budget.timer_still_applies(armed_seq)
                             && desired_command != ChunkCommand::Stop

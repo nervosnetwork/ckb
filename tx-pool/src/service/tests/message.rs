@@ -1,6 +1,7 @@
 use super::{
     BoundedIdentifierSequenceError, BoundedProposalIds, BoundedTransaction,
     BoundedTransactionError, BoundedTransactionHashes, NotifyTxBatch, NotifyTxBatchError,
+    RemoteTxSubmissionBatch,
 };
 use ckb_types::{
     bytes::Bytes,
@@ -202,4 +203,47 @@ fn notify_tx_batch_rejects_an_individually_oversized_transaction() {
             maximum: TRANSACTION_SIZE_LIMIT,
         } if observed == actual
     ));
+}
+
+#[test]
+fn relay_batches_preserve_count_then_total_bytes_then_transaction_error_priority() {
+    use ckb_constant::sync::{MAX_RELAY_TXS_BYTES_PER_BATCH, MAX_RELAY_TXS_NUM_PER_BATCH};
+
+    let oversized = TransactionBuilder::default()
+        .output_data(Bytes::from(vec![0; TRANSACTION_SIZE_LIMIT as usize + 1]).pack())
+        .build();
+    let bytes = oversized.data().total_size();
+    let cases = [
+        (
+            vec![oversized.clone(); MAX_RELAY_TXS_NUM_PER_BATCH + 1],
+            NotifyTxBatchError::TooMany {
+                actual: MAX_RELAY_TXS_NUM_PER_BATCH + 1,
+                maximum: MAX_RELAY_TXS_NUM_PER_BATCH,
+            },
+        ),
+        (
+            vec![oversized.clone(); 4],
+            NotifyTxBatchError::TooLarge {
+                actual: 4 * bytes,
+                maximum: MAX_RELAY_TXS_BYTES_PER_BATCH,
+            },
+        ),
+        (
+            vec![oversized.clone()],
+            NotifyTxBatchError::TransactionTooLarge {
+                actual: oversized.data().serialized_size_in_block() as u64,
+                maximum: TRANSACTION_SIZE_LIMIT,
+            },
+        ),
+    ];
+    for (transactions, expected) in cases {
+        let submissions = transactions.iter().cloned().map(|tx| (tx, 1)).collect();
+        let notified = NotifyTxBatch::try_new(transactions).unwrap_err();
+        let remote = RemoteTxSubmissionBatch::try_new(submissions, 7.into()).unwrap_err();
+        assert_eq!(
+            notified.downcast_ref::<NotifyTxBatchError>(),
+            Some(&expected)
+        );
+        assert_eq!(remote.downcast_ref::<NotifyTxBatchError>(), Some(&expected));
+    }
 }

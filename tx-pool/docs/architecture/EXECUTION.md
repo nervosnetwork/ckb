@@ -345,9 +345,7 @@ ELF per thread, keyed by actual program data hash and VM version. Only metadata
 with at most 64 allocated action slots is retained; the cache owns no program
 bytes, transaction, snapshot or VM state. Root loading still computes each
 attempt's mapping receipt and charges its own active time. A miss, unavailable
-slot or oversized parse uses the canonical parser. Cell-data syscalls reuse the
-bytes already loaded for their length check while preserving Snapshot2 page
-tracking, memory-write order and cycle accounting. CKB-VM itself is unchanged.
+slot or oversized parse uses the canonical parser. CKB-VM itself is unchanged.
 
 These mechanisms preserve the common commit contract. Their throughput, CPU and
 memory tradeoffs need [measurement](../BENCHMARK.md), while resource release and

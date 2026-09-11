@@ -5,13 +5,13 @@ mod graph;
 mod ordering;
 
 use super::{
-    membership::Aggregate,
+    membership::{Aggregate, EvictionRank},
     model::{self, Accepted, Error, Status},
 };
 use crate::component::{entry::TxEntry, sort_key::AncestorsScoreSortKey};
 use ckb_snapshot::Snapshot;
 use ckb_types::{
-    core::{Capacity, Cycle, FeeRate, tx_pool::get_transaction_weight},
+    core::{Capacity, Cycle, tx_pool::get_transaction_weight},
     packed::{Byte32, ProposalShortId, ProposalShortIdReader},
     prelude::Reader,
 };
@@ -37,7 +37,6 @@ impl From<PackingError> for Error {
         }
     }
 }
-type EvictionRank = (Status, FeeRate, usize, u64, Byte32);
 
 pub(super) struct Candidate<'a> {
     hash: &'a Byte32,
@@ -184,15 +183,10 @@ impl<'a> Selection<'a> {
             .iter()
             .zip(totals)
             .map(|(candidate, descendants)| {
-                let value = candidate.accepted;
-                (
+                EvictionRank::for_accepted(
+                    candidate.accepted,
                     candidate.status,
-                    FeeRate::calculate(value.fee, get_transaction_weight(value.size, value.cycles))
-                        .max(FeeRate::calculate(
-                            descendants.fee(),
-                            get_transaction_weight(descendants.bytes, descendants.cycles),
-                        )),
-                    descendants.count,
+                    descendants,
                     candidate.arrival,
                     candidate.hash.clone(),
                 )

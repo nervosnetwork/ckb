@@ -251,45 +251,28 @@ fn run_get_block_template_case(
         tx.as_advanced_builder().cell_dep(cell_dep_to_tx_a).build()
     };
 
-    if spender_has_higher_fee {
-        // make B's fee >> C's fee, which means B's tx-weight > C's tx-weight
-        let minimum_outputs_capacity = tx_b
-            .output(0)
-            .unwrap()
-            .as_builder()
-            .build_exact_capacity(Capacity::zero())
-            .unwrap()
-            .capacity();
-        let minimum_output = tx_b
-            .output(0)
-            .unwrap()
-            .as_builder()
-            .capacity(minimum_outputs_capacity)
-            .build();
-        tx_b = tx_b
-            .as_advanced_builder()
-            .set_outputs(vec![minimum_output])
-            .build();
+    let high_fee = if spender_has_higher_fee {
+        &mut tx_b
     } else {
-        // make B's fee << C's fee, which means B's tx-weight < C's tx-weight
-        let minimum_outputs_capacity = tx_c
-            .output(0)
-            .unwrap()
-            .as_builder()
-            .build_exact_capacity(Capacity::zero())
-            .unwrap()
-            .capacity();
-        let minimum_output = tx_c
-            .output(0)
-            .unwrap()
-            .as_builder()
-            .capacity(minimum_outputs_capacity)
-            .build();
-        tx_c = tx_c
-            .as_advanced_builder()
-            .set_outputs(vec![minimum_output])
-            .build();
-    }
+        &mut tx_c
+    };
+    let minimum_outputs_capacity = high_fee
+        .output(0)
+        .unwrap()
+        .as_builder()
+        .build_exact_capacity(Capacity::zero())
+        .unwrap()
+        .capacity();
+    let minimum_output = high_fee
+        .output(0)
+        .unwrap()
+        .as_builder()
+        .capacity(minimum_outputs_capacity)
+        .build();
+    *high_fee = high_fee
+        .as_advanced_builder()
+        .set_outputs(vec![minimum_output])
+        .build();
 
     // Propose B and C, to prepare testing
     let block = node0
