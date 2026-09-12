@@ -501,6 +501,12 @@ pub struct SharedPackage {
 }
 
 impl SharedPackage {
+    /// Consumes the package for offline chain processing, dropping any unused
+    /// pool and relay components before the chain builder is returned.
+    pub fn into_chain_services_builder(mut self) -> ChainServicesBuilder {
+        self.take_chain_services_builder()
+    }
+
     /// Takes the chain_services_builder out of the package, leaving a None in its place.
     pub fn take_chain_services_builder(&mut self) -> ChainServicesBuilder {
         self.chain_services_builder

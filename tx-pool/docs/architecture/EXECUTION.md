@@ -334,6 +334,17 @@ Synchronous providers must still return, so these are not total shutdown bounds.
 that service generation, including if the block consumer later requests Resume.
 `service_started() == false` precedes complete joins.
 
+Offline import and replay consume the unused
+[SharedPackage](../../../shared/src/shared_builder.rs) through
+`into_chain_services_builder()`. This releases the unstarted pool's receivers
+before processing blocks; retaining that package while waiting for a reliable
+chain update would leave the sender waiting on a consumer that cannot start.
+The disconnected pool reports the existing reconciliation error without waiting.
+Normal node assembly retains the pool builder and starts its consumer, so startup
+deltas remain reliable before public readiness. Replay owns a
+[ChainServiceScope](../../../chain/src/init.rs) and joins it before deleting the
+temporary database.
+
 [Persistence](../../src/persisted.rs) loads v1/v2 bodies and writes v2 accepted/recovery
 partitions through a synced temporary file and rename. A corrupt v2 does not fall
 back to v1: loading, merging and dependency ordering finish before workers start;

@@ -2,6 +2,9 @@
 bats_load_library 'bats-assert'
 bats_load_library 'bats-support'
 
+# Bound replay regressions instead of waiting for the CI job's six-hour limit.
+BATS_TEST_TIMEOUT="${BATS_TEST_TIMEOUT:-600}"
+
 _ckb_run() {
   ckb run -C ${CKB_DIRNAME} &> ${TMP_DIR}/ckb_run.log &
   PID=$!
@@ -15,11 +18,6 @@ _ckb_run() {
   tail -n 50 ${TMP_DIR}/ckb_run.log
 }
 
-_ckb_replay() {
-  # from 1 to 2500 enough to trigger profile action
-  CKB_LOG=err ckb replay -C ${CKB_DIRNAME} --tmp-target ${TMP_DIR} --profile 1 2500
-}
-
 function ckb_run { #@test
   run _ckb_run
   [ "$status" -eq 0 ]
@@ -28,9 +26,16 @@ function ckb_run { #@test
 }
 
 function ckb_replay { #@test
-  run _ckb_replay
+  # exec lets the Bats watchdog terminate replay directly, without an orphaned child.
+  run exec env CKB_LOG=err ckb replay -C "${CKB_DIRNAME}" --tmp-target "${TMP_DIR}" --profile 1 2500
   [ "$status" -eq 0 ]
   assert_output --regexp "End profiling, duration:.*, txs:.*, tps:.*"
+}
+
+function ckb_replay_sanity_check { #@test
+  run exec env CKB_LOG=err ckb replay -C "${CKB_DIRNAME}" --tmp-target "${TMP_DIR}" --sanity-check
+  [ "$status" -eq 0 ]
+  assert_output --partial "Sanity-check pass, tip("
 }
 
 teardown_file() {
