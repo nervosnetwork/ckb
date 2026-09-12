@@ -1,8 +1,8 @@
 //! Immutable, bounded notices are appended with the owner commit and published
 //! by one task after its guards open. There is no preallocated sequence gap.
 use super::{
-    budget::Limits,
-    model::{DependencyKey, Entry, Error, FullReason, Phase, Status},
+    budget::{AccountSnapshot, Amount, Budget, Limits},
+    model::{DependencyKey, Entry, Error, FullReason, Phase, Source, Status},
     relay::{AuthorityRelaySink, RelayMailboxDisposition},
 };
 use crate::{
@@ -17,7 +17,7 @@ use crate::{
 use ckb_fee_estimator::FeeEstimator;
 use ckb_jsonrpc_types::PoolTransactionReject;
 use ckb_network::PeerIndex;
-use ckb_types::{core::BlockView, packed::Byte32};
+use ckb_types::{core::BlockView, packed::Byte32, prelude::Unpack};
 use ckb_util::parking_lot::Mutex;
 use std::{
     collections::{BTreeMap, VecDeque},
@@ -41,13 +41,76 @@ mod tests;
 /// These values are fully built before Apply and never consult current owners.
 #[derive(Clone, Default)]
 pub(super) struct Effect {
-    rejection: Option<crate::metrics::RejectionClass>,
-    recent: Option<(Byte32, Reject, String)>,
+    rejection: Option<Rejection>,
     callback: Option<CallbackEvent>,
     ban: Option<(PeerIndex, Instant, String)>,
     relay: Option<TxVerificationResult>,
     blocks: Vec<Arc<BlockView>>,
 }
+
+/// One bounded reason feeds diagnostics, metrics and optional recent storage.
+/// Transient refusals retain their reason through publication without becoming
+/// a persistent transaction status. Accepted-victim callbacks own their copy.
+#[derive(Clone)]
+struct Rejection {
+    hash: Byte32,
+    reason: Reject,
+    class: crate::metrics::RejectionClass,
+    recent: Option<String>,
+    context: Option<Box<RejectionContext>>,
+}
+
+/// Only refused candidates allocate this context; successful replacements do
+/// not attach it to every victim. No owner or transaction payload is retained.
+#[derive(Clone)]
+struct RejectionContext {
+    stage: &'static str,
+    source: &'static str,
+    peer: Option<PeerIndex>,
+    accounts: [Option<AccountSnapshot>; 5],
+}
+
+impl Rejection {
+    fn log(&self) {
+        if !ckb_logger::log_enabled_target!("ckb_tx_pool::rejection", ckb_logger::Level::Debug) {
+            return;
+        }
+        let context = self.context.as_deref();
+        let hash: ckb_types::H256 = self.hash.unpack();
+        let amount = |amount: Amount| {
+            serde_json::json!({
+                "items": amount.items, "bytes": amount.bytes, "edges": amount.edges,
+                "serialized": amount.serialized, "cycles": amount.cycles,
+            })
+        };
+        let accounts = context
+            .into_iter()
+            .flat_map(|context| context.accounts.iter().flatten())
+            .map(|account| {
+                serde_json::json!({
+                    "account": account.account,
+                    "usage": amount(account.usage), "limit": amount(account.limit),
+                })
+            })
+            .collect::<Vec<_>>();
+        // The retained snapshot predates this rejection's commit. It identifies
+        // the budget and observed pressure, not the exact refusing reservation.
+        ckb_logger::debug_target!(
+            "ckb_tx_pool::rejection",
+            "{}",
+            serde_json::json!({
+                "schema": 1, "event": "committed_rejection", "hash": format!("{hash:x}"),
+                "reason": format!("{:?}", self.reason),
+                "stage": context.map(|context| context.stage).unwrap_or("policy"),
+                "source": context.map(|context| context.source),
+                "peer": context.and_then(|context| context.peer).map(|peer| peer.value()),
+                "resource_observation": "rejection_preparation",
+                "accounts": accounts,
+            })
+        );
+    }
+}
+
 impl Effect {
     pub(super) fn accepted(
         entry: TxEntrySnapshot,
@@ -107,11 +170,20 @@ impl Effect {
         deadline: Instant,
     ) -> Result<Self, Error> {
         let reason = bounded_ban_reason(&reject);
-        Ok(Self {
+        let mut effect = Self {
             ban: Some((peer, deadline, reason)),
             relay: Some(TxVerificationResult::GenerationReset),
             ..Self::rejected(hash, reject, None, false)?
-        })
+        };
+        if let Some(rejection) = &mut effect.rejection {
+            rejection.context = Some(Box::new(RejectionContext {
+                stage: "peer_revocation",
+                source: "remote",
+                peer: Some(peer),
+                accounts: [None; 5],
+            }));
+        }
+        Ok(effect)
     }
     #[cfg(test)]
     pub(super) fn relay_result(&self) -> Option<&TxVerificationResult> {
@@ -128,29 +200,75 @@ impl Effect {
         relay: bool,
     ) -> Result<Self, Error> {
         // Preserve policy bits before detaching dynamically owned diagnostics.
-        let rejection = Some(crate::metrics::RejectionClass::from_reject(&reject));
+        let class = crate::metrics::RejectionClass::from_reject(&reject);
         let record = reject.should_recorded();
         let negative =
             relay && reject.is_allowed_relay() && !matches!(reject, Reject::Duplicated(_));
         let reject = bound_reject_diagnostic(reject);
         let recent = if record {
-            Some((
-                compact_packed(hash),
-                reject.clone(),
-                serialized_recent_reject(&reject)?,
-            ))
+            Some(serialized_recent_reject(&reject)?)
         } else {
             None
         };
+        let callback = accepted.map(|entry| CallbackEvent::Reject(entry, reject.clone()));
         Ok(Self {
-            rejection,
-            recent,
-            callback: accepted.map(|entry| CallbackEvent::Reject(entry, reject)),
+            rejection: Some(Rejection {
+                hash: compact_packed(hash),
+                reason: reject,
+                class,
+                recent,
+                context: None,
+            }),
+            callback,
             relay: negative.then(|| TxVerificationResult::Reject {
                 tx_hash: compact_packed(hash),
             }),
             ..Self::default()
         })
+    }
+    pub(super) fn candidate_rejected(
+        hash: &Byte32,
+        reject: Reject,
+        source: Source,
+        before: Option<&Entry>,
+        budget: &Budget,
+    ) -> Result<Self, Error> {
+        let peer = source.residency_peer();
+        let accounts = if matches!(reject, Reject::Full(_)) {
+            budget.rejection_snapshot(peer)
+        } else {
+            [None; 5]
+        };
+        let mut effect = Self::rejected(hash, reject, None, peer.is_some())?;
+        if let Some(rejection) = &mut effect.rejection {
+            rejection.context = Some(Box::new(RejectionContext {
+                stage: match before.map(|entry| &entry.phase) {
+                    None if matches!(source, Source::Local) => "direct_submission",
+                    None => "ingress",
+                    Some(Phase::Resolve) => "resolve",
+                    Some(Phase::Verify(_)) => "verify",
+                    Some(Phase::Waiting(_)) => "waiting",
+                    Some(Phase::Accepted(_)) => "accepted",
+                    Some(Phase::Replaced { .. }) => "replaced",
+                },
+                source: match source {
+                    Source::Remote { .. } => "remote",
+                    Source::Proposal { .. } => "proposal",
+                    Source::Recovery => "recovery",
+                    Source::Local => "local",
+                },
+                peer,
+                accounts,
+            }));
+        }
+        Ok(effect)
+    }
+    fn recent(&self) -> Option<(&Byte32, &Reject, &str)> {
+        let rejection = self.rejection.as_ref()?;
+        rejection
+            .recent
+            .as_deref()
+            .map(|encoded| (&rejection.hash, &rejection.reason, encoded))
     }
     pub(super) fn reset() -> Self {
         Self {
@@ -162,10 +280,16 @@ impl Effect {
         const CALLBACK_METADATA_BYTES: usize =
             size_of::<TxEntrySnapshot>() + MAX_TX_POOL_REJECT_DESCRIPTION_BYTES;
         let mut bytes = size_of::<Self>().checked_add(256)?;
-        if let Some((_, _, serialized)) = &self.recent {
-            bytes = bytes
-                .checked_add(128 + MAX_TX_POOL_REJECT_DESCRIPTION_BYTES)?
-                .checked_add(serialized.capacity())?;
+        if let Some(rejection) = &self.rejection {
+            bytes = bytes.checked_add(128 + MAX_TX_POOL_REJECT_DESCRIPTION_BYTES)?;
+            if let Some(serialized) = &rejection.recent {
+                bytes = bytes.checked_add(serialized.capacity())?;
+            }
+            if rejection.context.is_some() {
+                bytes = bytes
+                    .checked_add(size_of::<RejectionContext>())?
+                    .checked_add(128)?;
+            }
         }
         if let Some(event) = &self.callback {
             let entry = match event {
@@ -434,9 +558,8 @@ impl Outbox {
         let batch = self.state.lock().pending.get(hash)?.upgrade()?;
         batch.effects.iter().rev().find_map(|effect| {
             effect
-                .recent
-                .as_ref()
-                .filter(|(key, _, _)| key == hash)
+                .recent()
+                .filter(|(key, _, _)| *key == hash)
                 .map(|(_, reject, _)| reject.clone())
         })
     }
@@ -557,7 +680,7 @@ impl Outbox {
                     return Err(Error::Fault("notice FIFO head"));
                 }
                 for effect in &batch.effects {
-                    if let Some((hash, _, _)) = &effect.recent
+                    if let Some((hash, _, _)) = effect.recent()
                         && state
                             .pending
                             .get(hash)
@@ -641,7 +764,7 @@ impl Reservation {
         self.appended = true;
         let mut state = self.outbox.state.lock();
         for effect in &batch.effects {
-            if let Some((hash, _, _)) = &effect.recent {
+            if let Some((hash, _, _)) = effect.recent() {
                 state
                     .pending
                     .insert(compact_packed(hash), Arc::downgrade(&batch));
@@ -748,10 +871,15 @@ impl Endpoints {
         #[cfg(feature = "profiling")]
         let _span = tracing::trace_span!(target: "ckb_tx_pool_profile", "tx_pool.effects.publish")
             .entered();
-        if let Some(rejection) = effect.rejection {
-            rejection.record();
+        if let Some(rejection) = &effect.rejection {
+            rejection.class.record();
+            if !matches!(effect.callback, Some(CallbackEvent::Reject(..)))
+                || !matches!(rejection.reason, Reject::RBFRejected(_))
+            {
+                rejection.log();
+            }
         }
-        if let (Some(store), Some((hash, _, serialized))) = (&self.recent, &effect.recent) {
+        if let (Some(store), Some((hash, _, serialized))) = (&self.recent, effect.recent()) {
             self.recent_writes
                 .write(|| store.put_serialized(hash, serialized));
         }

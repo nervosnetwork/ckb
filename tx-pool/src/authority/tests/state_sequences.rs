@@ -439,32 +439,27 @@ impl<'a> Sequence<'a> {
             );
             self.apply(plan);
         }
-        loop {
-            let mut changed = false;
-            for id in 0..TRANSACTIONS {
-                let Some(owner) = self.expected[id] else {
-                    continue;
-                };
-                if !matches!(owner.shape, Shape::Waiting | Shape::HistoryAll) {
-                    continue;
-                }
-                let parent = Corpus::parent(id).expect("only dependent fixture transactions wait");
-                let spent = (0..TRANSACTIONS).any(|other| {
-                    self.accepted(other) && self.corpus.input(other) == self.corpus.input(id)
-                });
-                if self.accepted(parent) && !spent {
-                    self.expected[id].as_mut().unwrap().shape = Shape::Resolve;
-                    changed = true;
-                } else if owner.shape == Shape::Waiting
-                    && owner.origin.source.requires_known_producer()
-                    && self.expected[parent].is_none_or(|parent| parent.shape.history())
-                {
-                    self.expected[id] = None;
-                    changed = true;
-                }
+        // Fixture parents precede their children. Waking or removing a waiter
+        // leaves accepted spenders unchanged, so one forward pass settles both
+        // availability and loss of a required producer.
+        for id in 0..TRANSACTIONS {
+            let Some(owner) = self.expected[id] else {
+                continue;
+            };
+            if !matches!(owner.shape, Shape::Waiting | Shape::HistoryAll) {
+                continue;
             }
-            if !changed {
-                break;
+            let parent = Corpus::parent(id).expect("only dependent fixture transactions wait");
+            let spent = (0..TRANSACTIONS).any(|other| {
+                self.accepted(other) && self.corpus.input(other) == self.corpus.input(id)
+            });
+            if self.accepted(parent) && !spent {
+                self.expected[id].as_mut().unwrap().shape = Shape::Resolve;
+            } else if owner.shape == Shape::Waiting
+                && owner.origin.source.requires_known_producer()
+                && self.expected[parent].is_none_or(|parent| parent.shape.history())
+            {
+                self.expected[id] = None;
             }
         }
     }

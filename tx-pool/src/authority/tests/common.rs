@@ -32,6 +32,41 @@ use std::{
     time::{Duration, Instant},
 };
 
+/// Nextest gives each caller its own process and logger. Keep the capture
+/// bounded so a diagnostic loop fails instead of hiding unbounded retention.
+pub(in crate::authority) fn capture_rejections() -> &'static ckb_util::Mutex<Vec<serde_json::Value>>
+{
+    use ckb_logger::internal::{LevelFilter, Log, Metadata, Record};
+    static RECORDS: std::sync::OnceLock<ckb_util::Mutex<Vec<serde_json::Value>>> =
+        std::sync::OnceLock::new();
+    struct Capture;
+    impl Log for Capture {
+        fn enabled(&self, metadata: &Metadata<'_>) -> bool {
+            metadata.target() == "ckb_tx_pool::rejection"
+        }
+        fn log(&self, record: &Record<'_>) {
+            if self.enabled(record.metadata()) {
+                let value = serde_json::from_str(&record.args().to_string())
+                    .expect("rejection diagnostic is valid JSON");
+                eprintln!("TX_POOL_TEST_REJECTION {value}");
+                let mut records = RECORDS.get().unwrap().lock();
+                assert!(records.len() < 128, "bounded rejection capture");
+                records.push(value);
+            }
+        }
+        fn flush(&self) {}
+    }
+    let records = RECORDS.get_or_init(|| ckb_util::Mutex::new(Vec::with_capacity(128)));
+    ckb_logger::internal::set_logger(&Capture).expect("one logger per isolated test");
+    ckb_logger::internal::set_max_level(LevelFilter::Debug);
+    records
+}
+
+pub(in crate::authority) fn diagnostic_hash(hash: &Byte32) -> String {
+    let hash: ckb_types::H256 = hash.unpack();
+    format!("{hash:x}")
+}
+
 pub(in crate::authority) fn config() -> TxPoolConfig {
     TxPoolConfig {
         min_fee_rate: FeeRate::zero(),

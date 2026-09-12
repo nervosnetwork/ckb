@@ -21,6 +21,7 @@ import time
 import tomllib
 from pathlib import Path
 
+import rejection_diagnostics
 from measurement_process import run_process
 from measurement_window import parse_measurement_window, parse_readiness, wall_alignment
 
@@ -60,7 +61,7 @@ CORPUS_PREFIX = "BENCH_CORPUS "
 TERMINALS_PREFIX = "BENCH_TERMINALS "
 MAX_SCENARIO_TRANSACTIONS = 65_536
 FINAL_BUILD_PROFILE = "prod"
-SCHEMA_VERSION = 11
+SCHEMA_VERSION = 12
 PROTOCOL_CONTRACT = "protocol"
 RBF_ABLATION_CONTRACT = "rbf-victim-notice-ablation"
 CONSENSUS_LOCK_PACKAGES = ("ckb-vm", "ckb-vm-definitions")
@@ -551,6 +552,7 @@ def failure_attempt(
         "category": category,
         "detail": detail,
         "output": output,
+        "rejection_diagnostics": rejection_diagnostics.inspect_failure(output),
     }
 
 
@@ -630,6 +632,7 @@ def run_attempt(
             completed.stdout,
         )
     try:
+        rejection_diagnostics.validate_success(completed.stdout)
         result = unique_match(RESULT, completed.stdout, "BENCH_RESULT")
         resources = unique_match(RESOURCE_RESULT, completed.stdout, "RESOURCE_RESULT")
         corpus = parse_json_record(completed.stdout, CORPUS_PREFIX)
@@ -666,7 +669,7 @@ def run_attempt(
         expected_accepted = int(scenario["target"]) + int(scenario["warm"])
         expected_rejects = (
             int(scenario["warm"])
-            if scenario["name"] == "rbf_pairs" and build["adapter"] == "bounded_remote_batch"
+            if scenario["name"] in {"rbf_pairs", "rbf_pairs_windowed"} and build["adapter"] == "bounded_remote_batch"
             and target_contract == PROTOCOL_CONTRACT
             else 0
         )
@@ -1276,6 +1279,8 @@ def validate_frozen(
         raise RuntimeError("measurement process runner changed")
     if record.get("measurement_window_sha256") != sha256(Path(__file__).with_name("measurement_window.py")):
         raise RuntimeError("measurement window parser changed")
+    if record.get("rejection_diagnostics_sha256") != sha256(Path(__file__).with_name("rejection_diagnostics.py")):
+        raise RuntimeError("rejection diagnostic verifier changed")
     if record.get("harness_sha256") != harness_hash or record.get("host") != host:
         raise RuntimeError("benchmark harness or host identity changed")
     recorded = record.get("sides")
@@ -1353,6 +1358,7 @@ def main() -> None:
             "harness_sha256": harness_hash,
             "harness_bundle": harness_bundle(roots["baseline"]),
             "measurement_window_sha256": sha256(Path(__file__).with_name("measurement_window.py")),
+            "rejection_diagnostics_sha256": sha256(Path(__file__).with_name("rejection_diagnostics.py")),
             "host": host,
             "configuration": config,
             "metric_scopes": METRIC_SCOPES,

@@ -32,6 +32,15 @@ pub(super) struct Amount {
     pub(super) cycles: u64,
 }
 
+/// A bounded observation made while preparing a rejection, after the refusing
+/// operation has returned. Concurrent work may already have changed the usage.
+#[derive(Clone, Copy)]
+pub(super) struct AccountSnapshot {
+    pub(super) account: &'static str,
+    pub(super) usage: Amount,
+    pub(super) limit: Amount,
+}
+
 impl Amount {
     pub(super) fn checked_add(self, rhs: Self) -> Option<Self> {
         Some(Self {
@@ -519,6 +528,26 @@ impl Budget {
             .get(&Account::Accepted)
             .copied()
             .unwrap_or_default()
+    }
+    pub(super) fn rejection_snapshot(
+        &self,
+        peer: Option<PeerIndex>,
+    ) -> [Option<AccountSnapshot>; 5] {
+        let usage = self.usage.lock();
+        [
+            Some(("accepted", Account::Accepted)),
+            Some(("pipeline", Account::Pipeline)),
+            Some(("remote", Account::Remote)),
+            peer.map(|peer| ("peer", Account::Peer(peer))),
+            Some(("history", Account::History)),
+        ]
+        .map(|account| {
+            account.map(|(account, key)| AccountSnapshot {
+                account,
+                usage: usage.get(&key).copied().unwrap_or_default(),
+                limit: self.limits.for_account(key),
+            })
+        })
     }
     pub(super) fn active(self: &Arc<Self>, source: Source) -> Result<ActivePermit, Error> {
         if self.faulted() {

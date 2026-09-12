@@ -72,12 +72,19 @@ For prefix `rbf`, keep the complete bundle together:
 
 Analysis verifies artifact paths, sizes and SHA-256 before consuming them. The
 bundle can move and no longer needs the capture binary. Preserve the analyzer
-and its [process helper](../scripts/measurement_process.py) and
-[window parser](../scripts/measurement_window.py) with an immutable study;
-use the matching analyzer for each bundle schema. Current manifest/summary/window
-schemas are 9/8/3, and current span output is schema 4. All Rust harness modules
+and its [process helper](../scripts/measurement_process.py),
+[window parser](../scripts/measurement_window.py) and
+[rejection verifier](../scripts/rejection_diagnostics.py) with an immutable study.
+Use the matching analyzer for each bundle schema. Current manifest/summary/window
+schemas are 10/8/3, and current span output is schema 4. All Rust harness modules
 are included in source identity. Reanalysis is not a new
 timing run.
+
+CPU capture, span capture and artifact reanalysis all validate the complete
+stdout/stderr rejection log. Missing capture, failed output, unexpected committed
+rejection or a service ERROR rejects the profile even if its timing marker is
+valid. The final capture includes service cleanup; a partial terminal snapshot
+still describes the point of failure, not a later completed workload.
 
 ### Read the result correctly
 

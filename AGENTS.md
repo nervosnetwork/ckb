@@ -41,6 +41,11 @@ and skill guidance. Keep enduring rules here and live plans in project artifacts
 - Keep ownership, resource bounds and cleanup explicit through actual allocation
   and transfer paths. Concurrent changes must account for lock order, waiting,
   cancellation and shutdown, including dependencies needed to make progress.
+- Refine every change before delivery through repeated semantic and subtractive
+  review. Revisit the model as well as its expression; remove unnecessary states,
+  layers and conventions across complete call paths, preserving contracts and
+  resource bounds. Continue while concrete improvements remain; a single pass or
+  passing tests does not finish refinement. Avoid churn between equivalent forms.
 
 ## Validation
 

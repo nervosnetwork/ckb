@@ -1,6 +1,9 @@
 //! One-shot, fixed-workload tx-pool profiling harness.
 
 mod allocation_observation;
+#[cfg(not(feature = "cross-version-legacy-bench-adapter"))]
+mod rbf_pressure;
+mod rejection_diagnostics;
 use allocation_observation::{begin_allocation_window, end_allocation_window};
 
 #[cfg(all(feature = "tokio-trace", not(tokio_unstable)))]
@@ -18,7 +21,6 @@ use ckb_network::{
 use ckb_proposal_table::ProposalView;
 use ckb_script::{TransactionScriptsVerifier, TxVerifyEnv};
 use ckb_snapshot::Snapshot;
-#[cfg(feature = "cross-version-legacy-bench-adapter")]
 use ckb_stop_handler::broadcast_exit_signals;
 use ckb_store::{attach_block_cell, data_loader_wrapper::AsDataLoader};
 use ckb_system_scripts::BUNDLED_CELL;
@@ -39,8 +41,6 @@ use ckb_types::{
     utilities::difficulty_to_compact,
 };
 use ckb_verification::cache::init_cache;
-#[cfg(feature = "cross-version-legacy-bench-adapter")]
-use std::io::Write;
 #[cfg(unix)]
 use std::mem::MaybeUninit;
 use std::{
@@ -299,7 +299,6 @@ fn init_observability() -> Result<Observability, String> {
     use tracing_subscriber::Layer;
     use tracing_subscriber::filter::FilterFn;
     use tracing_subscriber::layer::SubscriberExt;
-    use tracing_subscriber::util::SubscriberInitExt;
 
     let recorder = std::env::var_os("TX_POOL_PROFILE_TRACE_PATH")
         .map(|path| {
@@ -357,8 +356,9 @@ fn init_observability() -> Result<Observability, String> {
         );
         (subscriber.with(layer), server, listener)
     };
-    subscriber
-        .try_init()
+    // The benchmark already owns the log facade for refusal evidence. Install
+    // tracing directly so profiling does not replace that independent observer.
+    tracing::subscriber::set_global_default(subscriber)
         .map_err(|error| format!("cannot install observability subscriber: {error}"))?;
     Ok(Observability {
         recorder,
@@ -762,11 +762,20 @@ impl RelayCompletion {
 struct TerminalDiagnosticsGuard {
     completion: Arc<Completion>,
     relay: Arc<RelayCompletion>,
+    expected_relay: RelayOkSet,
     armed: bool,
 }
 
-fn terminal_diagnostics(completion: &Completion, relay: &RelayCompletion) -> serde_json::Value {
+fn terminal_diagnostics(
+    completion: &Completion,
+    relay: &RelayCompletion,
+    expected_relay: &RelayOkSet,
+) -> serde_json::Value {
     let rejects = lock(&relay.rejects);
+    let peers: HashMap<_, _> = expected_relay
+        .iter()
+        .map(|(hash, peer)| (hash, *peer))
+        .collect();
     let accepted = completion
         .indexes
         .iter()
@@ -792,6 +801,19 @@ fn terminal_diagnostics(completion: &Completion, relay: &RelayCompletion) -> ser
         .filter(|hash| !completion.indexes.contains_key(*hash))
         .count();
     let rejected = rejects.len();
+    let mut refusals = rejects
+        .iter()
+        .filter(|hash| !accepted.contains(*hash))
+        .map(|hash| {
+            let index = completion.indexes.get(hash).copied();
+            serde_json::json!({
+                "hash": hex_bytes(hash.as_slice()), "corpus_index": index,
+                "phase": index.map(|index| if index < completion.target_begin { "warm" } else { "target" }),
+                "peer": peers.get(hash).copied().flatten().map(|peer| peer.value()),
+            })
+        })
+        .collect::<Vec<_>>();
+    refusals.sort_unstable_by_key(|refusal| refusal["corpus_index"].as_u64());
     drop(rejects);
     let observation = relay.observation();
     let mut accepted_hashes = accepted
@@ -809,6 +831,7 @@ fn terminal_diagnostics(completion: &Completion, relay: &RelayCompletion) -> ser
         "unresolved_scope": "planned corpus without a terminal; may include transactions not submitted",
         "accepted_hashes": accepted_hashes, "relay_ok_observations": relay_ok,
         "rejected": rejected, "rejected_hashes": rejected_hashes,
+        "refused_without_observed_acceptance": refusals,
         "unresolved": unresolved.len(), "unresolved_hashes": unresolved,
         "accepted_rejected_overlap": overlapping, "unexpected_rejects": unexpected_rejects,
         "callback_duplicates": completion.duplicate_callbacks.load(Ordering::Acquire),
@@ -825,7 +848,7 @@ impl Drop for TerminalDiagnosticsGuard {
         if self.armed {
             eprintln!(
                 "BENCH_FAILURE_TERMINALS {}",
-                terminal_diagnostics(&self.completion, &self.relay)
+                terminal_diagnostics(&self.completion, &self.relay, &self.expected_relay)
             );
         }
     }
@@ -942,6 +965,29 @@ impl RelayDrainGuard {
             .map_err(|_| bench_error("relay drain thread panicked"))?;
         Ok(())
     }
+}
+
+/// Keep the runtime live until every guarded service task has released it.
+/// `service_started == false` precedes worker joins, publication and persistence.
+fn shutdown(
+    runtime: &tokio::runtime::Runtime,
+    controller: TxPoolController,
+    relay: RelayDrainGuard,
+    handle: Handle,
+    mut stopped: tokio::sync::mpsc::Receiver<()>,
+) -> BenchResult<()> {
+    #[cfg(not(feature = "cross-version-legacy-bench-adapter"))]
+    controller.stop();
+    broadcast_exit_signals();
+    drop(controller);
+    drop(handle);
+    let message = runtime
+        .block_on(async { tokio::time::timeout(Duration::from_secs(30), stopped.recv()).await })?;
+    require(
+        message.is_none(),
+        "runtime guard emitted an unexpected value",
+    )?;
+    relay.stop()
 }
 
 #[cfg(not(feature = "cross-version-legacy-bench-adapter"))]
@@ -1483,16 +1529,37 @@ mod measurement_clock;
 mod relay_batches;
 mod resource_phases;
 
+/// Enqueue synchronously; the future verifies the response's complete prefix.
+#[cfg(not(feature = "cross-version-legacy-bench-adapter"))]
+fn submit_remote_batch(
+    controller: &TxPoolController,
+    batch: Vec<(TransactionView, u64)>,
+    peer: PeerIndex,
+) -> BenchResult<impl std::future::Future<Output = BenchResult<()>> + '_> {
+    let count = batch.len();
+    let response = controller
+        .submit_remote_txs(batch, peer)
+        .map_err(bench_error)?;
+    Ok(async move {
+        let (offered, completed, error) = response.await.map_err(bench_error)?.into_parts();
+        if offered != count || completed != offered || error.is_some() {
+            return Err(bench_error(format!(
+                "remote batch outcome mismatch: offered={offered}, completed={completed}, error={error:?}"
+            )));
+        }
+        Ok(())
+    })
+}
+
 #[cfg(not(feature = "cross-version-legacy-bench-adapter"))]
 async fn submit_requests(
     controller: &TxPoolController,
     transactions: Arc<Vec<TransactionView>>,
     cycles: Arc<Vec<u64>>,
-    peers: usize,
+    ranges: &[(usize, usize)],
 ) -> BenchResult<()> {
-    let ranges = peer_ranges(transactions.len(), peers);
     let mut responses = Vec::with_capacity(ranges.len());
-    for (peer, (mut start, end)) in ranges.into_iter().enumerate() {
+    for (peer, (mut start, end)) in ranges.iter().copied().enumerate() {
         while start < end {
             let count = relay_batches::batch_len(
                 transactions[start..end]
@@ -1503,21 +1570,7 @@ async fn submit_requests(
             let batch = (start..start + count)
                 .map(|index| (transactions[index].clone(), cycles[index]))
                 .collect();
-            let response = controller
-                .submit_remote_txs(batch, (peer + 1).into())
-                .map_err(|error| std::io::Error::other(error.to_string()))?;
-            responses.push(async move {
-                let outcome = response
-                    .await
-                    .map_err(|error| std::io::Error::other(error.to_string()))?;
-                let (offered, completed, error) = outcome.into_parts();
-                if offered != count || completed != offered || error.is_some() {
-                    return Err(std::io::Error::other(format!(
-                        "remote batch outcome mismatch: offered={offered}, completed={completed}, error={error:?}"
-                    )));
-                }
-                Ok(())
-            });
+            responses.push(submit_remote_batch(controller, batch, (peer + 1).into())?);
             start += count;
         }
     }
@@ -1532,14 +1585,13 @@ async fn submit_requests(
     controller: &TxPoolController,
     transactions: Arc<Vec<TransactionView>>,
     cycles: Arc<Vec<u64>>,
-    peers: usize,
+    ranges: &[(usize, usize)],
 ) -> BenchResult<()> {
-    let ranges = peer_ranges(transactions.len(), peers);
     let barrier = Arc::new(Barrier::new(ranges.len() + 1));
     // Dropping the set on a failed response or deadline aborts all remaining
     // peer submissions. Detached JoinHandles would keep submitting afterwards.
     let mut submissions = tokio::task::JoinSet::new();
-    for (peer, (start, end)) in ranges.into_iter().enumerate() {
+    for (peer, (start, end)) in ranges.iter().copied().enumerate() {
         let controller = controller.clone();
         let transactions = Arc::clone(&transactions);
         let cycles = Arc::clone(&cycles);
@@ -1570,13 +1622,13 @@ async fn submit_only(
     controller: &TxPoolController,
     transactions: Arc<Vec<TransactionView>>,
     cycles: Arc<Vec<u64>>,
-    peers: usize,
+    ranges: &[(usize, usize)],
 ) -> BenchResult<()> {
     // Leave time for terminal diagnostics and cleanup before the external
     // process deadline. Admission replies cannot bypass every internal timer.
     tokio::time::timeout(
         Duration::from_secs(90),
-        submit_requests(controller, transactions, cycles, peers),
+        submit_requests(controller, transactions, cycles, ranges),
     )
     .await
     .map_err(|_| bench_error("remote submission exceeded 90 seconds"))?
@@ -1590,7 +1642,8 @@ async fn submit_batch(
     peers: usize,
     expected_total: usize,
 ) -> BenchResult<()> {
-    submit_only(controller, transactions, cycles, peers).await?;
+    let ranges = peer_ranges(transactions.len(), peers);
+    submit_only(controller, transactions, cycles, &ranges).await?;
     completion.wait_for(expected_total).await
 }
 
@@ -1632,6 +1685,7 @@ async fn submit_dependency_forest(
 #[derive(Clone, Copy)]
 enum SubmissionOrder {
     Concurrent,
+    WindowedRbf,
     Forest(usize),
     ParentFirst,
     ReverseFanoutCohorts,
@@ -1647,7 +1701,29 @@ async fn submit_workload(
     accepted_before: usize,
 ) -> BenchResult<fanout_readiness::Readiness> {
     let mut readiness = fanout_readiness::Readiness::default();
-    if matches!(order, SubmissionOrder::ReverseFanoutCohorts) {
+    if matches!(order, SubmissionOrder::WindowedRbf) {
+        let mut remaining = peer_ranges(transactions.len(), peers);
+        let mut submitted = 0;
+        while submitted < transactions.len() {
+            let window: Vec<_> = remaining
+                .iter_mut()
+                .map(|(start, end)| {
+                    let first = *start;
+                    *start += (*end - first).min(1024);
+                    submitted += *start - first;
+                    (first, *start)
+                })
+                .collect();
+            submit_only(
+                controller,
+                Arc::clone(&transactions),
+                Arc::clone(&cycles),
+                &window,
+            )
+            .await?;
+            completion.wait_for(accepted_before + submitted).await?;
+        }
+    } else if matches!(order, SubmissionOrder::ReverseFanoutCohorts) {
         require(
             transactions.len().is_multiple_of(FANOUT_COHORT_SIZE),
             "incomplete fanout cohort",
@@ -1669,7 +1745,7 @@ async fn submit_workload(
                 controller,
                 Arc::new(transactions[..parent].to_vec()),
                 Arc::new(cycles[..parent].to_vec()),
-                peers,
+                &peer_ranges(parent, peers),
             )
             .await?;
             // Only these 64 unique children have been submitted since the
@@ -1810,6 +1886,14 @@ fn expected_unknown_parents(
 }
 
 fn main() -> BenchResult<()> {
+    let capture = rejection_diagnostics::install()?;
+    run()?;
+    drop(capture);
+    rejection_diagnostics::check()?;
+    Ok(())
+}
+
+fn run() -> BenchResult<()> {
     let mut resource_phases =
         resource_phases::ResourcePhases::from_environment().map_err(bench_error)?;
     resource_phases
@@ -1836,7 +1920,13 @@ fn main() -> BenchResult<()> {
         .transpose()?
         .or_else(|| (scenario == "reorg_in_flight").then_some(500));
     let reorg_in_flight = scenario == "reorg_in_flight";
-    let workload_scenario = if callback_delay_us.is_some() || reorg_in_flight {
+    require(
+        scenario != "rbf_pressure" || !cfg!(feature = "cross-version-legacy-bench-adapter"),
+        "RBF pressure diagnostics require the current public controller",
+    )?;
+    let workload_scenario = if matches!(scenario.as_str(), "rbf_pressure" | "rbf_pairs_windowed") {
+        "rbf_pairs"
+    } else if callback_delay_us.is_some() || reorg_in_flight {
         "always_success"
     } else {
         scenario.as_str()
@@ -1872,6 +1962,23 @@ fn main() -> BenchResult<()> {
                 && !cfg!(feature = "cross-version-legacy-bench-adapter")),
         "victim-notice ablation requires bounded-batch RBF",
     )?;
+    let adapter = if cfg!(feature = "cross-version-legacy-bench-adapter") {
+        "legacy_peer_local_sequential"
+    } else {
+        "bounded_remote_batch"
+    };
+    println!(
+        "BENCH_BUILD profiling={} allocation_observation={} callback_observer=preallocated_atomic_slots_sharded_completion adapter={} debug_assertions={} measurement_window=terminal_completion_v3 comparison_contract={}",
+        cfg!(feature = "profiling"),
+        cfg!(feature = "allocation-observation"),
+        adapter,
+        cfg!(debug_assertions),
+        if omit_rbf_victim_notices {
+            "rbf-victim-notice-ablation"
+        } else {
+            "protocol"
+        },
+    );
     let transaction_count = target_count
         .checked_add(warm_count)
         .ok_or_else(|| bench_error("target and warm transaction count overflow"))?;
@@ -1884,15 +1991,19 @@ fn main() -> BenchResult<()> {
         .capture("fixture_ready")
         .map_err(bench_error)?;
     let runtime_threads = std::thread::available_parallelism().map_or(8, |count| count.get());
-    let (handle, _handle_stop, runtime) = new_global_runtime(Some(runtime_threads));
+    let (handle, handle_stop, runtime) = new_global_runtime(Some(runtime_threads));
     let consensus = Arc::new(consensus);
     let (store, snapshot) = snapshot_with_genesis(Arc::clone(&consensus));
-    let (_network_directory, network) = start_network(&consensus, &handle)?;
+    let (network_directory, network) = start_network(&consensus, &handle)?;
+    let config = TxPoolConfig {
+        persisted_data: network_directory.path().join("tx-pool.data"),
+        ..tx_pool_config(workers, workload_scenario == "rbf_pairs")
+    };
     #[cfg(feature = "cross-version-legacy-bench-adapter")]
     let (mut builder, controller, relay_receiver) = {
         let (relay_sender, relay_receiver) = ckb_channel::unbounded();
         let (builder, controller) = TxPoolServiceBuilder::new(
-            tx_pool_config(workers, workload_scenario == "rbf_pairs"),
+            config,
             Arc::clone(&snapshot),
             None,
             Arc::new(RwLock::new(init_cache())),
@@ -1905,7 +2016,7 @@ fn main() -> BenchResult<()> {
     #[cfg(not(feature = "cross-version-legacy-bench-adapter"))]
     let (mut builder, controller, relay_receiver) = {
         let (builder, controller, relay_receiver) = TxPoolServiceBuilder::new(
-            tx_pool_config(workers, workload_scenario == "rbf_pairs"),
+            config,
             Arc::clone(&snapshot),
             None,
             Arc::new(RwLock::new(init_cache())),
@@ -1921,6 +2032,7 @@ fn main() -> BenchResult<()> {
     let mut diagnostics = TerminalDiagnosticsGuard {
         completion: Arc::clone(&completion),
         relay: Arc::clone(&relay_completion),
+        expected_relay: RelayOkSet::new(),
         armed: true,
     };
     let pending_completion = Arc::clone(&completion);
@@ -1991,6 +2103,8 @@ fn main() -> BenchResult<()> {
         (vec![sample_cycles(sample)?; transactions.len()], 1)
     };
     let corpus = corpus_observation(&consensus, &transactions, &cycles, script_preflight_count)?;
+    // Preserve the complete input identity even if submission or settlement fails.
+    println!("BENCH_CORPUS {corpus}");
     resource_phases
         .capture("preflight_complete")
         .map_err(bench_error)?;
@@ -2006,7 +2120,9 @@ fn main() -> BenchResult<()> {
         .map(str::parse::<usize>)
         .transpose()?
         .map_or(SubmissionOrder::Concurrent, SubmissionOrder::Forest);
-    let order = if workload_scenario == "fanout_ready_64_reverse" {
+    let order = if scenario == "rbf_pairs_windowed" {
+        SubmissionOrder::WindowedRbf
+    } else if workload_scenario == "fanout_ready_64_reverse" {
         SubmissionOrder::ReverseFanoutCohorts
     } else {
         order
@@ -2025,6 +2141,8 @@ fn main() -> BenchResult<()> {
     let target_expected_relay = expected_relay_batch(&target, target_order, peers);
     let mut all_expected_relay = warm_expected_relay.clone();
     all_expected_relay.extend(target_expected_relay);
+    diagnostics.expected_relay = all_expected_relay;
+    let all_expected_relay = &diagnostics.expected_relay;
     let warm_expected_rejects = RelayRejectSet::new();
     let all_expected_rejects = if workload_scenario == "rbf_pairs"
         && !cfg!(feature = "cross-version-legacy-bench-adapter")
@@ -2040,7 +2158,7 @@ fn main() -> BenchResult<()> {
         .collect::<HashSet<_>>();
     let (allowed_unknown, warm_allowed_unknown) = if workload_scenario.ends_with("_reverse") {
         (
-            expected_unknown_parents(&transactions, &all_expected_relay, &corpus_hashes),
+            expected_unknown_parents(&transactions, all_expected_relay, &corpus_hashes),
             expected_unknown_parents(
                 &transactions[..warm_count],
                 &warm_expected_relay,
@@ -2061,7 +2179,7 @@ fn main() -> BenchResult<()> {
             &controller,
             Arc::clone(&target),
             Arc::clone(&target_cycles),
-            peers,
+            &peer_ranges(target.len(), peers),
         ));
         let settled = submission.is_ok()
             && runtime.block_on(wait_for_stress_settlement(
@@ -2073,26 +2191,12 @@ fn main() -> BenchResult<()> {
         resource_phases
             .capture("target_complete")
             .map_err(bench_error)?;
-        #[cfg(not(feature = "cross-version-legacy-bench-adapter"))]
-        {
-            controller.stop();
-            runtime.block_on(async {
-                tokio::time::timeout(Duration::from_secs(30), async {
-                    while controller.service_started() {
-                        tokio::task::yield_now().await;
-                    }
-                })
-                .await
-            })?;
-        }
-        #[cfg(feature = "cross-version-legacy-bench-adapter")]
-        broadcast_exit_signals();
-        relay_guard.stop()?;
+        shutdown(&runtime, controller, relay_guard, handle, handle_stop)?;
         resource_phases
             .capture("shutdown_complete")
             .map_err(bench_error)?;
         resource_phases.finish();
-        let terminals = terminal_diagnostics(&completion, &relay_completion);
+        let terminals = terminal_diagnostics(&completion, &relay_completion, all_expected_relay);
         let reset = relay_completion.generation_resets.load(Ordering::Acquire) != 0;
         println!(
             "BENCH_STRESS_RESULT {}",
@@ -2110,7 +2214,7 @@ fn main() -> BenchResult<()> {
             settled,
             "capacity stress left unresolved transactions; see BENCH_STRESS_RESULT",
         )?;
-        let observation = terminal_diagnostics(&completion, &relay_completion);
+        let observation = terminal_diagnostics(&completion, &relay_completion, all_expected_relay);
         require(
             observation["accepted_rejected_overlap"] == 0
                 && observation["unexpected_rejects"] == 0
@@ -2120,14 +2224,8 @@ fn main() -> BenchResult<()> {
                 && observation["relay_duplicate_reject"] == 0,
             "capacity stress terminal ownership violation; see BENCH_STRESS_RESULT",
         )?;
-        relay_completion.validate_stress(&completion, &all_expected_relay, &allowed_unknown)?;
+        relay_completion.validate_stress(&completion, all_expected_relay, &allowed_unknown)?;
         diagnostics.armed = false;
-        #[cfg(feature = "cross-version-legacy-bench-adapter")]
-        {
-            std::io::stdout().flush()?;
-            std::process::exit(0)
-        }
-        #[cfg(not(feature = "cross-version-legacy-bench-adapter"))]
         return Ok(());
     }
     let reorg_snapshot = reorg_in_flight.then(|| {
@@ -2140,7 +2238,7 @@ fn main() -> BenchResult<()> {
     runtime.block_on(submit_workload(
         &controller,
         &completion,
-        warm,
+        Arc::clone(&warm),
         warm_cycles,
         warm_order,
         peers,
@@ -2160,6 +2258,21 @@ fn main() -> BenchResult<()> {
     resource_phases
         .capture("warm_complete")
         .map_err(bench_error)?;
+    #[cfg(not(feature = "cross-version-legacy-bench-adapter"))]
+    if scenario == "rbf_pressure" {
+        rbf_pressure::run(
+            &runtime,
+            &controller,
+            &diagnostics,
+            &warm,
+            &target,
+            &target_cycles,
+            peers,
+        )?;
+        shutdown(&runtime, controller, relay_guard, handle, handle_stop)?;
+        diagnostics.armed = false;
+        return Ok(());
+    }
     let start_anchor = measurement_clock::ClockAnchor::capture().map_err(bench_error)?;
     begin_allocation_window();
     #[cfg(feature = "profiling")]
@@ -2244,7 +2357,7 @@ fn main() -> BenchResult<()> {
             .map_err(std::io::Error::other)?;
     }
     relay_completion.validate(
-        &all_expected_relay,
+        all_expected_relay,
         &all_expected_rejects,
         workload_scenario
             .ends_with("_reverse")
@@ -2271,23 +2384,7 @@ fn main() -> BenchResult<()> {
         .capture("reorg_complete")
         .map_err(bench_error)?;
     let shutdown_started = Instant::now();
-    #[cfg(not(feature = "cross-version-legacy-bench-adapter"))]
-    {
-        controller.stop();
-        runtime.block_on(async {
-            tokio::time::timeout(Duration::from_secs(30), async {
-                while controller.service_started() {
-                    tokio::task::yield_now().await;
-                }
-            })
-            .await
-        })?;
-    }
-    #[cfg(feature = "cross-version-legacy-bench-adapter")]
-    {
-        broadcast_exit_signals();
-    }
-    relay_guard.stop()?;
+    shutdown(&runtime, controller, relay_guard, handle, handle_stop)?;
     let shutdown_latency_ns = shutdown_started.elapsed().as_nanos();
     resource_phases
         .capture("shutdown_complete")
@@ -2336,24 +2433,6 @@ fn main() -> BenchResult<()> {
         "relay_generation_resets": relay.generation_resets,
         "shutdown_latency_nanos": shutdown_latency_ns,
     });
-    let adapter = if cfg!(feature = "cross-version-legacy-bench-adapter") {
-        "legacy_peer_local_sequential"
-    } else {
-        "bounded_remote_batch"
-    };
-    println!(
-        "BENCH_BUILD profiling={} allocation_observation={} callback_observer=preallocated_atomic_slots_sharded_completion adapter={} debug_assertions={} measurement_window=terminal_completion_v3 comparison_contract={}",
-        cfg!(feature = "profiling"),
-        cfg!(feature = "allocation-observation"),
-        adapter,
-        cfg!(debug_assertions),
-        if omit_rbf_victim_notices {
-            "rbf-victim-notice-ablation"
-        } else {
-            "protocol"
-        },
-    );
-    println!("BENCH_CORPUS {corpus}");
     if matches!(target_order, SubmissionOrder::ReverseFanoutCohorts) {
         println!(
             "BENCH_READINESS {}",
@@ -2393,11 +2472,5 @@ fn main() -> BenchResult<()> {
         profile_window["start_unix_nanos"], profile_window["end_unix_nanos"]
     );
     diagnostics.armed = false;
-    #[cfg(feature = "cross-version-legacy-bench-adapter")]
-    {
-        std::io::stdout().flush()?;
-        std::process::exit(0)
-    }
-    #[cfg(not(feature = "cross-version-legacy-bench-adapter"))]
     Ok(())
 }

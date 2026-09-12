@@ -20,6 +20,7 @@ from typing import Any
 
 from measurement_process import run_process
 from measurement_window import parse_measurement_window, parse_readiness, wall_alignment
+from rejection_diagnostics import validate_success
 
 
 WORKSPACE_ROOT = Path(__file__).resolve().parents[2]
@@ -28,13 +29,14 @@ SPAN_SOURCE = ONE_SHOT_SOURCE.with_name("profile_spans") / "mod.rs"
 SCRIPT_SOURCE = Path(__file__).resolve()
 PROCESS_SOURCE = SCRIPT_SOURCE.with_name("measurement_process.py")
 WINDOW_SOURCE = SCRIPT_SOURCE.with_name("measurement_window.py")
+REJECTION_SOURCE = SCRIPT_SOURCE.with_name("rejection_diagnostics.py")
 REMAPPED_SOURCE_ROOT = "/ckb-txpool-profile-source"
 MARKER_PREFIX = "TX_POOL_PROFILE_WINDOW "
 OBSERVATION_PREFIX = "TX_POOL_PROFILE_OBSERVATION "
 ONE_SHOT_FEATURES = ("profiling",)
 PROFILE_SCHEMA_VERSION = 3
 OBSERVATION_SCHEMA_VERSION = 2
-MANIFEST_SCHEMA_VERSION = 9
+MANIFEST_SCHEMA_VERSION = 10
 SUMMARY_SCHEMA_VERSION = 8
 FINAL_BUILD_PROFILE = "prod"
 ARTIFACT_SUFFIXES = {
@@ -370,6 +372,13 @@ def parse_marker(stdout: str) -> dict[str, Any]:
         raise ProfileError(str(error)) from error
 
 
+def validate_capture(stdout: str, stderr: str) -> None:
+    try:
+        validate_success(stdout + "\n" + stderr)
+    except ValueError as error:
+        raise ProfileError(str(error)) from error
+
+
 def parse_observation(stdout: str, expected: dict[str, Any]) -> dict[str, Any]:
     observation = tagged_json(stdout, OBSERVATION_PREFIX, "profile observation")
     if (
@@ -417,7 +426,7 @@ def parse_observation(stdout: str, expected: dict[str, Any]) -> dict[str, Any]:
         or observation["relay_generation_resets"]
     ):
         raise ProfileError("profile observation contains duplicate or reset terminals")
-    expected_rejects = expected["warm"] if expected["scenario"] == "rbf_pairs" else 0
+    expected_rejects = expected["warm"] if expected["scenario"] in {"rbf_pairs", "rbf_pairs_windowed"} else 0
     if observation["relay_rejects"] != expected_rejects:
         raise ProfileError("profile observation contains an unexpected reject terminal set")
     if (observation["reorg_overlap_callbacks"] > 0) != (
@@ -507,9 +516,7 @@ def file_identity(path: Path) -> dict[str, Any]:
 
 
 def harness_sources() -> list[Path]:
-    sources = {ONE_SHOT_SOURCE, SCRIPT_SOURCE, PROCESS_SOURCE, WINDOW_SOURCE}
-    for directory in ("profile_spans", "relay_batches", "measurement_clock", "resource_phases", "allocation_observation"):
-        sources.add(ONE_SHOT_SOURCE.parent / directory / "mod.rs")
+    sources = {SCRIPT_SOURCE, PROCESS_SOURCE, WINDOW_SOURCE, REJECTION_SOURCE}
     sources.update(path for path in ONE_SHOT_SOURCE.parent.rglob("*.rs") if path.is_file())
     return sorted(sources)
 
@@ -569,6 +576,7 @@ def capture(args: argparse.Namespace) -> Path:
     completed = run(command, env=runtime_env, label="Samply capture", timeout=args.timeout_seconds,
                     log_paths=(paths["stdout"], paths["stderr"]))
     save_output(completed, paths["stdout"], paths["stderr"])
+    validate_capture(completed.stdout, completed.stderr)
     window = parse_marker(completed.stdout)
     observation = parse_observation(completed.stdout, scenario)
     validate_window_observation(window, observation)
@@ -581,6 +589,7 @@ def capture(args: argparse.Namespace) -> Path:
     span_completed = run(span_command, env=span_env, label="span capture", timeout=args.timeout_seconds,
                          log_paths=(paths["span_stdout"], paths["span_stderr"]))
     save_output(span_completed, paths["span_stdout"], paths["span_stderr"])
+    validate_capture(span_completed.stdout, span_completed.stderr)
     span_window = parse_marker(span_completed.stdout)
     span_observation = parse_observation(span_completed.stdout, scenario)
     validate_window_observation(span_window, span_observation)
@@ -915,6 +924,8 @@ def analyze_profile(manifest: dict[str, Any], bundle_dir: Path) -> dict[str, Any
     try:
         stdout = paths["stdout"].read_text()
         span_stdout = paths["span_stdout"].read_text()
+        validate_capture(stdout, paths["stderr"].read_text())
+        validate_capture(span_stdout, paths["span_stderr"].read_text())
     except (OSError, UnicodeError) as error:
         raise ProfileError(f"cannot read capture output: {error}") from error
     window = parse_marker(stdout)

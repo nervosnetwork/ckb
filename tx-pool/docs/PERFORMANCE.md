@@ -493,6 +493,149 @@ binary is identified separately. Replay checks source maps, the exact counter
 correction, raw records, attempt order, arithmetic and original qualifications;
 it does not rerun native tests or recreate OS behavior.
 
+## Rejection diagnostics and repeated refinement
+
+The follow-up addresses the missing evidence in the earlier 407-refusal RBF
+failure. Twelve exact diagnostic repetitions succeeded, while a controlled
+public-service backlog reproduced `Full("peer pipeline")`: raw submission can
+finish before resolved-owner admission encounters capacity. All refused victims
+remained accepted, and retries through the same peers succeeded. This establishes
+a retryable mechanism, not the unique cause of the historical failure. The
+observed remote tree matched the pre-diagnostic production baseline; neither
+those controls nor the earlier failed A/A establish a newly introduced regression
+or measured equivalence.
+
+One bounded rejection record now carries the reason used by metrics, optional
+recent storage and post-commit diagnostics. Transient refusals retain their cause
+through publication without becoming persistent transaction status. Candidate
+context holds source, phase, peer and up to five account observations, without
+retaining a transaction or owner. The resource snapshot is labelled rejection
+preparation: concurrent work may have changed usage since the refusing operation.
+Diagnostics run after commit and guard release; expected RBF victim callbacks
+remain separate from rejected candidates.
+
+Read-only type inspection of preserved arm64 test binaries measures the inline
+effect at 488 bytes before and 496 bytes after this change. Candidate rejection
+context occupies 528 bytes in its separate allocation; its accounting includes
+an additional allocator allowance. Retained diagnostic strings are bounded and
+charged. These are representation costs, not measurements of allocation traffic
+or whole-process RSS.
+
+The benchmark streams rejection and service-warning/error records into its
+retained output and checks a final capture count after runtime cleanup. A real
+prototype completed its pressure workload but emitted a persistence error after
+the old capture boundary; that attempt remains failed. Both adapters now request
+exit, release caller handles, wait for the existing runtime task guards and join
+the relay observer, using an isolated persistence file. The target timer remains
+unchanged; ancillary shutdown time and lifetime peak RSS include that cleanup.
+Profiling capture and later reanalysis enforce the same diagnostic integrity.
+A separately preserved `prod` executable with `profiling` also passes actual
+Samply CPU capture, independent span capture and artifact reanalysis for 32,000
+always-success targets. Reanalysis reproduces the exact summary hash; this checks
+the logger/subscriber lifecycle and does not rank production performance.
+
+Frozen candidate `bc6f9d97f36a30928a9bfa49039b4a08502601e4`, baseline
+`a599af3c0da8891ef35c48be395b15f2272051c7` and legacy adapter check
+`3ee6a809db5883c17c267a01f11b44c126f68454` pass 16, 15 and 15 native gates.
+All nine shared successful scenarios have identical corpus identities across
+the three binaries. Candidate pressure records 2,787 peer-pipeline refusals,
+retains every refused victim and accepts all same-peer retries, ending with
+exactly 32,768 replacements. The baseline without the new diagnostic producer
+correctly fails the negative collection check and preserves 2,786 refusal-only
+hashes with explicitly missing causes. That check validates failure detection;
+it does not turn the baseline pressure workload into a success.
+
+Repeated refinement also removes producer-side fixture references that outlived
+their purpose. The mixed workload keeps exact callback/relay expectations and
+weak observations of the production owner, transaction and resolution. The
+sequence oracle uses one forward pass because corpus parents have lower IDs and
+settlement leaves accepted membership unchanged; the production wake loop still
+handles its actual dynamic work. Independent read-only reviews traced these
+relationships and the rejection and shutdown paths. The final refined library
+passes 370 isolated Nextest tests with two extended tests excluded from that
+normal run; strict all-target Clippy and all 80 Python script checks pass.
+
+Both extended tests then pass using those previously copied executables, with
+`internal,profiling` in the test profile. All 64 seeds complete 262,144 legal
+operations and exercise every operation kind. The mixed run completes 4,096
+rounds in 1,549.139 seconds, covering 81,920 distinct verified transaction hashes,
+450,560 accepted pressure bodies, 4,096 capacity refusals and 1,175,552 successful
+release observations. Observation identities can repeat; the last count is not
+a count of unique allocations. Exact terminal, same-peer retry and joined cleanup
+checks pass. Three isolated seeded faults still fail for their intended reasons:
+stale queue membership, a retained retired owner and premature local completion.
+The queue failure shrinks from four commands to two, reproduces with the faulty
+binary and passes with the healthy binary. Each actual faulty executable was
+also preserved before use, and the restored controls pass.
+
+The final mixed run's released-checkpoint RSS grows from 150.31 to 286.25 MiB;
+joined RSS and the observed lifetime peak are 286.28 MiB. The last quarter grows
+from 265.94 to 286.25 MiB, so this run does not show a stable RSS plateau. Logical
+release does not attribute the remaining process memory among database state,
+caches and allocator retention. Unrelated compilation and fuzz activity was
+observed during the run; these instrumented latency values are diagnostic and
+do not compare performance against the earlier source. All samples and all
+67 trace records remain available for numerical replay.
+
+| Final mixed-run observation | p50 ms | p99 ms | Maximum ms |
+|---|---:|---:|---:|
+| Local parent response | 4.473 | 11.904 | 43.199 |
+| Chain attach response | 1.200 | 3.177 | 11.829 |
+| Chain detach response | 0.415 | 1.469 | 8.290 |
+| Detached recovery complete | 0.836 | 3.895 | 18.390 |
+| Final clear response | 0.672 | 1.101 | 6.088 |
+
+The final incremental benchmark compares the bounded rejection changes with the
+unchanged `178669c72` production baseline through the same final harness. Its four
+rows cover always-success transactions, reverse ready fanout, windowed RBF and
+in-flight reorg, all with eight workers and four peers. Prospective ascending
+calibration selects 32,000/1,000, 16,640/0, 32,768/32,768 and 2,000/100 target/warm
+populations respectively. All 20 calibration attempts remain, including the
+smaller populations whose target windows were too short.
+
+Candidate same-binary A/A precedes baseline/candidate A/B. Each row has two pilots
+and 24 balanced pairs with four fresh-process replicates per side: 194 attempts
+per row and study. The frozen protocol keeps the original 0.25-second minimum
+target window, 1.5% paired throughput relative MAD, 4% primary ratio interval-width
+limit and A/A interval containment within 0.98–1.02. These are pointwise 95% median
+ratio intervals under stable, independent sampling assumptions (the exact
+24-pair order-statistic coverage is 97.734%). The procedure does not prove those
+assumptions or simultaneous matrix coverage. Qualification needs
+both studies' gates. The complete joined shutdown and lifetime RSS scope are
+common to both sides. Windowed RBF measures admitted progress and does not replace
+the preserved burst workload or the separate overload/refusal checks.
+All four A/A rows pass those original quality and equivalence gates. All four A/B
+rows also pass, with 776 successful native attempts per study and no failures or
+replacement attempts. The 20 calibration executions bring the total to 1,572.
+Ratios below are medians of the 24 paired candidate/baseline ratios, with the
+original intervals. CPU covers the target window; RSS averages the four fresh
+process lifetime peaks within each side's sample, including joined cleanup.
+
+| Workload | TPS ratio [interval] | CPU ratio [interval] | RSS ratio [interval] |
+|---|---:|---:|---:|
+| Always success | 1.0066 [1.0002, 1.0092] | 0.9962 [0.9917, 0.9988] | 1.0150 [1.0143, 1.0187] |
+| Reverse ready fanout | 0.9932 [0.9895, 0.9991] | 0.9985 [0.9921, 1.0028] | 1.0008 [1.0004, 1.0014] |
+| Windowed RBF | 0.9974 [0.9882, 1.0059] | 0.9995 [0.9974, 1.0041] | 1.0022 [0.9992, 1.0046] |
+| In-flight reorg | 0.9995 [0.9985, 1.0005] | 0.9932 [0.9892, 0.9985] | 1.0017 [1.0011, 1.0023] |
+
+Always-success throughput increases by 0.66% and target CPU decreases by 0.38%,
+with a 1.50% RSS cost. Fanout throughput decreases by 0.68% and RSS increases by
+0.08%; its CPU interval spans one. Reorg CPU decreases by 0.68% and RSS increases
+by 0.17%, while its throughput interval spans one. All three RBF intervals span
+one. These small workload-specific changes do not establish a general speedup or
+attribute RSS differences to a particular allocation. The functional benefit is
+bounded, complete refusal evidence and a verifiable harness lifecycle; the
+measured costs remain part of that engineering tradeoff.
+
+`tx-pool-rejection-refinement-20260912-evidence.tar.gz` preserves the frozen source
+archives, actual binaries, original failures, native/profile captures, extended
+observations and every calibration/formal attempt. Its offline replay checks file
+and source identities, reconstructs the complete attempt schedule and original
+qualifications, and recomputes extended-run statistics and the profiling summary.
+It also retains the preceding immutable packet, including the unresolved
+historical refusal evidence. Replay starts no native program and does not recreate
+operating-system behavior.
+
 ## Resource and maintenance decision
 
 The retained improvements reduce repeated owner/index traversal, active-account
@@ -509,7 +652,7 @@ VM setup and publication/scheduling work, which selected the bounded metadata,
 data-read and singleton-publication changes for controlled investigation. A
 parked stack is not CPU time spent waiting, overlapping spans are not additive,
 and those instrumented weights do not prove a lock-contention bottleneck. The
-final controlled production comparison measures the combined result.
+earlier complete-refactor production comparison measures those combined changes.
 
 For example, a real-snapshot DAO small-churn fixture with
 16,584 live cells improves median memo work from 15.022 to 3.631 ms and requested
@@ -527,12 +670,14 @@ benefit or integration cost failed to justify them. Fixed 1,024 shards were reje
 at the user's direction after source-cost review; no native speedup is claimed.
 The candidate index and source-bound decisions preserve all explored alternatives.
 
-The current pool occupies 16,620 physical Rust lines in 49 production files,
+The current pool occupies 16,777 physical Rust lines in 49 production files,
 including inline tests, versus the accepted 15,319-line/42-file reference. The
 owner-account refinement adds 58 lines over its `f9e299114` baseline: two in
 production budget preparation and 56 in test-only observation interfaces.
 The subsequent composed-validation refinement adds 15 cfg(test) observer lines
-in those files; the new sequence and stability workloads live in separate tests.
+in those files; the sequence and stability workloads live in separate tests.
+The bounded rejection diagnostics add 157 production lines for retained context,
+account observations and publication through the existing effect lifecycle.
 Separate tests, shared-crate changes and measurement tools are outside both counts.
 No logic was moved or compressed to hide that cost. The maintained design owns
 original observations, atomic coupled commits, bounded retained/transient work,
@@ -555,10 +700,11 @@ decisions remain separate from this implementing-agent assessment.
 The earlier migration executable inputs pass strict workspace all-target Clippy with repository
 lint/features, 1,422 isolated Nextest tests including ignored tests (no skips or
 leaked pipes), 46 doctests, and all 176 release integration specs without retries.
-RPC Markdown regeneration is byte-identical. The 75 Python checks remain applicable
-to unchanged measurement scripts, and seven attribution-parser checks cover native
-v2/v3 handling and rejection. Rust formatting, documentation links and executable
-source identity are checked separately after reporting edits.
+RPC Markdown regeneration is byte-identical. That migration also passed 75 Python
+checks and seven attribution-parser checks for native v2/v3 handling and rejection.
+The changed measurement paths now pass the 80-check suite and native/profiling
+gates described above. Rust formatting, documentation links and executable source
+identity are checked separately after reporting edits.
 
 The delivery packet `tx-pool-g0-20260911-evidence.tar.gz` contains a manifest/index,
 raw attempts and failures, original plans/tools, source archives including gitlinks,
@@ -580,6 +726,6 @@ for current-source claims without erasing those failures.
 
 Finite evidence does not establish a mathematical global optimum, cross-platform
 performance, production workload frequencies, whole-node RSS bounds or independent
-human acceptance. Every planned final scenario has a qualified performance or
-explicit functional result; reorg CPU precision and focused packing equivalence
-limits remain visible rather than being converted into passes.
+human acceptance. Every planned migration scenario retains its qualified
+performance or explicit functional result; earlier reorg CPU precision and focused
+packing equivalence limits remain visible rather than being converted into passes.

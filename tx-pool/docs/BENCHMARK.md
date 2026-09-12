@@ -31,7 +31,8 @@ the runner does not create that adapter. Commit these measurement-only changes
 and preserve the underlying production commit and patch. Keep CKB-VM packages,
 checksums and enabled features identical on both sides. The runner hashes the
 complete Rust harness bundle, including newly added modules, and independently
-freezes its process runner and shared measurement-window parser.
+freezes its process runner, measurement-window parser and rejection-evidence
+verifier.
 
 Edit the two checkout paths and run:
 
@@ -64,7 +65,7 @@ and runtime consensus. Measured attempts use randomized, balanced AB/BA blocks.
 `--order-seed` and the complete resulting schedule are part of the frozen
 configuration; changing either requires a new study.
 
-The output JSON uses schema 11. `attempts[]` retains every command, raw output,
+The output JSON uses schema 12. `attempts[]` retains every command, raw output,
 source side, stable attempt ID, corpus, terminal multiset, window and metrics.
 The runner atomically checkpoints attempt start and outcome, then verifies source
 and binary identity again at completion. Host-load snapshots accompany successes
@@ -77,6 +78,23 @@ failure. Resume cannot replace an interrupted or bad sample.
 group and cleans descendants on success, failure, timeout, Ctrl-C or SIGTERM.
 Descendants must stay in that group; process escape and SIGKILL of the runner are
 outside this guarantee.
+
+The native executor installs a streaming logger for committed rejection records
+and service warnings/errors. It retains counters rather than an in-memory log.
+`BENCH_BUILD` and `BENCH_CORPUS` are emitted before submission; an early fixture
+failure can precede corpus construction. On failure, `BENCH_FAILURE_TERMINALS`
+records the partial terminal sets and maps refusal-only hashes to their corpus
+index, warm/target phase and original peer. `BENCH_REJECTION_CAPTURE` closes the
+log after runtime cleanup, including failure cleanup. Missing records, count
+disagreement, output failure or a service ERROR invalidate successful evidence.
+An ordinary timing workload also requires zero unexpected rejection records.
+
+The logger raises the log facade's maximum level to Debug on both sides. It
+formats rejection records and warnings/errors; other enabled Debug call sites
+can still evaluate their arguments. This common observer is part of the frozen
+harness cost. Older production sources may lack typed rejection producers even
+with this logger installed. Such a failed attempt retains an explicit diagnostic
+gap; its missing causes are never inferred from a later successful run.
 
 ## Measurement scopes
 
@@ -102,12 +120,13 @@ elapsed time. A harness change requires rebuilding both binaries.
 | Reorg / stop latency | Separately observed operations, not additive target phases |
 | Allocation calls / bytes | Target-window traffic; only these metrics may rank an allocation-enabled study |
 
-The bounded-batch stop observation ends after `service_started` becomes false and
-the relay observer joins; service workers and publication can still be joining.
-The legacy adapter observes broadcast exit signals plus observer join, then exits
-without ordinary destructors; its post-window reorg return observes submission.
-These ancillary metrics cannot rank full service join, persistence or completed
-reconciliation. Pool budgets and process RSS are different quantities. The RSS
+Shutdown now requests exit, releases the controller and caller's runtime handle,
+waits for the existing runtime task guards to close, and joins the relay observer.
+Both adapters use an isolated temporary persistence file. This ancillary duration
+includes network shutdown and saving the pool, outside the target window; it is
+not comparable with the earlier stop-request/observer-only metric. The legacy
+post-window reorg return still observes submission, not completed reconciliation.
+Pool budgets and process RSS are different quantities. The RSS
 mean includes every replicate and its outliers; it estimates typical peak memory
 per execution. The maximum remains available to expose observed tails. Neither
 statistic establishes a universal memory bound. Schema 11 is a prospective
@@ -198,6 +217,15 @@ native evidence is retained and is not comparable with this new workload.
 Other reverse workloads require `warm=0`. RBF requires equal target and warm
 counts. Functional validity does not establish timing duration or repeatability.
 
+`rbf_pairs_windowed` measures admitted RBF throughput. Warm and target each keep
+their original peer partition, submit at most 1,024 additional transactions per
+peer, and await that window's acceptance before the next. Both adapters use the
+same windows, including a partial last window; waiting stays inside the target
+measurement. The original `rbf_pairs` burst is unchanged and can exceed pipeline
+capacity. A completed remote submission reports processing, not acceptance; a
+resource refusal is retryable and must leave the existing accepted victim intact.
+Windowed and burst results answer different workload questions.
+
 The dedicated relay observer drains on the production signal and retains a
 bounded sparse-flow fallback. Early failures preserve partial callback and relay
 terminals instead of reporting only the acceptance timeout.
@@ -207,6 +235,34 @@ verifier. Preflighting every target through the measured controller's
 `test_accept_tx` can change script-cache state unequally. Warmup uses separate
 transaction keys. Matching corpora and low timing MAD cannot repair unequal
 initial cache populations.
+
+## Refusal and retry preflight
+
+Before timing a changed collector or admission workload, exercise a real refusing
+service with the uninstrumented production-profile executable:
+
+```sh
+/absolute/path/to/profile_one_shot rbf_pressure 32768 32768 8 4 \
+  > /tmp/txpool-rbf-pressure.log 2>&1
+python3 tx-pool/scripts/rejection_diagnostics.py \
+  /tmp/txpool-rbf-pressure.log --pressure
+```
+
+This current-controller diagnostic pauses computation after warmup, fills real
+peer ingress, observes refusal before resume, then waits for all first-offer
+terminals. It checks every refused victim remains, retries using the same peers
+in bounded batches, and verifies exact final callback/relay/live populations.
+Every refusal needs a committed cause, source, phase, original peer/index and
+resource observation. Resolution may refuse further candidates after resume;
+the complete first-offer population determines the expected survivors. The run
+emits `BENCH_RBF_PRESSURE` and no throughput result.
+
+Retain a negative native check as well: disable or omit the rejection producer
+in an isolated, identified binary and confirm the collector rejects missing
+causes. Preserve that source, executable, command and original log. A synthetic
+parser fixture alone does not verify the native producer-to-log path. Keep
+pressure diagnostics separate from paired timing, and preserve all failed
+preflights before correcting their cause.
 
 ## RBF contract diagnostic
 

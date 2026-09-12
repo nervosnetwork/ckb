@@ -355,7 +355,7 @@ fn rejection_diagnostics_keep_policy_public_shape_and_bounded_owned_strings() {
 #[test]
 fn excessive_verification_time_sends_negative_relay_without_persistent_rejection() {
     let effect = Effect::rejected(&tx(10).hash(), Reject::ExcessiveVerifyTime, None, true).unwrap();
-    assert!(effect.recent.is_none());
+    assert!(effect.recent().is_none());
     assert!(matches!(
         effect.relay,
         Some(TxVerificationResult::Reject { .. })
@@ -389,6 +389,132 @@ async fn repeated_rejection_in_one_batch_exposes_the_last_value_until_whole_batc
     Arc::clone(&outbox).run(endpoints).await.unwrap();
     assert!(outbox.pending_reject(&hash).is_none());
     assert!(outbox.drained());
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn rbf_candidate_diagnostic_preserves_victim_callback_and_both_recent_outcomes() {
+    let records = capture_rejections();
+    let store = store();
+    let victim = accept(&store, output_tx(805), 1, 1, Status::Pending);
+    let owner = store.point(&victim).1.unwrap();
+    let snapshot =
+        super::super::membership::snapshot(&owner, Default::default(), Default::default()).unwrap();
+    let candidate = tx(806).hash();
+    let reason = Reject::RBFRejected("replacement policy".into());
+    let rejected = Arc::new(Mutex::new(Vec::new()));
+    let observed = Arc::clone(&rejected);
+    let mut callbacks = Callbacks::new();
+    callbacks.register_reject(Box::new(move |entry, reason| {
+        observed.lock().push((entry.transaction.hash(), reason));
+    }));
+    let (outbox, endpoints, receiver) = fixture(callbacks);
+    let batch = append(
+        &outbox,
+        vec![
+            Effect::candidate_rejected(
+                &candidate,
+                reason.clone(),
+                super::super::ingress::remote_source(17.into(), 1).unwrap(),
+                None,
+                &store.budget,
+            )
+            .unwrap(),
+            Effect::rejected(&victim, reason.clone(), Some(snapshot), true).unwrap(),
+        ],
+    );
+    for hash in [&candidate, &victim] {
+        assert!(matches!(
+            outbox.pending_reject(hash),
+            Some(Reject::RBFRejected(_))
+        ));
+    }
+    batch.activate(&outbox);
+    outbox.close();
+    Arc::clone(&outbox).run(endpoints).await.unwrap();
+    assert_eq!(records.lock().len(), 1);
+    assert_eq!(records.lock()[0]["hash"], diagnostic_hash(&candidate));
+    assert_eq!(records.lock()[0]["reason"], format!("{reason:?}"));
+    assert!(matches!(&rejected.lock()[..], [(hash, Reject::RBFRejected(_))] if *hash == victim));
+    for hash in [&candidate, &victim] {
+        assert!(
+            matches!(receiver.try_recv(), Some(TxVerificationResult::Reject { tx_hash }) if tx_hash == *hash)
+        );
+        assert!(outbox.pending_reject(hash).is_none());
+    }
+    assert!(receiver.try_recv().is_none());
+    assert!(outbox.idle_for_test());
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn transient_rejection_diagnostics_require_commit_and_activation() {
+    let records = capture_rejections();
+    let store = store();
+    let source = super::super::ingress::remote_source(17.into(), 1).unwrap();
+    let hash = tx(803).hash();
+    let refusal = || {
+        Effect::candidate_rejected(
+            &hash,
+            Reject::Full("peer pipeline".into()),
+            source,
+            None,
+            &store.budget,
+        )
+        .unwrap()
+    };
+    let (sink, receiver) =
+        super::super::relay::production_authority_relay_mailbox(1024, 128).unwrap();
+    let mut endpoints = Endpoints::new(
+        Arc::new(DummyTxPoolNetwork),
+        sink,
+        Arc::new(Callbacks::new()),
+        None,
+        FeeEstimator::new_dummy(),
+    );
+    let reservation = store
+        .outbox
+        .reserve(vec![refusal()], Class::Remote)
+        .unwrap();
+    drop(reservation);
+    assert!(!store.outbox.publish_ready(&mut endpoints).unwrap());
+    assert!(records.lock().is_empty());
+    assert!(store.outbox.idle_for_test());
+
+    let owner = entry(&store, tx(804), Source::Local);
+    insert(&store, Arc::clone(&owner));
+    let mut stale =
+        super::super::store::Plan::new(store.snapshot().0, Class::Remote, Default::default());
+    stale
+        .edit(Some(Arc::clone(&owner)), None, Some(refusal()))
+        .unwrap();
+    replace(&store, owner, Phase::Resolve);
+    assert!(matches!(store.apply(stale), Err(Error::Stale)));
+    assert!(!store.outbox.publish_ready(&mut endpoints).unwrap());
+    assert!(records.lock().is_empty());
+    assert!(store.outbox.idle_for_test());
+
+    let batch = append(&store.outbox, vec![refusal()]);
+    assert!(store.outbox.pending_reject(&hash).is_none());
+    assert!(!store.outbox.publish_ready(&mut endpoints).unwrap());
+    assert!(records.lock().is_empty());
+    batch.activate(&store.outbox);
+    assert!(store.outbox.publish_ready(&mut endpoints).unwrap());
+    batch.wait(&store.outbox).await.unwrap();
+    assert_eq!(records.lock().len(), 1);
+    let record = records.lock()[0].clone();
+    assert_eq!(record["event"], "committed_rejection");
+    assert_eq!(record["hash"], diagnostic_hash(&hash));
+    assert_eq!(record["reason"], "Full(\"peer pipeline\")");
+    assert_eq!(record["stage"], "ingress");
+    assert_eq!(record["source"], "remote");
+    assert_eq!(record["peer"], 17);
+    assert_eq!(record["resource_observation"], "rejection_preparation");
+    assert_eq!(record["accounts"].as_array().unwrap().len(), 5);
+    assert!(
+        matches!(receiver.try_recv(), Some(TxVerificationResult::Reject { tx_hash }) if tx_hash == hash)
+    );
+    assert!(receiver.try_recv().is_none());
+    assert!(store.outbox.pending_reject(&hash).is_none());
+    assert!(store.outbox.idle_for_test());
 }
 
 #[test]

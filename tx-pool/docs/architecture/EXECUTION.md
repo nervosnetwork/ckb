@@ -191,6 +191,21 @@ activates it after guards open. A later ready batch cannot overtake an earlier
 unready one. Each batch settles, returns capacity and releases publisher/FIFO
 references before the next. Callback-owned clones have their own lifetimes.
 
+One bounded rejection record supplies metrics, optional recent status and
+diagnostics. Transient resource/time refusals keep their cause through publication
+without entering the recent-reject index or database. Refused candidates attach
+a bounded source/phase/peer context; Full additionally observes the five relevant
+budget accounts. This snapshot is taken during rejection preparation after the
+refusing operation returns, so concurrent usage may have changed. It does not
+claim the exact reservation-time state.
+
+The publisher emits these records at Debug under `ckb_tx_pool::rejection`, after
+commit and guard release. An abandoned, stale or unactivated outcome emits none.
+Expected RBF victim removal callbacks are excluded from candidate diagnostics;
+their metrics, recent status, callback and relay obligations remain intact.
+Context storage and bounded dynamic reasons are included in outbox byte charges.
+The logger is a synchronous endpoint and must return for publication to progress.
+
 Callback panic disables all callback kinds for that publisher; other endpoints
 can continue. Relay disconnection disables relay publication. Recent-reject write
 failure suppresses new writes for one second before another effect retries;

@@ -23,6 +23,10 @@ BENCHMARK = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(BENCHMARK)
 
 
+EMPTY_CAPTURE = "BENCH_REJECTION_CAPTURE " + json.dumps(dict(
+    schema=1, logger="rejections_and_warnings_v1", records=0, service_records=0, write_failed=False)) + "\n"
+
+
 def window_record(scenario, elapsed, observed_offset=0):
     return "TX_POOL_PROFILE_WINDOW " + json.dumps(dict(
         schema_version=3, scenario=scenario, start_unix_nanos=1_000_000_000,
@@ -105,7 +109,7 @@ class BuildProfileContractTest(unittest.TestCase):
                     "callback_observer=preallocated_atomic_slots_sharded_completion "
                     "adapter=bounded_remote_batch debug_assertions=false measurement_window=terminal_completion_v3\n"
                     f"{window_record('always_success', elapsed)}"
-                    f"BENCH_CORPUS {json.dumps(corpus)}\nBENCH_TERMINALS {json.dumps(terminals)}\n"
+                    f"BENCH_CORPUS {json.dumps(corpus)}\nBENCH_TERMINALS {json.dumps(terminals)}\n{EMPTY_CAPTURE}"
                     "BENCH_RESULT scenario=always_success target=8 warm=0 workers=1 peers=1 "
                     f"elapsed_ns={elapsed} throughput_tps={8e9 / elapsed:.3f} accepted=8 callback_duplicates=0 "
                     "relay_ok=8 relay_duplicate_ok=0 relay_rejects=0 relay_unknown_parents=0 "
@@ -148,6 +152,7 @@ class BuildProfileContractTest(unittest.TestCase):
         source = {"root": "/fixed-source", "commit": "before"}
         contexts = {"baseline": {"source": source, "consensus": {}}}
         record = {"runner_sha256": "same", "process_runner_sha256": "same", "measurement_window_sha256": "same",
+                  "rejection_diagnostics_sha256": "same",
                   "harness_sha256": "same", "host": {}, "sides": contexts,
                   "metric_scopes": BENCHMARK.METRIC_SCOPES}
         with mock.patch.object(BENCHMARK, "sha256", return_value="same"), mock.patch.object(
@@ -603,7 +608,7 @@ class BuildProfileContractTest(unittest.TestCase):
             "adapter=bounded_remote_batch debug_assertions=false "
             "measurement_window=terminal_completion_v3 comparison_contract=CONTRACT\n"
             f"{window_record('rbf_pairs', 1_000_000_000)}"
-            f"BENCH_CORPUS {json.dumps(corpus)}\nBENCH_TERMINALS {json.dumps(terminals)}\n"
+            f"BENCH_CORPUS {json.dumps(corpus)}\nBENCH_TERMINALS {json.dumps(terminals)}\n{EMPTY_CAPTURE}"
             "BENCH_RESULT scenario=rbf_pairs target=8 warm=8 workers=1 peers=1 "
             "elapsed_ns=1000000000 throughput_tps=8.000 accepted=16 callback_duplicates=0 "
             "relay_ok=16 relay_duplicate_ok=0 relay_rejects=0 relay_unknown_parents=0 "
@@ -713,6 +718,14 @@ class MeasurementRepairTest(unittest.TestCase):
                       runner_sha256="same", process_runner_sha256="same", measurement_window_sha256="old")
         with mock.patch.object(BENCHMARK, "sha256", return_value="same"):
             with self.assertRaisesRegex(RuntimeError, "window parser changed"):
+                BENCHMARK.validate_frozen(record, {}, "same", {}, {})
+
+    def test_rejection_verifier_change_rejects_frozen_record(self):
+        record = dict(metric_scopes=BENCHMARK.METRIC_SCOPES,
+                      runner_sha256="same", process_runner_sha256="same", measurement_window_sha256="same",
+                      rejection_diagnostics_sha256="old")
+        with mock.patch.object(BENCHMARK, "sha256", return_value="same"):
+            with self.assertRaisesRegex(RuntimeError, "rejection diagnostic verifier changed"):
                 BENCHMARK.validate_frozen(record, {}, "same", {}, {})
 
 

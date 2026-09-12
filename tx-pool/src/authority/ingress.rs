@@ -235,8 +235,8 @@ pub(super) fn rejection(
         plan.ban_peer(hash, reject, peer, deadline)?;
         return Ok(plan);
     }
-    let relay = source.residency_peer().is_some();
-    let effect = Effect::rejected(hash, reject, None, relay)?;
+    let effect =
+        Effect::candidate_rejected(hash, reject, source, before.as_deref(), &store.budget)?;
     if let Some(before) = before {
         plan.edit(Some(before), None, Some(effect))?;
     } else {

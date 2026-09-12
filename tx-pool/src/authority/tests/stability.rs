@@ -43,7 +43,7 @@ const PRESSURE_PEER: usize = 41;
 struct ChainFixture {
     database: MockStore,
     base: Arc<Snapshot>,
-    funding: TransactionView,
+    funding_hash: Byte32,
 }
 
 impl ChainFixture {
@@ -60,8 +60,9 @@ impl ChainFixture {
             .outputs_data(std::iter::repeat_n(Bytes::new().pack(), COHORTS + 3))
             .build();
         let original = always_success_consensus();
-        let mut transactions = original.genesis_block().transactions().to_vec();
-        transactions.push(funding.clone());
+        let funding_hash = funding.hash();
+        let mut transactions = original.genesis_block().transactions();
+        transactions.push(funding);
         let dao = genesis_dao_data(transactions.iter().collect()).unwrap();
         let genesis = original
             .genesis_block()
@@ -79,7 +80,7 @@ impl ChainFixture {
         Self {
             database,
             base,
-            funding,
+            funding_hash,
         }
     }
 
@@ -94,7 +95,7 @@ impl ChainFixture {
 
     fn root(&self, slot: usize, round: usize) -> TransactionView {
         self.transaction(
-            OutPoint::new(self.funding.hash(), slot as u32),
+            OutPoint::new(self.funding_hash.clone(), slot as u32),
             FUNDING_CAPACITY - 1_000,
             round,
         )
@@ -322,7 +323,6 @@ async fn round(
     let mut relay = RelayCounts::default();
     let mut expected_relay = RelayCounts::default();
     let mut retired = Retired::default();
-    let mut initial = Vec::new();
     let mut survivors = Vec::new();
     let mut replacements = Vec::new();
 
@@ -352,14 +352,13 @@ async fn round(
             count(&mut expected.rejected, tx.hash());
             count(&mut expected_relay.rejected, tx.hash());
         }
-        initial.extend([parent.clone(), child, grandchild]);
         survivors.extend([parent, replacement.clone()]);
         replacements.push(replacement);
     }
     retired.capture(pool);
     let cycles = pool
         .store
-        .point(&initial[0].hash())
+        .point(&survivors[0].hash())
         .1
         .unwrap()
         .accepted()
@@ -385,8 +384,7 @@ async fn round(
     // Occupy a real peer's queued residency with valid, missing-parent bodies.
     // The producer stops at the first observed terminal refusal, with a fixed
     // maximum population protecting the harness itself from an unbounded loop.
-    let mut pressure = Vec::new();
-    let mut refused = None;
+    let mut pressure_accepted = 0;
     for item in 0..MAX_PRESSURE_TRANSACTIONS {
         let mut bytes = [0xf1; 32];
         bytes[..8].copy_from_slice(&(index as u64).to_le_bytes());
@@ -402,7 +400,6 @@ async fn round(
         relay.drain(receiver);
         if relay.rejected.contains_key(&transaction.hash()) {
             count(&mut expected_relay.rejected, transaction.hash());
-            refused = Some(transaction.hash());
             break;
         }
         observe(pool, &transaction.hash(), |entry| {
@@ -410,14 +407,14 @@ async fn round(
         })
         .await;
         count(&mut expected_relay.parents, (PRESSURE_PEER.into(), parent));
-        pressure.push(transaction);
+        pressure_accepted += 1;
     }
     assert!(
-        refused.is_some(),
+        pressure_accepted < MAX_PRESSURE_TRANSACTIONS,
         "the declared pressure population reaches a terminal refusal"
     );
     assert!(
-        !pressure.is_empty(),
+        pressure_accepted > 0,
         "pressure includes admitted owners before refusal"
     );
     until(pool, "publication drain", || {
@@ -563,8 +560,7 @@ async fn round(
 
     let clear = clear(controller, Some(Arc::clone(&chain.base))).await;
     expected_relay.resets += 1;
-    let pressure_accepted = pressure.len();
-    drop((initial, survivors, pressure, retry));
+    drop((survivors, retry));
     until(
         pool,
         "retired payload, active work and outbox release",

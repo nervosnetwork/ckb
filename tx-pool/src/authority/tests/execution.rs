@@ -1085,6 +1085,179 @@ async fn legal_ingress_pressure_releases_remote_filter_without_ban_or_generation
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn peer_pressure_refuses_rbf_without_losing_victim_and_same_peer_retry_succeeds() {
+    let records = capture_rejections();
+    let handle = Handle::new(tokio::runtime::Handle::current(), None);
+    let configuration = TxPoolConfig {
+        min_rbf_rate: ckb_types::core::FeeRate::from_u64(1000),
+        ..config()
+    };
+    let store = store_with_pipeline_limit(chain_snapshot(), &configuration, 1_000_000);
+    let (pool, sink, drain) = Pool::with_store(
+        configuration,
+        store,
+        &handle,
+        Arc::new(RwLock::new(init_cache())),
+        None,
+        None,
+        FeeEstimator::new_dummy(),
+    )
+    .unwrap();
+    let victim = fund(&pool, 4300);
+    let replacement = funded_tx(victim.input_pts_iter().next().unwrap(), 19_999_990_000);
+    let publisher =
+        tokio::spawn(Arc::clone(&pool.store.outbox).run(endpoints(sink, Callbacks::new())));
+    let cycles = within(pool.submit_local(bounded(victim.clone()), false))
+        .await
+        .unwrap()
+        .unwrap()
+        .cycles;
+    let victim_owner = pool.store.point(&victim.hash()).1.unwrap();
+    let mut expected_ok = BTreeSet::from([
+        (victim.input_pts_iter().next().unwrap().tx_hash(), None),
+        (victim.hash(), None),
+    ]);
+    let peer = PeerIndex::from(97);
+    let mut queued = Vec::new();
+    let mut first_refused = None;
+    // No computation workers exist yet. The real same-peer raw queue reaches
+    // its fixed quota deterministically; only the publisher can make progress.
+    for nonce in 4301..4429 {
+        let transaction = fund(&pool, nonce);
+        expected_ok.insert((transaction.input_pts_iter().next().unwrap().tx_hash(), None));
+        within(pool.submit_remote(bounded(transaction.clone()), cycles, peer))
+            .await
+            .unwrap();
+        if pool.store.point(&transaction.hash()).1.is_none() {
+            first_refused = Some(transaction.hash());
+            break;
+        }
+        queued.push(transaction);
+    }
+    let first_refused = first_refused.expect("bounded same-peer queue reaches its quota");
+    assert!(!queued.is_empty());
+    let before = pool.store.budget.owner_usage();
+    within(pool.submit_remote(bounded(replacement.clone()), cycles, peer))
+        .await
+        .unwrap();
+    assert!(pool.store.point(&replacement.hash()).1.is_none());
+    assert!(Arc::ptr_eq(
+        &pool.store.point(&victim.hash()).1.unwrap(),
+        &victim_owner
+    ));
+    assert_eq!(pool.store.budget.owner_usage(), before);
+    assert!(!pool.store.peer_banned(peer));
+    {
+        let records = records.lock();
+        assert_eq!(records.len(), 2);
+        let refusal = records
+            .iter()
+            .find(|record| record["hash"] == diagnostic_hash(&replacement.hash()))
+            .unwrap();
+        assert_eq!(refusal["event"], "committed_rejection");
+        assert_eq!(refusal["reason"], "Full(\"peer pipeline\")");
+        assert_eq!(refusal["stage"], "ingress");
+        assert_eq!(refusal["peer"], peer.value());
+        let account = refusal["accounts"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|account| account["account"] == "peer")
+            .unwrap();
+        assert_eq!(account["usage"]["items"], queued.len());
+        assert!(account["usage"]["bytes"].as_u64().unwrap() > 0);
+        assert!(
+            account["usage"]["bytes"].as_u64().unwrap()
+                <= account["limit"]["bytes"].as_u64().unwrap()
+        );
+    }
+
+    let mut tasks = JoinSet::new();
+    tasks.spawn(Arc::clone(&pool).worker(WorkStage::Resolve, 0));
+    tasks.spawn(Arc::clone(&pool).worker(WorkStage::Verify, 0));
+    let mut expected_rejects = BTreeSet::from([first_refused, replacement.hash()]);
+    for transaction in queued {
+        // Resolution can itself exceed the still-full peer quota. Settle all
+        // actual terminals before retrying; raw ingress is not acceptance.
+        within(async {
+            loop {
+                let changed = pool.store.changed.notified();
+                if pool
+                    .store
+                    .point(&transaction.hash())
+                    .1
+                    .as_deref()
+                    .is_none_or(|entry| entry.accepted().is_some())
+                {
+                    break;
+                }
+                changed.await;
+            }
+        })
+        .await;
+        if pool.store.point(&transaction.hash()).1.is_some() {
+            expected_ok.insert((transaction.hash(), Some(peer)));
+        } else {
+            expected_rejects.insert(transaction.hash());
+        }
+    }
+    within(pool.submit_remote(bounded(replacement.clone()), cycles, peer))
+        .await
+        .unwrap();
+    observe(&pool, &replacement.hash(), |entry| {
+        entry.accepted().is_some()
+    })
+    .await;
+    within(async {
+        loop {
+            let room = pool.store.outbox.room.notified();
+            if pool.store.outbox.idle_for_test() {
+                break;
+            }
+            room.await;
+        }
+    })
+    .await;
+    expected_ok.insert((replacement.hash(), Some(peer)));
+    {
+        let records = records.lock();
+        let mut diagnosed = BTreeSet::new();
+        for record in records.iter() {
+            assert_eq!(record["reason"], "Full(\"peer pipeline\")");
+            assert_eq!(record["peer"], peer.value());
+            assert!(diagnosed.insert(record["hash"].as_str().unwrap().to_owned()));
+        }
+        assert_eq!(
+            diagnosed,
+            expected_rejects.iter().map(diagnostic_hash).collect()
+        );
+    }
+    // The successful replacement now evicts the accepted victim. That normal
+    // callback/relay event must not be logged as a refused replacement.
+    expected_rejects.insert(victim.hash());
+    let mut ok = BTreeSet::new();
+    let mut rejected = BTreeSet::new();
+    while let Some(result) = drain.try_recv() {
+        match result {
+            TxVerificationResult::Ok {
+                tx_hash,
+                original_peer,
+            } => assert!(ok.insert((tx_hash, original_peer))),
+            TxVerificationResult::Reject { tx_hash } => assert!(rejected.insert(tx_hash)),
+            other => panic!("unexpected terminal: {other:?}"),
+        }
+    }
+    assert_eq!(ok, expected_ok);
+    assert_eq!(rejected, expected_rejects);
+    assert!(!pool.store.peer_banned(peer));
+    drop(victim_owner);
+    within(pool.clear(None, false)).await.unwrap();
+    shutdown(&pool, tasks, publisher).await;
+    pool.store.assert_empty_for_test();
+    assert!(pool.store.budget.active_is_empty_for_test());
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn committed_chain_reconciliation_publishes_detached_uncle_candidates() {
     use ckb_app_config::BlockAssemblerConfig;
     use ckb_jsonrpc_types::ScriptHashType;

@@ -163,10 +163,10 @@ class ProfileAnalyzerTests(unittest.TestCase):
             "profile.json": profile,
             "symbols.json": {"string_table": [], "data": []},
             "stdout.log": output,
-            "stderr.log": "",
+            "stderr.log": 'BENCH_REJECTION_CAPTURE {"schema": 1, "logger": "rejections_and_warnings_v1", "records": 0, "service_records": 0, "write_failed": false}\n',
             "spans.json": spans,
             "span.stdout.log": output,
-            "span.stderr.log": "",
+            "span.stderr.log": 'BENCH_REJECTION_CAPTURE {"schema": 1, "logger": "rejections_and_warnings_v1", "records": 0, "service_records": 0, "write_failed": false}\n',
         }
         for filename, value in values.items():
             path = bundle / filename
@@ -237,6 +237,7 @@ class ProfileAnalyzerTests(unittest.TestCase):
         expected = [PROFILE.ONE_SHOT_SOURCE.parent / directory / "mod.rs"
                     for directory in ("profile_spans", "relay_batches", "measurement_clock", "resource_phases")]
         expected.append(PROFILE.WINDOW_SOURCE)
+        expected.append(PROFILE.REJECTION_SOURCE)
         self.assertTrue(set(expected).issubset(sources))
         manifest_path = self.bundle("helper-drift", absolute_time=True)
         original_read = Path.read_bytes
@@ -258,6 +259,28 @@ class ProfileAnalyzerTests(unittest.TestCase):
         future.write_text("future module")
         with mock.patch.object(PROFILE, "ONE_SHOT_SOURCE", source):
             self.assertIn(future, PROFILE.harness_sources())
+
+    def test_capture_and_reanalysis_require_complete_rejection_logs(self) -> None:
+        for label in ("stderr", "span_stderr"):
+            for failure in ("missing", "write_failed", "late_error"):
+                with self.subTest(label=label, failure=failure):
+                    path = self.bundle(f"{label}-{failure}", absolute_time=True)
+                    manifest = PROFILE.read_json(path)
+                    log = path.parent / manifest["artifacts"][label]["path"]
+                    output = log.read_text()
+                    if failure == "missing":
+                        output = ""
+                    elif failure == "write_failed":
+                        output = output.replace('"write_failed": false', '"write_failed": true')
+                    else:
+                        output += 'BENCH_SERVICE_LOG {"level":"ERROR","target":"ckb_tx_pool","message":"save cancelled"}\n'
+                    log.write_text(output)
+                    manifest["artifacts"][label] = PROFILE.artifact(log, path.parent)
+                    self.write_json(path, manifest)
+                    with self.assertRaises(PROFILE.ProfileError):
+                        PROFILE.validate_capture("", output)
+                    with self.assertRaises(PROFILE.ProfileError):
+                        PROFILE.analyze_manifest(path)
 
     def test_source_drift_during_build_stops_before_capture(self) -> None:
         args = argparse.Namespace(**self.scenario(), output_prefix=self.root / "source-drift",
