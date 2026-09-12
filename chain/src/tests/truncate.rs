@@ -1,6 +1,7 @@
-use crate::ChainServiceScope;
+use crate::tests::util::start_tx_pool;
+use crate::{ChainController, ChainServiceScope};
 use ckb_chain_spec::consensus::Consensus;
-use ckb_shared::SharedBuilder;
+use ckb_shared::{Shared, SharedBuilder};
 use ckb_store::ChainStore;
 use ckb_test_chain_utils::{MockChain, MockStore};
 use ckb_verification_traits::Switch;
@@ -11,9 +12,19 @@ fn test_truncate() {
     let builder = SharedBuilder::with_temp_db();
 
     let (shared, mut pack) = builder.consensus(Consensus::default()).build().unwrap();
+    let _tx_pool = start_tx_pool(&shared, &mut pack);
     let chain = ChainServiceScope::new(pack.take_chain_services_builder());
-    let chain_controller = chain.chain_controller();
+    assert_truncate(chain.chain_controller(), &shared);
+}
 
+#[test]
+fn test_truncate_without_tx_pool() {
+    let (shared, pack) = SharedBuilder::with_temp_db().build().unwrap();
+    let chain = ChainServiceScope::new(pack.into_chain_services_builder());
+    assert_truncate(chain.chain_controller(), &shared);
+}
+
+fn assert_truncate(chain_controller: &ChainController, shared: &Shared) {
     let genesis = shared
         .store()
         .get_block_header(&shared.store().get_block_hash(0).unwrap())

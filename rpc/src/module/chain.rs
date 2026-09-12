@@ -534,8 +534,13 @@ pub trait ChainRpc {
     ///
     /// ## Returns
     ///
-    /// This RPC returns `null` if the transaction is not committed in the
-    /// [canonical chain](#canonical-chain) nor the transaction memory pool.
+    /// If the transaction is absent from the [canonical chain](#canonical-chain)
+    /// and the accepted transaction pool, `transaction` is `null` and the status
+    /// is `rejected` when a retained rejection exists, or `unknown` otherwise.
+    /// With `only_committed`, a transaction absent from the chain is `unknown`.
+    ///
+    /// Only transactions accepted by tx-pool are reported as `pending` or `proposed`.
+    /// Internal validation and waiting phases do not establish a public transaction status.
     ///
     /// If the transaction is in the chain, the block hash is also returned.
     ///

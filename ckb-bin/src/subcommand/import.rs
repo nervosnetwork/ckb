@@ -13,14 +13,10 @@ pub fn import(args: ImportArgs, async_handle: Handle) -> Result<(), ExitCode> {
         async_handle,
         args.consensus,
     )?;
-    let (shared, mut pack) = builder.build()?;
+    let (shared, pack) = builder.build()?;
 
-    let chain_scope = ChainServiceScope::new(pack.take_chain_services_builder());
+    let chain_scope = ChainServiceScope::new(pack.into_chain_services_builder());
     let chain_controller = chain_scope.chain_controller().clone();
-
-    // manual drop tx_pool_builder and relay_tx_receiver
-    pack.take_tx_pool_builder();
-    pack.take_relay_tx_receiver();
 
     Import::new(
         chain_controller,

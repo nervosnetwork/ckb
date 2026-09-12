@@ -4,16 +4,14 @@
 use crate::relayer::CompactBlockProcess;
 use crate::relayer::tests::helper::MockProtocolContext;
 use crate::synchronizer::HeadersProcess;
-use crate::tests::util::{build_chain, inherit_block};
+use crate::tests::util::{build_chain, disable_tx_pool_and_take_relay_receiver, inherit_block};
 use crate::{Relayer, Status, SyncShared, Synchronizer};
 use ckb_chain::{ChainServiceScope, RemoteBlock, VerifyResult};
-use ckb_channel::unbounded;
 use ckb_logger::info;
 use ckb_shared::block_status::BlockStatus;
 use ckb_shared::{Shared, SharedBuilder};
 use ckb_store::{self, ChainStore};
 use ckb_test_chain_utils::always_success_cellbase;
-use ckb_tx_pool::service::TxVerificationResult;
 use ckb_types::core::{BlockBuilder, BlockView, Capacity};
 use ckb_types::packed::Byte32;
 use ckb_types::prelude::*;
@@ -35,40 +33,6 @@ fn wait_for_expected_block_status(
         std::thread::sleep(std::time::Duration::from_micros(100));
     }
     false
-}
-
-#[test]
-fn trim_relay_tx_verify_results_drops_oldest() {
-    let (shared, _pack) = SharedBuilder::with_temp_db().build().unwrap();
-    let (sender, receiver) = unbounded();
-    let sync_shared = SyncShared::new(shared, Default::default(), receiver);
-
-    for value in 0..5 {
-        sender
-            .send(TxVerificationResult::Ok {
-                original_peer: None,
-                tx_hash: Byte32::from_slice(&[value; 32]).unwrap(),
-            })
-            .unwrap();
-    }
-
-    assert_eq!(sync_shared.state().trim_relay_tx_verify_results(2), 3);
-
-    let remaining = sync_shared.state().take_relay_tx_verify_results(10);
-    let remaining_hashes = remaining
-        .into_iter()
-        .map(|result| match result {
-            TxVerificationResult::Ok { tx_hash, .. } => tx_hash,
-            _ => unreachable!(),
-        })
-        .collect::<Vec<_>>();
-    assert_eq!(
-        remaining_hashes,
-        vec![
-            Byte32::from_slice(&[3; 32]).unwrap(),
-            Byte32::from_slice(&[4; 32]).unwrap(),
-        ]
-    );
 }
 
 #[test]
@@ -122,8 +86,9 @@ fn test_insert_parent_unknown_block() {
             .consensus(shared1.consensus().clone())
             .build()
             .unwrap();
+        let relay_receiver = disable_tx_pool_and_take_relay_receiver(&mut pack);
         (
-            SyncShared::new(shared, Default::default(), pack.take_relay_tx_receiver()),
+            SyncShared::new(shared, Default::default(), relay_receiver),
             ChainServiceScope::new(pack.take_chain_services_builder()),
         )
     };
@@ -256,6 +221,7 @@ fn test_insert_child_block_with_stored_but_unverified_parent() {
             "parent block should be stored"
         );
 
+        let relay_receiver = disable_tx_pool_and_take_relay_receiver(&mut pack);
         let chain = ChainServiceScope::new(pack.take_chain_services_builder());
 
         while chain
@@ -266,7 +232,7 @@ fn test_insert_child_block_with_stored_but_unverified_parent() {
         }
 
         (
-            SyncShared::new(shared, Default::default(), pack.take_relay_tx_receiver()),
+            SyncShared::new(shared, Default::default(), relay_receiver),
             chain,
         )
     };

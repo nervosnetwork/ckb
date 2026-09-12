@@ -2,7 +2,10 @@ use super::super::transaction_verifier::{
     CapacityVerifier, DaoScriptSizeVerifier, DuplicateDepsVerifier, EmptyVerifier,
     MaturityVerifier, OutputsDataVerifier, Since, SinceVerifier, SizeVerifier, VersionVerifier,
 };
-use crate::cache::Completed;
+use crate::cache::{
+    ScriptVerificationOutcome, ScriptVerificationProof, ScriptVerificationRules,
+    TxVerificationCacheKey,
+};
 use crate::error::TransactionErrorSource;
 use crate::transaction_verifier::ScriptHashTypeVerifier;
 use crate::{ContextualTransactionVerifier, ScriptError, TransactionError, TxVerifyEnv};
@@ -442,12 +445,17 @@ impl EpochProvider for ContextualTestDataLoader {
     }
 }
 
-fn contextual_verifier_with_cached_script_cycles(
+fn contextual_verifier_with_sealed_script_proof(
     input_capacity: Capacity,
     output_capacity: Capacity,
     cached_script_cycles: Cycle,
-) -> ContextualTransactionVerifier<ContextualTestDataLoader> {
+    since: u64,
+) -> (
+    ContextualTransactionVerifier<ContextualTestDataLoader>,
+    ScriptVerificationProof,
+) {
     let transaction = TransactionBuilder::default()
+        .input(CellInput::new(OutPoint::new(Byte32::zero(), 0), since))
         .output(CellOutput::new_builder().capacity(output_capacity).build())
         .output_data(Bytes::new())
         .build();
@@ -467,25 +475,26 @@ fn contextual_verifier_with_cached_script_cycles(
     let tx_env = Arc::new(TxVerifyEnv::new_commit(
         &HeaderView::new_advanced_builder().build(),
     ));
-    ContextualTransactionVerifier::new_with_cached_script_cycles(
-        rtx,
-        consensus,
-        ContextualTestDataLoader,
-        tx_env,
-        Some(cached_script_cycles),
+    let rules = ScriptVerificationRules::from_env(&consensus, &tx_env);
+    let key = TxVerificationCacheKey::from_transaction(&rtx.transaction, rules);
+    let proof = ScriptVerificationProof::from_vm_success(key, cached_script_cycles);
+    (
+        ContextualTransactionVerifier::new(rtx, consensus, ContextualTestDataLoader, tx_env),
+        proof,
     )
 }
 
 #[test]
-fn test_cached_script_cycles_do_not_skip_capacity_verification() {
-    let verifier = contextual_verifier_with_cached_script_cycles(
+fn test_sealed_script_proof_does_not_skip_capacity_verification() {
+    let (verifier, proof) = contextual_verifier_with_sealed_script_proof(
         capacity_bytes!(149),
         capacity_bytes!(150),
         42,
+        0,
     );
 
     assert_error_eq!(
-        verifier.verify(u64::MAX, false).unwrap_err(),
+        verifier.verify_block(u64::MAX, Some(proof)).unwrap_err(),
         TransactionError::OutputsSumOverflow {
             inputs_sum: capacity_bytes!(149),
             outputs_sum: capacity_bytes!(150),
@@ -494,34 +503,114 @@ fn test_cached_script_cycles_do_not_skip_capacity_verification() {
 }
 
 #[test]
-fn test_cached_script_cycles_recalculate_fee() {
-    let verifier = contextual_verifier_with_cached_script_cycles(
+fn test_sealed_script_proof_recalculates_fee() {
+    let (verifier, proof) = contextual_verifier_with_sealed_script_proof(
         capacity_bytes!(200),
         capacity_bytes!(150),
         42,
+        0,
     );
 
-    assert_eq!(
-        verifier.verify(u64::MAX, false).unwrap(),
-        Completed {
-            cycles: 42,
-            fee: capacity_bytes!(50),
-        },
-    );
+    let (outcome, fee) = verifier
+        .verify_block(u64::MAX, Some(proof))
+        .expect("the exact sealed script proof remains reusable");
+    assert!(matches!(outcome, ScriptVerificationOutcome::Reused(_)));
+    assert_eq!(outcome.cycles(), 42);
+    assert_eq!(fee, capacity_bytes!(50));
 }
 
 #[test]
-fn test_cached_script_cycles_respect_max_cycles() {
-    let verifier = contextual_verifier_with_cached_script_cycles(
+fn test_sealed_script_proof_respects_max_cycles() {
+    let (verifier, proof) = contextual_verifier_with_sealed_script_proof(
         capacity_bytes!(200),
         capacity_bytes!(150),
         42,
+        0,
     );
 
     assert_error_eq!(
-        verifier.verify(41, false).unwrap_err(),
+        verifier.verify_block(41, Some(proof)).unwrap_err(),
         ScriptError::ExceededMaximumCycles(41).unknown_source(),
     );
+}
+
+#[cfg(not(target_family = "wasm"))]
+#[tokio::test]
+async fn test_contextual_entry_points_preserve_error_and_cache_priority() {
+    use crate::transaction_verifier::DeadlineVerificationOutcome;
+    use ckb_script::{ChunkCommand, InitialProgramLoadLimit, TxPoolVmExecutionMode};
+    use std::time::Duration;
+
+    let cases = [
+        (
+            1,
+            capacity_bytes!(149),
+            41,
+            Some(Error::from(TransactionError::Immature { index: 0 })),
+        ),
+        (
+            0,
+            capacity_bytes!(149),
+            41,
+            Some(Error::from(TransactionError::OutputsSumOverflow {
+                inputs_sum: capacity_bytes!(149),
+                outputs_sum: capacity_bytes!(150),
+            })),
+        ),
+        (
+            0,
+            capacity_bytes!(200),
+            41,
+            Some(Error::from(
+                ScriptError::ExceededMaximumCycles(41).unknown_source(),
+            )),
+        ),
+        (0, capacity_bytes!(200), 42, None),
+    ];
+    for (since, input_capacity, max_cycles, expected) in cases {
+        let (verifier, proof) = contextual_verifier_with_sealed_script_proof(
+            input_capacity,
+            capacity_bytes!(150),
+            42,
+            since,
+        );
+        // Context errors and reusable proofs precede VM cancellation and local
+        // work limits. No VM execution is needed for any of these cases.
+        let (_commands, mut command_rx) = tokio::sync::watch::channel(ChunkCommand::Stop);
+        let budgeted = verifier
+            .verify_with_pause_and_budget(
+                max_cycles,
+                Some(proof),
+                &mut command_rx,
+                Duration::ZERO,
+                InitialProgramLoadLimit::new(1).unwrap(),
+                TxPoolVmExecutionMode::Inline,
+            )
+            .await
+            .map(|outcome| match outcome {
+                DeadlineVerificationOutcome::Verified(outcome) => outcome,
+                other => panic!("context/proof preparation must precede local limits: {other:?}"),
+            });
+        let results = [
+            verifier.verify_scripts(max_cycles, Some(proof)),
+            verifier
+                .verify_block(max_cycles, Some(proof))
+                .map(|(outcome, _)| outcome),
+            verifier
+                .verify_with_pause(max_cycles, Some(proof), &mut command_rx)
+                .await,
+            budgeted,
+        ];
+        for result in results {
+            if let Some(error) = &expected {
+                assert_eq!(result.unwrap_err().to_string(), error.to_string());
+            } else {
+                let outcome = result.unwrap();
+                assert!(matches!(outcome, ScriptVerificationOutcome::Reused(_)));
+                assert_eq!(outcome.cycles(), 42);
+            }
+        }
+    }
 }
 
 #[test]
@@ -1038,6 +1127,18 @@ impl CellDataProvider for EmptyDataProvider {
     }
 }
 
+struct UnexpectedDataProvider;
+
+impl CellDataProvider for UnexpectedDataProvider {
+    fn get_cell_data(&self, _out_point: &OutPoint) -> Option<Bytes> {
+        panic!("non-DAO verification must not load cell data")
+    }
+
+    fn get_cell_data_hash(&self, _out_point: &OutPoint) -> Option<Byte32> {
+        panic!("non-DAO verification must not load a cell-data hash")
+    }
+}
+
 fn build_consensus_with_dao_limiting_block(block_number: u64) -> (Arc<Consensus>, Script) {
     let dao_script = build_genesis_type_id_script(OUTPUT_INDEX_DAO);
     let mut consensus = ConsensusBuilder::default()
@@ -1081,6 +1182,50 @@ fn build_input_cell_meta(cell_output: CellOutput, data: Bytes) -> CellMeta {
             0,
         ))
         .build()
+}
+
+#[test]
+fn dao_data_load_predicate_keeps_the_non_dao_path_provider_free() {
+    let (consensus, _) = build_consensus_with_dao_limiting_block(20000);
+    let transaction = TransactionBuilder::default()
+        .output(build_normal_cell_output())
+        .output_data(Bytes::new())
+        .build();
+    let rtx = Arc::new(ResolvedTransaction {
+        transaction,
+        resolved_cell_deps: Vec::new(),
+        resolved_inputs: vec![build_input_cell_meta(
+            build_normal_cell_output(),
+            Bytes::new(),
+        )],
+        resolved_dep_groups: Vec::new(),
+    });
+    let verifier = DaoScriptSizeVerifier::new(rtx, consensus, UnexpectedDataProvider);
+
+    assert!(!verifier.may_load_cell_data());
+    assert!(verifier.verify().is_ok());
+}
+
+#[test]
+fn dao_data_load_predicate_covers_a_same_index_dao_pair() {
+    let (consensus, dao_type_script) = build_consensus_with_dao_limiting_block(20000);
+    let transaction = TransactionBuilder::default()
+        .output(build_dao_cell_output(&dao_type_script))
+        .output_data(Bytes::from(vec![0; 8]))
+        .build();
+    let rtx = Arc::new(ResolvedTransaction {
+        transaction,
+        resolved_cell_deps: Vec::new(),
+        resolved_inputs: vec![build_input_cell_meta(
+            build_dao_cell_output(&dao_type_script),
+            Bytes::from(vec![0; 8]),
+        )],
+        resolved_dep_groups: Vec::new(),
+    });
+    let verifier = DaoScriptSizeVerifier::new(rtx, consensus, EmptyDataProvider);
+
+    assert!(verifier.may_load_cell_data());
+    assert!(verifier.verify().is_ok());
 }
 
 #[test]

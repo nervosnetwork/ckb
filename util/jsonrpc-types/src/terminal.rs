@@ -110,7 +110,7 @@ pub struct MiningInfo {
 pub struct TerminalPoolInfo {
     /// Count of transactions in the pending state.
     ///
-    /// The pending transactions must be proposed in a new block first.
+    /// These accepted transactions have no proposal eligible for the next block.
     pub pending: Uint64,
     /// Count of transactions in the proposed state.
     ///
@@ -119,8 +119,7 @@ pub struct TerminalPoolInfo {
     pub proposed: Uint64,
     /// Count of orphan transactions.
     ///
-    /// An orphan transaction has an input cell from the transaction which is neither in the chain
-    /// nor in the transaction pool.
+    /// These transactions are waiting for missing cells or headers.
     pub orphan: Uint64,
     /// Count of committing transactions.
     ///
@@ -129,9 +128,9 @@ pub struct TerminalPoolInfo {
     pub committing: Uint64,
     /// Total count of recent reject transactions by pool
     pub total_recent_reject_num: Uint64,
-    /// Total size of transactions bytes in the pool of all the different kinds of states (excluding orphan transactions).
+    /// Total serialized bytes of accepted transactions.
     pub total_tx_size: Uint64,
-    /// Total consumed VM cycles of all the transactions in the pool (excluding orphan transactions).
+    /// Total consumed VM cycles of accepted transactions.
     pub total_tx_cycles: Uint64,
     /// Total limit on the size of transactions in the tx-pool
     pub max_tx_pool_size: Uint64,

@@ -694,7 +694,7 @@ where
     #[inline]
     /// Extracts actual script binary either in dep cells.
     pub fn extract_script(&self, script: &Script) -> Result<Bytes, ScriptError> {
-        let (lazy, _) = self.extract_script_and_dep_index(script)?;
+        let (lazy, _, _) = self.extract_script_and_dep_index(script)?;
         lazy.access(&self.data_loader)
     }
 }
@@ -747,36 +747,47 @@ impl<DL> TxInfo<DL> {
     #[inline]
     /// Extracts the index of the script binary in dep cells
     pub fn extract_referenced_dep_index(&self, script: &Script) -> Result<usize, ScriptError> {
-        let (_, dep_index) = self.extract_script_and_dep_index(script)?;
+        let (_, dep_index, _) = self.extract_script_and_dep_index(script)?;
         Ok(*dep_index)
+    }
+
+    /// Reuse the selected binary's real data hash when it is available.
+    /// A cache lookup must not introduce a new script-validation failure.
+    pub(crate) fn extract_program_data_hash(
+        &self,
+        script: &Script,
+        program_id: &DataPieceId,
+    ) -> Option<&Byte32> {
+        let (_, dep_index, data_hash) = self.extract_script_and_dep_index(script).ok()?;
+        matches!(program_id, DataPieceId::CellDep(index) if *dep_index == *index as usize)
+            .then_some(data_hash)
     }
 
     fn extract_script_and_dep_index(
         &self,
         script: &Script,
-    ) -> Result<(&LazyData, &usize), ScriptError> {
+    ) -> Result<(&LazyData, &usize, &Byte32), ScriptError> {
         let script_hash_type = ScriptHashType::try_from(script.hash_type())
             .map_err(|err| ScriptError::InvalidScriptHashType(err.to_string()))?;
         match script_hash_type {
             ScriptHashType::Data | ScriptHashType::Data1 | ScriptHashType::Data2 => {
-                if let Some((dep_index, lazy)) = self.binaries_by_data_hash.get(&script.code_hash())
+                if let Some((data_hash, (dep_index, lazy))) = self
+                    .binaries_by_data_hash
+                    .get_key_value(&script.code_hash())
                 {
-                    Ok((lazy, dep_index))
+                    Ok((lazy, dep_index, data_hash))
                 } else {
                     Err(ScriptError::ScriptNotFound(script.code_hash()))
                 }
             }
-            ScriptHashType::Type => {
-                if let Some(ref bin) = self.binaries_by_type_hash.get(&script.code_hash()) {
-                    match bin {
-                        Binaries::Unique(_, dep_index, lazy) => Ok((lazy, dep_index)),
-                        Binaries::Duplicate(_, dep_index, lazy) => Ok((lazy, dep_index)),
-                        Binaries::Multiple => Err(ScriptError::MultipleMatches),
-                    }
-                } else {
-                    Err(ScriptError::ScriptNotFound(script.code_hash()))
-                }
-            }
+            ScriptHashType::Type => match self.binaries_by_type_hash.get(&script.code_hash()) {
+                Some(
+                    Binaries::Unique(hash, dep_index, lazy)
+                    | Binaries::Duplicate(hash, dep_index, lazy),
+                ) => Ok((lazy, dep_index, hash)),
+                Some(Binaries::Multiple) => Err(ScriptError::MultipleMatches),
+                None => Err(ScriptError::ScriptNotFound(script.code_hash())),
+            },
             hash_type => {
                 return Err(ScriptError::InvalidScriptHashType(format!(
                     "The ScriptHashType/{:?} has not been activated, and is not permitted for use.",

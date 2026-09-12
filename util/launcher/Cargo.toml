@@ -26,7 +26,6 @@ ckb-sync.workspace = true
 ckb-verification.workspace = true
 ckb-verification-traits.workspace = true
 ckb-async-runtime.workspace = true
-ckb-channel.workspace = true
 ckb-tx-pool.workspace = true
 ckb-light-client-protocol-server.workspace = true
 ckb-block-filter.workspace = true

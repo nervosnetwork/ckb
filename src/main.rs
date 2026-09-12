@@ -2,13 +2,20 @@
 use ckb_bin::run_app;
 use ckb_build_info::Version;
 
+#[cfg(all(feature = "tokio-trace", not(tokio_unstable)))]
+compile_error!(
+    "the `tokio-trace` feature requires `RUSTFLAGS=\"--cfg tokio_unstable\"` at compile time"
+);
+
 #[cfg(all(not(target_env = "msvc"), not(target_os = "macos")))]
 #[global_allocator]
 static ALLOC: tikv_jemallocator::Jemalloc = tikv_jemallocator::Jemalloc;
 
 fn main() {
-    #[cfg(feature = "tokio-trace")]
-    console_subscriber::init();
+    #[cfg(any(feature = "profiling", feature = "tokio-trace"))]
+    if let Err(error) = init_optional_observability() {
+        eprintln!("optional profiling initialization failed: {error}");
+    }
 
     #[cfg(all(target_os = "windows", not(target_feature = "crt-static")))]
     check_msvc_version();
@@ -17,6 +24,162 @@ fn main() {
     if let Some(exit_code) = run_app(version).err() {
         ::std::process::exit(exit_code.into());
     }
+}
+
+#[cfg(any(feature = "profiling", feature = "tokio-trace"))]
+fn init_optional_observability() -> Result<(), Box<dyn std::error::Error>> {
+    use tracing_subscriber::Layer;
+    use tracing_subscriber::filter::FilterFn;
+    use tracing_subscriber::layer::SubscriberExt;
+    use tracing_subscriber::util::SubscriberInitExt;
+
+    fn optional_env(name: &str) -> Result<Option<String>, std::env::VarError> {
+        match std::env::var(name) {
+            Ok(value) => Ok(Some(value)),
+            Err(std::env::VarError::NotPresent) => Ok(None),
+            Err(error) => Err(error),
+        }
+    }
+
+    #[cfg(feature = "profiling")]
+    let tx_pool_layer = if let Some(path) = optional_env("TX_POOL_PROFILE_TRACE_PATH")? {
+        let output = std::fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(path)?;
+        let filter = FilterFn::new(|metadata| metadata.target() == "ckb_tx_pool_profile");
+        Some(
+            tracing_subscriber::fmt::layer()
+                .with_ansi(false)
+                .with_target(true)
+                .with_thread_ids(true)
+                .with_thread_names(true)
+                .with_span_events(tracing_subscriber::fmt::format::FmtSpan::CLOSE)
+                .with_writer(std::sync::Arc::new(output))
+                .with_filter(filter),
+        )
+    } else {
+        None
+    };
+
+    #[cfg(all(feature = "profiling", not(feature = "tokio-trace")))]
+    if tx_pool_layer.is_none() {
+        return Ok(());
+    }
+
+    #[cfg(feature = "tokio-trace")]
+    let (console_layer, start_tx) = {
+        use std::net::ToSocketAddrs;
+
+        fn positive_usize(name: &str, value: &str) -> Result<usize, std::io::Error> {
+            let parsed = value.parse::<usize>().map_err(|error| {
+                std::io::Error::new(
+                    std::io::ErrorKind::InvalidInput,
+                    format!("{name} must be a positive integer: {error}"),
+                )
+            })?;
+            if parsed == 0 {
+                return Err(std::io::Error::new(
+                    std::io::ErrorKind::InvalidInput,
+                    format!("{name} must be greater than zero"),
+                ));
+            }
+            Ok(parsed)
+        }
+
+        fn positive_duration(
+            name: &str,
+            value: &str,
+        ) -> Result<std::time::Duration, std::io::Error> {
+            let parsed = humantime::parse_duration(value).map_err(|error| {
+                std::io::Error::new(
+                    std::io::ErrorKind::InvalidInput,
+                    format!("{name} must be a duration: {error}"),
+                )
+            })?;
+            if parsed.is_zero() {
+                return Err(std::io::Error::new(
+                    std::io::ErrorKind::InvalidInput,
+                    format!("{name} must be greater than zero"),
+                ));
+            }
+            Ok(parsed)
+        }
+
+        let mut builder = console_subscriber::ConsoleLayer::builder();
+        if let Some(value) = optional_env("TOKIO_CONSOLE_RETENTION")? {
+            builder = builder.retention(humantime::parse_duration(&value)?);
+        }
+        if let Some(value) = optional_env("TOKIO_CONSOLE_PUBLISH_INTERVAL")? {
+            builder = builder
+                .publish_interval(positive_duration("TOKIO_CONSOLE_PUBLISH_INTERVAL", &value)?);
+        }
+        if let Some(value) = optional_env("TOKIO_CONSOLE_BIND")? {
+            let address = value.to_socket_addrs()?.next().ok_or_else(|| {
+                std::io::Error::new(
+                    std::io::ErrorKind::InvalidInput,
+                    format!("TOKIO_CONSOLE_BIND resolved to no address: {value}"),
+                )
+            })?;
+            builder = builder.server_addr(address);
+        }
+        if optional_env("TOKIO_CONSOLE_RECORD_PATH")?.is_some() {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::Unsupported,
+                "TOKIO_CONSOLE_RECORD_PATH is disabled because console-subscriber opens it with a panic-based API",
+            )
+            .into());
+        }
+        if let Some(value) = optional_env("TOKIO_CONSOLE_BUFFER_CAPACITY")? {
+            builder = builder
+                .event_buffer_capacity(positive_usize("TOKIO_CONSOLE_BUFFER_CAPACITY", &value)?);
+        }
+
+        let (layer, server) = builder.build();
+        let filter = FilterFn::new(|metadata| {
+            if metadata.is_event() {
+                metadata.target().starts_with("runtime") || metadata.target().starts_with("tokio")
+            } else {
+                metadata.name().starts_with("runtime.") || metadata.target().starts_with("tokio")
+            }
+        });
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .enable_io()
+            .enable_time()
+            .build()?;
+        let (start_tx, start_rx) = std::sync::mpsc::sync_channel(0);
+        std::thread::Builder::new()
+            .name("console_subscriber".into())
+            .spawn(move || {
+                if start_rx.recv().is_err() {
+                    return;
+                }
+                if let Err(error) = runtime.block_on(server.serve()) {
+                    eprintln!("tokio-console server stopped: {error}");
+                }
+            })?;
+        (layer.with_filter(filter), start_tx)
+    };
+
+    let subscriber = tracing_subscriber::registry();
+    #[cfg(feature = "profiling")]
+    let subscriber = subscriber.with(tx_pool_layer);
+    #[cfg(feature = "tokio-trace")]
+    let subscriber = subscriber.with(console_layer);
+    subscriber.try_init()?;
+
+    #[cfg(feature = "tokio-trace")]
+    {
+        // The server thread remains gated until the global subscriber has
+        // been installed successfully.
+        start_tx.send(()).map_err(|_| {
+            std::io::Error::new(
+                std::io::ErrorKind::BrokenPipe,
+                "tokio-console server thread exited before startup",
+            )
+        })?;
+    }
+    Ok(())
 }
 
 #[cfg(all(target_os = "windows", not(target_feature = "crt-static")))]

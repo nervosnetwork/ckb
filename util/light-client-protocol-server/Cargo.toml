@@ -21,11 +21,10 @@ ckb-systemtime.workspace = true
 [dev-dependencies]
 ckb-chain.workspace = true
 ckb-chain-spec.workspace = true
-ckb-tx-pool.workspace = true
+ckb-tx-pool = { workspace = true, features = ["internal"] }
 ckb-app-config.workspace = true
 ckb-jsonrpc-types.workspace = true
 ckb-dao-utils.workspace = true
 ckb-test-chain-utils.workspace = true
 tempfile.workspace = true
 ckb-systemtime = { workspace = true, features = ["enable_faketime"] }
-tokio.workspace = true
