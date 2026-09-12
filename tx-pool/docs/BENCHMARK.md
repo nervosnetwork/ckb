@@ -11,6 +11,12 @@ Use this guide to run and interpret comparisons. [Profiling](PROFILING.md)
 owns CPU, span, allocation and Console diagnostics; [performance](PERFORMANCE.md)
 owns the final report. Timing cannot weaken correctness or independent concurrency.
 
+For repeated work within one service generation, resource-release checkpoints,
+latency tails and deterministic state-sequence replay, use the
+[composed validation runs](MAINTENANCE.md#repeat-composed-workloads-and-replay-sequences).
+They share the OS residency probe under `benches/resource_phases/memory.rs` but
+remain separate from the uninstrumented performance comparison below.
+
 ## Prepare a comparison
 
 Run from the repository root on a POSIX host with Python 3.11+, the repository

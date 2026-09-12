@@ -77,6 +77,101 @@ instrumentation. Gauges are observations, not admission authority.
 For CPU or scheduling attribution, follow [profiling](PROFILING.md). Raising
 budgets or timeouts should follow a diagnosed capacity requirement.
 
+## Repeat composed workloads and replay sequences
+
+The normal isolated suite includes two rounds of the
+[mixed service workload](../src/authority/tests/stability.rs) and 16 fixed seeds
+of 512 [legal state operations](../src/authority/tests/state_sequences.rs).
+Long runs are explicit ignored tests. Run each command from the repository root;
+retain stdout/stderr, source identity, toolchain, features and host with the result:
+
+```sh
+RUST_BACKTRACE=1 cargo nextest run --locked -p ckb-tx-pool --lib \
+  --test-threads 1 --run-ignored only --success-output final \
+  -E 'test(extended_mixed_load_stability)'
+
+cargo nextest run --locked -p ckb-tx-pool --lib \
+  --test-threads 1 --run-ignored only --success-output final \
+  -E 'test(extended_state_sequences)'
+```
+
+The mixed workload runs 4,096 rounds in one service generation, with four RBF
+families per round. It submits valid missing-parent remote bodies until the first
+capacity refusal, admits local work, wakes a dependent transaction, attaches a
+block, clears pending work, detaches and recovers the block's transactions, retries
+through the same pressured peer, then clears the pool. A callback is held by an
+explicit channel barrier. Polling the direct local future after callback entry
+establishes that publication still blocks completion; other local submissions and
+chain commands use the public controller. Dependent verification runs before the
+blocked direct callers occupy all six active envelopes. No elapsed delay is used
+to establish this ordering.
+
+Each round checks exact callback and relay outcomes, including peer identities,
+parent requests, replacement victims and reset counts. It checks release of
+observed owner, transaction and resolution allocations through weak references,
+then reuses the complete Store population oracle and checks active/outbox charges.
+Weak observations may repeat an allocation's identity; their count is not a count
+of unique allocations. The fixture uses canonical transaction verification and
+actual database live-cell attach/detach. It supplies the block/snapshot boundary;
+it does not run node consensus verification, network relay or mining.
+
+`TX_POOL_STABILITY_ROUNDS` changes the finite population within 1–65,536. Choose
+it before a run and retain unsuccessful runs. `TX_POOL_STABILITY_MEMORY` reports
+current RSS and lifetime peak RSS at service readiness, at most 64 released-round
+checkpoints and after joined shutdown. These observations require macOS or Linux.
+Set `TX_POOL_STABILITY_TRACE` to a new file path to inspect the same prefixed records
+while Nextest captures the test output; an existing file is rejected.
+`TX_POOL_STABILITY_RESULT` includes every latency observation and p50/p95/p99/max
+for the public local parent response, chain attach/detach responses, completion of
+all detached recovery and the final clear. Local/attach latency includes the
+controlled callback hold. Observer storage is preallocated or bounded per round.
+The workload admits 20 distinct verified transaction hashes per round; the default
+run exceeds two populations of the 30,000-entry verification cache.
+
+Logical release does not require RSS to return to startup. The service retains
+bounded verification caches; the process also includes database caches, allocator
+retention and runtime memory. Inspect the checkpoint trend and the ownership
+assertions separately. A lifetime peak cannot show a later release, and these
+instrumented latency samples do not replace the frozen, uninstrumented
+[benchmark comparison](BENCHMARK.md).
+
+The state-sequence test runs 64 seeds of 4,096 steps by default.
+`TX_POOL_SEQUENCE_SEED` selects the first seed, with wrapping consecutive seeds
+after it. Fixed arithmetic chooses only currently legal operations over three
+root/child/grandchild/replacement families. Receive/source promotion, resolution,
+admission, removal, expiry removal, clear, attach and detach call the real planners
+and Store. Maintenance settles after each step; a complete prior capture must then
+be rejected without altering the new state. Expected topology and account routing
+come from the small corpus; the existing single-owner charge formula is shared.
+Verified cells/cycles and chain snapshots are fixtures, and publication is silenced
+in this test. The service workload covers those execution/lifetime boundaries.
+
+On a generated failure, `TX_POOL_SEQUENCE_FAILURE` prints a JSON object containing
+the seed, original commands, reduced commands and failure details. Save that object
+as `/tmp/tx-pool-sequence.json`, then replay it with:
+
+```sh
+TX_POOL_SEQUENCE_REPLAY=/tmp/tx-pool-sequence.json \
+  cargo nextest run --locked -p ckb-tx-pool --lib \
+  --test-threads 1 --run-ignored only --success-output final \
+  -E 'test(extended_state_sequences)'
+```
+
+Replay schema 1 contains `commands`, an array of `[kind, transaction, origin]`
+triples. Kinds 0–7 are Receive, Resolve, Admit, Remove, Expire, Clear, Attach and
+Detach. Receive origins 0–5 are local, recovery, proposal and three remote fixtures;
+origin 6 promotes an existing remote owner to proposal. Transaction IDs are 0–11;
+Clear uses its second value as the pipeline-only boolean. Other unused fields must
+be zero. The parser rejects unknown encodings, files over 8 MiB and more than
+65,536 commands. A replay with a missing prerequisite fails as invalid.
+
+The shrinker deletes chunks and then individual commands while preserving the
+failing command and named oracle invariant; comparison values may change.
+Unlabelled panics require the complete same message. Invalid sequences never count
+as reproductions. The final trace admits no single-command deletion under that
+criterion; this is neither a globally shortest trace nor exhaustive state-space
+coverage. Keep the full error and original trace when investigating the result.
+
 ## Change admission or replacement policy
 
 Start at `TxPoolController::submit_local_tx`, `submit_remote_txs`, or

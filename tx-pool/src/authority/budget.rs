@@ -627,6 +627,11 @@ pub(super) struct OwnerUsage {
 
 #[cfg(test)]
 impl Budget {
+    pub(super) fn active_is_empty_for_test(&self) -> bool {
+        let active = self.active.lock();
+        active.total == 0 && active.remote == 0 && active.peers.is_empty()
+    }
+
     /// Observe settled accounting without reusing owner routing or delta preparation.
     pub(super) fn owner_usage(&self) -> OwnerUsage {
         let usage = self.usage.lock();

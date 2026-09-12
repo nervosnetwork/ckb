@@ -377,6 +377,122 @@ The rejected profiling-plus-allocation pilot and stale-binary build attempt rema
 marked invalid and do not contribute measurements. [The benchmark protocol](BENCHMARK.md)
 defines the metric windows, frozen inputs and replay limits.
 
+## Composed stability and state sequences
+
+The subsequent validation refinement uses frozen candidate
+`09b9a634ef02d77b2e44062934f5a7837650900e` on production basis
+`6ab298e06ba5c65bf6b60c0a0efb69ab31c04d23`. It adds composed service and generated
+state tests, consolidates genesis fixtures and shares the existing OS memory probe.
+Production behavior is unchanged. The [maintenance commands](MAINTENANCE.md#repeat-composed-workloads-and-replay-sequences)
+describe the exact test boundaries and replay format.
+
+The extended state suite passes 64 fixed seeds of 4,096 legal operations:
+262,144 steps across receive/promotion, resolution, admission, removal, expiry,
+clear, attach and detach. It checks complete Store populations and stale-cut
+rejection after every operation. An isolated missing-queue-removal perturbation
+is detected and shrinks from four commands to two; that exact trace fails under
+the perturbation and passes after restoration. Retaining a retired owner and
+skipping local publication waiting are also detected. These are three bounded
+hand-seeded faults, not a whole-pool mutation score or exhaustive state coverage.
+
+One service generation completes 4,096 mixed rounds in 1,531.17 seconds, with
+450,560 remote pressure admissions, 4,096 capacity refusals, zero bans and
+81,920 distinct canonically verified transaction hashes. Each round settles exact
+callback/relay populations, checks observed owner/transaction/resolution release,
+checks empty Store/account/active/outbox state and demonstrates same-peer recovery.
+The 1,175,552 weak-owner observations can repeat identities; they do not count
+unique allocations. The fixture supplies chain snapshots and live-cell updates,
+without running whole-node consensus, network relay or mining.
+
+All 4,096 observations per operation are retained. Values below are milliseconds
+from the instrumented test build; local and attach responses include the controlled
+callback hold and are not production latency estimates or comparative benchmarks.
+
+| Operation | p50 | p95 | p99 | Maximum |
+|---|---:|---:|---:|---:|
+| Public local parent response | 4.799 | 6.833 | 9.661 | 43.917 |
+| Chain attach response | 1.270 | 1.500 | 1.711 | 2.539 |
+| Chain detach response | 0.456 | 0.573 | 0.672 | 1.939 |
+| Detached recovery complete | 0.975 | 1.280 | 1.442 | 2.236 |
+| Final clear response | 0.708 | 0.798 | 0.880 | 1.722 |
+
+RSS grows from 91.203 MiB at service readiness to 192.875 MiB after round 64,
+352.297 MiB after round 4,096 and 352.344 MiB after joined shutdown. It still grows
+about 20 MiB across the final quarter's checkpoints: there is no observed plateau
+or process-wide leak-free conclusion. The fixture retains an old database snapshot,
+RocksDB write history and some block metadata; bounded verification/Store caches
+and allocator/runtime retention also remain. A retained database log reports
+12,793 writes and 630K keys at 1,200 seconds, with no flush or compaction. This does
+not isolate the cause of RSS growth. Logical release and process memory trends
+are separate findings.
+
+Frozen-input validation passes strict pool all-target Clippy with repository lints and
+internal/profiling/allocation-observation, 367 normal pool Nextest tests, both
+extended tests and 59 Python measurement gates. The tests reuse the existing full
+population oracle; individual owner sizing still shares the production formula.
+Initial fixture/order failures and the first unsuccessful shrink acceptance remain
+in the evidence, with their corrections and scope recorded.
+
+The final CI check found three new test-counter uses of `Relaxed`; they were
+changed to `SeqCst`, then the unchanged CI gate, strict pool Clippy and the short
+mixed workload passed again. This module is compiled only under `cfg(test)`, so
+the production benchmark inputs are unchanged. All extended observations above
+remain bound to `09b9a634`; no latency or RSS observation from the later counter
+revision is claimed. The packet records both source maps and the exact three-use
+correction, reusing the other tests' unchanged relevant inputs.
+
+The separate production-profile comparison uses prepared baseline
+`d5d59579bcf9898aad60c9a8aa89218f097df808` with the same memory-helper move and
+candidate `09b9a634`. Both contain identical production behavior and benchmark
+helpers. All 14 native gates pass, including two expected malformed-cohort
+refusals. Ascending calibration retains nine populations/18 pilots before fixing
+four workloads at eight workers and four peers. Each study prescribes 12 balanced
+pairs of two fresh processes per side/sample, with 15 s initial and 3 s per-attempt
+cooldown. Original 0.25 s window, 1.5% paired-MAD, 4% interval-width and ±2% A/A
+margins remain unchanged.
+
+A/A completes 200 successful executions. A/B retains 189 successes and one RBF
+baseline failure; its remaining ten RBF attempts are not started under the
+runner's stop-on-failure rule. Both studies exit 2. No row qualifies under both
+its A/A control and A/B rules, so all ratios below are descriptive and establish
+no performance ranking or equivalence. Brackets are pointwise conservative 95%
+median-ratio intervals, conditional on stable independent sampling; those
+assumptions and simultaneous matrix confidence are not established.
+
+| Workload | Target / warm | Throughput ratio | CPU ratio | RSS ratio | A/A | A/B |
+|---|---:|---|---|---|---|---|
+| `always_success` | 32,000 / 1,000 | 0.99032 [0.97020, 0.99642] | 1.00891 [1.00471, 1.01298] | 0.99137 [0.97969, 0.99593] | aa_equivalence_unresolved | comparable |
+| `fanout_ready_64_reverse` | 8,320 / 0 | 1.00374 [0.92849, 1.04039] | 1.00349 [0.98694, 1.01705] | 1.00142 [0.99957, 1.01385] | noisy | noisy |
+| `rbf_pairs` | 32,768 / 32,768 | — | — | — | aa_equivalent | non_comparable |
+| `reorg_in_flight` | 2,000 / 100 | 1.00001 [0.99703, 1.00148] | 0.99978 [0.98518, 1.02082] | 0.99703 [0.99654, 0.99895] | imprecise | comparable |
+
+The always-success A/A throughput interval reaches 1.02221, outside the 1.02 upper
+margin. Fanout fails the throughput noise gate in both studies. Reorg A/A CPU
+interval width is 4.005%, just above the unchanged 4% limit. Their successful
+executions do not override these failed controls.
+
+The RBF baseline failure occurs at pair 10, replicate 1. It records 65,129 accepted
+hashes and 32,768 rejected hashes, with 32,361 in both sets: 407 replacement targets
+received refusal without acceptance. The union covers all 65,536 planned hashes;
+there are no unresolved hashes, duplicates or generation resets. Warm membership
+and relay results are validated before replacement submission. The 120-second
+acceptance wait therefore cannot reach its all-accepted contract. Remote batch
+processing can successfully complete while individual transactions receive policy
+refusals; it does not promise accepted membership. The retained relay records do
+not include rejection reasons, so quota pressure is a possible explanation, not
+a uniquely established cause. This is a failed workload contract, not evidence of
+a deadlock or an isolated candidate regression. Partial successful RBF pairs are
+not converted into a ratio, and the failed attempt is not replaced.
+
+`tx-pool-stability-sequences-20260912-evidence.tar.gz` preserves all actual attempts,
+source/VM/build identities, native benchmark binaries, test fingerprints, original
+long-run observations, the final short-test binary, seeded faults and numerical
+replay. The original long-test executable was not copied before the test-counter
+rebuild; its source, original fingerprint and logs are retained. The final short
+binary is identified separately. Replay checks source maps, the exact counter
+correction, raw records, attempt order, arithmetic and original qualifications;
+it does not rerun native tests or recreate OS behavior.
+
 ## Resource and maintenance decision
 
 The retained improvements reduce repeated owner/index traversal, active-account
@@ -411,10 +527,12 @@ benefit or integration cost failed to justify them. Fixed 1,024 shards were reje
 at the user's direction after source-cost review; no native speedup is claimed.
 The candidate index and source-bound decisions preserve all explored alternatives.
 
-The current pool occupies 16,605 physical Rust lines in 49 production files,
+The current pool occupies 16,620 physical Rust lines in 49 production files,
 including inline tests, versus the accepted 15,319-line/42-file reference. The
 owner-account refinement adds 58 lines over its `f9e299114` baseline: two in
 production budget preparation and 56 in test-only observation interfaces.
+The subsequent composed-validation refinement adds 15 cfg(test) observer lines
+in those files; the new sequence and stability workloads live in separate tests.
 Separate tests, shared-crate changes and measurement tools are outside both counts.
 No logic was moved or compressed to hide that cost. The maintained design owns
 original observations, atomic coupled commits, bounded retained/transient work,

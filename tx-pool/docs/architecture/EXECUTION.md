@@ -128,6 +128,14 @@ before removing queue work; refusal changes neither counters nor selection.
 The permit retains its original peer until drop, even if a later owner promotion
 changes the transaction's source.
 
+Direct local requests retain their verified data and active envelope while waiting
+for their committed publication response. Background jobs can return their worker
+and active permit after commit because the outbox owns the remaining obligations.
+A blocked callback can therefore leave committed local work occupying every active
+slot; queued verification then resumes when a caller settles. Reconciliation and
+publication do not acquire these compute slots. Keep these distinct lifetimes
+visible when changing completion or testing progress under publication pressure.
+
 Accepted owners retain input cells, but reduce cell-dep and dep-group cells to
 identity/provenance fields. A selected Verify job keeps its full resolved owner
 charge until replacement. Detached

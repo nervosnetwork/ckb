@@ -14,7 +14,10 @@ use ckb_types::core::{
     cell::{CellMeta, ResolvedTransaction},
 };
 
-#[derive(Clone, Copy, Debug)]
+#[path = "state_sequences.rs"]
+mod sequences;
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum Shape {
     Resolve,
     Verify,
@@ -239,7 +242,10 @@ fn assert_state(store: &Store, expected: &[Expected], wakes: &[DependencyKey]) {
     let mut orphan = 0;
     let mut proposed = 0;
     for expected in expected {
-        assert_eq!(expected.owner.source, expected.origin.source);
+        assert_eq!(
+            expected.owner.source, expected.origin.source,
+            "state oracle: source identity"
+        );
         assert!(
             match (&expected.owner.phase, expected.shape) {
                 (Phase::Resolve, Shape::Resolve)
@@ -341,15 +347,32 @@ fn assert_state(store: &Store, expected: &[Expected], wakes: &[DependencyKey]) {
         actual_orphan += shard.orphan;
         actual_proposed += shard.proposed;
     }
-    assert_eq!(actual_owners.len(), owners.len());
+    assert_eq!(
+        actual_owners.len(),
+        owners.len(),
+        "state oracle: owner population"
+    );
     for (hash, owner) in &owners {
         assert!(Arc::ptr_eq(actual_owners.get(hash).unwrap(), owner));
         assert!(Arc::ptr_eq(&store.point(hash).1.unwrap(), owner));
     }
-    assert_eq!(actual_proposals, proposals);
-    assert_eq!(actual_deadlines, deadlines);
-    assert_eq!(actual_times, accepted_times);
-    assert_eq!((actual_orphan, actual_proposed), (orphan, proposed));
+    assert_eq!(
+        actual_proposals, proposals,
+        "state oracle: proposal projection"
+    );
+    assert_eq!(
+        actual_deadlines, deadlines,
+        "state oracle: deadline projection"
+    );
+    assert_eq!(
+        actual_times, accepted_times,
+        "state oracle: accepted timestamps"
+    );
+    assert_eq!(
+        (actual_orphan, actual_proposed),
+        (orphan, proposed),
+        "state oracle: phase counts"
+    );
     let mut actual_roles = BTreeMap::new();
     let mut actual_wakes = BTreeSet::new();
     for collection in &store.relations {
@@ -367,7 +390,7 @@ fn assert_state(store: &Store, expected: &[Expected], wakes: &[DependencyKey]) {
                 let RelationKey::Dependency(key) = key else {
                     panic!("child relations cannot carry availability wakes");
                 };
-                assert_eq!(wake.pass, relation.next_pass);
+                assert_eq!(wake.pass, relation.next_pass, "state oracle: wake pass");
                 assert!(wake.after.is_none());
                 assert!(actual_wakes.insert(key.clone()));
             }
@@ -378,30 +401,50 @@ fn assert_state(store: &Store, expected: &[Expected], wakes: &[DependencyKey]) {
             assert!(actual_roles.insert(key.clone(), members).is_none());
         }
     }
-    assert_eq!(actual_roles, roles);
-    assert_eq!(actual_wakes, wakes.iter().cloned().collect());
-    assert_eq!(*store.dirty.lock(), actual_wakes);
+    assert_eq!(actual_roles, roles, "state oracle: relation roles");
+    assert_eq!(
+        actual_wakes,
+        wakes.iter().cloned().collect(),
+        "state oracle: wake population"
+    );
+    assert_eq!(
+        *store.dirty.lock(),
+        actual_wakes,
+        "state oracle: dirty keys"
+    );
     let actual_peers: BTreeMap<_, _> = store
         .peers
         .lock()
         .iter()
         .map(|(peer, row)| (*peer, row.lock().members.clone()))
         .collect();
-    assert_eq!(actual_peers, peers);
+    assert_eq!(actual_peers, peers, "state oracle: peer population");
     let actual_queues = store.queues.queued_owners();
     assert_eq!(
         store.queues.queued_len(),
-        queued.iter().map(Vec::len).sum::<usize>()
+        queued.iter().map(Vec::len).sum::<usize>(),
+        "state oracle: queue population"
     );
     for (actual, expected) in actual_queues.iter().zip(queued) {
         let mut actual: Vec<_> = actual.iter().map(Weak::as_ptr).collect();
         let mut expected: Vec<_> = expected.into_iter().map(Arc::as_ptr).collect();
         actual.sort_unstable();
         expected.sort_unstable();
-        assert_eq!(actual, expected);
+        assert_eq!(actual, expected, "state oracle: queue owner identities");
     }
-    assert_eq!(store.budget.owner_usage(), usage);
+    assert_eq!(
+        store.budget.owner_usage(),
+        usage,
+        "state oracle: owner accounting"
+    );
     assert!(!store.is_faulted());
+}
+
+impl Store {
+    /// Reuse the complete projection/account oracle at a quiescent service cut.
+    pub(in crate::authority) fn assert_empty_for_test(&self) {
+        assert_state(self, &[], &[]);
+    }
 }
 
 #[test]

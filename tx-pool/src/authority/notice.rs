@@ -476,6 +476,16 @@ impl Outbox {
         let state = self.state.lock();
         state.closed && state.queue.is_empty() && state.usage[2].items == 0
     }
+    #[cfg(test)]
+    pub(super) fn idle_for_test(&self) -> bool {
+        let state = self.state.lock();
+        state.queue.is_empty()
+            && state.pending.is_empty()
+            && state
+                .usage
+                .iter()
+                .all(|charge| charge.items == 0 && charge.bytes == 0)
+    }
     fn publish_ready(&self, endpoints: &mut Endpoints) -> Result<bool, Error> {
         let (head, count) = {
             let state = self.state.lock();

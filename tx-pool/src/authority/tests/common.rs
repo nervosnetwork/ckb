@@ -193,7 +193,11 @@ pub(in crate::authority) fn accept(
 }
 
 pub(in crate::authority) fn chain_snapshot() -> Arc<Snapshot> {
-    let consensus = Arc::new(always_success_consensus());
+    chain_store(Arc::new(always_success_consensus())).1
+}
+
+/// A real genesis cell set, also usable by tests that attach and detach blocks.
+pub(in crate::authority) fn chain_store(consensus: Arc<Consensus>) -> (MockStore, Arc<Snapshot>) {
     let store = MockStore::default();
     let genesis = consensus.genesis_block();
     let epoch_ext = consensus.genesis_epoch_ext().clone();
@@ -227,16 +231,21 @@ pub(in crate::authority) fn chain_snapshot() -> Arc<Snapshot> {
                 },
             )
             .expect("the fixture stores the block extension");
+        let mut mmr = ChainRootMMR::new(0, &db_txn);
+        mmr.push(genesis.digest())
+            .expect("the fixture appends the genesis digest");
+        mmr.commit().expect("the fixture commits the chain root");
         db_txn.commit().expect("the fixture commits genesis");
     }
-    Arc::new(Snapshot::new(
+    let snapshot = Arc::new(Snapshot::new(
         genesis.header(),
         U256::zero(),
         epoch_ext,
         store.store().get_snapshot(),
         Default::default(),
         consensus,
-    ))
+    ));
+    (store, snapshot)
 }
 
 pub(in crate::authority) fn funded_tx(input: OutPoint, output_capacity: u64) -> TransactionView {
@@ -283,45 +292,9 @@ pub(in crate::authority) fn template_snapshot_with_consensus(
     child_timestamp: Option<u64>,
     consensus: Arc<Consensus>,
 ) -> Arc<Snapshot> {
-    let store = MockStore::default();
+    let (store, base) = chain_store(Arc::clone(&consensus));
     let genesis = consensus.genesis_block();
-    let epoch_ext = consensus.genesis_epoch_ext().clone();
-    {
-        let db_txn = store.store().begin_transaction();
-        let previous_epoch_hash = epoch_ext.last_block_hash_in_previous_epoch();
-        db_txn
-            .insert_block(genesis)
-            .expect("the fixture stores genesis");
-        db_txn
-            .attach_block(genesis)
-            .expect("the fixture attaches genesis");
-        attach_block_cell(&db_txn, genesis).expect("the fixture stores genesis cells");
-        db_txn
-            .insert_block_epoch_index(&genesis.hash(), &previous_epoch_hash)
-            .expect("the fixture stores the epoch index");
-        db_txn
-            .insert_epoch_ext(&previous_epoch_hash, &epoch_ext)
-            .expect("the fixture stores the epoch extension");
-        db_txn
-            .insert_block_ext(
-                &genesis.hash(),
-                &BlockExt {
-                    received_at: 0,
-                    total_difficulty: U256::zero(),
-                    total_uncles_count: 0,
-                    verified: Some(true),
-                    txs_fees: vec![],
-                    cycles: None,
-                    txs_sizes: None,
-                },
-            )
-            .expect("the fixture stores the block extension");
-        let mut mmr = ChainRootMMR::new(0, &db_txn);
-        mmr.push(genesis.digest())
-            .expect("the fixture appends the genesis digest");
-        mmr.commit().expect("the fixture commits the chain root");
-        db_txn.commit().expect("the fixture commits genesis");
-    }
+    let epoch_ext = base.epoch_ext().clone();
     let child = child_timestamp.map(|timestamp| {
         BlockBuilder::default()
             .number(1)

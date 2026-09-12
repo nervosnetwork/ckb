@@ -10,6 +10,9 @@ use ckb_verification::cache::init_cache;
 use std::collections::BTreeSet;
 use std::future::Future;
 
+#[path = "stability.rs"]
+mod stability;
+
 fn fixture() -> (Arc<Pool>, RelaySink, RelayDrain, Handle) {
     let handle = Handle::new(tokio::runtime::Handle::current(), None);
     let store = store_with_pipeline_limit(chain_snapshot(), &config(), 64_000_000);

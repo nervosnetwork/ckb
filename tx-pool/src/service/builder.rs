@@ -56,7 +56,7 @@ pub struct TxPoolServiceBuilder {
     estimator: FeeEstimator,
 }
 impl TxPoolServiceBuilder {
-    #[cfg(all(test, feature = "internal"))]
+    #[cfg(test)]
     pub(crate) fn pool_for_test(&self) -> Arc<Pool> {
         Arc::clone(&self.pool)
     }
@@ -177,7 +177,7 @@ impl TxPoolServiceBuilder {
     pub fn start<N: TxPoolNetwork>(self, network: N) {
         drop(self.start_inner(network));
     }
-    #[cfg(feature = "internal")]
+    #[cfg(any(test, feature = "internal"))]
     pub(crate) fn start_with_handle<N: TxPoolNetwork>(
         self,
         network: N,
