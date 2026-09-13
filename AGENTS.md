@@ -14,8 +14,9 @@ authority materially blocks progress. Retain unfinished objectives across
 follow-ups unless the user replaces them.
 
 Preserve existing work and keep edits and commits within scope. Inspect Git state
-before changing it. Push, publish, merge and release need explicit authorization;
-authorization already given remains valid.
+before changing it. Commit authorized changes after refinement and verification,
+before reporting completion; do not wait for another prompt. Push, publish, merge
+and release need explicit authorization; authorization already given remains valid.
 
 ## Engineering
 
