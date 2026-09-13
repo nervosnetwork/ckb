@@ -2066,9 +2066,9 @@ async fn admitted_ingress_batch_returns_a_poll_boundary_and_preserves_the_stoppe
         let offered = transactions.len();
         let (message, response) = if proposal {
             (
-                crate::service::Message::NotifyTxs(crate::service::Notify::new(
+                crate::service::Message::NotifyTxs(
                     crate::service::NotifyTxBatch::try_new(transactions).unwrap(),
-                )),
+                ),
                 None,
             )
         } else {

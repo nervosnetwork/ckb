@@ -38,7 +38,6 @@ use std::{
 use crate::{
     Status, StatusCode, SyncShared,
     synchronizer::{BlockFetcher, BlockProcess, GetBlocksProcess, HeadersProcess, Synchronizer},
-    tests::util::disable_tx_pool_and_take_relay_receiver,
     types::{HeadersSyncController, IBDState, PeerState},
 };
 
@@ -49,9 +48,9 @@ fn start_chain(consensus: Option<Consensus>) -> (ChainServiceScope, Shared, Sync
     builder = builder.consensus(consensus);
 
     let (shared, mut pack) = builder.build().unwrap();
-    let relay_receiver = disable_tx_pool_and_take_relay_receiver(&mut pack);
+    let relay_receiver = pack.take_relay_tx_receiver();
 
-    let chain = ChainServiceScope::new(pack.take_chain_services_builder());
+    let chain = ChainServiceScope::new(pack.into_chain_services_builder());
 
     while chain
         .chain_controller()
@@ -1281,7 +1280,8 @@ fn test_internal_db_error() {
     builder = builder.consensus(consensus);
 
     let (shared, mut pack) = builder.build().unwrap();
-    let relay_receiver = disable_tx_pool_and_take_relay_receiver(&mut pack);
+    let relay_receiver = pack.take_relay_tx_receiver();
+    drop(pack);
 
     let sync_shared = Arc::new(SyncShared::new(shared, Default::default(), relay_receiver));
 

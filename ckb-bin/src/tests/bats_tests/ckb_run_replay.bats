@@ -2,7 +2,6 @@
 bats_load_library 'bats-assert'
 bats_load_library 'bats-support'
 
-# Bound replay regressions instead of waiting for the CI job's six-hour limit.
 BATS_TEST_TIMEOUT="${BATS_TEST_TIMEOUT:-600}"
 
 _ckb_run() {
@@ -20,24 +19,23 @@ _ckb_run() {
 
 function ckb_run { #@test
   run _ckb_run
-  [ "$status" -eq 0 ]
-  # assert_output --regexp "ckb_chain::chain.*block number:.*, hash:.*, size:.*, cycles:.*"
+  assert_success
   assert_output --regexp "INFO ckb_bin  All tokio tasks and threads have exited. CKB shutdown"
 }
 
 function ckb_replay { #@test
   # exec lets the Bats watchdog terminate replay directly, without an orphaned child.
   run exec env CKB_LOG=err ckb replay -C "${CKB_DIRNAME}" --tmp-target "${TMP_DIR}" --profile 1 2500
-  [ "$status" -eq 0 ]
+  assert_success
   assert_output --regexp "End profiling, duration:.*, txs:.*, tps:.*"
 }
 
 function ckb_replay_sanity_check { #@test
   run exec env CKB_LOG=err ckb replay -C "${CKB_DIRNAME}" --tmp-target "${TMP_DIR}" --sanity-check
-  [ "$status" -eq 0 ]
+  assert_success
   assert_output --partial "Sanity-check pass, tip("
 }
 
 teardown_file() {
-  rm -f ${TMP_DIR}/ckb_run.log ${TMP_DIR}/ckb_run.pid
+  rm -f "${TMP_DIR}/ckb_run.log"
 }

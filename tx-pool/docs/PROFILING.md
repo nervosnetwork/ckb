@@ -226,8 +226,8 @@ The separate [template selection benchmark](BENCHMARK.md#measure-template-transa
    obligations, cache state and workload equivalence before assigning causality.
 
 A correctness regression and a controlled performance comparison answer different
-questions. The [review guide](REVIEW_GUIDE.md#development-and-review-method)
-owns the wider engineering method.
+questions. The [review guide](REVIEW_GUIDE.md#trace-the-changed-behavior)
+connects behavioral contracts to their implementation and regression checks.
 
 ## Failures and tool maintenance
 

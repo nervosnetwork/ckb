@@ -143,31 +143,3 @@ against their prerequisites and costs. Line counts, local passes and fewer
 coordination stages alone do not establish minimality or universal superiority.
 Bind executed checks to the source they tested. [Benchmarking](BENCHMARK.md)
 binds performance decisions to frozen inputs and workload scope.
-
-## Development and review method
-
-Start with a concrete behavior and its failure modes. Map the request producer,
-source of truth, decision premises, commit and consumer before choosing a type or
-stage. Compare plausible alternatives by the coordination, retained data and
-maintenance work they actually remove. Then make the smallest coherent change
-that preserves the complete contract, including refusal and cleanup.
-
-Use `rg` and Git diffs to follow definitions and callers across pool, sync, chain,
-RPC, shared setup and canonical verification. Compiler and Clippy checks expose
-interface mistakes; event-driven production-path tests establish ordering and
-resource release. Makefile aggregates check the wider dependency boundary.
-For representation changes, compare source before/after and inspect generated
-code or debug layout only where a concrete allocation or protected-work question
-requires it. Assembly and line counts do not establish end-to-end value.
-
-For performance work, use the [profiling workflow](PROFILING.md#investigate-a-performance-problem)
-to form a causal hypothesis, isolate one material change and test it with a
-frozen comparison. Keep raw failures and adverse CPU or memory outcomes. Review
-the retained mechanism as well as its measured gain; an optimization that breaks
-atomicity or cleanup is not eligible for a timing decision.
-
-A change is ready for review when another maintainer can explain its ownership,
-ordering and bounds from the responsible code, run its meaningful regression,
-reproduce any performance claim from immutable inputs, and find all relevant
-limits without reconstructing development history. Check source links, public
-configuration/RPC documentation and migration notes whenever those contracts move.

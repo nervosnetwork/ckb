@@ -6,7 +6,7 @@ use crate::service::{
     AdministrationGate, AdmittedAdministration, AsyncRequest, BlockTemplateResult,
     BoundedProposalIds, BoundedTransaction, BoundedTransactionError, BoundedTransactionHashes,
     ChainControl, ChainReorgArgs, ChainReorgPayloadLimit, FeeEstimatesResult,
-    FetchTxsWithCyclesResult, GetTransactionWithStatusResult, GetTxStatusResult, Message, Notify,
+    FetchTxsWithCyclesResult, GetTransactionWithStatusResult, GetTxStatusResult, Message,
     NotifyTxBatch, RemoteTxBatchOutcome, RemoteTxSubmission, RemoteTxSubmissionBatch, Request,
     SubmitTxResult, TestAcceptTxResult,
 };
@@ -36,11 +36,6 @@ use tokio_util::sync::CancellationToken;
 
 #[cfg(feature = "internal")]
 use crate::{PlugTarget, component::entry::TxEntry};
-
-enum RemoteBatchWait {
-    Ready(RemoteTxBatchOutcome),
-    Pending(tokio::sync::oneshot::Receiver<RemoteTxBatchOutcome>),
-}
 
 /// Cloneable handle to one tx-pool service generation.
 ///
@@ -77,19 +72,6 @@ macro_rules! send_message {
         block_in_place(|| response.recv())
             .map_err(handle_recv_error)
             .map_err(Into::into)
-    }};
-}
-
-macro_rules! send_notify {
-    ($self:ident, $msg_type:ident, $args:expr) => {{
-        let notify = Notify::new($args);
-        $self
-            .sender
-            .try_send(Message::$msg_type(notify))
-            .map_err(|e| {
-                let (_m, e) = handle_try_send_error(e);
-                e.into()
-            })
     }};
 }
 
@@ -151,6 +133,13 @@ fn bounded_direct_transaction(
 }
 
 impl TxPoolController {
+    fn send_notify(&self, message: Message) -> Result<(), AnyError> {
+        self.sender.try_send(message).map_err(|error| {
+            let (_, error) = handle_try_send_error(error);
+            error.into()
+        })
+    }
+
     /// Return whether tx-pool service is started
     pub fn service_started(&self) -> bool {
         self.started.load(Ordering::Acquire)
@@ -170,15 +159,11 @@ impl TxPoolController {
     /// Generate and return block_template
     pub fn get_block_template(
         &self,
-        bytes_limit: Option<u64>,
-        proposals_limit: Option<u64>,
-        max_version: Option<Version>,
+        _bytes_limit: Option<u64>,
+        _proposals_limit: Option<u64>,
+        _max_version: Option<Version>,
     ) -> Result<BlockTemplateResult, AnyError> {
-        send_message!(
-            self,
-            BlockTemplate,
-            (bytes_limit, proposals_limit, max_version)
-        )
+        send_message!(self, BlockTemplate, ())
     }
 
     /// Notify new uncle
@@ -189,7 +174,7 @@ impl TxPoolController {
                     "tx-pool candidate-uncle ingress rejected: {error:?}"
                 ))
             })?;
-        send_notify!(self, NewUncle, uncle)
+        self.send_notify(Message::NewUncle(uncle))
     }
 
     /// Make tx-pool consistent after a reorg, by re-adding or recursively erasing
@@ -320,8 +305,8 @@ impl TxPoolController {
             "tx_pool.ingress.remote_batch"
         )
         .entered();
-        let wait = if submissions.is_empty() {
-            RemoteBatchWait::Ready(RemoteTxBatchOutcome::complete(0))
+        let response = if submissions.is_empty() {
+            None
         } else {
             let batch = RemoteTxSubmissionBatch::try_new(submissions, peer)?;
             let (responder, response) = tokio::sync::oneshot::channel();
@@ -332,12 +317,12 @@ impl TxPoolController {
                     let (_, error) = handle_try_send_error(error);
                     error
                 })?;
-            RemoteBatchWait::Pending(response)
+            Some(response)
         };
         Ok(async move {
-            match wait {
-                RemoteBatchWait::Ready(outcome) => Ok(outcome),
-                RemoteBatchWait::Pending(response) => response.await.map_err(Into::into),
+            match response {
+                Some(response) => response.await.map_err(Into::into),
+                None => Ok(RemoteTxBatchOutcome::complete(0)),
             }
         })
     }
@@ -345,19 +330,13 @@ impl TxPoolController {
     /// Enqueue bounded transaction notifications.
     /// Success reports queue admission, not completion of verification.
     pub fn notify_txs(&self, txs: Vec<TransactionView>) -> Result<(), AnyError> {
-        send_notify!(self, NotifyTxs, NotifyTxBatch::try_new(txs)?)
+        self.send_notify(Message::NotifyTxs(NotifyTxBatch::try_new(txs)?))
     }
 
     /// Enqueue bounded transaction notifications.
     /// Success reports queue admission, not completion of verification.
     pub async fn notify_txs_async(&self, txs: Vec<TransactionView>) -> Result<(), AnyError> {
-        let notify = Notify::new(NotifyTxBatch::try_new(txs)?);
-        self.sender
-            .try_send(Message::NotifyTxs(notify))
-            .map_err(|e| {
-                let (_m, e) = handle_try_send_error(e);
-                e.into()
-            })
+        self.notify_txs(txs)
     }
 
     /// Return tx-pool information
@@ -531,7 +510,7 @@ impl TxPoolController {
             Ok(tx) => tx,
             Err(reason) => return Ok(Err(reason)),
         };
-        send_message!(self, SubmitLocalTestTx, tx)
+        send_message!(self, SubmitLocalTx, tx)
     }
 
     /// get total recent reject num

@@ -13,7 +13,7 @@ use ckb_types::{
     packed::{CellInput, OutPoint},
     prelude::*,
 };
-use std::{cell::RefCell, collections::BTreeSet};
+use std::collections::BTreeSet;
 
 const ALWAYS_SUCCESS_SCRIPT_CYCLE: u64 = 537;
 // always_failure, as the name implies, so it doesn't matter what the cycles are
@@ -237,7 +237,7 @@ fn assert_tx_pool_counts(node0: &Node, orphan_tx_cnt: u64, pending_cnt: u64, ass
 }
 
 fn should_receive_get_relay_transactions(net: &Net, node0: &Node, hashes: &[Byte32]) {
-    let missing = RefCell::new(hashes.iter().cloned().collect::<BTreeSet<_>>());
+    let mut missing: BTreeSet<_> = hashes.iter().cloned().collect();
     // A parent request may be split across messages. Do not satisfy the wait
     // with an unrelated or repeated GetRelayTransactions message.
     let received = net.should_receive(
@@ -245,7 +245,6 @@ fn should_receive_get_relay_transactions(net: &Net, node0: &Node, hashes: &[Byte
         |data: &Bytes| match packed::RelayMessage::from_slice(data).map(|message| message.to_enum())
         {
             Ok(packed::RelayMessageUnion::GetRelayTransactions(request)) => {
-                let mut missing = missing.borrow_mut();
                 for hash in request.tx_hashes() {
                     missing.remove(&hash);
                 }
@@ -254,11 +253,7 @@ fn should_receive_get_relay_transactions(net: &Net, node0: &Node, hashes: &[Byte
             _ => false,
         },
     );
-    assert!(
-        received,
-        "node did not request parents {:?}",
-        missing.into_inner()
-    );
+    assert!(received, "node did not request parents {missing:?}");
 }
 
 pub struct TxPoolOrphanNormal;

@@ -20,10 +20,10 @@ pub type NetMessage = (PeerIndex, ProtocolId, Bytes);
 fn receive_matching_until<Message, Predicate>(
     receiver: &Receiver<Message>,
     timeout: Duration,
-    predicate: Predicate,
+    mut predicate: Predicate,
 ) -> Result<Option<Message>, RecvTimeoutError>
 where
-    Predicate: Fn(&Message) -> bool,
+    Predicate: FnMut(&Message) -> bool,
 {
     let started = Instant::now();
     loop {
@@ -193,10 +193,10 @@ impl Net {
         &self,
         node: &Node,
         timeout: Duration,
-        predicate: Predicate,
+        mut predicate: Predicate,
     ) -> Result<Option<NetMessage>, RecvTimeoutError>
     where
-        Predicate: Fn(&Bytes) -> bool,
+        Predicate: FnMut(&Bytes) -> bool,
     {
         let node_id = node.node_id();
         let (peer_index, receiver) = self
@@ -215,7 +215,7 @@ impl Net {
 
     pub fn should_receive<Predicate>(&self, node: &Node, predicate: Predicate) -> bool
     where
-        Predicate: Fn(&Bytes) -> bool,
+        Predicate: FnMut(&Bytes) -> bool,
     {
         self.receive_matching_timeout(node, Duration::from_secs(30), predicate)
             .map(|message| message.is_some())

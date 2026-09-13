@@ -1,7 +1,7 @@
 use super::*;
 use crate::authority::service::VerificationControl;
 use crate::service::{
-    AsyncRequest, ChainControl, DEFAULT_CHANNEL_SIZE, Notify, NotifyTxBatch, RemoteTxBatchOutcome,
+    AsyncRequest, ChainControl, DEFAULT_CHANNEL_SIZE, NotifyTxBatch, RemoteTxBatchOutcome,
     RemoteTxSubmission,
 };
 use crate::test_support::genesis_snapshot;
@@ -41,9 +41,9 @@ fn full_controller() -> (TxPoolController, mpsc::Receiver<Message>) {
     let (sender, receiver) = mpsc::channel(1);
     assert!(
         sender
-            .try_send(Message::NotifyTxs(Notify::new(
+            .try_send(Message::NotifyTxs(
                 NotifyTxBatch::try_new(Vec::new()).expect("empty relay batch is valid"),
-            )))
+            ))
             .is_ok(),
         "fixture fills the bounded controller channel"
     );
@@ -294,7 +294,7 @@ fn candidate_uncle_is_bounded_and_compacted_before_enqueue() {
     else {
         panic!("candidate notification variant changed")
     };
-    assert_eq!(notify.arguments.into_uncle(), uncle);
+    assert_eq!(notify.into_uncle(), uncle);
 }
 
 #[test]
@@ -564,10 +564,7 @@ async fn proposal_delivery_preserves_payload_and_closed_network_calls_fail_fast(
     let Some(Message::NotifyTxs(notify)) = receiver.recv().await else {
         panic!("proposal notification missing");
     };
-    assert_eq!(
-        notify.arguments.into_transactions_for_test(),
-        vec![transaction]
-    );
+    assert_eq!(notify.into_transactions_for_test(), vec![transaction]);
 
     let (sender, receiver) = mpsc::channel(1);
     drop(receiver);
@@ -683,6 +680,29 @@ fn remote_batch_larger_than_the_controller_capacity_uses_one_queue_slot() {
         assert_eq!(outcome.completed(), BATCH_LEN);
         responder.await.expect("responder task does not panic");
     });
+}
+
+#[test]
+fn empty_remote_batch_completes_even_when_the_controller_is_full_or_closed() {
+    let (controller, receiver) = full_controller();
+    let assert_empty_completes = || {
+        let outcome = controller
+            .submit_remote_txs(Vec::new(), ckb_network::PeerIndex::from(1))
+            .expect("an empty batch needs no channel capacity")
+            .now_or_never()
+            .expect("an empty batch needs no handler response")
+            .expect("an empty batch completes successfully");
+        assert_eq!(outcome.offered(), 0);
+        assert_eq!(outcome.completed(), 0);
+    };
+    assert_empty_completes();
+    assert_eq!(
+        receiver.len(),
+        1,
+        "the original queued message is untouched"
+    );
+    drop(receiver);
+    assert_empty_completes();
 }
 
 #[test]

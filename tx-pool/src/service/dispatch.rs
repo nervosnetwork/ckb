@@ -1,9 +1,7 @@
 //! Direct conversion between the public protocol and pool operations.
 use crate::{
     authority::service::{Error, Pool},
-    service::{
-        Message, Notify, OneshotSender, RemoteTxBatchOutcome, RemoteTxSubmission, Request, respond,
-    },
+    service::{Message, OneshotSender, RemoteTxBatchOutcome, RemoteTxSubmission, Request, respond},
 };
 use ckb_error::AnyError;
 use std::sync::Arc;
@@ -24,10 +22,6 @@ pub(crate) async fn process(pool: Arc<Pool>, message: Message) -> Result<(), Err
             reply_result(responder, pool.block_template().await, "block_template")
         }
         Message::SubmitLocalTx(Request {
-            responder,
-            arguments,
-        })
-        | Message::SubmitLocalTestTx(Request {
             responder,
             arguments,
         }) => reply(
@@ -90,7 +84,7 @@ pub(crate) async fn process(pool: Arc<Pool>, message: Message) -> Result<(), Err
             respond(responder, outcome, "submit_remote_txs");
             error.map_or(Ok(()), settle)
         }
-        Message::NotifyTxs(Notify { arguments }) => pool
+        Message::NotifyTxs(arguments) => pool
             .submit_proposal_batch(arguments.into_transactions())
             .await
             .or_else(settle),
@@ -134,7 +128,7 @@ pub(crate) async fn process(pool: Arc<Pool>, message: Message) -> Result<(), Err
             pool.transaction(&arguments).await,
             "get_transaction_with_status",
         ),
-        Message::NewUncle(Notify { arguments }) => {
+        Message::NewUncle(arguments) => {
             pool.uncle(arguments);
             Ok(())
         }

@@ -68,24 +68,7 @@ pub type NotifyRegister<M> = Sender<Request<String, Receiver<M>>>;
 /// watcher request type alias
 pub type NotifyWatcher<M> = Sender<Request<String, watch::Receiver<M>>>;
 
-/// Notify timeout config
-#[derive(Copy, Clone)]
-pub(crate) struct NotifyTimeout {
-    pub(crate) script: Duration,
-}
-
 const DEFAULT_SCRIPT_TIMEOUT: Duration = Duration::from_millis(10_000);
-
-impl NotifyTimeout {
-    pub(crate) fn new(config: &NotifyConfig) -> Self {
-        NotifyTimeout {
-            script: config
-                .script_timeout
-                .map(Duration::from_millis)
-                .unwrap_or(DEFAULT_SCRIPT_TIMEOUT),
-        }
-    }
-}
 
 /// Controller for the notification service.
 ///
@@ -118,14 +101,17 @@ pub struct NotifyService {
     proposed_transaction_subscribers: HashMap<String, Sender<PoolTransactionEntry>>,
     reject_transaction_subscribers: HashMap<String, Sender<(PoolTransactionEntry, Reject)>>,
     log_subscribers: HashMap<String, Sender<LogEntry>>,
-    timeout: NotifyTimeout,
+    script_timeout: Duration,
     handle: Handle,
 }
 
 impl NotifyService {
     /// Creates a new notification service with the given configuration and async runtime handle.
     pub fn new(config: NotifyConfig, handle: Handle) -> Self {
-        let timeout = NotifyTimeout::new(&config);
+        let script_timeout = config
+            .script_timeout
+            .map(Duration::from_millis)
+            .unwrap_or(DEFAULT_SCRIPT_TIMEOUT);
 
         Self {
             config,
@@ -135,7 +121,7 @@ impl NotifyService {
             proposed_transaction_subscribers: HashMap::default(),
             reject_transaction_subscribers: HashMap::default(),
             log_subscribers: HashMap::default(),
-            timeout,
+            script_timeout,
             handle,
         }
     }
@@ -254,7 +240,7 @@ impl NotifyService {
 
         // notify script
         if let Some(script) = self.config.new_block_notify_script.clone() {
-            let script_timeout = self.timeout.script;
+            let script_timeout = self.script_timeout;
             self.handle.spawn(async move {
                 let args = [format!("{block_hash:#x}")];
                 match timeout(script_timeout, Command::new(&script).args(&args).status()).await {

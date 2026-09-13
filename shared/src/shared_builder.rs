@@ -492,8 +492,7 @@ impl SharedBuilder {
     }
 }
 
-/// SharedBuilder build returning the shared/package halves
-/// The package structs used for init other component
+/// Service components returned by [`SharedBuilder::build`].
 pub struct SharedPackage {
     chain_services_builder: Option<ChainServicesBuilder>,
     tx_pool_builder: Option<TxPoolServiceBuilder>,
@@ -507,19 +506,20 @@ impl SharedPackage {
         self.take_chain_services_builder()
     }
 
-    /// Takes the chain_services_builder out of the package, leaving a None in its place.
+    /// Takes the chain builder while retaining the remaining components.
+    /// Use [`Self::into_chain_services_builder`] for offline chain processing.
     pub fn take_chain_services_builder(&mut self) -> ChainServicesBuilder {
         self.chain_services_builder
             .take()
             .expect("take chain_services_builder")
     }
 
-    /// Takes the tx_pool_builder out of the package, leaving a None in its place.
+    /// Takes the transaction-pool service builder.
     pub fn take_tx_pool_builder(&mut self) -> TxPoolServiceBuilder {
         self.tx_pool_builder.take().expect("take tx_pool_builder")
     }
 
-    /// Takes the relay_tx_receiver out of the package, leaving a None in its place.
+    /// Takes the relay-result receiver.
     pub fn take_relay_tx_receiver(&mut self) -> TxVerificationResultReceiver {
         self.relay_tx_receiver
             .take()

@@ -1,10 +1,6 @@
 //! Tx-pool service message definitions.
 
-use crate::{
-    block_assembler::BoundedCandidateUncle,
-    constants::ResidencyLimits,
-    service::{Notify, Request},
-};
+use crate::{block_assembler::BoundedCandidateUncle, constants::ResidencyLimits, service::Request};
 use ckb_app_config::TxPoolConfig;
 use ckb_channel::oneshot;
 use ckb_error::AnyError;
@@ -13,7 +9,7 @@ use ckb_network::PeerIndex;
 use ckb_snapshot::Snapshot;
 use ckb_types::{
     core::{
-        BlockView, Cycle, EstimateMode, FeeRate, TransactionView, Version,
+        BlockView, Cycle, EstimateMode, FeeRate, TransactionView,
         cell::CellStatus,
         tx_pool::{
             EntryCompleted, PoolTxDetailInfo, Reject, TRANSACTION_SIZE_LIMIT,
@@ -29,7 +25,6 @@ use std::sync::Arc;
 use crate::{PlugTarget, component::entry::TxEntry};
 
 pub(crate) type BlockTemplateResult = Result<BlockTemplate, AnyError>;
-pub(crate) type BlockTemplateArgs = (Option<u64>, Option<u64>, Option<Version>);
 
 pub(crate) type SubmitTxResult = Result<(), Reject>;
 
@@ -423,13 +418,13 @@ impl RemoteTxSubmission {
 }
 
 pub(crate) enum Message {
-    BlockTemplate(SyncRequest<BlockTemplateArgs, BlockTemplateResult>),
+    BlockTemplate(SyncRequest<(), BlockTemplateResult>),
     SubmitLocalTx(SyncRequest<BoundedTransaction, SubmitTxResult>),
     RemoveLocalTx(SyncRequest<Byte32, RemoveLocalTxResult>),
     TestAcceptTx(SyncRequest<BoundedTransaction, TestAcceptTxResult>),
     SubmitRemoteTx(AsyncRequest<RemoteTxSubmission, ()>),
     SubmitRemoteTxBatch(AsyncRequest<RemoteTxSubmissionBatch, RemoteTxBatchOutcome>),
-    NotifyTxs(Notify<NotifyTxBatch>),
+    NotifyTxs(NotifyTxBatch),
     FreshProposalsFilter(AsyncRequest<BoundedProposalIds, Vec<ProposalShortId>>),
     FetchTxs(AsyncRequest<BoundedProposalIds, HashMap<ProposalShortId, TransactionView>>),
     FetchTxsWithCycles(AsyncRequest<BoundedTransactionHashes, FetchTxsWithCyclesResult>),
@@ -437,7 +432,7 @@ pub(crate) enum Message {
     GetLiveCell(SyncRequest<(OutPoint, bool), CellStatus>),
     GetTxStatus(SyncRequest<Byte32, GetTxStatusResult>),
     GetTransactionWithStatus(SyncRequest<Byte32, GetTransactionWithStatusResult>),
-    NewUncle(Notify<BoundedCandidateUncle>),
+    NewUncle(BoundedCandidateUncle),
     GetAllEntryInfo(SyncRequest<(), TxPoolEntryInfo>),
     GetAllIds(SyncRequest<(), TxPoolIds>),
     SavePool(SyncRequest<(), ()>),
@@ -452,7 +447,6 @@ pub(crate) enum Message {
     PlugEntry(SyncRequest<(Vec<TxEntry>, PlugTarget), Result<(), Reject>>),
     #[cfg(feature = "internal")]
     PackageTxs(SyncRequest<Option<u64>, Vec<TxEntry>>),
-    SubmitLocalTestTx(SyncRequest<BoundedTransaction, SubmitTxResult>),
 }
 
 impl Message {
@@ -483,8 +477,7 @@ impl Message {
             | Self::NotifyTxs(_)
             | Self::NewUncle(_)
             | Self::SavePool(_)
-            | Self::UpdateIBDState(_)
-            | Self::SubmitLocalTestTx(_) => false,
+            | Self::UpdateIBDState(_) => false,
             #[cfg(feature = "internal")]
             Self::PlugEntry(_) => false,
         }

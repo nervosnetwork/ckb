@@ -2,7 +2,7 @@ use crate::synchronizer::{
     IBD_BLOCK_FETCH_TOKEN, NOT_IBD_BLOCK_FETCH_TOKEN, SEND_GET_HEADERS_TOKEN,
     TIMEOUT_EVICTION_TOKEN,
 };
-use crate::tests::{TestNode, util::disable_tx_pool_and_take_relay_receiver};
+use crate::tests::TestNode;
 use crate::{SyncShared, Synchronizer};
 use ckb_chain::ChainServiceScope;
 use ckb_chain_spec::consensus::ConsensusBuilder;
@@ -118,9 +118,9 @@ fn setup_node(height: u64) -> (TestNode, Shared, ChainServiceScope) {
         .consensus(consensus)
         .build()
         .unwrap();
-    let relay_receiver = disable_tx_pool_and_take_relay_receiver(&mut pack);
+    let relay_receiver = pack.take_relay_tx_receiver();
 
-    let chain = ChainServiceScope::new(pack.take_chain_services_builder());
+    let chain = ChainServiceScope::new(pack.into_chain_services_builder());
 
     while chain
         .chain_controller()

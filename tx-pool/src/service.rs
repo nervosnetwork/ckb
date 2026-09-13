@@ -87,17 +87,6 @@ impl<R, A> Request<R, A> {
     }
 }
 
-#[derive(Clone)]
-pub(crate) struct Notify<A> {
-    pub arguments: A,
-}
-
-impl<A> Notify<A> {
-    pub(crate) fn new(arguments: A) -> Self {
-        Self { arguments }
-    }
-}
-
 /// Committed verification outcome consumed by sync's known-transaction
 /// projection.
 #[derive(Clone, Debug)]

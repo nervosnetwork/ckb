@@ -162,7 +162,8 @@ impl CandidateUncles {
             return Ok(false);
         };
         let uncle = BoundedCandidateUncle::try_new(uncle, usize::MAX)?;
-        Ok(self.apply_insert(insertion, uncle.into_uncle()))
+        self.apply_insert(insertion, uncle.into_uncle());
+        Ok(true)
     }
 
     pub(crate) fn try_insert_bounded(
@@ -172,7 +173,8 @@ impl CandidateUncles {
         let Some(insertion) = self.plan_insert(uncle.as_uncle())? else {
             return Ok(false);
         };
-        Ok(self.apply_insert(insertion, uncle.into_uncle()))
+        self.apply_insert(insertion, uncle.into_uncle());
+        Ok(true)
     }
 
     fn plan_insert(
@@ -218,25 +220,20 @@ impl CandidateUncles {
         }))
     }
 
-    fn apply_insert(&mut self, insertion: CandidateInsertion, uncle: UncleBlockView) -> bool {
+    // Both callers retain exclusive access between planning and applying.
+    // The target has room and does not contain this uncle; compaction changes
+    // only its backing allocation. No rejection remains after the first edit.
+    fn apply_insert(&mut self, insertion: CandidateInsertion, uncle: UncleBlockView) {
         let CandidateInsertion {
             number,
             evict,
             next_version,
         } = insertion;
-        let set = self.map.entry(number).or_default();
-        if set.len() < MAX_PER_HEIGHT {
-            if !set.insert(uncle) {
-                return false;
-            }
-            if let Some(first_key) = evict {
-                self.map.remove(&first_key);
-            }
-            self.source_version = next_version;
-            true
-        } else {
-            false
+        self.map.entry(number).or_default().insert(uncle);
+        if let Some(first_key) = evict {
+            self.map.remove(&first_key);
         }
+        self.source_version = next_version;
     }
 
     /// Returns the number of elements in the container.

@@ -17,7 +17,7 @@ impl BlockAssembler {
         #[cfg(test)]
         self.notify_count
             .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
-        if !self.need_to_notify() {
+        if !self.notifications_enabled() {
             return;
         }
         let template = self.get_current().await;
@@ -90,9 +90,5 @@ impl BlockAssembler {
                 futures_util::stream::select(http_notifications, script_notifications);
             while notifications.next().await.is_some() {}
         }
-    }
-
-    fn need_to_notify(&self) -> bool {
-        self.notifications_enabled()
     }
 }
