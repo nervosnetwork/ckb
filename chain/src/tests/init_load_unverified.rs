@@ -21,7 +21,6 @@ fn startup_recovery_does_not_requeue_blocks_received_after_capture() {
     let transaction = shared.store().begin_transaction();
     transaction.insert_block(&recovered).unwrap();
     transaction.commit().unwrap();
-    shared.refresh_snapshot();
 
     let (requests, received) = bounded(4);
     let (truncate, _truncations) = bounded(1);
@@ -32,11 +31,7 @@ fn startup_recovery_does_not_requeue_blocks_received_after_capture() {
         Arc::new(OrphanBlockPool::with_capacity(4)),
         Arc::clone(&loading),
     );
-    let recovery = InitLoadUnverified::new(
-        Arc::clone(&shared.snapshot()),
-        controller,
-        Arc::clone(&loading),
-    );
+    let recovery = InitLoadUnverified::new(&shared, controller, Arc::clone(&loading));
 
     // A newly received block also has no BlockExt until verification commits.
     // It belongs to its original request, which may carry a verification switch

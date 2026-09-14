@@ -4,7 +4,7 @@ use ckb_constant::sync::BLOCK_DOWNLOAD_WINDOW;
 use ckb_db::{Direction, IteratorMode};
 use ckb_db_schema::COLUMN_NUMBER_HASH;
 use ckb_logger::{error, info};
-use ckb_shared::Snapshot;
+use ckb_shared::{Shared, Snapshot};
 use ckb_stop_handler::has_received_stop_signal;
 use ckb_store::ChainStore;
 use ckb_types::core::{BlockNumber, BlockView};
@@ -19,19 +19,21 @@ use std::sync::atomic::AtomicBool;
 mod tests;
 
 pub(crate) struct InitLoadUnverified {
-    snapshot: Arc<Snapshot>,
+    snapshot: Snapshot,
     chain_controller: ChainController,
     is_verifying_unverified_blocks_on_startup: Arc<AtomicBool>,
 }
 
 impl InitLoadUnverified {
     pub(crate) fn new(
-        snapshot: Arc<Snapshot>,
+        shared: &Shared,
         chain_controller: ChainController,
         is_verifying_unverified_blocks_on_startup: Arc<AtomicBool>,
     ) -> Self {
         InitLoadUnverified {
-            snapshot,
+            // Include every store write before service startup, even when the
+            // cached chain snapshot predates an unverified block's insertion.
+            snapshot: shared.snapshot().refresh(shared.store().get_snapshot()),
             chain_controller,
             is_verifying_unverified_blocks_on_startup,
         }

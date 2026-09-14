@@ -101,23 +101,16 @@ pub fn build_chain_services(
         Arc::clone(&is_verifying_unverified_blocks_on_startup),
     );
 
+    // Freeze recovery before the chain service accepts new requests. Fresh
+    // blocks without BlockExt belong to their original verification request.
+    let init_load_unverified = InitLoadUnverified::new(
+        &builder.shared,
+        chain_controller.clone(),
+        is_verifying_unverified_blocks_on_startup,
+    );
     let init_load_unverified_thread = thread::Builder::new()
         .name("init_load_unverified_blocks".into())
-        .spawn({
-            let chain_controller = chain_controller.clone();
-            // Freeze recovery before the chain service accepts new requests.
-            // Fresh blocks without BlockExt belong to their original request,
-            // not to last shutdown's unfinished verification.
-            let snapshot = Arc::clone(&builder.shared.snapshot());
-            move || {
-                let init_load_unverified: InitLoadUnverified = InitLoadUnverified::new(
-                    snapshot,
-                    chain_controller,
-                    is_verifying_unverified_blocks_on_startup,
-                );
-                init_load_unverified.start();
-            }
-        })
+        .spawn(move || init_load_unverified.start())
         .expect("start unverified_queue consumer thread should ok");
 
     let consume_orphan = OrphanBroker::new(
