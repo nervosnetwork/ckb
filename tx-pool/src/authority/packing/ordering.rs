@@ -1,11 +1,14 @@
 //! Complete read-before-spend prerequisites for block selection.
 
 use super::{
-    CandidatePackingState, EvictionRank, Links, PackageAggregate, PackingError, Selection, Status,
-    TemplatePackingLimits, Traversal,
+    CandidatePackingState, EvictionRank, Links, PackageAggregate, PackageOrderKey, PackingError,
+    Selection, Status, TemplatePackingLimits, Traversal,
 };
 use ckb_types::prelude::*;
-use std::collections::{BTreeSet, HashMap};
+use std::{
+    cmp::Reverse,
+    collections::{BinaryHeap, HashMap},
+};
 
 const MAX_CONDITIONAL_CYCLE_ROUNDS: usize = 64;
 
@@ -69,17 +72,14 @@ impl Selection<'_> {
     )]
     pub(super) fn precedence(&self) -> Result<Precedence, PackingError> {
         let len = self.candidates.len();
-        let mut rank = vec![0; len];
-        let mut priority = self.priority(None);
-        for (position, key) in std::iter::from_fn(|| priority.pop()).enumerate() {
-            *rank.get_mut(key.index).ok_or(PackingError::Projection)? = position;
-        }
         let mut active = vec![true; len];
         let graph = self.precedence_graph()?;
         let mut cycle_round = 0usize;
         let mut eviction = None;
         loop {
-            let ordered = topological_active_order(&active, &rank, &graph)?;
+            let ordered = topological_active_order(&active, &graph, |index| {
+                PackageOrderKey::new(index, &self.candidates[index], self.graph.ancestors[index])
+            })?;
             if ordered.len() == active.iter().filter(|is_active| **is_active).count() {
                 let mut edges = Vec::new();
                 for (parent, children) in graph.iter().enumerate() {
@@ -227,12 +227,12 @@ impl Selection<'_> {
     }
 }
 
-fn topological_active_order(
+fn topological_active_order<K: Ord>(
     active: &[bool],
-    rank: &[usize],
     children: &Links,
+    priority: impl Fn(usize) -> K,
 ) -> Result<Vec<usize>, PackingError> {
-    if active.len() != rank.len() || active.len() != children.len() {
+    if active.len() != children.len() {
         return Err(PackingError::Projection);
     }
     let mut indegree = vec![0usize; active.len()];
@@ -257,7 +257,9 @@ fn topological_active_order(
         }
     }
 
-    let mut ready = BTreeSet::new();
+    // Rank only ready entries, directly by package priority. Each entry becomes
+    // ready once, so neither a separate ordinal table nor set deduplication is needed.
+    let mut ready = Vec::new();
     for (index, is_active) in active.iter().copied().enumerate() {
         if is_active
             && indegree
@@ -266,12 +268,12 @@ fn topological_active_order(
                 .ok_or(PackingError::Projection)?
                 == 0
         {
-            let position = rank.get(index).copied().ok_or(PackingError::Projection)?;
-            ready.insert((position, index));
+            ready.push((priority(index), Reverse(index)));
         }
     }
+    let mut ready = BinaryHeap::from(ready);
     let mut ordered = Vec::with_capacity(active.iter().filter(|is_active| **is_active).count());
-    while let Some((_position, index)) = ready.pop_first() {
+    while let Some((_priority, Reverse(index))) = ready.pop() {
         ordered.push(index);
         for child in children.get(index).ok_or(PackingError::Projection)? {
             if !active
@@ -284,8 +286,7 @@ fn topological_active_order(
             let degree = indegree.get_mut(*child).ok_or(PackingError::Projection)?;
             *degree = degree.checked_sub(1).ok_or(PackingError::Projection)?;
             if *degree == 0 {
-                let position = rank.get(*child).copied().ok_or(PackingError::Projection)?;
-                ready.insert((position, *child));
+                ready.push((priority(*child), Reverse(*child)));
             }
         }
     }

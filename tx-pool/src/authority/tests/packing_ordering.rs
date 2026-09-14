@@ -3,7 +3,7 @@ use crate::authority::{model::Status, tests::common};
 use ckb_snapshot::Snapshot;
 use ckb_types::packed::Byte32;
 use ckb_types::packed::OutPoint;
-use std::sync::Arc;
+use std::{collections::BTreeSet, sync::Arc};
 
 fn mixed_owners() -> (
     Vec<Arc<crate::authority::model::Entry>>,
@@ -108,10 +108,10 @@ fn reused_graph_drops_multiple_sccs_and_complete_causal_packages() {
 #[test]
 fn inactive_endpoints_are_skipped_but_out_of_range_edges_are_rejected() {
     let active = [true, false, true];
-    let rank = [1, 2, 0];
+    let priority = |index| Reverse([1, 2, 0][index]);
     let children = Links::from_lists([vec![1, 2], vec![2], Vec::new()]);
     assert_eq!(
-        topological_active_order(&active, &rank, &children).unwrap(),
+        topological_active_order(&active, &children, priority).unwrap(),
         vec![0, 2]
     );
     let mut components =
@@ -130,7 +130,7 @@ fn inactive_endpoints_are_skipped_but_out_of_range_edges_are_rejected() {
 
     let malformed = Links::from_lists([vec![3], Vec::new(), Vec::new()]);
     assert_eq!(
-        topological_active_order(&active, &rank, &malformed),
+        topological_active_order(&active, &malformed, priority),
         Err(PackingError::Projection)
     );
     assert_eq!(
