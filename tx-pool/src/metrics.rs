@@ -1,14 +1,27 @@
 //! Low-cardinality operational projections of existing tx-pool authority.
 //!
 //! Metrics never participate in admission, scheduling, settlement or retry.
-//! Callers copy already-maintained counters while holding their authority lock
-//! and publish only after releasing it.
+//! Authority callers copy existing counters under their locks and publish after
+//! releasing them. The independent relay mailbox records its own queue directly.
 
 use crate::error::Reject;
 use ckb_types::core::error::OutPointError;
 
 fn gauge_value(value: usize) -> i64 {
     i64::try_from(value).map_or(i64::MAX, |converted| converted)
+}
+
+/// The relay mailbox records its own projection under its private lock, so an
+/// older publisher cannot overwrite the receiver's drained observation.
+pub(crate) fn relay_queue(items: usize, capacity: usize) {
+    if let Some(metrics) = ckb_metrics::handle() {
+        metrics
+            .ckb_relay_tx_verify_result_queue_size
+            .set(gauge_value(items));
+        metrics
+            .ckb_relay_tx_verify_result_queue_capacity
+            .set(gauge_value(capacity));
+    }
 }
 
 #[derive(Clone, Copy, Debug, Default)]

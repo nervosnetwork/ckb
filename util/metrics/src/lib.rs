@@ -136,6 +136,10 @@ pub struct Metrics {
     pub ckb_freezer_number: IntGauge,
     /// Counter for relay transaction short id collide
     pub ckb_relay_transaction_short_id_collide: IntCounter,
+    /// Pending verification results in the bounded relay mailbox.
+    pub ckb_relay_tx_verify_result_queue_size: IntGauge,
+    /// Item capacity of the bounded relay mailbox.
+    pub ckb_relay_tx_verify_result_queue_capacity: IntGauge,
     /// Histogram for relay compact block verify duration
     pub ckb_relay_cb_verify_duration: Histogram,
     /// Histogram for block process duration
@@ -275,6 +279,14 @@ static METRICS: std::sync::LazyLock<Metrics> = std::sync::LazyLock::new(|| {
         "The CKB relay transaction short id collide"
     )
             .unwrap(),
+    ckb_relay_tx_verify_result_queue_size: register_int_gauge!(
+        "ckb_relay_tx_verify_result_queue_size",
+        "Pending transaction verification results in the relay mailbox"
+    ).unwrap(),
+    ckb_relay_tx_verify_result_queue_capacity: register_int_gauge!(
+        "ckb_relay_tx_verify_result_queue_capacity",
+        "Maximum pending transaction verification results in the relay mailbox"
+    ).unwrap(),
     ckb_relay_cb_verify_duration: register_histogram!(
         "ckb_relay_cb_verify_duration",
         "The CKB relay compact block verify duration"

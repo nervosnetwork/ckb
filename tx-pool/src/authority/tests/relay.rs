@@ -221,3 +221,36 @@ fn relay_batch_drain_preserves_overflow_and_accounting_resets() {
         assert_eq!(receiver.observation(), (0, 0));
     }
 }
+
+#[test]
+fn relay_metrics_follow_bounded_backlog_reset_and_drain() {
+    ckb_metrics::METRICS_SERVICE_ENABLED.set(true).unwrap();
+    let metrics = ckb_metrics::handle().unwrap();
+    let (sink, receiver) = authority_relay_mailbox(4, TEST_BYTES, TEST_MAX_PARENTS).unwrap();
+    assert_eq!(metrics.ckb_relay_tx_verify_result_queue_capacity.get(), 4);
+    assert_eq!(metrics.ckb_relay_tx_verify_result_queue_size.get(), 0);
+    for byte in 0..6 {
+        sink.publish(TxVerificationResult::Reject {
+            tx_hash: Byte32::new([byte; 32]),
+        });
+        let observed = metrics.ckb_relay_tx_verify_result_queue_size.get();
+        assert!((1..=4).contains(&observed));
+        assert_eq!(observed, receiver.observation().0 as i64);
+    }
+    // Overflow replaced earlier detail with a reset before the later results.
+    assert!(matches!(
+        receiver.try_recv(),
+        Some(TxVerificationResult::GenerationReset)
+    ));
+    assert_eq!(metrics.ckb_relay_tx_verify_result_queue_size.get(), 2);
+    assert_eq!(receiver.drain(4).len(), 2);
+    assert_eq!(metrics.ckb_relay_tx_verify_result_queue_size.get(), 0);
+    sink.publish(TxVerificationResult::GenerationReset);
+    drop(receiver);
+    assert_eq!(metrics.ckb_relay_tx_verify_result_queue_size.get(), 0);
+    assert_eq!(
+        sink.publish(TxVerificationResult::GenerationReset),
+        RelayMailboxDisposition::Disconnected
+    );
+    assert_eq!(metrics.ckb_relay_tx_verify_result_queue_size.get(), 0);
+}

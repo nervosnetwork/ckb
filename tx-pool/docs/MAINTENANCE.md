@@ -377,3 +377,8 @@ rebuilds UnknownParents for current waiting remote owners in bounded pages.
 It does not replay all accepted transactions. Later Ok results restore their own
 known and pending entries. Preserve [synchronous result consumption](../../sync/src/relayer/mod.rs)
 before async network sends; mailbox delivery is not a network-delivery guarantee.
+
+The `ckb_relay_tx_verify_result_queue_size` metric observes this mailbox, with
+its item bound exposed as `ckb_relay_tx_verify_result_queue_capacity`. Mailbox
+draining continues without peers and during IBD; the metric does not represent
+the relayer's separate pending-broadcast cache or remaining reconstruction work.

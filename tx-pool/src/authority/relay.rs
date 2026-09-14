@@ -132,6 +132,7 @@ pub(super) fn authority_relay_mailbox(
         wake_items: max_items.div_ceil(2),
         wake_bytes: max_bytes.div_ceil(2),
     });
+    crate::metrics::relay_queue(0, max_items);
     Ok((
         AuthorityRelaySink {
             inner: Arc::clone(&inner),
@@ -206,6 +207,7 @@ impl AuthorityRelaySink {
                 result,
                 bytes: result_bytes,
             });
+            crate::metrics::relay_queue(state.queue.len(), self.inner.max_items);
             drop(state);
             if prompt || crossed_watermark {
                 self.inner.drain_signal.notify_one();
@@ -231,6 +233,7 @@ impl AuthorityRelaySink {
             // ordinary Ok/Reject result that cannot itself fit.
             RelayMailboxDisposition::Reconciled
         };
+        crate::metrics::relay_queue(state.queue.len(), self.inner.max_items);
         drop(state);
         self.inner.drain_signal.notify_one();
         disposition
@@ -247,6 +250,7 @@ impl AuthorityRelaySink {
         } else {
             RelayMailboxDisposition::Reconciled
         };
+        crate::metrics::relay_queue(state.queue.len(), self.inner.max_items);
         drop(state);
         self.inner.drain_signal.notify_one();
         disposition
@@ -259,7 +263,10 @@ impl AuthorityRelayReceiver {
     }
 
     pub(super) fn try_recv(&self) -> Option<TxVerificationResult> {
-        self.inner.state.lock().pop_front()
+        let mut state = self.inner.state.lock();
+        let result = state.pop_front();
+        crate::metrics::relay_queue(state.queue.len(), self.inner.max_items);
+        result
     }
     /// Reserve outside the mailbox lock, then move one bounded prefix while
     /// holding it once. A concurrent reset may shorten or replace that prefix.
@@ -276,6 +283,7 @@ impl AuthorityRelayReceiver {
             };
             drained.push(result);
         }
+        crate::metrics::relay_queue(state.queue.len(), self.inner.max_items);
         drained
     }
 }
@@ -298,6 +306,7 @@ impl Drop for AuthorityRelayReceiver {
         let mut state = self.inner.state.lock();
         state.queue.clear();
         state.bytes = 0;
+        crate::metrics::relay_queue(0, self.inner.max_items);
     }
 }
 
