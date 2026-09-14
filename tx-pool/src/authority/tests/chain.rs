@@ -183,6 +183,115 @@ fn committed_parent_leaves_child_backed_by_chain_and_updates_compact_lookup() {
 }
 
 #[test]
+fn detached_committed_producer_invalidates_its_pool_resolved_readers_before_recovery() {
+    for dependency in [false, true] {
+        let store = store();
+        let original_snapshot = store.snapshot().1;
+        let parent = output_tx(6530);
+        let parent_hash = accept(&store, parent.clone(), 1, 1, Status::Pending);
+        let point = OutPoint::new(parent_hash.clone(), 0);
+        let reader = if dependency {
+            spend(6531, &[], &[point])
+        } else {
+            spend(6531, &[point], &[])
+        };
+        let reader_hash = accept(&store, reader, 1, 1, Status::Pending);
+        let child_hash = accept(
+            &store,
+            spend(6532, &[OutPoint::new(reader_hash.clone(), 0)], &[]),
+            1,
+            1,
+            Status::Pending,
+        );
+        let unrelated = accept(&store, output_tx(6533), 1, 1, Status::Pending);
+        let attached = command(&store, vec![parent]);
+        apply(&store, &attached);
+        let reader = store.point(&reader_hash).1.unwrap();
+        let accepted = reader.accepted().unwrap();
+        assert!(accepted.parents.is_empty());
+        assert!(!accepted.context_sensitive);
+        assert!(
+            accepted
+                .transaction
+                .resolved_inputs
+                .iter()
+                .chain(&accepted.transaction.resolved_cell_deps)
+                .all(|cell| cell.transaction_info.is_none())
+        );
+        let ChainReorgArgs::Detailed {
+            attached_blocks, ..
+        } = attached
+        else {
+            unreachable!();
+        };
+        apply(
+            &store,
+            &ChainReorgArgs::Detailed {
+                detached_blocks: attached_blocks,
+                attached_blocks: VecDeque::new(),
+                snapshot: original_snapshot,
+            },
+        );
+        // Observe the committed reorg before any recovery worker can admit the
+        // producer again and repair its readers' parent links as a side effect.
+        for hash in [parent_hash, reader_hash, child_hash] {
+            let owner = store.point(&hash).1.unwrap();
+            assert!(
+                matches!(owner.phase, Phase::Resolve),
+                "stale backing: {hash}"
+            );
+            assert_eq!(owner.source, Source::Recovery);
+        }
+        assert_eq!(accepted_hashes(&store), [unrelated].into());
+    }
+}
+
+#[test]
+fn producer_reattached_on_the_new_chain_keeps_its_pool_resolved_reader_accepted() {
+    let store = store();
+    let parent = output_tx(6534);
+    let parent_hash = accept(&store, parent.clone(), 1, 1, Status::Pending);
+    let child_hash = accept(
+        &store,
+        spend(6535, &[OutPoint::new(parent_hash.clone(), 0)], &[]),
+        1,
+        1,
+        Status::Pending,
+    );
+    let attached = command(&store, vec![parent.clone()]);
+    apply(&store, &attached);
+    let child = store.point(&child_hash).1.unwrap();
+    let ChainReorgArgs::Detailed {
+        attached_blocks: detached_blocks,
+        ..
+    } = attached
+    else {
+        unreachable!();
+    };
+    let replacement = BlockBuilder::default()
+        .timestamp(1)
+        .transaction(tx(0))
+        .transaction(parent)
+        .build();
+    apply(
+        &store,
+        &ChainReorgArgs::Detailed {
+            detached_blocks,
+            snapshot: snapshot(
+                &store.snapshot().1,
+                &replacement,
+                HashSet::new(),
+                HashSet::new(),
+            ),
+            attached_blocks: [replacement].into(),
+        },
+    );
+    assert!(store.point(&parent_hash).1.is_none());
+    assert!(Arc::ptr_eq(&store.point(&child_hash).1.unwrap(), &child));
+    assert_eq!(accepted_hashes(&store), [child_hash].into());
+}
+
+#[test]
 fn chain_commit_preserves_supplied_order_for_colliding_compact_ids() {
     let store = store();
     let id = ProposalShortId::new([9; 10]);

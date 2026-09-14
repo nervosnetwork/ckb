@@ -222,13 +222,15 @@ pub(super) fn reconcile(
         .map(|block| compact_packed(&block.hash()))
         .collect();
     let mut detached = Vec::new();
-    let mut seen = BTreeSet::new();
+    let mut detached_transactions = BTreeSet::new();
     for block in detached_blocks {
-        for tx in block.transactions().iter().skip(1) {
-            if attached.contains(&tx.hash()) || !seen.insert(tx.hash()) {
+        for (index, tx) in block.transactions().iter().enumerate() {
+            if attached.contains(&tx.hash()) || !detached_transactions.insert(tx.hash()) {
                 continue;
             }
-            if let Ok(tx) = BoundedTransaction::try_new(tx.clone()) {
+            if index != 0
+                && let Ok(tx) = BoundedTransaction::try_new(tx.clone())
+            {
                 detached.push(tx.into_transaction());
             }
         }
@@ -252,17 +254,16 @@ pub(super) fn reconcile(
             conflicts.insert(hash.clone(), compact_packed(&point));
             continue;
         }
-        let detached_location = value
+        // Cells first resolved from the pool have no block location, even
+        // after their producer commits. Outpoints retain its identity across
+        // that transition, including dependencies and dep-group members.
+        let detached_producer = value
             .transaction
             .resolved_inputs
             .iter()
             .chain(&value.transaction.resolved_cell_deps)
             .chain(&value.transaction.resolved_dep_groups)
-            .any(|cell| {
-                cell.transaction_info
-                    .as_ref()
-                    .is_some_and(|info| detached_headers.contains(&info.block_hash))
-            });
+            .any(|cell| detached_transactions.contains(&cell.out_point.tx_hash()));
         let detached_header = entry
             .transaction
             .header_deps_iter()
@@ -271,7 +272,7 @@ pub(super) fn reconcile(
         let new_env = environment(value.status(snapshot), snapshot);
         let rules_changed = ScriptVerificationRules::from_env(old_snapshot.consensus(), &old_env)
             != ScriptVerificationRules::from_env(snapshot.consensus(), &new_env);
-        if detached_location
+        if detached_producer
             || detached_header
             || rules_changed
             || (!detached_blocks.is_empty() && value.context_sensitive)

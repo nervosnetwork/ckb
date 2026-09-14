@@ -179,6 +179,12 @@ VM execution. Paired snapshots supply proposal facts; `ProposalView` and
 selects bounded parent-first recovery. An oversized command replaces the generation
 against the exact successor snapshot.
 
+Reorg invalidates cell backing by the producer hashes in detached blocks,
+excluding transactions reattached on the new chain. A cell first resolved from
+the pool has no block-location metadata even after its producer commits. Its
+outpoint still identifies that producer, so its readers and their descendants
+leave accepted membership in the reorg commit, before recovery workers run.
+
 Optional replacement history may be omitted under pressure and can occupy quota
 until relevant availability or clear. It has no ordinary remote TTL or accepted
 timestamp. Recovery returns its body to verification; replay restores neither

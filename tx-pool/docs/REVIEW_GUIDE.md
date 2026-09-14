@@ -90,6 +90,14 @@ the relayer consumed its filter reset. Within unit tests, poll the real acquisit
 or notification future to establish Pending/Ready instead of relying on a yield
 or elapsed delay. Keep channel receivers alive when testing Full versus Closed.
 
+Inspect intermediate committed states before later work can repair them. For
+example, the [chain regression](../src/authority/tests/chain.rs)
+`detached_committed_producer_invalidates_its_pool_resolved_readers_before_recovery`
+first commits a pool producer, then detaches it and checks its readers before
+recovery starts. Waiting only for successful recovery would hide the lost
+dependency provenance. Likewise, VM pause tests must distinguish actual pause
+from publication of its receipt.
+
 Use one immutable snapshot within a parameter matrix while retaining fresh Store,
 queue and reservation state where each case requires isolation. Consolidation must
 preserve each original input and independent expected result. Exact capacity and
