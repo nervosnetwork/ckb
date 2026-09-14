@@ -35,6 +35,27 @@ fn key(candidate: &Entry, snapshot: &Snapshot) -> TxVerificationCacheKey {
     )
 }
 
+#[test]
+fn only_network_sources_select_a_time_budget() {
+    let config = config();
+    let cap = std::time::Duration::from_millis(u64::from(config.max_tx_verify_time_ms));
+    assert_eq!(Source::Local.verification_time_limit(&config), None);
+    assert_eq!(Source::Recovery.verification_time_limit(&config), None);
+    assert_eq!(
+        Source::Proposal { remote: None }.verification_time_limit(&config),
+        Some(cap)
+    );
+    let remote = |cycles| Source::Remote {
+        peer: ckb_network::PeerIndex::from(1),
+        deadline: std::time::Instant::now(),
+        cycles,
+    };
+    assert_eq!(remote(None).verification_time_limit(&config), Some(cap));
+    let limit = remote(Some(1)).verification_time_limit(&config).unwrap();
+    assert!(!limit.is_zero());
+    assert!(limit <= cap);
+}
+
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn canonical_vm_success_produces_witness_bound_cache_proof_and_current_fee() {
     let (store, candidate, snapshot) = fixture();
@@ -96,8 +117,50 @@ async fn canonical_vm_success_produces_witness_bound_cache_proof_and_current_fee
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn local_time_budget_refusal_is_not_cached_and_allows_a_later_normal_attempt() {
+async fn local_and_recovery_verification_ignore_network_time_limit() {
+    let (store, candidate, _) = fixture();
+    // A zero limit distinguishes policy without depending on VM speed. It is
+    // passed directly to verification, not through service configuration.
+    let config = TxPoolConfig {
+        max_tx_verify_time_ms: 0,
+        ..config()
+    };
+    let resolved = resolved(&store, &candidate, &config);
+    for source in [Source::Local, Source::Recovery] {
+        let candidate = Entry {
+            source,
+            ..candidate.as_ref().clone()
+        };
+        let cache = RwLock::new(init_cache());
+        let (_sender, mut commands) = watch::channel(ChunkCommand::Resume);
+        let verified = verify(
+            &store,
+            &candidate,
+            Arc::clone(&resolved),
+            &config,
+            &cache,
+            &mut commands,
+            TxPoolVmExecutionMode::YieldRuntimeWorker,
+        )
+        .await
+        .unwrap();
+        assert!(verified.cycles() > 0);
+    }
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn network_time_budget_refusal_is_not_cached_and_allows_a_later_normal_attempt() {
     let (store, candidate, snapshot) = fixture();
+    let peer = ckb_network::PeerIndex::from(1);
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(30);
+    let candidate = Entry {
+        source: Source::Remote {
+            peer,
+            deadline,
+            cycles: None,
+        },
+        ..candidate.as_ref().clone()
+    };
     let mut config = config();
     let resolved = resolved(&store, &candidate, &config);
     let cache = RwLock::new(init_cache());
@@ -105,27 +168,44 @@ async fn local_time_budget_refusal_is_not_cached_and_allows_a_later_normal_attem
     // Exercise the verifier's zero-budget boundary directly; this is not a
     // service configuration and does not depend on how fast the fixture runs.
     config.max_tx_verify_time_ms = 0;
-    let result = verify(
-        &store,
-        &candidate,
-        Arc::clone(&resolved),
-        &config,
-        &cache,
-        &mut commands,
-        TxPoolVmExecutionMode::Inline,
-    )
-    .await;
-    assert!(matches!(
-        result,
-        Err(Error::Rejected(Reject::ExcessiveVerifyTime))
-    ));
-    assert!(
-        cache
-            .read()
-            .await
-            .lookup(&key(&candidate, &snapshot))
-            .is_none()
-    );
+    for source in [
+        candidate.source,
+        Source::Remote {
+            peer,
+            deadline,
+            cycles: Some(1),
+        },
+        Source::Proposal { remote: None },
+        Source::Proposal {
+            remote: Some((peer, deadline)),
+        },
+    ] {
+        let attempted = Entry {
+            source,
+            ..candidate.clone()
+        };
+        let result = verify(
+            &store,
+            &attempted,
+            Arc::clone(&resolved),
+            &config,
+            &cache,
+            &mut commands,
+            TxPoolVmExecutionMode::Inline,
+        )
+        .await;
+        assert!(
+            matches!(result, Err(Error::Rejected(Reject::ExcessiveVerifyTime))),
+            "{source:?}"
+        );
+        assert!(
+            cache
+                .read()
+                .await
+                .lookup(&key(&candidate, &snapshot))
+                .is_none()
+        );
+    }
     config.max_tx_verify_time_ms = 8_000;
     assert!(
         verify(

@@ -37,6 +37,7 @@ ckb-channel.workspace = true
 ckb-constant.workspace = true
 ckb-db.workspace = true
 ckb-script.workspace = true
+ckb-vm.workspace = true
 futures-util.workspace = true
 serde_json.workspace = true
 rand.workspace = true

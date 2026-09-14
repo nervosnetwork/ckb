@@ -501,7 +501,10 @@ pub(super) async fn verify(
     let rules = ScriptVerificationRules::from_env(snapshot.consensus(), &environment);
     let key = TxVerificationCacheKey::from_transaction(&entry.transaction, rules);
     let cached = cache.read().await.lookup(&key);
-    let budget = TxPoolVerificationBudget::new(entry.source.duration(config), mode);
+    let budget = entry
+        .source
+        .verification_time_limit(config)
+        .map(|limit| TxPoolVerificationBudget::new(limit, mode));
     let max_cycles = entry
         .source
         .declared_cycles()

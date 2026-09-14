@@ -127,15 +127,19 @@ impl Source {
             Self::Remote { .. } => 2,
         }
     }
-    pub(super) fn duration(self, config: &ckb_app_config::TxPoolConfig) -> Duration {
-        let cap = u64::from(config.max_tx_verify_time_ms);
-        let millis = self.declared_cycles().map_or(cap, |cycles| {
-            cycles
-                .div_ceil(config.tx_verify_cycles_per_ms.max(1))
-                .max(u64::from(config.min_tx_verify_time_ms))
-                .min(cap)
-        });
-        Duration::from_millis(millis)
+    pub(super) fn verification_time_limit(
+        self,
+        config: &ckb_app_config::TxPoolConfig,
+    ) -> Option<Duration> {
+        let cap = Duration::from_millis(u64::from(config.max_tx_verify_time_ms));
+        Some(match self {
+            Self::Local | Self::Recovery => return None,
+            Self::Remote {
+                cycles: Some(cycles),
+                ..
+            } => crate::verification::calibration::for_cycles(cycles, cap),
+            Self::Remote { cycles: None, .. } | Self::Proposal { .. } => cap,
+        })
     }
 }
 

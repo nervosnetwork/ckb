@@ -69,14 +69,37 @@ waiting for the block consumer to resume verification. An IBD update completes
 after earlier chain publication and before its caller releases the pause.
 
 Pausing changes execution permission without retiring a transaction or its Job.
-A running VM cooperatively suspends with its scheduler state, consumed cycles,
+A running network VM cooperatively suspends with its scheduler state, consumed cycles,
 compute permit and memory reservation retained; Resume continues that execution.
 Already admitted synchronous work can finish, so a pause request does not establish
 VM quiescence. Ingress can still queue bounded work. Reconciliation and publication
 have their own progress requirements, described below, and remain outside this gate.
 
-The [script verifier](../../../script/src/verify.rs) applies one active-time budget
-across a transaction's ordinary VM groups. The child publishes its group's cumulative
+The transaction source selects an active-time budget only for network relay and
+proposal verification. Local RPC submission, test submission, dry-run and recovery
+have no time limit and use synchronous canonical verification through the existing
+blocking adapter. They pass the computation gate before starting and retain their
+work until verification returns. Network verification uses the controlled VM child
+with pause/stop/join. Proposal promotion preserves local and recovery sources.
+
+Before accepting work, the pool calibrates the node's VM backend once per process.
+A fixed arithmetic/load/store loop runs to five million cycles after loading a
+64 KiB program image and stack. Each supported VM version runs three samples;
+the median suppresses an isolated scheduling disturbance and the slowest version
+sets the execution rate. Loading uses fixed metadata, without ELF parsing or
+provider I/O. The [budget adapter](../../src/verification/calibration.rs) leaves
+16 times the measured time for workload differences and sets the minimum to one
+whole loading/execution quantum with that margin. Both values scale with the
+machine; neither is a configuration setting or learned from peer transactions.
+The result is a conservative estimate, not a bound on every script's running time.
+It is reused until restart, so it does not track later load or CPU frequency changes.
+
+Declared network cycles select `max(ceil(cycles / rate), minimum)`, capped by
+`max_tx_verify_time_ms`. Network work without a declaration uses the cap. A failed
+calibration also selects the cap, preserving the configured resource limit.
+
+The [script verifier](../../../script/src/verify.rs) shares a selected budget
+across the transaction's ordinary VM groups. The child publishes its group's cumulative
 running time and current phase; coalesced notifications cannot lose completed slices.
 Joining a group debits that receipt once from the transaction's remaining budget.
 Only a running slice arms a deadline. A timer wake requests a cooperative pause;

@@ -1,5 +1,7 @@
 //! Canonical transaction verification adapters and node-local execution budgets.
 
+pub(crate) mod calibration;
+
 use crate::{error::Reject, util::block_offload};
 use ckb_chain_spec::consensus::Consensus;
 use ckb_dao::DaoCalculator;
@@ -117,36 +119,39 @@ pub(crate) async fn verify_rtx(
     cache_entry: Option<ScriptVerificationProof>,
     max_tx_verify_cycles: Cycle,
     command_rx: &mut watch::Receiver<ChunkCommand>,
-    budget: TxPoolVerificationBudget,
+    budget: Option<TxPoolVerificationBudget>,
 ) -> Result<ScriptVerificationOutcome, Reject> {
     let consensus = snapshot.cloned_consensus();
     let data_loader = snapshot.as_data_loader();
 
-    // The bounded tx-pool path always owns a command receiver. The separate
-    // block/legacy verifier remains synchronous and unbounded by node-local
-    // policy, but no tx-pool caller can disable this budget with `None`.
-    let outcome = ContextualTransactionVerifier::new(
+    let verifier = ContextualTransactionVerifier::new(
         Arc::clone(&rtx),
         consensus,
         data_loader,
         Arc::clone(&tx_env),
-    )
-    .verify_with_pause_and_budget(
-        max_tx_verify_cycles,
-        cache_entry,
-        command_rx,
-        budget.active_vm_time,
-        budget.vm_execution_mode,
-    )
-    .await
-    .map_err(Reject::Verification)?;
-    match outcome {
-        ckb_verification::DeadlineVerificationOutcome::DeadlineExceeded => {
-            Err(Reject::ExcessiveVerifyTime)
-        }
-        ckb_verification::DeadlineVerificationOutcome::Verified(outcome) => {
-            verify_dao_script_size(&snapshot, rtx).map_err(Reject::Verification)?;
-            Ok(outcome)
-        }
-    }
+    );
+    let outcome = match budget {
+        // Local submissions verify synchronously. Reuse the blocking boundary
+        // so this work cannot occupy the executor needed by chain controls.
+        None => block_offload(|| verifier.verify_scripts(max_tx_verify_cycles, cache_entry))
+            .map_err(Reject::Verification)?,
+        Some(budget) => match verifier
+            .verify_with_pause_and_budget(
+                max_tx_verify_cycles,
+                cache_entry,
+                command_rx,
+                budget.active_vm_time,
+                budget.vm_execution_mode,
+            )
+            .await
+            .map_err(Reject::Verification)?
+        {
+            ckb_verification::DeadlineVerificationOutcome::Verified(outcome) => outcome,
+            ckb_verification::DeadlineVerificationOutcome::DeadlineExceeded => {
+                return Err(Reject::ExcessiveVerifyTime);
+            }
+        },
+    };
+    verify_dao_script_size(&snapshot, rtx).map_err(Reject::Verification)?;
+    Ok(outcome)
 }

@@ -1145,16 +1145,7 @@ async fn pool_configuration_rejects_a_current_thread_runtime_before_spawning() {
 fn unusable_time_pipeline_and_per_job_policies_are_rejected_before_ownership() {
     let configs = [
         TxPoolConfig {
-            tx_verify_cycles_per_ms: 0,
-            ..config()
-        },
-        TxPoolConfig {
-            min_tx_verify_time_ms: 0,
-            ..config()
-        },
-        TxPoolConfig {
-            min_tx_verify_time_ms: 2,
-            max_tx_verify_time_ms: 1,
+            max_tx_verify_time_ms: 0,
             ..config()
         },
         TxPoolConfig {

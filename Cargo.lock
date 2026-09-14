@@ -1921,6 +1921,7 @@ dependencies = [
  "ckb-types",
  "ckb-util",
  "ckb-verification",
+ "ckb-vm",
  "console-subscriber",
  "futures-util",
  "http-body-util",

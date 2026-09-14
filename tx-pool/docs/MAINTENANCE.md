@@ -18,13 +18,18 @@ share validation, but legacy ancestor normalization has its own compatibility fl
 | `max_tx_verify_workers` | `max(3 × CPU cores / 4, 1)` | Worker population; compute permits also depend on Tokio runtime size |
 | `verify_ordering` | `fee_rate` | `arrival_time` or `fee_rate`; selection order, not completion order |
 | `max_tx_verify_cycles` | `TWO_IN_TWO_OUT_CYCLES × 20` | Remote small/large scheduling boundary, not a VM limit |
-| `min_tx_verify_time_ms` / `max_tx_verify_time_ms` | 250 / 8,000 | Cumulative active VM-work time, including initial loading |
-| `tx_verify_cycles_per_ms` | 10,000 | Local signal for choosing that time budget; not consensus accounting |
+| `max_tx_verify_time_ms` | 8,000 | Maximum active VM-work time for network relay/proposal verification, including initial loading |
 | `min_fee_rate` / `min_rbf_rate` | 1,000 / 1,500 | Shannons per kilobyte; admission and replacement policy |
 | `max_ancestors_count` | 1,000 | Ancestor limit; legacy parsing floors smaller values to 1,000 |
 | `expiry_hours` | 12 | Ordinary transaction expiration; replacement history has separate lifetime rules |
 | `keep_rejected_tx_hashes_days` / `keep_rejected_tx_hashes_count` | 7 / 10,000,000 | Recent-rejection retention |
 | `persisted_data` / `recent_reject` | Under the node's `tx-pool` data directory | Persistence file base and recent-rejection database; relative paths use the node root |
+
+VM execution rate and the minimum startup allowance are calibrated internally
+once per process using fixed local work. Startup logs report the effective values;
+`max_tx_verify_time_ms` always caps the selected network budget. Local RPC and
+recovery use synchronous verification without a time budget. See the
+[execution contract](architecture/EXECUTION.md) for calibration and accounting.
 
 `max_tx_pool_size` retains its existing serialized-byte meaning. Internal
 [ResidencyLimits](../src/constants.rs) provide 1,000,000,000 accepted bytes and
@@ -40,8 +45,7 @@ An explicit `max_tx_verify_workers = 0` leaves remote verification work queued.
 Direct local submission and control requests still run; zero is not replaced by
 the default worker count.
 
-`Limits::new` rejects unusable envelopes, zero ancestors, zero cycle-rate/time
-bounds, inverted time bounds and arithmetic overflow. Construction requires a
+`Limits::new` rejects unusable envelopes, zero ancestors, a zero time cap and arithmetic overflow. Construction requires a
 multi-thread Tokio runtime. Increasing workers divides the active byte/edge
 envelope among more jobs and can make a previously viable configuration invalid.
 Check the full calculation in [budget.rs](../src/authority/budget.rs) before tuning.

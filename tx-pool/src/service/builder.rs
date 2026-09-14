@@ -185,6 +185,7 @@ impl TxPoolServiceBuilder {
         self.start_inner(network)
     }
     fn start_inner<N: TxPoolNetwork>(self, network: N) -> tokio::task::JoinHandle<()> {
+        crate::verification::calibration::initialize();
         let handle = self.handle.clone();
         let network: TxPoolNetworkHandle = Arc::new(network);
         handle.spawn(self.run(network))

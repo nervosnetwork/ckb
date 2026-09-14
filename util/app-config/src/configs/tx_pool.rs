@@ -45,13 +45,9 @@ pub struct TxPoolConfig {
     /// computation to leave room for control and I/O.
     #[serde(default = "default_max_tx_verify_workers")]
     pub max_tx_verify_workers: usize,
-    /// Minimum cumulative active VM-work budget per pool attempt, in milliseconds.
+    /// Maximum active VM-work budget for network relay/proposal verification,
+    /// in milliseconds. Local RPC and recovery have no time budget.
     /// ELF loading counts; queueing, suspension and non-script checks do not.
-    pub min_tx_verify_time_ms: u32,
-    /// Cycles per millisecond used to select a local VM-work budget between
-    /// `min_tx_verify_time_ms` and `max_tx_verify_time_ms`; not consensus accounting.
-    pub tx_verify_cycles_per_ms: u64,
-    /// Maximum cumulative active VM-work budget per attempt, in milliseconds.
     /// Defaults to one minimum block interval (8 seconds).
     pub max_tx_verify_time_ms: u32,
 
