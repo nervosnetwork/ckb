@@ -488,6 +488,47 @@ fn trusted_missing_resolution_waits_only_for_a_known_producer_with_a_valid_outpu
 }
 
 #[test]
+fn network_missing_dependencies_wait_independently_of_proposal_and_cycles() {
+    let store = Store::new(chain_snapshot(), &config()).unwrap();
+    let remote = super::super::ingress::remote_source(98.into(), 1).unwrap();
+    let Source::Remote { peer, deadline, .. } = remote else {
+        unreachable!()
+    };
+    let absent = OutPoint::new(tx(1804).hash(), 0);
+    let parent = funded_parent(1805, 20_000_000_000);
+    accept(&store, parent.clone(), 1, 1, Status::Pending);
+    for source in [
+        remote,
+        Source::Remote {
+            peer,
+            deadline,
+            cycles: None,
+        },
+        Source::Proposal {
+            remote: Some((peer, deadline)),
+        },
+        Source::Proposal { remote: None },
+    ] {
+        for is_dep in [false, true] {
+            let transaction = if is_dep {
+                funded_tx(OutPoint::new(parent.hash(), 0), 19_999_999_000)
+                    .as_advanced_builder()
+                    .cell_dep(CellDep::new_builder().out_point(absent.clone()).build())
+                    .build()
+            } else {
+                funded_tx(absent.clone(), 19_999_999_000)
+            };
+            let candidate = entry(&store, transaction, source);
+            let Resolution::Waiting(keys, _) = resolve(&store, &candidate, &config()).unwrap()
+            else {
+                panic!("network work must retain its missing frontier");
+            };
+            assert_eq!(keys, BTreeSet::from([DependencyKey::Cell(absent.clone())]));
+        }
+    }
+}
+
+#[test]
 fn materialization_keeps_current_spender_in_original_reads() {
     let store = super::super::tests::common::store();
     let parent = output_tx(1010);

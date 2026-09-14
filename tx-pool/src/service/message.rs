@@ -420,6 +420,7 @@ impl RemoteTxSubmission {
 pub(crate) enum Message {
     BlockTemplate(SyncRequest<tokio::time::Instant, BlockTemplateResult>),
     SubmitLocalTx(SyncRequest<BoundedTransaction, SubmitTxResult>),
+    SubmitLocalTestTx(SyncRequest<BoundedTransaction, SubmitTxResult>),
     RemoveLocalTx(SyncRequest<Byte32, RemoveLocalTxResult>),
     TestAcceptTx(SyncRequest<BoundedTransaction, TestAcceptTxResult>),
     SubmitRemoteTx(AsyncRequest<RemoteTxSubmission, ()>),
@@ -470,6 +471,7 @@ impl Message {
             | Self::GetTotalRecentRejectNum(_)
             | Self::EstimateFeeRate(_) => true,
             Self::SubmitLocalTx(_)
+            | Self::SubmitLocalTestTx(_)
             | Self::RemoveLocalTx(_)
             | Self::SubmitRemoteTx(_)
             | Self::SubmitRemoteTxBatch(_)

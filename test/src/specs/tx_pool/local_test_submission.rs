@@ -1,12 +1,14 @@
 use crate::{Node, Spec};
 use ckb_types::packed::Byte32;
 
-/// The integration-only submission RPC is still a Local submission: it must
-/// return a definitive resolve/verify/commit result and never enter the
-/// asynchronous pre-pool, whose source domain intentionally excludes Local.
-pub struct LocalTestSubmissionIsDirect;
+/// Test submission resolves locally, then acknowledges queued verification.
+pub struct LocalTestSubmissionQueuesVerification;
 
-impl Spec for LocalTestSubmissionIsDirect {
+impl Spec for LocalTestSubmissionQueuesVerification {
+    fn modify_app_config(&self, config: &mut ckb_app_config::CKBAppConfig) {
+        config.tx_pool.max_tx_verify_workers = 0;
+    }
+
     fn run(&self, nodes: &mut Vec<Node>) {
         let node = &nodes[0];
         node.mine_until_out_bootstrap_period();
@@ -22,19 +24,19 @@ impl Spec for LocalTestSubmissionIsDirect {
             "unexpected missing-parent result: {error}"
         );
 
-        // A typed rejection must leave the dispatcher/service healthy, and a
-        // successful response must mean the transaction is already accepted.
+        // No background verifier can accept this transaction before the query.
+        // The RPC still completes after resolving and installing queued work.
         let valid = node.new_transaction_spend_tip_cellbase();
         let returned = node
             .rpc_client()
             .inner()
             .send_test_transaction(valid.data().into(), None)
-            .expect("valid Local test transaction is committed synchronously");
+            .expect("resolved Local test transaction is queued");
         assert_eq!(returned, valid.hash().into());
 
         let info = node.get_tip_tx_pool_info();
-        assert_eq!(info.pending.value(), 1);
+        assert_eq!(info.pending.value(), 0);
         assert_eq!(info.orphan.value(), 0);
-        assert_eq!(info.verify_queue_size.value(), 0);
+        assert_eq!(info.verify_queue_size.value(), 1);
     }
 }

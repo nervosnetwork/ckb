@@ -36,6 +36,14 @@ pub(crate) async fn process(pool: Arc<Pool>, message: Message) -> Result<(), Err
                 .map(|result| result.map(|_| ())),
             "submit_local_tx",
         ),
+        Message::SubmitLocalTestTx(Request {
+            responder,
+            arguments,
+        }) => reply(
+            responder,
+            pool.submit_local_test(arguments).await,
+            "submit_local_test_tx",
+        ),
         Message::TestAcceptTx(Request {
             responder,
             arguments,

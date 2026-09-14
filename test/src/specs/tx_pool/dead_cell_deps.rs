@@ -8,6 +8,104 @@ use ckb_types::{
     packed::{CellDepBuilder, OutPoint},
     prelude::*,
 };
+use std::collections::BTreeSet;
+
+/// All admitted readers precede the dep-cell spender even when they cannot fit
+/// in one block. Later readers cannot extend the spender's prerequisite set.
+pub struct DepReadersPrecedeSpenderAcrossBlocks;
+
+impl Spec for DepReadersPrecedeSpenderAcrossBlocks {
+    fn modify_chain_spec(&self, spec: &mut ckb_chain_spec::ChainSpec) {
+        spec.params.max_block_cycles = Some(2 * 537);
+    }
+
+    fn modify_app_config(&self, config: &mut ckb_app_config::CKBAppConfig) {
+        config.tx_pool.max_ancestors_count = 2;
+        config.tx_pool.min_fee_rate = ckb_types::core::FeeRate::zero();
+    }
+
+    fn run(&self, nodes: &mut Vec<Node>) {
+        let node = &nodes[0];
+        let cells = gen_spendable(node, 8);
+        let dependency = CellDepBuilder::default()
+            .out_point(cells[0].out_point.clone())
+            .build();
+        let readers: Vec<_> = cells[1..7]
+            .iter()
+            .map(|cell| {
+                always_success_transaction(node, cell)
+                    .as_advanced_builder()
+                    .cell_dep(dependency.clone())
+                    .build()
+            })
+            .collect();
+        let mut spender = always_success_transaction(node, &cells[0]);
+        let output = spender
+            .output(0)
+            .unwrap()
+            .as_builder()
+            .build_exact_capacity(Capacity::zero())
+            .unwrap();
+        spender = spender
+            .as_advanced_builder()
+            .set_outputs(vec![output])
+            .build();
+        for reader in &readers {
+            node.submit_transaction(reader);
+        }
+        node.submit_transaction(&spender);
+        // These readers impose ordering, but are not causal ancestors of the
+        // spender. The small ancestor limit must not evict any of them.
+        assert_eq!(node.get_tip_tx_pool_info().pending.value(), 7);
+        let late = always_success_transaction(node, &cells[7])
+            .as_advanced_builder()
+            .cell_dep(dependency)
+            .build();
+        let error = node
+            .rpc_client()
+            .send_transaction_result(late.data().into())
+            .expect_err("readers arriving after the spender must be rejected");
+        assert!(error.to_string().contains("TransactionFailedToResolve"));
+
+        let proposal = node.new_block_with_blocking(|template| template.proposals.len() != 7);
+        node.submit_block(&proposal);
+        let gap = node.new_block(None, None, None);
+        assert_eq!(
+            gap.transactions().len(),
+            1,
+            "the gap block contains no commits"
+        );
+        node.submit_block(&gap);
+
+        let mut remaining: BTreeSet<_> = readers.iter().map(|tx| tx.hash()).collect();
+        let mut committed_spender = false;
+        for count in [2, 2, 2, 1] {
+            let block =
+                node.new_block_with_blocking(|template| template.transactions.len() != count);
+            for tx in block.transactions().iter().skip(1) {
+                if tx.hash() == spender.hash() {
+                    assert!(
+                        remaining.is_empty(),
+                        "the spender overtook an earlier reader"
+                    );
+                    assert!(!committed_spender);
+                    committed_spender = true;
+                } else {
+                    assert!(
+                        remaining.remove(&tx.hash()),
+                        "unexpected or duplicate reader"
+                    );
+                }
+            }
+            node.submit_block(&block);
+        }
+        assert!(committed_spender && remaining.is_empty());
+        for tx in readers.iter().chain(std::iter::once(&spender)) {
+            assert!(is_transaction_committed(node, tx));
+        }
+        assert_eq!(node.get_tip_tx_pool_info().orphan.value(), 0);
+    }
+}
 
 /// There are 3 transactions, A, B and C:
 ///   - A was already committed before;

@@ -503,15 +503,15 @@ impl TxPoolController {
         send_message!(self, PackageTxs, bytes_limit)
     }
 
-    /// Submit a local transaction through the integration-test RPC and return
-    /// its definitive validation/commit result synchronously.
+    /// Resolve a transaction through the integration-test RPC and enqueue its
+    /// script verification. Success acknowledges the queue, not final validity.
     pub fn submit_local_test_tx(&self, tx: TransactionView) -> Result<SubmitTxResult, AnyError> {
         reject_callback_mutation!("submit_local_test_tx");
         let tx = match bounded_direct_transaction(tx)? {
             Ok(tx) => tx,
             Err(reason) => return Ok(Err(reason)),
         };
-        send_message!(self, SubmitLocalTx, tx)
+        send_message!(self, SubmitLocalTestTx, tx)
     }
 
     /// get total recent reject num

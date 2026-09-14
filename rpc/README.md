@@ -3567,8 +3567,9 @@ Response
     * `outputs_validator`: [`OutputsValidator`](#type-outputsvalidator) `|` `null`
 * result: [`H256`](#type-h256)
 
-Submits a new test local transaction into the transaction pool, only for testing.
-If the transaction is already in the pool, rebroadcast it to peers.
+Resolves a local test transaction and queues its script verification.
+Missing or spent dependencies are rejected before queueing. A successful
+response acknowledges the queue; final validity is reported by `get_transaction`.
 
 ###### Params
 

@@ -1,4 +1,5 @@
 use crate::util::transaction::{relay_tx, send_tx};
+use crate::util::{cell::gen_spendable, transaction::always_success_transaction};
 use crate::utils::wait_until;
 use crate::{Net, Node, Spec};
 use ckb_jsonrpc_types::{Status, TxPoolInfo};
@@ -54,6 +55,100 @@ impl Spec for OrphanTxAccepted {
             2,
             "Send parent tx, the child tx will be moved from orphan tx pool to pending tx pool",
         );
+    }
+}
+
+/// Proposal age and dependency readiness remain independent throughout receipt,
+/// the gap block, dependency recovery and final block commitment.
+pub struct RpcMissingDependencyAndNetworkWaiting;
+
+impl Spec for RpcMissingDependencyAndNetworkWaiting {
+    crate::setup!(num_nodes: 1);
+
+    fn run(&self, nodes: &mut Vec<Node>) {
+        let node = &mut nodes[0];
+        let cells = gen_spendable(node, 3);
+        let parent = always_success_transaction(node, &cells[0]);
+        let child = always_success_transaction(node, &cells[1])
+            .as_advanced_builder()
+            .cell_dep(
+                packed::CellDep::new_builder()
+                    .out_point(OutPoint::new(parent.hash(), 0))
+                    .build(),
+            )
+            .build();
+        for result in [
+            node.rpc_client()
+                .send_transaction_result(child.data().into()),
+            node.rpc_client()
+                .inner()
+                .send_test_transaction(child.data().into(), None),
+        ] {
+            let error =
+                result.expect_err("RPC cannot retain a transaction with a missing cell dep");
+            assert!(error.to_string().contains("TransactionFailedToResolve"));
+        }
+        assert_tx_pool_counts(node, 0, 0, "RPC rejection leaves no waiter");
+
+        let mut net = Net::new(
+            self.name(),
+            node.consensus(),
+            vec![SupportProtocols::RelayV3],
+        );
+        net.connect(node);
+        relay_tx(&net, node, child.clone(), ALWAYS_SUCCESS_SCRIPT_CYCLE);
+        assert_tx_pool_counts(node, 1, 0, "network receipt retains the missing dependency");
+
+        let ready = always_success_transaction(node, &cells[2]);
+        node.submit_transaction(&ready);
+        let proposal_id = ready.proposal_short_id().into();
+        let proposal = node
+            .new_block_builder_with_blocking(|template| !template.proposals.contains(&proposal_id))
+            .proposal(child.proposal_short_id())
+            .build();
+        node.submit_block(&proposal);
+        // Even after the proposal reaches commit age, missing cells keep this
+        // transaction outside accepted membership. Neither age is an orphan state.
+        for offset in 0..node.consensus().tx_proposal_window().closest() {
+            if offset != 0 {
+                node.mine(1);
+            }
+            let info = node.get_tip_tx_pool_info();
+            assert_eq!(info.orphan.value(), 1);
+            assert_eq!(info.pending.value() + info.proposed.value(), 1);
+            node.assert_pool_entry_status(
+                ready.hash(),
+                if offset + 1 < node.consensus().tx_proposal_window().closest() {
+                    "gap"
+                } else {
+                    "proposed"
+                },
+            );
+            assert_eq!(
+                node.rpc_client()
+                    .get_pool_tx_detail_info(child.hash())
+                    .entry_status,
+                "unknown"
+            );
+        }
+        relay_tx(&net, node, parent.clone(), ALWAYS_SUCCESS_SCRIPT_CYCLE);
+        assert!(
+            wait_until(30, || {
+                let info = node.get_tip_tx_pool_info();
+                info.orphan.value() == 0 && info.pending.value() + info.proposed.value() == 3
+            }),
+            "both transactions must complete verification after the dependency arrives"
+        );
+        node.assert_pool_entry_status(child.hash(), "proposed");
+        node.mine_until_bool(|| {
+            [&parent, &child, &ready].iter().all(|tx| {
+                node.rpc_client()
+                    .get_transaction(tx.hash())
+                    .tx_status
+                    .status
+                    == Status::Committed
+            })
+        });
     }
 }
 

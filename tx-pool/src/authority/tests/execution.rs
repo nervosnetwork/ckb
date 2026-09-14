@@ -790,6 +790,17 @@ async fn remote_waiting_transaction_accepts_after_its_parent_completes_normal_ve
     let (_chain, chain) = mpsc::channel(2);
     let (tasks, publisher) =
         pool.start_background(&handle, endpoints(sink, Callbacks::new()), chain);
+    for dry_run in [true, false] {
+        assert!(matches!(
+            within(pool.submit_local(bounded(child.clone()), dry_run)).await.unwrap(),
+            Err(Reject::Resolve(OutPointError::Unknown(point))) if point == OutPoint::new(parent.hash(), 0)
+        ));
+        assert!(pool.store.point(&child.hash()).1.is_none());
+    }
+    assert!(matches!(
+        within(pool.submit_local_test(bounded(child.clone()))).await.unwrap(),
+        Err(Reject::Resolve(OutPointError::Unknown(point))) if point == OutPoint::new(parent.hash(), 0)
+    ));
     pool.submit_remote(bounded(child.clone()), cycles, 93.into())
         .await
         .unwrap();
@@ -810,6 +821,17 @@ async fn remote_waiting_transaction_accepts_after_its_parent_completes_normal_ve
         pool.detail(&child.hash()).await.unwrap().entry_status,
         "unknown"
     );
+    let waiting = pool.store.point(&child.hash()).1.unwrap();
+    assert!(matches!(
+        within(pool.submit_local(bounded(child.clone()), false))
+            .await
+            .unwrap(),
+        Err(Reject::Resolve(OutPointError::Unknown(_)))
+    ));
+    assert!(Arc::ptr_eq(
+        &waiting,
+        &pool.store.point(&child.hash()).1.unwrap()
+    ));
     pool.submit_remote(bounded(parent.clone()), cycles, 94.into())
         .await
         .unwrap();
@@ -833,6 +855,73 @@ async fn remote_waiting_transaction_accepts_after_its_parent_completes_normal_ve
             .unwrap()
             .parents
             .contains(&parent.hash())
+    );
+    shutdown(&pool, tasks, publisher).await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn local_test_submission_acknowledges_queue_before_background_validation() {
+    let directory = tempfile::tempdir().unwrap();
+    let recent = Arc::new(RecentReject::new(directory.path(), 100, 3600).unwrap());
+    let (mut pool, sink, _, _) = fixture();
+    Arc::get_mut(&mut pool).unwrap().recent = Some(Arc::clone(&recent));
+    let valid = fund(&pool, 9014);
+    let invalid = fund(&pool, 9015)
+        .as_advanced_builder()
+        .set_cell_deps(vec![])
+        .build();
+    let publisher = tokio::spawn(Arc::clone(&pool.store.outbox).run(Endpoints::new(
+        Arc::new(DummyTxPoolNetwork),
+        sink,
+        Arc::new(Callbacks::new()),
+        Some(recent),
+        FeeEstimator::new_dummy(),
+    )));
+    // Start no verifier until both acknowledgements and queue observations are
+    // complete. Resolution succeeds even though one script cannot be located.
+    for transaction in [&valid, &invalid] {
+        within(pool.submit_local_test(bounded(transaction.clone())))
+            .await
+            .unwrap()
+            .unwrap();
+        let queued = pool.store.point(&transaction.hash()).1.unwrap();
+        assert!(matches!(queued.phase, Phase::Verify(_)));
+        assert!(matches!(
+            within(pool.submit_local_test(bounded(transaction.clone()))).await.unwrap(),
+            Err(Reject::Duplicated(hash)) if hash == transaction.hash()
+        ));
+        assert!(Arc::ptr_eq(
+            &queued,
+            &pool.store.point(&transaction.hash()).1.unwrap()
+        ));
+    }
+    assert_eq!(pool.pool_info().await.unwrap().verify_queue_size, 2);
+    assert!(matches!(
+        within(pool.submit_local(bounded(invalid.clone()), true))
+            .await
+            .unwrap(),
+        Err(Reject::Verification(_))
+    ));
+
+    let mut tasks = JoinSet::new();
+    tasks.spawn(Arc::clone(&pool).worker(WorkStage::Verify, 0));
+    observe(&pool, &valid.hash(), |entry| entry.accepted().is_some()).await;
+    within(async {
+        loop {
+            let changed = pool.store.changed.notified();
+            tokio::pin!(changed);
+            changed.as_mut().enable();
+            if pool.store.point(&invalid.hash()).1.is_none() {
+                break;
+            }
+            assert!(!pool.is_faulted());
+            changed.await;
+        }
+    })
+    .await;
+    let rejected = pool.transaction(&invalid.hash()).await.unwrap();
+    assert!(
+        matches!(rejected.tx_status, TxStatus::Rejected(reason) if reason.contains("ScriptNotFound"))
     );
     shutdown(&pool, tasks, publisher).await;
 }
@@ -1676,6 +1765,13 @@ async fn direct_non_contextual_rejection_preserves_empty_membership_for_send_and
         assert!(pool.store.capture(false).2.is_empty());
         assert!(pool.store.budget.active(Source::Local).is_ok());
     }
+    assert!(matches!(
+        within(pool.submit_local_test(bounded(invalid)))
+            .await
+            .unwrap(),
+        Err(Reject::Verification(_))
+    ));
+    assert!(pool.store.capture(false).2.is_empty());
     pool.stop();
     pool.close_outbox();
     within(publisher).await.unwrap().unwrap();

@@ -646,14 +646,27 @@ fn generated(corpus: &Corpus, seed: u64, steps: usize) -> [usize; KINDS] {
     let mut random = seed;
     let mut commands = Vec::with_capacity(steps);
     let mut counts = [0; KINDS];
-    for _ in 0..steps {
+    // Establish a chain round trip before random arrivals can leave permanent
+    // missing-parent frontiers. Coverage of Attach/Detach must not rely on the
+    // random schedule accidentally reaching an entirely accepted population.
+    let root = (seed % 3) as usize * 4;
+    let prefix = [
+        Command::Receive(root, (seed % 6) as usize),
+        Command::Resolve(root),
+        Command::Admit(root),
+        Command::Attach,
+        Command::Detach,
+    ];
+    for step in 0..steps {
         // Fixed arithmetic makes the choice stream portable across Rust/rand
         // upgrades. It is a test schedule, not a cryptographic random source.
         random = random
             .wrapping_mul(6364136223846793005)
             .wrapping_add(1442695040888963407);
-        let choices = sequence.choices();
-        let command = choices[((random >> 32) % choices.len() as u64) as usize];
+        let command = prefix.get(step).copied().unwrap_or_else(|| {
+            let choices = sequence.choices();
+            choices[((random >> 32) % choices.len() as u64) as usize]
+        });
         counts[command.wire()[0]] += 1;
         commands.push(command);
         if let Err(error) = catch_unwind(AssertUnwindSafe(|| sequence.step(command))) {

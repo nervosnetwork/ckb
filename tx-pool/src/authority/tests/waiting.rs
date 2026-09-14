@@ -179,7 +179,7 @@ fn replacement_history_obeys_all_and_any_blockers_and_recovers_as_trusted() {
 
 #[test]
 fn trusted_waiter_is_retired_when_its_known_pending_producer_terminalizes() {
-    for source in [Source::Recovery, Source::Proposal { remote: None }] {
+    for source in [Source::Recovery, Source::Local] {
         let store = store();
         let parent = entry(&store, output_tx(9010), source);
         let point = OutPoint::new(parent.hash(), 0);

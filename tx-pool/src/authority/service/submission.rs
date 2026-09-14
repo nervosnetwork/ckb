@@ -1,8 +1,73 @@
 //! Direct and queued submission, removal and internal fixture admission.
 
+use super::super::model::Resolved;
 use super::*;
 
+/// Local entry points share resolution and its original observations. Their
+/// completion boundary differs: ordinary submission verifies before replying;
+/// the integration-test entry point transfers resolved work to the queue.
+struct LocalPreparation {
+    candidate: Arc<Entry>,
+    before: Option<Arc<Entry>>,
+    view: u64,
+    reads: ReadSet,
+    resolved: Result<Arc<Resolved>, Reject>,
+}
+
 impl Pool {
+    fn prepare_local(
+        &self,
+        transaction: &Arc<TransactionView>,
+        arrival: u64,
+    ) -> Result<LocalPreparation, Error> {
+        let (view, snapshot) = self.store.snapshot();
+        let mut reads = ReadSet::default();
+        let before = self.store.get(&transaction.hash(), &mut reads)?;
+        if before
+            .as_ref()
+            .is_some_and(|entry| entry.accepted().is_some())
+        {
+            return Err(Error::Rejected(Reject::Duplicated(transaction.hash())));
+        }
+        let candidate = Arc::new(Entry {
+            transaction: Arc::clone(transaction),
+            arrival: before.as_ref().map_or(arrival, |entry| entry.arrival),
+            source: Source::Local,
+            phase: Phase::Resolve,
+        });
+        let resolved = match non_contextual_verify(snapshot.consensus(), transaction) {
+            Err(reject) => Err(reject),
+            Ok(()) => match jobs::resolve(&self.store, &candidate, &self.config)? {
+                Resolution::Ready(resolved) => {
+                    reads.merge(&resolved.reads)?;
+                    Ok(resolved)
+                }
+                Resolution::Waiting(keys, observed) => {
+                    reads.merge(&observed)?;
+                    let point = keys
+                        .into_iter()
+                        .find_map(|key| match key {
+                            DependencyKey::Cell(point) => Some(point),
+                            DependencyKey::Header(_) => None,
+                        })
+                        .ok_or(Error::Fault("missing cell condition"))?;
+                    Err(Reject::Resolve(OutPointError::Unknown(point)))
+                }
+                Resolution::Rejected(reject, observed) => {
+                    reads.merge(&observed)?;
+                    Err(reject)
+                }
+            },
+        };
+        Ok(LocalPreparation {
+            candidate,
+            before,
+            view,
+            reads,
+            resolved,
+        })
+    }
+
     pub(super) async fn ingest(
         &self,
         transaction: Arc<TransactionView>,
@@ -105,7 +170,7 @@ impl Pool {
         reject: Reject,
         reads: ReadSet,
         dry_run: bool,
-    ) -> Result<Result<EntryCompleted, Reject>, Error> {
+    ) -> Result<Reject, Error> {
         if dry_run {
             let check = Plan::new(view, Class::Trusted, reads);
             self.store.apply(check.dry_run())?;
@@ -124,7 +189,7 @@ impl Pool {
                 .await?;
             self.published(batch).await?;
         }
-        Ok(Err(reject))
+        Ok(reject)
     }
     pub(crate) async fn submit_local(
         &self,
@@ -142,64 +207,29 @@ impl Pool {
                 Err(Error::Full(reason)) => return Ok(Err(Reject::Full(reason.to_string()))),
                 Err(error) => return Err(error),
             };
-            let (view, snapshot) = self.store.snapshot();
-            let mut reads = ReadSet::default();
-            let before = self.store.get(&transaction.hash(), &mut reads)?;
-            if before
-                .as_ref()
-                .is_some_and(|entry| entry.accepted().is_some())
-            {
-                return Ok(Err(Reject::Duplicated(transaction.hash())));
-            }
-            let candidate = Arc::new(Entry {
-                transaction: Arc::clone(&transaction),
-                arrival: before.as_ref().map_or(arrival, |entry| entry.arrival),
-                source: Source::Local,
-                phase: Phase::Resolve,
-            });
-            if let Err(reject) = self.run_compute(&cpu, || {
-                non_contextual_verify(snapshot.consensus(), &transaction)
-            }) {
-                drop(cpu);
-                match self
-                    .reject_local(view, &transaction.hash(), reject, reads, dry_run)
-                    .await
-                {
-                    Err(Error::Stale) => continue,
-                    result => return result,
-                }
-            }
-            let resolution = match self.run_compute(&cpu, || {
-                jobs::resolve(&self.store, &candidate, &self.config)
-            }) {
-                Ok(Resolution::Ready(resolved)) => Ok(resolved),
-                Ok(Resolution::Waiting(keys, observed)) => Err((
-                    Reject::Resolve(OutPointError::Unknown(
-                        keys.into_iter()
-                            .find_map(|key| match key {
-                                DependencyKey::Cell(point) => Some(point),
-                                _ => None,
-                            })
-                            .ok_or(Error::Fault("missing cell condition"))?,
-                    )),
-                    observed,
-                )),
-                Ok(Resolution::Rejected(reject, observed)) => Err((reject, observed)),
+            let LocalPreparation {
+                candidate,
+                before,
+                view,
+                reads,
+                resolved,
+            } = match self.run_compute(&cpu, || self.prepare_local(&transaction, arrival)) {
+                Ok(prepared) => prepared,
                 Err(Error::Stale) => continue,
+                Err(Error::Rejected(reject)) => return Ok(Err(reject)),
                 Err(Error::Full(reason)) => return Ok(Err(Reject::Full(reason.to_string()))),
                 Err(error) => return Err(error),
             };
-            let resolved = match resolution {
+            let resolved = match resolved {
                 Ok(resolved) => resolved,
-                Err((reject, observed)) => {
+                Err(reject) => {
                     drop(cpu);
-                    reads.merge(&observed)?;
                     match self
                         .reject_local(view, &transaction.hash(), reject, reads, dry_run)
                         .await
                     {
                         Err(Error::Stale) => continue,
-                        result => return result,
+                        result => return result.map(Err),
                     }
                 }
             };
@@ -219,13 +249,12 @@ impl Pool {
                 Ok(verified) => verified,
                 Err(Error::Stale) => continue,
                 Err(Error::Rejected(reject)) => {
-                    reads.merge(&resolved.reads)?;
                     match self
                         .reject_local(resolved.view, &transaction.hash(), reject, reads, dry_run)
                         .await
                     {
                         Err(Error::Stale) => continue,
-                        result => return result,
+                        result => return result.map(Err),
                     }
                 }
                 Err(Error::Full(reason)) => return Ok(Err(Reject::Full(reason.to_string()))),
@@ -266,6 +295,66 @@ impl Pool {
                         },
                         Err,
                     ));
+                }
+                Err(Error::Stale) => continue,
+                Err(Error::Full(reason)) => return Ok(Err(Reject::Full(reason.to_string()))),
+                Err(error) => return Err(error),
+            }
+        }
+    }
+
+    pub(crate) async fn submit_local_test(
+        &self,
+        transaction: BoundedTransaction,
+    ) -> Result<Result<(), Reject>, Error> {
+        let transaction = transaction.into_transaction();
+        let arrival = self.store.next_arrival()?;
+        loop {
+            let (cpu, _memory) = self.direct_capacity(true).await?;
+            let prepared = self.run_compute(&cpu, || self.prepare_local(&transaction, arrival));
+            drop(cpu);
+            let LocalPreparation {
+                candidate,
+                before,
+                view,
+                reads,
+                resolved,
+            } = match prepared {
+                Ok(prepared) => prepared,
+                Err(Error::Stale) => continue,
+                Err(Error::Rejected(reject)) => return Ok(Err(reject)),
+                Err(Error::Full(reason)) => return Ok(Err(Reject::Full(reason.to_string()))),
+                Err(error) => return Err(error),
+            };
+            if before.is_some() {
+                return Ok(Err(Reject::Duplicated(transaction.hash())));
+            }
+            let resolved = match resolved {
+                Ok(resolved) => resolved,
+                Err(reject) => match self
+                    .reject_local(view, &transaction.hash(), reject, reads, false)
+                    .await
+                {
+                    Err(Error::Stale) => continue,
+                    result => return result.map(Err),
+                },
+            };
+            let result = self
+                .commit(|| {
+                    self.open()?;
+                    let mut plan = Plan::new(resolved.view, Class::Trusted, reads.clone());
+                    plan.edit(
+                        None,
+                        Some(candidate.with_phase(Phase::Verify(Arc::clone(&resolved)))),
+                        None,
+                    )?;
+                    Ok(plan)
+                })
+                .await;
+            match result {
+                Ok(batch) => {
+                    self.published(batch).await?;
+                    return Ok(Ok(()));
                 }
                 Err(Error::Stale) => continue,
                 Err(Error::Full(reason)) => return Ok(Err(Reject::Full(reason.to_string()))),

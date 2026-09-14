@@ -115,15 +115,10 @@ impl Source {
             _ => None,
         }
     }
-    /// Require a known pending producer before waiting for a missing cell.
+    /// Locally recovered work needs a retained producer. Network work can arrive
+    /// before its producer, independently of proposal or declared-cycle policy.
     pub(super) fn requires_known_producer(self) -> bool {
-        !matches!(
-            self,
-            Self::Remote {
-                cycles: Some(_),
-                ..
-            }
-        )
+        matches!(self, Self::Recovery | Self::Local)
     }
     pub(super) fn priority(self) -> u8 {
         match self {

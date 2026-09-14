@@ -54,6 +54,7 @@ Synchronous APIs use the service runtime; direct callback mutation is rejected.
 | Operation | Successful return establishes |
 |---|---|
 | `submit_local_tx` | Completed verification/admission outcome; inspect both transport result and inner `Reject` result |
+| `submit_local_test_tx` | Local resolution completed and script verification queued; missing or spent dependencies reject before queueing |
 | `test_accept_tx` | Same admission policy and final validation without insertion or relay |
 | `remove_local_tx` | Removes the selected transaction and accepted descendants; preserves the network's recent-known history |
 | `submit_remote_tx` / `submit_remote_txs` | Ingress processing, not accepted membership; batch outcome names the processed input prefix, including rejects |

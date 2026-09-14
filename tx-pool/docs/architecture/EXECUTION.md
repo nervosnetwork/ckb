@@ -24,6 +24,9 @@ through Apply; selecting a queue item or running a Job adds no owner phase.
 A Replaced owner is optional recovery history, not accepted
 membership. Local submit/dry-run resolve and verify directly; only successful
 local admission installs an Accepted owner, and dry-run installs none.
+The integration-test submission RPC also resolves locally, but acknowledges a
+Verify owner before background script verification. All RPC entry points reject
+missing or spent dependencies instead of creating Waiting owners.
 
 | Phase | Retained fact |
 |---|---|
@@ -168,9 +171,10 @@ an exhausted attempt may be retried.
 ## Waiting, chain and recovery
 
 Waiting records current missing cell keys. Invalid headers are rejected by canonical
-resolution, not registered as waiters. Only `Remote { cycles: Some(_) }` may wait for an unknown producer. Other queued
-sources, including remote work without declared cycles, require a known preaccepted
-producer that can supply the exact output. Maintenance rotates pages of at most 32 waiters and gives due
+resolution, not registered as waiters. Network sources may wait for an unknown
+producer, including proposal work and remote work without declared cycles. Local
+recovery requires a known preaccepted producer that can supply the exact output.
+Maintenance rotates pages of at most 32 waiters and gives due
 expiration opportunities. This bounds a step, not elapsed time under arbitrary
 arrivals, repeated conflicts or stalled providers.
 
