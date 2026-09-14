@@ -935,12 +935,13 @@ impl Spec for RbfConcurrency {
             handles.push(std::thread::spawn(move || {
                 let rpc_client = RpcClient::new(&rpc_address);
                 start.wait();
-                let _ = rpc_client.send_transaction_result(tx.data().into());
+                rpc_client.send_transaction_result(tx.data().into())
             }));
         }
-        for handle in handles {
-            handle.join().expect("RBF submitter must not panic");
-        }
+        let responses: Vec<_> = handles
+            .into_iter()
+            .map(|handle| handle.join().expect("RBF submitter must not panic"))
+            .collect();
 
         // Local submission returns after admission and required publication.
         // Joining every caller establishes completion before these observations.
@@ -950,9 +951,9 @@ impl Spec for RbfConcurrency {
             .collect();
 
         // the last tx should be in Pending(with the highest fee), others should be in Rejected
-        assert_eq!(statuses[4].status, Status::Pending);
+        assert_eq!(statuses[4].status, Status::Pending, "{responses:?}");
         for status in statuses.iter().take(4) {
-            assert_eq!(status.status, Status::Rejected);
+            assert_eq!(status.status, Status::Rejected, "{responses:?}");
         }
 
         // Concurrent arrival does not define how many lower-fee candidates
