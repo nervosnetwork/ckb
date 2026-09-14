@@ -811,10 +811,6 @@ fn unusable_time_pipeline_and_per_job_policies_are_rejected_before_ownership() {
             ..config()
         },
         TxPoolConfig {
-            max_tx_verify_initial_load_bytes: 0,
-            ..config()
-        },
-        TxPoolConfig {
             max_tx_pool_size: usize::MAX,
             ..config()
         },

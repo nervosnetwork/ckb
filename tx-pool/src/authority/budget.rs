@@ -169,7 +169,6 @@ impl Limits {
             || config.tx_verify_cycles_per_ms == 0
             || config.min_tx_verify_time_ms == 0
             || config.min_tx_verify_time_ms > config.max_tx_verify_time_ms
-            || config.max_tx_verify_initial_load_bytes == 0
         {
             return Err(bad());
         }

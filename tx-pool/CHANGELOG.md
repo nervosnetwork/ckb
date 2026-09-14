@@ -11,7 +11,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Add `verify_ordering`, defaulting to `fee_rate`, with explicit `arrival_time`
   selection also supported. Selection order does not promise completion order.
-- Add local active VM-time and initial-load policies, independent of consensus
+- Add a local active VM-time budget, independent of consensus
   cycle accounting and block verification.
 
 ### Changed

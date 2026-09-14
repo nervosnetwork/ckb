@@ -1,119 +1,99 @@
-use super::super::{
-    InitialProgramLoadLimit, TxPoolVmExecutionMode, VmSlicePhase, VmSliceState,
-    VmVerificationBudget,
-};
+use super::super::{TxPoolVmExecutionMode, VmSlicePhase, VmSliceState, VmVerificationBudget};
 use std::time::{Duration, Instant};
 
-fn budget() -> VmVerificationBudget {
-    VmVerificationBudget::new(
-        Duration::from_millis(10),
-        InitialProgramLoadLimit::new(u64::MAX).expect("the fixture load limit is nonzero"),
-        TxPoolVmExecutionMode::Inline,
-    )
-}
+const LIMIT: Duration = Duration::from_millis(10);
 
-fn end_slice(
-    state: VmSliceState,
-    started_at: Instant,
-    elapsed: Duration,
-    finished: bool,
-) -> VmSliceState {
-    state
-        .begin(started_at)
-        .expect("the fixture slice starts from a non-running receipt")
-        .end(started_at + elapsed, finished)
-        .expect("the fixture ends its exact running receipt")
+fn running(charged: Duration, started_at: Instant) -> VmSliceState {
+    VmSliceState {
+        charged,
+        phase: VmSlicePhase::Running { started_at },
+    }
 }
 
 #[test]
-fn cache_hit_and_pre_vm_delay_charge_no_active_time() {
-    let budget = budget();
+fn idle_time_does_not_charge_or_arm_a_deadline() {
+    let idle = VmSliceState::default();
     let child_started = Instant::now() + Duration::from_secs(30);
-
+    assert_eq!(idle.deadline(LIMIT), None);
+    assert_eq!(idle.charged, Duration::ZERO);
     assert_eq!(
-        budget.state.charged,
-        Duration::ZERO,
-        "a cache hit has no slice"
-    );
-    assert_eq!(budget.remaining(), Duration::from_millis(10));
-
-    let running = budget
-        .state
-        .begin(child_started)
-        .expect("the first VM preparation starts one slice");
-    let mut running_budget = budget;
-    running_budget.observe(running);
-    assert_eq!(
-        running_budget.timer_deadline(),
-        Some((1, child_started + Duration::from_millis(10))),
-        "queue, resolution, assignment, and Tokio delay before child start are excluded"
+        running(Duration::ZERO, child_started).deadline(LIMIT),
+        Some(child_started + LIMIT),
+        "the timer starts with VM work, not queueing, resolution or task scheduling"
     );
 }
 
 #[test]
-fn suspend_idle_gap_is_not_charged() {
+fn suspend_gap_and_coalesced_slices_preserve_only_running_time() {
     let started_at = Instant::now();
-    let mut budget = budget();
-    let first = end_slice(budget.state, started_at, Duration::from_millis(3), false);
-    budget.observe(first);
-
+    let (sender, mut receiver) = tokio::sync::watch::channel(VmSliceState::default());
+    sender.send_replace(running(Duration::ZERO, started_at));
+    let paused = VmSliceState {
+        charged: Duration::from_millis(3),
+        phase: VmSlicePhase::Idle,
+    };
+    sender.send_replace(paused);
     let resumed_at = started_at + Duration::from_secs(60);
-    let second = end_slice(budget.state, resumed_at, Duration::from_millis(2), true);
-    budget.observe(second);
-
-    assert_eq!(budget.state.charged, Duration::from_millis(5));
-    assert_eq!(budget.remaining(), Duration::from_millis(5));
+    assert_eq!(paused.deadline(LIMIT), None);
+    sender.send_replace(running(paused.charged, resumed_at));
+    sender.send_replace(VmSliceState {
+        charged: Duration::from_millis(5),
+        phase: VmSlicePhase::Finished,
+    });
+    let latest = *receiver.borrow_and_update();
+    let mut budget = VmVerificationBudget::new(LIMIT, TxPoolVmExecutionMode::Inline);
+    budget.charge(latest.charged);
+    assert_eq!(budget.remaining, Duration::from_millis(5));
 }
 
 #[test]
-fn script_groups_share_one_cumulative_budget() {
+fn script_groups_share_one_remaining_budget() {
     let started_at = Instant::now();
-    let mut budget = budget();
-    let first_group = end_slice(budget.state, started_at, Duration::from_millis(4), true);
-    budget.observe(first_group);
-
-    let second_group = end_slice(
-        budget.state.next_group_idle(),
-        started_at + Duration::from_secs(1),
-        Duration::from_millis(6),
-        true,
+    let mut budget = VmVerificationBudget::new(LIMIT, TxPoolVmExecutionMode::Inline);
+    budget.charge(Duration::from_millis(4));
+    assert_eq!(budget.remaining, Duration::from_millis(6));
+    let next_group = running(Duration::ZERO, started_at + Duration::from_secs(1));
+    assert_eq!(
+        next_group.deadline(budget.remaining),
+        Some(started_at + Duration::from_secs(1) + Duration::from_millis(6))
     );
-    budget.observe(second_group);
-
-    assert_eq!(budget.state.seq, 2);
-    assert_eq!(budget.state.charged, Duration::from_millis(10));
-    assert!(budget.exceeded());
+    budget.charge(Duration::from_millis(6));
+    assert!(
+        budget.remaining.is_zero(),
+        "the exact shared boundary is exhausted"
+    );
 }
 
 #[test]
-fn child_receipt_decides_completion_timer_race() {
+fn finished_receipt_decides_completion_timer_race() {
+    for (milliseconds, exceeded) in [(9, false), (10, true), (11, true)] {
+        let finished = VmSliceState {
+            charged: Duration::from_millis(milliseconds),
+            phase: VmSlicePhase::Finished,
+        };
+        assert_eq!(finished.deadline(LIMIT), None);
+        let mut budget = VmVerificationBudget::new(LIMIT, TxPoolVmExecutionMode::Inline);
+        budget.charge(finished.charged);
+        assert_eq!(
+            budget.remaining.is_zero(),
+            exceeded,
+            "a delayed parent observes the child's completion time, not its own wake time"
+        );
+    }
+}
+
+#[test]
+fn stale_timer_rechecks_the_current_slice_after_resume() {
     let started_at = Instant::now();
-    let mut completed = budget();
-    let running = completed
-        .state
-        .begin(started_at)
-        .expect("the fixture starts one slice");
-    completed.observe(running);
-    assert!(completed.timer_still_applies(running.seq));
-
-    let finished_before_timer = running
-        .end(started_at + Duration::from_millis(9), true)
-        .expect("the child publishes its completion timestamp");
-    completed.observe(finished_before_timer);
-    assert!(!completed.timer_still_applies(running.seq));
-    assert!(!completed.exceeded());
-
-    let mut exact = budget();
-    let finished_at_timer = end_slice(exact.state, started_at, Duration::from_millis(10), true);
-    exact.observe(finished_at_timer);
-    assert!(exact.exceeded(), "the exact boundary is exhausted");
-
-    let mut late = budget();
-    let finished_after_timer = end_slice(late.state, started_at, Duration::from_millis(11), true);
-    assert_eq!(finished_after_timer.phase, VmSlicePhase::Finished);
-    late.observe(finished_after_timer);
+    let old_deadline = running(Duration::ZERO, started_at).deadline(LIMIT).unwrap();
+    let resumed_at = started_at + Duration::from_secs(60);
+    let resumed = running(Duration::from_millis(3), resumed_at);
+    let delayed_wake = resumed_at + Duration::from_millis(1);
+    assert!(delayed_wake > old_deadline);
+    let current_deadline = resumed.deadline(LIMIT).unwrap();
+    assert_eq!(current_deadline, resumed_at + Duration::from_millis(7));
     assert!(
-        late.exceeded(),
-        "a coalesced Finished receipt still preserves the charge"
+        delayed_wake < current_deadline,
+        "the old timer cannot stop a new slice early"
     );
 }

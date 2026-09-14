@@ -13,7 +13,7 @@ use crate::{
     verification::{TxPoolVerificationBudget, check_tx_fee_with_min_fee_rate, verify_rtx},
 };
 use ckb_app_config::TxPoolConfig;
-use ckb_script::{ChunkCommand, InitialProgramLoadLimit, TxPoolVmExecutionMode};
+use ckb_script::{ChunkCommand, TxPoolVmExecutionMode};
 use ckb_snapshot::Snapshot;
 use ckb_types::{
     core::{
@@ -501,10 +501,7 @@ pub(super) async fn verify(
     let rules = ScriptVerificationRules::from_env(snapshot.consensus(), &environment);
     let key = TxVerificationCacheKey::from_transaction(&entry.transaction, rules);
     let cached = cache.read().await.lookup(&key);
-    let load = InitialProgramLoadLimit::new(config.max_tx_verify_initial_load_bytes)
-        .ok_or(Error::Full("initial program load configuration".into()))?;
-    let budget = TxPoolVerificationBudget::new(entry.source.duration(config), load)
-        .with_vm_execution_mode(mode);
+    let budget = TxPoolVerificationBudget::new(entry.source.duration(config), mode);
     let max_cycles = entry
         .source
         .declared_cycles()

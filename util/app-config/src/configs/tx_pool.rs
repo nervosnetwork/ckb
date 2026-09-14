@@ -54,9 +54,6 @@ pub struct TxPoolConfig {
     /// Maximum cumulative active VM-work budget per attempt, in milliseconds.
     /// Defaults to one minimum block interval (8 seconds).
     pub max_tx_verify_time_ms: u32,
-    /// Maximum cumulative bytes mapped while loading one root program.
-    /// This separate loading bound does not exclude loading time from the VM budget.
-    pub max_tx_verify_initial_load_bytes: u64,
 
     /// Transaction expiration time in hours.
     pub expiry_hours: u8,

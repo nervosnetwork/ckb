@@ -538,7 +538,7 @@ fn test_sealed_script_proof_respects_max_cycles() {
 #[tokio::test]
 async fn test_contextual_entry_points_preserve_error_and_cache_priority() {
     use crate::transaction_verifier::DeadlineVerificationOutcome;
-    use ckb_script::{ChunkCommand, InitialProgramLoadLimit, TxPoolVmExecutionMode};
+    use ckb_script::{ChunkCommand, TxPoolVmExecutionMode};
     use std::time::Duration;
 
     let cases = [
@@ -583,7 +583,6 @@ async fn test_contextual_entry_points_preserve_error_and_cache_priority() {
                 Some(proof),
                 &mut command_rx,
                 Duration::ZERO,
-                InitialProgramLoadLimit::new(1).unwrap(),
                 TxPoolVmExecutionMode::Inline,
             )
             .await

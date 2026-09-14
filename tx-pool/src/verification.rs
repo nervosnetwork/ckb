@@ -95,28 +95,18 @@ fn verify_dao_script_size(
 #[derive(Clone, Copy, Debug)]
 pub(crate) struct TxPoolVerificationBudget {
     active_vm_time: std::time::Duration,
-    initial_load_limit: ckb_script::InitialProgramLoadLimit,
     vm_execution_mode: ckb_script::TxPoolVmExecutionMode,
 }
 
 impl TxPoolVerificationBudget {
     pub(crate) const fn new(
         active_vm_time: std::time::Duration,
-        initial_load_limit: ckb_script::InitialProgramLoadLimit,
+        vm_execution_mode: ckb_script::TxPoolVmExecutionMode,
     ) -> Self {
         Self {
             active_vm_time,
-            initial_load_limit,
-            vm_execution_mode: ckb_script::TxPoolVmExecutionMode::Inline,
+            vm_execution_mode,
         }
-    }
-
-    pub(crate) const fn with_vm_execution_mode(
-        mut self,
-        vm_execution_mode: ckb_script::TxPoolVmExecutionMode,
-    ) -> Self {
-        self.vm_execution_mode = vm_execution_mode;
-        self
     }
 }
 
@@ -146,7 +136,6 @@ pub(crate) async fn verify_rtx(
         cache_entry,
         command_rx,
         budget.active_vm_time,
-        budget.initial_load_limit,
         budget.vm_execution_mode,
     )
     .await
@@ -155,9 +144,6 @@ pub(crate) async fn verify_rtx(
         ckb_verification::DeadlineVerificationOutcome::DeadlineExceeded => {
             Err(Reject::ExcessiveVerifyTime)
         }
-        ckb_verification::DeadlineVerificationOutcome::InitialLoadExceeded => Err(Reject::Full(
-            "transaction exceeds the tx-pool initial program load envelope".to_owned(),
-        )),
         ckb_verification::DeadlineVerificationOutcome::Verified(outcome) => {
             verify_dao_script_size(&snapshot, rtx).map_err(Reject::Verification)?;
             Ok(outcome)

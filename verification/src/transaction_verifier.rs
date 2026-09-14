@@ -10,9 +10,7 @@ use ckb_dao::DaoCalculator;
 use ckb_dao_utils::DaoError;
 use ckb_error::Error;
 #[cfg(not(target_family = "wasm"))]
-use ckb_script::{
-    ChunkCommand, InitialProgramLoadLimit, ResumableVerificationOutcome, TxPoolVmExecutionMode,
-};
+use ckb_script::{ChunkCommand, ResumableVerificationOutcome, TxPoolVmExecutionMode};
 use ckb_script::{ScriptError, TransactionScriptsVerifier};
 use ckb_traits::{
     CellDataProvider, EpochProvider, ExtensionProvider, HeaderFieldsProvider, HeaderProvider,
@@ -38,8 +36,6 @@ pub enum DeadlineVerificationOutcome {
     Verified(ScriptVerificationOutcome),
     /// Ordinary scheduler slices exhausted the local active VM time budget.
     DeadlineExceeded,
-    /// The root ELF exceeds this node's fixed tx-pool initial-load work bound.
-    InitialLoadExceeded,
 }
 
 /// The time-related TX verification
@@ -261,7 +257,6 @@ where
         cached: Option<ScriptVerificationProof>,
         command_rx: &mut tokio::sync::watch::Receiver<ChunkCommand>,
         active_time_limit: Duration,
-        initial_load_limit: InitialProgramLoadLimit,
         execution_mode: TxPoolVmExecutionMode,
     ) -> Result<DeadlineVerificationOutcome, Error> {
         let cached = self.prepare_script_verification(max_cycles, cached)?;
@@ -274,7 +269,6 @@ where
                 max_cycles,
                 command_rx,
                 active_time_limit,
-                initial_load_limit,
                 execution_mode,
             )
             .await?
@@ -286,9 +280,6 @@ where
             ),
             ResumableVerificationOutcome::DeadlineExceeded => {
                 Ok(DeadlineVerificationOutcome::DeadlineExceeded)
-            }
-            ResumableVerificationOutcome::InitialLoadExceeded => {
-                Ok(DeadlineVerificationOutcome::InitialLoadExceeded)
             }
         }
     }

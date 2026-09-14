@@ -20,7 +20,6 @@ share validation, but legacy ancestor normalization has its own compatibility fl
 | `max_tx_verify_cycles` | `TWO_IN_TWO_OUT_CYCLES × 20` | Remote small/large scheduling boundary, not a VM limit |
 | `min_tx_verify_time_ms` / `max_tx_verify_time_ms` | 250 / 8,000 | Cumulative active VM-work time, including initial loading |
 | `tx_verify_cycles_per_ms` | 10,000 | Local signal for choosing that time budget; not consensus accounting |
-| `max_tx_verify_initial_load_bytes` | 268,435,456 | Cumulative bytes mapped loading a root program |
 | `min_fee_rate` / `min_rbf_rate` | 1,000 / 1,500 | Shannons per kilobyte; admission and replacement policy |
 | `max_ancestors_count` | 1,000 | Ancestor limit; legacy parsing floors smaller values to 1,000 |
 | `expiry_hours` | 12 | Ordinary transaction expiration; replacement history has separate lifetime rules |
@@ -37,7 +36,7 @@ Pipeline capacity includes both retained owners and reserved active-job envelope
 These are charged limits, not preallocated memory or a whole-process RSS bound.
 They are internal policy, so operators do not configure competing memory knobs.
 
-`Limits::new` rejects unusable envelopes, zero ancestors, zero cycle-rate/load/time
+`Limits::new` rejects unusable envelopes, zero ancestors, zero cycle-rate/time
 bounds, inverted time bounds and arithmetic overflow. Construction requires a
 multi-thread Tokio runtime. Increasing workers divides the active byte/edge
 envelope among more jobs and can make a previously viable configuration invalid.
@@ -69,7 +68,7 @@ instrumentation. Gauges are observations, not admission authority.
 |---|---|---|
 | Remote pressure while local progress remains possible | `ckb_tx_pool_pipeline_residency`: remote/total entries and bytes, active work | Distinguish retained backlog from active compute; check per-peer limits and workload shape |
 | Commits or reorg calls wait after state changed | `ckb_tx_pool_effect_usage`: batches/bytes, publisher logs | Identify an unready FIFO head, slow synchronous endpoint or endpoint failure |
-| VM-time rejection | Rejection class and configured time/load envelopes | Reproduce actual VM work; do not classify local resource refusal as consensus invalidity |
+| VM-time rejection | Rejection class and configured time budget | Reproduce actual VM work; do not classify local resource refusal as consensus invalidity |
 | Template refresh error | Selected-owner/lifecycle source and template-driver logs | Check invalidation or build failure; a refresh deadline does not cancel the shared driver |
 | Shutdown stalls | Handler/background join versus publisher join | Follow owned tasks and synchronous providers; `started=false` is insufficient |
 | Startup has no restored transactions | Persistence-load log and v2 file | Preserve the failed input for diagnosis; malformed v2 does not fall back to v1 |

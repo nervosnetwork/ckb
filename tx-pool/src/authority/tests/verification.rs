@@ -96,13 +96,15 @@ async fn canonical_vm_success_produces_witness_bound_cache_proof_and_current_fee
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn local_initial_load_refusal_is_not_cached_and_allows_a_later_normal_attempt() {
+async fn local_time_budget_refusal_is_not_cached_and_allows_a_later_normal_attempt() {
     let (store, candidate, snapshot) = fixture();
     let mut config = config();
     let resolved = resolved(&store, &candidate, &config);
     let cache = RwLock::new(init_cache());
     let (_sender, mut commands) = watch::channel(ChunkCommand::Resume);
-    config.max_tx_verify_initial_load_bytes = 1;
+    // Exercise the verifier's zero-budget boundary directly; this is not a
+    // service configuration and does not depend on how fast the fixture runs.
+    config.max_tx_verify_time_ms = 0;
     let result = verify(
         &store,
         &candidate,
@@ -113,7 +115,10 @@ async fn local_initial_load_refusal_is_not_cached_and_allows_a_later_normal_atte
         TxPoolVmExecutionMode::Inline,
     )
     .await;
-    assert!(matches!(result, Err(Error::Rejected(Reject::Full(_)))));
+    assert!(matches!(
+        result,
+        Err(Error::Rejected(Reject::ExcessiveVerifyTime))
+    ));
     assert!(
         cache
             .read()
@@ -121,7 +126,7 @@ async fn local_initial_load_refusal_is_not_cached_and_allows_a_later_normal_atte
             .lookup(&key(&candidate, &snapshot))
             .is_none()
     );
-    config.max_tx_verify_initial_load_bytes = 256 * 1024 * 1024;
+    config.max_tx_verify_time_ms = 8_000;
     assert!(
         verify(
             &store,

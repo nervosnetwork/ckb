@@ -67,6 +67,17 @@ Already admitted synchronous work can finish, so a pause request does not establ
 VM quiescence. Ingress can still queue bounded work. Reconciliation and publication
 have their own progress requirements, described below, and remain outside this gate.
 
+The [script verifier](../../../script/src/verify.rs) applies one active-time budget
+across a transaction's ordinary VM groups. The child publishes its group's cumulative
+running time and current phase; coalesced notifications cannot lose completed slices.
+Joining a group debits that receipt once from the transaction's remaining budget.
+Only a running slice arms a deadline, which a timer wake rechecks before requesting
+Stop. Resume clears the interrupt only after an idle acknowledgment. Queueing, suspension
+and parent polling delay spend no budget. Root and dynamic program loading run
+inside the charged scheduler slice, through the ordinary loader. Synchronous loading
+and providers must return before the VM can acknowledge a pause, so this is not a
+hard wall-clock deadline.
+
 ## Settlement and failure
 
 The [worker](../../src/authority/service/execution.rs) owns its Job through
@@ -144,10 +155,9 @@ bound an earlier duplicate allocation. Include source/destination overlap,
 container capacity and concurrent producers when reviewing a bound.
 
 Full graph/query/template scratch, database caches, allocator overhead and VM
-internals remain separate costs. Pool budgets are not a process-RSS cap. VM initial
-load and cumulative active VM time have independent local limits; queueing and
-suspension do not consume VM time. These refusals do not establish consensus
-invalidity or justify peer banning.
+internals remain separate costs. Pool budgets are not a process-RSS cap. The local
+VM-time budget does not establish consensus invalidity or justify peer banning;
+an exhausted attempt may be retried.
 
 ## Waiting, chain and recovery
 
@@ -367,14 +377,6 @@ file sync/rename alone does not promise universal crash durability.
 Summary and descendant captures hold the paired view and all owner read guards
 for a coherent cut. Their savings come from avoiding full owner copies and
 unrelated graph calculations; the guarded shard population remains complete.
-
-The shared script crate also avoids repeated immutable work.
-[Root-program metadata](../../../script/src/program_cache.rs) caches one parsed
-ELF per thread, keyed by actual program data hash and VM version. Only metadata
-with at most 64 allocated action slots is retained; the cache owns no program
-bytes, transaction, snapshot or VM state. Root loading still computes each
-attempt's mapping receipt and charges its own active time. A miss, unavailable
-slot or oversized parse uses the canonical parser. CKB-VM itself is unchanged.
 
 These mechanisms preserve the common commit contract. Their throughput, CPU and
 memory tradeoffs need [measurement](../BENCHMARK.md), while resource release and
