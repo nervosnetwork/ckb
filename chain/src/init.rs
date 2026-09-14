@@ -105,11 +105,13 @@ pub fn build_chain_services(
         .name("init_load_unverified_blocks".into())
         .spawn({
             let chain_controller = chain_controller.clone();
-            let shared = builder.shared.clone();
-
+            // Freeze recovery before the chain service accepts new requests.
+            // Fresh blocks without BlockExt belong to their original request,
+            // not to last shutdown's unfinished verification.
+            let snapshot = Arc::clone(&builder.shared.snapshot());
             move || {
                 let init_load_unverified: InitLoadUnverified = InitLoadUnverified::new(
-                    shared,
+                    snapshot,
                     chain_controller,
                     is_verifying_unverified_blocks_on_startup,
                 );
