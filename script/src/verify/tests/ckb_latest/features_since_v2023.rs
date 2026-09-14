@@ -749,6 +749,62 @@ async fn check_initial_suspend_defers_root_load_until_resume() {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn check_delayed_pause_receipt_does_not_turn_timer_wakeup_into_rejection() {
+    let script_version = SCRIPT_VERSION;
+    if script_version <= ScriptVersion::V1 {
+        return;
+    }
+
+    let limit = Duration::from_secs(1);
+    let (receipts, mut paused) = tokio::sync::mpsc::unbounded_channel();
+    let probe = Arc::new(VmChildTestProbe {
+        paused_receipts: Some(receipts),
+        ..Default::default()
+    });
+    let parent_probe = Arc::clone(&probe);
+    let mut parent = tokio::spawn(VM_CHILD_TEST_PROBE.scope(parent_probe, async move {
+        let verifier = TransactionScriptsVerifierWithEnv::new();
+        let (_command_tx, mut command_rx) = watch::channel(ChunkCommand::Resume);
+        verifier
+            .verify_with_budget_async(
+                script_version,
+                &infinite_spawn_transaction(script_version),
+                &mut command_rx,
+                limit,
+            )
+            .await
+    }));
+
+    tokio::time::timeout(Duration::from_secs(5), async {
+        probe.timer_armed.notified().await;
+        probe.pause.lock().unwrap().as_ref().unwrap().interrupt();
+        let receipt = paused.recv().await.unwrap();
+        assert!(receipt.charged < limit, "the VM paused below its budget");
+        // Hold publication until the parent has acted on the old Running
+        // deadline. This orders the race without relying on a sleep.
+        probe.timer_fired.notified().await;
+        receipt.publish.send(()).unwrap();
+
+        let exhausted = tokio::select! {
+            receipt = paused.recv() => receipt.expect("the same VM must resume"),
+            result = &mut parent => panic!("VM stopped with budget remaining: {result:?}"),
+        };
+        assert!(exhausted.charged >= limit);
+        exhausted.publish.send(()).unwrap();
+        assert_eq!(
+            parent
+                .await
+                .unwrap()
+                .expect("publication delay is not a script error"),
+            ResumableVerificationOutcome::DeadlineExceeded
+        );
+    })
+    .await
+    .expect("pause publication and the resumed VM must make progress");
+    assert!(!probe.active.load(Ordering::SeqCst));
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn check_aborting_parent_terminates_the_suspended_vm_child() {
     assert_aborting_parent_terminates_vm_child(true, TxPoolVmExecutionMode::Inline).await;
 }

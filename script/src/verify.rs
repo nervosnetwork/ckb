@@ -55,6 +55,15 @@ struct VmChildTestProbe {
     dynamic_load_started: AtomicBool,
     load_outside_slice: AtomicBool,
     pause: std::sync::Mutex<Option<VMPause>>,
+    paused_receipts: Option<tokio::sync::mpsc::UnboundedSender<VmPausedReceipt>>,
+    timer_armed: tokio::sync::Notify,
+    timer_fired: tokio::sync::Notify,
+}
+
+#[cfg(test)]
+struct VmPausedReceipt {
+    charged: Duration,
+    publish: tokio::sync::oneshot::Sender<()>,
 }
 
 #[cfg(test)]
@@ -664,6 +673,18 @@ where
                         } else {
                             VmSlicePhase::Finished
                         };
+                        #[cfg(test)]
+                        if slice_state.phase == VmSlicePhase::Idle
+                            && let Some(probe) = test_probe.as_ref()
+                            && let Some(receipts) = probe.paused_receipts.as_ref()
+                        {
+                            let (publish, published) = tokio::sync::oneshot::channel();
+                            let _ = receipts.send(VmPausedReceipt {
+                                charged: slice_state.charged,
+                                publish,
+                            });
+                            let _ = published.await;
+                        }
                         slice_tx.send_replace(slice_state);
                         match execution {
                             Ok(outcome) => return Ok(outcome),
@@ -691,13 +712,17 @@ where
         // outstanding until the child publishes Idle before clearing Pause.
         let mut run_requested = initial_command == ChunkCommand::Resume;
         loop {
-            let armed_timer = if desired_command == ChunkCommand::Stop {
+            let armed_timer = if pause.has_interrupted() || desired_command == ChunkCommand::Stop {
                 None
             } else {
                 budget
                     .as_ref()
                     .and_then(|budget| slice_rx.borrow().deadline(budget.remaining))
             };
+            #[cfg(test)]
+            if armed_timer.is_some() {
+                let _ = VM_CHILD_TEST_PROBE.try_with(|probe| probe.timer_armed.notify_one());
+            }
             tokio::select! {
                 biased;
                 result = child.join() => {
@@ -761,15 +786,16 @@ where
                         None => std::future::pending::<()>().await,
                     }
                 } => {
-                    // A timer can belong to a slice that has already paused or
-                    // finished. Recheck the latest deadline before stopping.
+                    // Recheck the latest slice before interrupting. The timer
+                    // requests Pause only: the child may already have stopped
+                    // below the limit but not yet published its receipt.
                     if let Some(deadline) = budget.as_ref()
                         .and_then(|budget| slice_rx.borrow().deadline(budget.remaining))
                         && deadline <= Instant::now()
                     {
-                        desired_command = ChunkCommand::Stop;
                         pause.interrupt();
-                        child.send(ChunkCommand::Stop);
+                        #[cfg(test)]
+                        let _ = VM_CHILD_TEST_PROBE.try_with(|probe| probe.timer_fired.notify_one());
                     }
                 }
                 Ok(_) = signal.changed(), if desired_command != ChunkCommand::Stop => {

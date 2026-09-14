@@ -71,8 +71,9 @@ The [script verifier](../../../script/src/verify.rs) applies one active-time bud
 across a transaction's ordinary VM groups. The child publishes its group's cumulative
 running time and current phase; coalesced notifications cannot lose completed slices.
 Joining a group debits that receipt once from the transaction's remaining budget.
-Only a running slice arms a deadline, which a timer wake rechecks before requesting
-Stop. Resume clears the interrupt only after an idle acknowledgment. Queueing, suspension
+Only a running slice arms a deadline. A timer wake requests a cooperative pause;
+the child's actual receipt decides exhaustion, even if publication was delayed.
+Resume clears the interrupt only after an idle acknowledgment. Queueing, suspension
 and parent polling delay spend no budget. Root and dynamic program loading run
 inside the charged scheduler slice, through the ordinary loader. Synchronous loading
 and providers must return before the VM can acknowledge a pause, so this is not a
