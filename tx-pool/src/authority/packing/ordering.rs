@@ -1,61 +1,117 @@
-//! Conditional read-before-spend ordering for an already selected transaction set.
+//! Complete read-before-spend prerequisites for block selection.
 
-use super::{EvictionRank, Links, PackingError, Selection};
+use super::{
+    CandidatePackingState, EvictionRank, Links, PackageAggregate, PackingError, Selection, Status,
+    TemplatePackingLimits, Traversal,
+};
 use ckb_types::prelude::*;
 use std::collections::{BTreeSet, HashMap};
 
 const MAX_CONDITIONAL_CYCLE_ROUNDS: usize = 64;
 
-impl Selection<'_> {
-    pub(super) fn order_packed_indices(
+pub(super) struct Precedence {
+    parents: Links,
+    positions: Vec<usize>,
+    pub(super) eligible: Vec<usize>,
+}
+
+impl Precedence {
+    /// Expand only a block-sized prefix of the complete prerequisite closure.
+    /// Unselected readers are mandatory for spending, but are not added to the
+    /// stored causal ancestry or its fee aggregates.
+    #[expect(
+        clippy::indexing_slicing,
+        reason = "The compiled precedence graph supplies checked candidate indices and their topological positions."
+    )]
+    pub(super) fn collect_package(
         &self,
-        selected: Vec<usize>,
-    ) -> Result<Vec<usize>, PackingError> {
-        if selected.len() < 2 {
-            return Ok(selected);
-        }
-        let mut rank = vec![None; self.candidates.len()];
-        let mut active = vec![false; self.candidates.len()];
-        for (position, index) in selected.iter().copied().enumerate() {
-            if rank
-                .get_mut(index)
-                .ok_or(PackingError::Projection)?
-                .replace(position)
-                .is_some()
+        selection: &Selection<'_>,
+        index: usize,
+        states: &[CandidatePackingState],
+        limits: TemplatePackingLimits,
+        traversal: &mut Traversal,
+        package: &mut Vec<usize>,
+    ) -> Result<Option<PackageAggregate>, PackingError> {
+        package.clear();
+        traversal.begin()?;
+        traversal.stack.push(index);
+        let mut aggregate = PackageAggregate::default();
+        while let Some(member) = traversal.stack.pop() {
+            if states[member] == CandidatePackingState::Selected
+                || traversal.marks[member] == traversal.generation
             {
-                return Err(PackingError::Projection);
+                continue;
             }
-            *active.get_mut(index).ok_or(PackingError::Projection)? = true;
+            if states[member] == CandidatePackingState::Ineligible {
+                return Ok(None);
+            }
+            traversal.marks[member] = traversal.generation;
+            aggregate = aggregate
+                .checked_add(PackageAggregate::one(&selection.candidates[member]))
+                .ok_or(PackingError::Arithmetic)?;
+            if !aggregate.fits(limits) {
+                return Ok(None);
+            }
+            package.push(member);
+            traversal
+                .stack
+                .extend(self.parents.get(member).ok_or(PackingError::Projection)?);
         }
+        package.sort_unstable_by_key(|member| self.positions[*member]);
+        Ok(Some(aggregate))
+    }
+}
 
-        let conditional = self.conditional_edges(&selected)?;
-        let mut already_ordered = true;
-        for &(reader, spender) in &conditional {
-            let reader = rank
-                .get(reader)
-                .copied()
-                .flatten()
-                .ok_or(PackingError::Projection)?;
-            let spender = rank
-                .get(spender)
-                .copied()
-                .flatten()
-                .ok_or(PackingError::Projection)?;
-            already_ordered &= reader < spender;
+impl Selection<'_> {
+    #[expect(
+        clippy::indexing_slicing,
+        reason = "The compiled precedence graph and activity mask share checked candidate indices."
+    )]
+    pub(super) fn precedence(&self) -> Result<Precedence, PackingError> {
+        let len = self.candidates.len();
+        let mut rank = vec![0; len];
+        let mut priority = self.priority(None);
+        for (position, key) in std::iter::from_fn(|| priority.pop()).enumerate() {
+            *rank.get_mut(key.index).ok_or(PackingError::Projection)? = position;
         }
-        if already_ordered {
-            return Ok(selected);
-        }
-
-        // Unique spenders and immutable causal parents make every later graph
-        // an induced subgraph. Reuse the original causal graph for package drops.
-        let graph = self.conditional_graph(&active, conditional)?;
+        let mut active = vec![true; len];
+        let graph = self.precedence_graph()?;
         let mut cycle_round = 0usize;
         let mut eviction = None;
         loop {
             let ordered = topological_active_order(&active, &rank, &graph)?;
             if ordered.len() == active.iter().filter(|is_active| **is_active).count() {
-                return Ok(ordered);
+                let mut edges = Vec::new();
+                for (parent, children) in graph.iter().enumerate() {
+                    if active[parent] {
+                        edges.extend(
+                            children
+                                .iter()
+                                .filter_map(|child| active[*child].then_some((*child, parent))),
+                        );
+                    }
+                }
+                let parents = Links::from_edges(len, &edges)?;
+                let mut positions = vec![0usize; len];
+                let mut proposed = vec![false; len];
+                let mut eligible = Vec::new();
+                for (position, index) in ordered.into_iter().enumerate() {
+                    positions[index] = position;
+                    proposed[index] = self.candidates[index].status == Status::Proposed
+                        && parents
+                            .get(index)
+                            .ok_or(PackingError::Projection)?
+                            .iter()
+                            .all(|parent| proposed[*parent]);
+                    if proposed[index] {
+                        eligible.push(index);
+                    }
+                }
+                return Ok(Precedence {
+                    parents,
+                    positions,
+                    eligible,
+                });
             }
             let mut cyclic = strongly_connected_active(&active, &graph)?;
             cyclic.retain(|component| component.len() > 1);
@@ -87,35 +143,12 @@ impl Selection<'_> {
                 }
             }
             drop_package_descendants(&mut active, roots, &self.graph.children)?;
-            if active.iter().filter(|is_active| **is_active).count() < 2 {
-                return Ok(selected
-                    .iter()
-                    .copied()
-                    .filter(|index| active.get(*index).is_some_and(|is_active| *is_active))
-                    .collect());
-            }
         }
     }
 
-    fn conditional_edges(&self, selected: &[usize]) -> Result<Vec<(usize, usize)>, PackingError> {
-        let input_count = selected.iter().try_fold(0usize, |sum, index| {
-            let candidate = self
-                .candidates
-                .get(*index)
-                .ok_or(PackingError::Projection)?;
-            sum.checked_add(
-                candidate
-                    .accepted
-                    .transaction
-                    .transaction
-                    .input_pts_reader_iter()
-                    .len(),
-            )
-            .ok_or(PackingError::Arithmetic)
-        })?;
-        let mut spenders = HashMap::<&[u8], usize>::with_capacity(input_count);
-        for &index in selected {
-            let candidate = self.candidates.get(index).ok_or(PackingError::Projection)?;
+    fn precedence_graph(&self) -> Result<Links, PackingError> {
+        let mut spenders = HashMap::<&[u8], usize>::new();
+        for (index, candidate) in self.candidates.iter().enumerate() {
             for input in candidate
                 .accepted
                 .transaction
@@ -128,12 +161,10 @@ impl Selection<'_> {
             }
         }
         let mut edges = Vec::new();
-        for &reader in selected {
-            let candidate = self
-                .candidates
-                .get(reader)
-                .ok_or(PackingError::Projection)?;
-            // Each bounded dependency occurrence adds at most one edge.
+        for (reader, candidate) in self.candidates.iter().enumerate() {
+            // Admission closes the reader set when a spender enters the pool.
+            // Every retained reader must precede it, including readers that do
+            // not fit this block or have not reached the commit window yet.
             for dependency in candidate.accepted.transaction.related_dep_out_points() {
                 if let Some(spender) = spenders.get(dependency.as_slice()).copied()
                     && spender != reader
@@ -142,35 +173,12 @@ impl Selection<'_> {
                 }
             }
         }
-        Ok(edges)
-    }
-
-    fn conditional_graph(
-        &self,
-        active: &[bool],
-        mut edges: Vec<(usize, usize)>,
-    ) -> Result<Links, PackingError> {
-        if active.len() != self.candidates.len() {
-            return Err(PackingError::Projection);
-        }
-        for (child, is_active) in active.iter().copied().enumerate() {
-            if !is_active {
-                continue;
-            }
-            for &parent in self
-                .graph
-                .parents
-                .get(child)
-                .ok_or(PackingError::Projection)?
-            {
-                if active.get(parent).is_some_and(|is_active| *is_active) {
-                    edges.push((parent, child));
-                }
-            }
+        for (parent, children) in self.graph.children.iter().enumerate() {
+            edges.extend(children.iter().map(|child| (parent, *child)));
         }
         edges.sort_unstable();
         edges.dedup();
-        Links::from_edges(active.len(), &edges)
+        Links::from_edges(self.candidates.len(), &edges)
     }
 
     fn cycle_representative(
@@ -221,7 +229,7 @@ impl Selection<'_> {
 
 fn topological_active_order(
     active: &[bool],
-    rank: &[Option<usize>],
+    rank: &[usize],
     children: &Links,
 ) -> Result<Vec<usize>, PackingError> {
     if active.len() != rank.len() || active.len() != children.len() {
@@ -258,10 +266,7 @@ fn topological_active_order(
                 .ok_or(PackingError::Projection)?
                 == 0
         {
-            let position = rank
-                .get(index)
-                .and_then(|position| *position)
-                .ok_or(PackingError::Projection)?;
+            let position = rank.get(index).copied().ok_or(PackingError::Projection)?;
             ready.insert((position, index));
         }
     }
@@ -279,10 +284,7 @@ fn topological_active_order(
             let degree = indegree.get_mut(*child).ok_or(PackingError::Projection)?;
             *degree = degree.checked_sub(1).ok_or(PackingError::Projection)?;
             if *degree == 0 {
-                let position = rank
-                    .get(*child)
-                    .and_then(|position| *position)
-                    .ok_or(PackingError::Projection)?;
+                let position = rank.get(*child).copied().ok_or(PackingError::Projection)?;
                 ready.insert((position, *child));
             }
         }

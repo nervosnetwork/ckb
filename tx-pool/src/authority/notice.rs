@@ -71,6 +71,16 @@ struct RejectionContext {
 }
 
 impl Rejection {
+    fn new(hash: &Byte32, reason: Reject) -> Self {
+        Self {
+            hash: compact_packed(hash),
+            class: crate::metrics::RejectionClass::from_reject(&reason),
+            reason: bound_reject_diagnostic(reason),
+            recent: None,
+            context: None,
+        }
+    }
+
     fn log(&self) {
         if !ckb_logger::log_enabled_target!("ckb_tx_pool::rejection", ckb_logger::Level::Debug) {
             return;
@@ -200,25 +210,16 @@ impl Effect {
         relay: bool,
     ) -> Result<Self, Error> {
         // Preserve policy bits before detaching dynamically owned diagnostics.
-        let class = crate::metrics::RejectionClass::from_reject(&reject);
         let record = reject.should_recorded();
         let negative =
             relay && reject.is_allowed_relay() && !matches!(reject, Reject::Duplicated(_));
-        let reject = bound_reject_diagnostic(reject);
-        let recent = if record {
-            Some(serialized_recent_reject(&reject)?)
-        } else {
-            None
-        };
-        let callback = accepted.map(|entry| CallbackEvent::Reject(entry, reject.clone()));
+        let mut rejection = Rejection::new(hash, reject);
+        if record {
+            rejection.recent = Some(serialized_recent_reject(&rejection.reason)?);
+        }
+        let callback = accepted.map(|entry| CallbackEvent::Reject(entry, rejection.reason.clone()));
         Ok(Self {
-            rejection: Some(Rejection {
-                hash: compact_packed(hash),
-                reason: reject,
-                class,
-                recent,
-                context: None,
-            }),
+            rejection: Some(rejection),
             callback,
             relay: negative.then(|| TxVerificationResult::Reject {
                 tx_hash: compact_packed(hash),
@@ -233,14 +234,38 @@ impl Effect {
         before: Option<&Entry>,
         budget: &Budget,
     ) -> Result<Self, Error> {
+        Ok(
+            Self::rejected(hash, reject, None, source.residency_peer().is_some())?
+                .with_rejection_context(source, before, budget),
+        )
+    }
+    /// Refusing ingress does not decide transaction validity or retire an owner.
+    /// Diagnose the pressure and release relay tracking without writing status.
+    pub(super) fn capacity_refused(
+        hash: &Byte32,
+        reason: FullReason,
+        source: Source,
+        budget: &Budget,
+    ) -> Self {
+        Self {
+            rejection: Some(Rejection::new(hash, Reject::Full(reason.to_string()))),
+            relay: source
+                .residency_peer()
+                .map(|_| TxVerificationResult::Reject {
+                    tx_hash: compact_packed(hash),
+                }),
+            ..Self::default()
+        }
+        .with_rejection_context(source, None, budget)
+    }
+    fn with_rejection_context(
+        mut self,
+        source: Source,
+        before: Option<&Entry>,
+        budget: &Budget,
+    ) -> Self {
         let peer = source.residency_peer();
-        let accounts = if matches!(reject, Reject::Full(_)) {
-            budget.rejection_snapshot(peer)
-        } else {
-            [None; 5]
-        };
-        let mut effect = Self::rejected(hash, reject, None, peer.is_some())?;
-        if let Some(rejection) = &mut effect.rejection {
+        if let Some(rejection) = &mut self.rejection {
             rejection.context = Some(Box::new(RejectionContext {
                 stage: match before.map(|entry| &entry.phase) {
                     None if matches!(source, Source::Local) => "direct_submission",
@@ -258,10 +283,14 @@ impl Effect {
                     Source::Local => "local",
                 },
                 peer,
-                accounts,
+                accounts: if matches!(rejection.reason, Reject::Full(_)) {
+                    budget.rejection_snapshot(peer)
+                } else {
+                    [None; 5]
+                },
             }));
         }
-        Ok(effect)
+        self
     }
     fn recent(&self) -> Option<(&Byte32, &Reject, &str)> {
         let rejection = self.rejection.as_ref()?;

@@ -254,8 +254,8 @@ a stale consumed-cell filter even after delivery resumes. It does not establish
 a complete current membership snapshot.
 
 [Queries](../../src/authority/query.rs) expose transaction status only for accepted
-owners. Missing dependencies contribute to the orphan count; proposal-window Gap
-and retained history stay separate from that waiting phase.
+owners and adapt missing-dependency Waiting to the RPC orphan count. Proposal-window
+Gap and retained history stay separate from Waiting.
 The sole [template driver](../../src/authority/template.rs)
 captures accepted owners, builds outside Store guards and validates selected-owner,
 lifecycle and uncle sources before publication to BlockAssembler. Unrelated
@@ -306,21 +306,25 @@ After a successful package, selection stops if the remaining byte budget cannot
 hold the smallest initially queued transaction's own bytes. Using own bytes
 keeps small residual children eligible after their parents are selected. Near
 integer limits, the shortcut is disabled where it could hide a projected-add
-overflow. The existing consecutive-failure policy remains in effect otherwise.
+overflow. The consecutive-failure bound applies after the first selection;
+unfitting spend packages cannot prevent independently fitting readers from making
+progress in an otherwise empty block.
 
-When the unselected remainder forms a chain, its only parent-first order can be
-emitted directly, stopping at selected ancestors. Any residual fork uses a local
-priority Kahn traversal over the complete ancestor closure, including already
-selected ancestors; only output omits those ancestors. This preserves the global
-deterministic preference order without sorting the whole pool.
-[Conditional ordering](../../src/authority/packing/ordering.rs) checks actual
-selected inputs and read-before-spend edges. An already valid order returns
-directly. Input keys borrow the canonical transaction bytes; dependency lookups
-borrow resolved out points, including expanded dependency groups. The join still
-rejects duplicate inputs before returning an already ordered result. Otherwise,
-one selected graph supports induced subgraphs, complete causal
-package drops and bounded cycle fallback. Only an actual conditional cycle needs
-descendant eviction totals; those reuse the compiled parents and wide fee arithmetic.
+[Packing precedence](../../src/authority/packing/ordering.rs) includes every
+accepted reader of a spent cell, including expanded dependency groups. Admission
+closes that reader set when the spender enters the pool. Proposal eligibility and
+package selection require these earlier readers, so block capacity can defer the
+spender while readers commit over several blocks. Causal ancestry and its fee
+aggregates remain separate from this block prerequisite graph.
+
+One preference-ordered topological pass supplies package order. A package traversal
+stops at already selected members and as soon as its bytes or cycles exceed the
+remaining block budget; it never retains transitive reader sets per transaction.
+Graph storage is proportional to captured owners and direct edges. A traversal
+can still inspect a wide reader fanout, and precedence construction visits the
+captured population. Conditional cycles use complete causal package drops and a
+bounded fallback. Only a cycle needs descendant eviction totals; those reuse the
+compiled causal parents and wide fee arithmetic.
 
 The sole template loop can reuse one compiled graph when the ordered accepted-owner
 identities and ancestor limit match exactly. Weak identities prevent allocation

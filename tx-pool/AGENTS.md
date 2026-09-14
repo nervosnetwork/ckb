@@ -7,6 +7,10 @@ Canonical verification decides validity. Pool resource refusal is retryable loca
 policy, never consensus invalidity or grounds to penalize peers. Preserve ordinary
 receive-to-commit concurrency, including work sharing only read-only cell-deps.
 
+Gap denotes only the two-phase proposal window. Waiting denotes missing
+dependencies inside the pool; RPC adapts it to the existing orphan count.
+Local RPC submission rejects already-spent dependencies instead of waiting.
+
 Use the reference that matches the change:
 
 - Owner model, admission, replacement or conflicts: [architecture](docs/ARCHITECTURE.md)

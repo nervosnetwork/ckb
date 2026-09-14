@@ -233,9 +233,14 @@ impl Pool {
     ) -> (JoinSet<Result<(), Error>>, JoinHandle<Result<(), Error>>) {
         let publisher = handle.spawn(Arc::clone(&self.store.outbox).run(endpoints));
         let mut tasks = JoinSet::new();
-        tasks.spawn(Arc::clone(self).worker(WorkStage::Resolve, 0));
-        for index in 0..self.store.budget.limits.workers {
-            tasks.spawn(Arc::clone(self).worker(WorkStage::Verify, index));
+        let workers = self.store.budget.limits.workers;
+        for (stage, count) in [
+            (WorkStage::Resolve, workers.min(1)),
+            (WorkStage::Verify, workers),
+        ] {
+            for index in 0..count {
+                tasks.spawn(Arc::clone(self).worker(stage, index));
+            }
         }
         tasks.spawn(Arc::clone(self).maintain());
         tasks.spawn(Arc::clone(self).chain_loop(chain));

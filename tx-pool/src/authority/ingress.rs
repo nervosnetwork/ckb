@@ -179,7 +179,7 @@ pub(super) fn resolution(
 
 /// Capacity refusal observes the current owner without removing it, and still
 /// owes a rejection notice that releases the relayer's pending filter.
-pub(super) fn capacity_rejection(
+pub(super) fn capacity_refusal(
     store: &Store,
     hash: &Byte32,
     source: Source,
@@ -188,14 +188,13 @@ pub(super) fn capacity_rejection(
     let (view, _) = store.snapshot();
     let mut plan = Plan::new(view, class(source), Default::default());
     plan.get(store, hash)?;
-    rejection(
-        store,
-        plan,
-        None,
+    plan.notify(Effect::capacity_refused(
         hash,
+        reason,
         source,
-        Reject::Full(reason.to_string()),
-    )
+        &store.budget,
+    ));
+    Ok(plan)
 }
 
 /// A remote malformed result revokes exactly the current preaccepted cohort.

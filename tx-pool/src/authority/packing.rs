@@ -1,5 +1,5 @@
-//! Selection borrows immutable accepted owners and uses one compiled causal graph.
-//! Only this selection's package priorities and remaining budgets change.
+//! Selection borrows immutable accepted owners. Causal ancestry determines fee
+//! priority; complete read-before-spend prerequisites determine block eligibility.
 
 mod graph;
 mod ordering;
@@ -236,29 +236,6 @@ impl<'a> Selection<'a> {
             .collect()
     }
 
-    #[expect(
-        clippy::indexing_slicing,
-        reason = "The compiled graph validates every endpoint and visits parents before children."
-    )]
-    fn package_eligible_proposed(&self) -> Result<Vec<usize>, PackingError> {
-        let mut eligible = vec![false; self.candidates.len()];
-        let mut selected = Vec::with_capacity(self.candidates.len());
-        for &index in &self.graph.topological {
-            eligible[index] = self.candidates[index].status == Status::Proposed
-                && self
-                    .graph
-                    .parents
-                    .get(index)
-                    .ok_or(PackingError::Projection)?
-                    .iter()
-                    .all(|parent| eligible[*parent]);
-            if eligible[index] {
-                selected.push(index);
-            }
-        }
-        Ok(selected)
-    }
-
     #[cfg(test)]
     fn candidate_index(&self) -> Result<std::collections::HashMap<Byte32, usize>, PackingError> {
         Ok(self
@@ -427,7 +404,8 @@ impl Selection<'_> {
         max_consecutive_failures: usize,
     ) -> Result<Vec<TxEntry>, PackingError> {
         let len = self.candidates.len();
-        let eligible = self.package_eligible_proposed()?;
+        let precedence = self.precedence()?;
+        let eligible = &precedence.eligible;
         if eligible.is_empty() {
             return Ok(Vec::new());
         }
@@ -435,7 +413,7 @@ impl Selection<'_> {
         let mut states = vec![CandidatePackingState::Ineligible; len];
         let mut original = Vec::with_capacity(eligible.len());
         let mut minimum_bytes = usize::MAX;
-        for &index in &eligible {
+        for &index in eligible {
             if aggregates[index].fits(limits) {
                 minimum_bytes = minimum_bytes.min(self.candidates[index].accepted.size);
                 states[index] = CandidatePackingState::Original;
@@ -472,7 +450,6 @@ impl Selection<'_> {
         let mut selected_cycles = 0u64;
         let mut consecutive_failures = 0usize;
         let mut traversal = Traversal::new(len);
-        let mut positions = vec![0usize; len];
         let mut package = Vec::new();
         let mut adjustments = vec![PackageAggregate::default(); len];
         let mut changed = Vec::new();
@@ -499,13 +476,32 @@ impl Selection<'_> {
                 return Err(PackingError::Projection);
             }
             states[index] = CandidatePackingState::Examining;
-            let projected_bytes = selected_bytes
+            let remaining = TemplatePackingLimits::new(
+                limits
+                    .serialized_bytes
+                    .checked_sub(selected_bytes)
+                    .ok_or(PackingError::Projection)?,
+                limits
+                    .cycles
+                    .checked_sub(selected_cycles)
+                    .ok_or(PackingError::Projection)?,
+            );
+            // Preserve checked projected totals even for synthetic integer limits.
+            selected_bytes
                 .checked_add(aggregate.serialized_bytes)
                 .ok_or(PackingError::Arithmetic)?;
-            let projected_cycles = selected_cycles
+            selected_cycles
                 .checked_add(aggregate.cycles)
                 .ok_or(PackingError::Arithmetic)?;
-            if projected_bytes > limits.serialized_bytes || projected_cycles > limits.cycles {
+            let Some(actual) = precedence.collect_package(
+                self,
+                index,
+                &states,
+                remaining,
+                &mut traversal,
+                &mut package,
+            )?
+            else {
                 states[index] = CandidatePackingState::Failed;
                 retire_candidate(
                     index,
@@ -517,37 +513,13 @@ impl Selection<'_> {
                 consecutive_failures = consecutive_failures
                     .checked_add(1)
                     .ok_or(PackingError::Arithmetic)?;
-                if consecutive_failures > max_consecutive_failures {
+                // Unfitting spend packages must not prevent their independently
+                // fitting readers from making the first progress in this block.
+                if consecutive_failures > max_consecutive_failures && !selected.is_empty() {
                     break;
                 }
                 continue;
-            }
-
-            package.clear();
-            if aggregate.entries == 1 {
-                if !self
-                    .graph
-                    .parents
-                    .get(index)
-                    .ok_or(PackingError::Projection)?
-                    .iter()
-                    .all(|parent| states[*parent] == CandidatePackingState::Selected)
-                {
-                    return Err(PackingError::Projection);
-                }
-                package.push(index);
-            } else if !self.chain_package(index, &states, &mut package)? {
-                self.ordered_package(index, &states, &mut traversal, &mut positions, &mut package)?;
-            }
-            let actual = package
-                .iter()
-                .try_fold(PackageAggregate::default(), |sum, member| {
-                    sum.checked_add(PackageAggregate::one(&self.candidates[*member]))
-                        .ok_or(PackingError::Arithmetic)
-                })?;
-            if actual != aggregate {
-                return Err(PackingError::Projection);
-            }
+            };
 
             // Complete the package before finding remaining consumers. Reverse
             // order lets each candidate retire its own queue use exactly once.
@@ -574,8 +546,12 @@ impl Selection<'_> {
                 }
             }
             selected.extend_from_slice(&package);
-            selected_bytes = projected_bytes;
-            selected_cycles = projected_cycles;
+            selected_bytes = selected_bytes
+                .checked_add(actual.serialized_bytes)
+                .ok_or(PackingError::Arithmetic)?;
+            selected_cycles = selected_cycles
+                .checked_add(actual.cycles)
+                .ok_or(PackingError::Arithmetic)?;
             consecutive_failures = 0;
             // Every remaining package contains a queued candidate's own bytes,
             // even after selected ancestors are subtracted. Keep checked-add
@@ -648,11 +624,10 @@ impl Selection<'_> {
             }
         }
 
-        let ordered = self.order_packed_indices(selected)?;
-        let mut entries = Vec::with_capacity(ordered.len());
+        let mut entries = Vec::with_capacity(selected.len());
         let mut final_bytes = 0usize;
         let mut final_cycles = 0u64;
-        for index in ordered {
+        for index in selected {
             let candidate = &self.candidates[index];
             final_bytes = final_bytes
                 .checked_add(candidate.accepted.size)
@@ -666,137 +641,6 @@ impl Selection<'_> {
             return Err(PackingError::Projection);
         }
         Ok(entries)
-    }
-
-    /// A residual chain has one forced parent-first order. Selected ancestors
-    /// cannot change that order; stop at them instead of revisiting the prefix.
-    /// Any residual fork falls back to the complete preference-ordered closure.
-    fn chain_package(
-        &self,
-        mut index: usize,
-        states: &[CandidatePackingState],
-        package: &mut Vec<usize>,
-    ) -> Result<bool, PackingError> {
-        package.clear();
-        loop {
-            match states.get(index).ok_or(PackingError::Projection)? {
-                CandidatePackingState::Ineligible | CandidatePackingState::Selected => {
-                    return Err(PackingError::Projection);
-                }
-                _ => package.push(index),
-            }
-            let mut next = None;
-            for &parent in self
-                .graph
-                .parents
-                .get(index)
-                .ok_or(PackingError::Projection)?
-            {
-                if *states.get(parent).ok_or(PackingError::Projection)?
-                    != CandidatePackingState::Selected
-                    && next.replace(parent).is_some()
-                {
-                    return Ok(false);
-                }
-            }
-            match next {
-                Some(parent) => index = parent,
-                None => {
-                    package.reverse();
-                    return Ok(true);
-                }
-            }
-        }
-    }
-
-    #[expect(
-        clippy::indexing_slicing,
-        reason = "The checked graph supplies the complete ancestor closure and its local index mapping."
-    )]
-    fn ordered_package(
-        &self,
-        index: usize,
-        states: &[CandidatePackingState],
-        traversal: &mut Traversal,
-        positions: &mut [usize],
-        package: &mut Vec<usize>,
-    ) -> Result<(), PackingError> {
-        package.clear();
-        traversal.begin()?;
-        traversal.stack.push(index);
-        while let Some(member) = traversal.stack.pop() {
-            if traversal.marks[member] == traversal.generation {
-                continue;
-            }
-            if states[member] == CandidatePackingState::Ineligible {
-                return Err(PackingError::Projection);
-            }
-            traversal.marks[member] = traversal.generation;
-            positions[member] = package.len();
-            package.push(member);
-            traversal.stack.extend(
-                self.graph
-                    .parents
-                    .get(member)
-                    .ok_or(PackingError::Projection)?,
-            );
-        }
-        // Keep already selected ancestors in this local Kahn traversal. The
-        // full closure reproduces the global preference order; omit them only
-        // from output. Build local edges without scanning external fanout.
-        let mut edges = Vec::new();
-        let mut indegree = Vec::with_capacity(package.len());
-        let mut ready = Vec::new();
-        for (child, &member) in package.iter().enumerate() {
-            let parents = self
-                .graph
-                .parents
-                .get(member)
-                .ok_or(PackingError::Projection)?;
-            indegree.push(parents.len());
-            if parents.is_empty() {
-                ready.push(PackageOrderKey::new(
-                    member,
-                    &self.candidates[member],
-                    self.graph.ancestors[member],
-                ));
-            }
-            for &parent in parents {
-                edges.push((positions[parent], child));
-            }
-        }
-        let children = Links::from_edges(package.len(), &edges)?;
-        let mut ready = BinaryHeap::from(ready);
-        let mut ordered = Vec::with_capacity(package.len());
-        let mut visited = 0usize;
-        while let Some(key) = ready.pop() {
-            let member = key.index;
-            visited = visited.checked_add(1).ok_or(PackingError::Arithmetic)?;
-            if states[member] != CandidatePackingState::Selected {
-                ordered.push(member);
-            }
-            for &child in children
-                .get(positions[member])
-                .ok_or(PackingError::Projection)?
-            {
-                indegree[child] = indegree[child]
-                    .checked_sub(1)
-                    .ok_or(PackingError::Projection)?;
-                if indegree[child] == 0 {
-                    let member = package[child];
-                    ready.push(PackageOrderKey::new(
-                        member,
-                        &self.candidates[member],
-                        self.graph.ancestors[member],
-                    ));
-                }
-            }
-        }
-        if visited != package.len() {
-            return Err(PackingError::CausalCycle);
-        }
-        *package = ordered;
-        Ok(())
     }
 }
 

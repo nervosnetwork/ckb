@@ -321,6 +321,122 @@ fn uak_template_packer_requires_proposed_ancestors_and_orders_conditional_edges(
 }
 
 #[test]
+fn earlier_dependency_readers_gate_spending_across_proposal_and_block_limits() {
+    for phase in [Status::Pending, Status::Gap, Status::Proposed] {
+        let authority = common::store();
+        let shared = OutPoint::new(Byte32::new([203; 32]), 0);
+        let reader = accept(
+            &authority,
+            common::spend(2_034, &[], std::slice::from_ref(&shared)),
+            34,
+            phase,
+            1,
+            1,
+        );
+        let spender = accept(
+            &authority,
+            common::spend(2_035, &[shared], &[]),
+            35,
+            Status::Proposed,
+            1_000_000,
+            1,
+        );
+        let (snapshot, owners) = capture(&authority);
+        let receipt = selection(&owners, &snapshot);
+        for limit in [1, 2] {
+            let packed = receipt
+                .pack_transactions(TemplatePackingLimits::new(usize::MAX, limit))
+                .unwrap();
+            let expected = match (phase, limit) {
+                (Status::Proposed, 1) => vec![reader.clone()],
+                (Status::Proposed, 2) => vec![reader.clone(), spender.clone()],
+                _ => Vec::new(),
+            };
+            assert_eq!(
+                packed_hashes(&packed),
+                expected,
+                "{phase:?}, {limit} cycles"
+            );
+        }
+    }
+}
+
+#[test]
+fn dependency_readers_larger_than_one_block_do_not_pin_the_spender() {
+    let authority = common::store();
+    let shared = OutPoint::new(Byte32::new([204; 32]), 0);
+    let readers: BTreeSet<_> = (0..130)
+        .map(|index| {
+            accept(
+                &authority,
+                common::spend(2_200 + index, &[], std::slice::from_ref(&shared)),
+                index as usize,
+                Status::Proposed,
+                1,
+                1,
+            )
+        })
+        .collect();
+    let spender = accept(
+        &authority,
+        common::spend(2_330, &[shared], &[]),
+        130,
+        Status::Proposed,
+        1_000_000,
+        1,
+    );
+    let mut committed = BTreeSet::new();
+    for _ in 0..3 {
+        let (snapshot, owners) = capture(&authority);
+        let packed = selection(&owners, &snapshot)
+            .pack_transactions(TemplatePackingLimits::new(usize::MAX, 64))
+            .unwrap();
+        assert!(!packed.is_empty(), "bounded reader work must make progress");
+        for hash in packed_hashes(&packed) {
+            if hash == spender {
+                assert!(readers.is_subset(&committed));
+            }
+            committed.insert(hash.clone());
+            let owner = authority.point(&hash).1.unwrap();
+            authority.apply(common::delete(&authority, owner)).unwrap();
+        }
+    }
+    assert_eq!(committed.len(), readers.len() + 1);
+    assert!(committed.contains(&spender));
+}
+
+#[test]
+fn unfitting_spend_packages_cannot_stop_selection_before_a_reader_makes_progress() {
+    let authority = common::store();
+    let points: Vec<_> = (0..3)
+        .map(|index| OutPoint::new(Byte32::new([205; 32]), index))
+        .collect();
+    let reader = accept(
+        &authority,
+        common::spend(2_340, &[], &points),
+        0,
+        Status::Proposed,
+        1,
+        1,
+    );
+    for (index, point) in points.into_iter().enumerate() {
+        accept(
+            &authority,
+            common::spend(2_341 + index as u32, &[point], &[]),
+            index,
+            Status::Proposed,
+            1_000_000,
+            1,
+        );
+    }
+    let (snapshot, owners) = capture(&authority);
+    let packed = selection(&owners, &snapshot)
+        .pack_transactions_with_failure_bound(TemplatePackingLimits::new(usize::MAX, 1), 0)
+        .unwrap();
+    assert_eq!(packed_hashes(&packed), vec![reader]);
+}
+
+#[test]
 fn uak_template_packer_bounds_long_conditional_scc_fallback() {
     const CYCLE_MEMBERS: usize = 66;
     let points = (0..CYCLE_MEMBERS)
@@ -467,8 +583,9 @@ fn template_causal_eligibility_matches_every_three_vertex_dag_and_proposal_phase
                 .collect();
             let expected = expected_causal_membership(&statuses, &parents);
             let actual = selection
-                .package_eligible_proposed()
+                .precedence()
                 .unwrap()
+                .eligible
                 .into_iter()
                 .collect::<BTreeSet<_>>();
             assert_eq!(actual, expected, "edges={edge_mask} phases={encoding}");

@@ -239,7 +239,7 @@ fn assert_state(store: &Store, expected: &[Expected], wakes: &[DependencyKey]) {
     let mut roles: BTreeMap<RelationKey, BTreeMap<Byte32, u8>> = BTreeMap::new();
     let mut peers: BTreeMap<PeerIndex, BTreeSet<Byte32>> = BTreeMap::new();
     let mut queued = [Vec::new(), Vec::new()];
-    let mut orphan = 0;
+    let mut waiting = 0;
     let mut proposed = 0;
     for expected in expected {
         assert_eq!(
@@ -306,7 +306,7 @@ fn assert_state(store: &Store, expected: &[Expected], wakes: &[DependencyKey]) {
         match expected.shape {
             Shape::Resolve => queued[0].push(&expected.owner),
             Shape::Verify => queued[1].push(&expected.owner),
-            Shape::Waiting => orphan += 1,
+            Shape::Waiting => waiting += 1,
             Shape::Proposed => proposed += 1,
             _ => {}
         }
@@ -324,7 +324,7 @@ fn assert_state(store: &Store, expected: &[Expected], wakes: &[DependencyKey]) {
     let mut actual_proposals = BTreeMap::new();
     let mut actual_deadlines = BTreeSet::new();
     let mut actual_times = BTreeSet::new();
-    let mut actual_orphan = 0;
+    let mut actual_waiting = 0;
     let mut actual_proposed = 0;
     for shard in &store.shards {
         let shard = shard.read();
@@ -344,7 +344,7 @@ fn assert_state(store: &Store, expected: &[Expected], wakes: &[DependencyKey]) {
         for timestamp in &shard.accepted_times {
             assert!(actual_times.insert(timestamp.clone()));
         }
-        actual_orphan += shard.orphan;
+        actual_waiting += shard.waiting;
         actual_proposed += shard.proposed;
     }
     assert_eq!(
@@ -369,8 +369,8 @@ fn assert_state(store: &Store, expected: &[Expected], wakes: &[DependencyKey]) {
         "state oracle: accepted timestamps"
     );
     assert_eq!(
-        (actual_orphan, actual_proposed),
-        (orphan, proposed),
+        (actual_waiting, actual_proposed),
+        (waiting, proposed),
         "state oracle: phase counts"
     );
     let mut actual_roles = BTreeMap::new();

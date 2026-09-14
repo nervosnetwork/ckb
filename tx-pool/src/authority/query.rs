@@ -109,7 +109,7 @@ pub(super) fn summary(store: &Store, config: &TxPoolConfig) -> Result<TxPoolInfo
             .checked_sub(summary.proposed)
             .ok_or(Error::Fault("summary proposal count"))?,
         proposed_size: summary.proposed,
-        orphan_size: summary.orphan,
+        orphan_size: summary.waiting,
         total_tx_size: summary.accepted.serialized,
         total_tx_cycles: summary.accepted.cycles,
         min_fee_rate: config.min_fee_rate,

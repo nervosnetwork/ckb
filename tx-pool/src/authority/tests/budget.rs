@@ -134,7 +134,7 @@ fn active_capacity_return_wakes_registered_waiters() {
 #[test]
 fn active_pipeline_reserves_execution_population_within_the_derived_budget() {
     let snapshot = crate::test_support::genesis_snapshot();
-    for workers in [1, 2, 8, 16] {
+    for workers in [0, 1, 2, 8, 16] {
         let mut configuration = config();
         configuration.max_tx_verify_workers = workers;
         let store = Store::new(Arc::clone(&snapshot), &configuration).unwrap();
@@ -174,7 +174,9 @@ fn active_pipeline_reserves_execution_population_within_the_derived_budget() {
             .collect();
         assert!(matches!(
             store.budget.active(remote(1, 1)),
-            Err(Error::Full(FullReason::Other("peer active work")))
+            Err(Error::Full(FullReason::Other(
+                "peer active work" | "remote active work"
+            )))
         ));
         drop(peer_jobs);
         assert!(!store.budget.faulted());

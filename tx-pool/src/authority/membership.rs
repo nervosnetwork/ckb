@@ -340,7 +340,7 @@ fn rbf(
         .map_err(|error| {
             if matches!(error, Error::Rejected(Reject::Full(_))) {
                 Reject::RBFRejected(format!(
-                    "Tx conflict with too many txs, conflict txs count: >= {}, expect <= {}",
+                    "Tx conflict with too many txs, conflict txs count: {}, expect <= {} (count is a lower bound)",
                     MAX_POOL_MUTATION_CANDIDATES + 1,
                     MAX_POOL_MUTATION_CANDIDATES
                 ))
@@ -444,9 +444,8 @@ fn candidate_parents(
             parents.insert(compact_packed(&point.tx_hash()));
         }
     }
-    // A reader is not a causal parent of the spender. Their relative order
-    // matters only if both are selected into a block; packing derives that
-    // conditional edge from the selected inputs and cell dependencies.
+    // Earlier readers are packing prerequisites, not producers. Packing derives
+    // their read-before-spend order without charging it as causal ancestry.
     Ok(parents)
 }
 fn apply_virtual(

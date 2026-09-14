@@ -15,7 +15,7 @@ impl Pool {
                     self.open()?;
                     match ingress::prepare(&self.store, Arc::clone(&transaction), source) {
                         Ok(plan) => Ok(plan),
-                        Err(Error::Full(reason)) => ingress::capacity_rejection(
+                        Err(Error::Full(reason)) => ingress::capacity_refusal(
                             &self.store,
                             &transaction.hash(),
                             source,
@@ -34,7 +34,7 @@ impl Pool {
                     let batch = self
                         .commit(|| {
                             self.open()?;
-                            ingress::capacity_rejection(
+                            ingress::capacity_refusal(
                                 &self.store,
                                 &transaction.hash(),
                                 source,

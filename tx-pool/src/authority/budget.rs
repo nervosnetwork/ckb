@@ -140,7 +140,7 @@ impl Limits {
         residency: ResidencyLimits,
     ) -> Result<Self, Error> {
         let bad = || Error::Full("invalid transaction-pool resource configuration".into());
-        let workers = config.max_tx_verify_workers.max(1);
+        let workers = config.max_tx_verify_workers;
         let remote_items = workers.checked_add(1).ok_or_else(bad)?;
         let active_items = remote_items.checked_add(1).ok_or_else(bad)?;
         if active_items > tokio::sync::Semaphore::MAX_PERMITS {

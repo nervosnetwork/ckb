@@ -452,14 +452,12 @@ async fn transient_rejection_diagnostics_require_commit_and_activation() {
     let source = super::super::ingress::remote_source(17.into(), 1).unwrap();
     let hash = tx(803).hash();
     let refusal = || {
-        Effect::candidate_rejected(
+        Effect::capacity_refused(
             &hash,
-            Reject::Full("peer pipeline".into()),
+            FullReason::Other("peer pipeline"),
             source,
-            None,
             &store.budget,
         )
-        .unwrap()
     };
     let (sink, receiver) =
         super::super::relay::production_authority_relay_mailbox(1024, 128).unwrap();

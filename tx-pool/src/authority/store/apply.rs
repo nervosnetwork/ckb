@@ -109,7 +109,7 @@ impl Shard {
             proposals,
             deadlines,
             accepted_times,
-            orphan,
+            waiting,
             proposed,
             revision,
             accepted_revision,
@@ -120,7 +120,7 @@ impl Shard {
         if let Some(before) = &edit.before {
             // Exact owner validation and the population bound
             // make these derived phase-count updates infallible.
-            *orphan -= usize::from(matches!(before.phase, Phase::Waiting(_)));
+            *waiting -= usize::from(matches!(before.phase, Phase::Waiting(_)));
             *proposed -= usize::from(
                 before
                     .accepted()
@@ -144,7 +144,7 @@ impl Shard {
             }
         }
         if let Some(after) = &edit.after {
-            *orphan += usize::from(matches!(after.phase, Phase::Waiting(_)));
+            *waiting += usize::from(matches!(after.phase, Phase::Waiting(_)));
             *proposed += usize::from(
                 after
                     .accepted()

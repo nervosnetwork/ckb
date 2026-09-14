@@ -65,7 +65,7 @@ struct Shard {
     deadlines: BTreeSet<(Instant, Byte32)>,
     accepted_times: BTreeSet<(u64, Byte32)>,
     // Derived only by owner edits; proposed is refreshed with a new snapshot.
-    orphan: usize,
+    waiting: usize,
     proposed: usize,
     revision: u64,
     accepted_revision: u64,
@@ -73,7 +73,7 @@ struct Shard {
 pub(super) struct Summary {
     pub(super) snapshot: Arc<Snapshot>,
     pub(super) accepted: Amount,
-    pub(super) orphan: usize,
+    pub(super) waiting: usize,
     pub(super) proposed: usize,
     pub(super) queued: usize,
     pub(super) last_updated: u64,
@@ -781,7 +781,7 @@ impl Store {
         Summary {
             snapshot: Arc::clone(&view.snapshot),
             accepted: self.budget.accepted_usage(),
-            orphan: guards.iter().map(|shard| shard.orphan).sum(),
+            waiting: guards.iter().map(|shard| shard.waiting).sum(),
             proposed: guards.iter().map(|shard| shard.proposed).sum(),
             queued: self.queues.queued_len(),
             last_updated: guards

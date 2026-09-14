@@ -238,7 +238,7 @@ fn verification_owner_and_declared_cycles_are_hidden_until_acceptance() {
 }
 
 #[test]
-fn missing_dependencies_stay_orphan_across_proposal_windows() {
+fn waiting_dependencies_remain_rpc_orphans_across_proposal_windows() {
     use crate::authority::{ingress, jobs};
     use ckb_proposal_table::ProposalView;
 

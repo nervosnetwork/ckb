@@ -111,13 +111,14 @@ impl Reject {
 
     /// Returns true when the rejection should appear in recent-rejection status.
     ///
-    /// `Full` and `ExcessiveVerifyTime` are transient local resource outcomes;
-    /// `Duplicated` leaves the existing transaction status intact. Recent records
-    /// answer status queries and do not gate transaction admission.
+    /// Terminal capacity rejections and evictions remain queryable. Recent
+    /// records do not gate admission, so a recorded transaction can be retried.
+    /// `Duplicated` preserves existing status; VM timeouts are not retained.
     pub fn should_recorded(&self) -> bool {
         match self {
-            Self::Duplicated(..) | Self::Full(..) | Self::ExcessiveVerifyTime => false,
+            Self::Duplicated(..) | Self::ExcessiveVerifyTime => false,
             Self::LowFeeRate(..)
+            | Self::Full(..)
             | Self::ExceededMaximumAncestorsCount
             | Self::ExceededTransactionSizeLimit(..)
             | Self::Malformed(..)
@@ -484,7 +485,7 @@ mod tests {
                 Reject::ExceededTransactionSizeLimit(2, 1),
                 (false, true, true),
             ),
-            (Reject::Full("pressure".into()), (false, false, true)),
+            (Reject::Full("pressure".into()), (false, true, true)),
             (Reject::Duplicated(Default::default()), (false, false, true)),
             (
                 Reject::Malformed("fixture".into(), "invalid".into()),

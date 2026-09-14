@@ -34,26 +34,16 @@ fn mixed_owners() -> (
 }
 
 #[test]
-fn conditional_graph_subsets_equal_fresh_rebuilds() {
+fn precedence_subsets_match_transaction_relationships() {
     let (owners, snapshot, _) = mixed_owners();
     let selection =
         Selection::new(&owners, &snapshot, common::config().max_ancestors_count).unwrap();
     let count = selection.candidates.len();
-    let indices: Vec<_> = (0..count).collect();
-    let original = selection
-        .conditional_graph(
-            &vec![true; count],
-            selection.conditional_edges(&indices).unwrap(),
-        )
-        .unwrap();
+    let original = selection.precedence_graph().unwrap();
     // Every subset, including non-package-closed subsets, checks the stated
     // edge-source invariant independently of the SCC traversal implementation.
     for mask in 0..(1usize << count) {
         let active: Vec<_> = (0..count).map(|index| mask & (1 << index) != 0).collect();
-        let indices: Vec<_> = (0..count).filter(|index| active[*index]).collect();
-        let rebuilt = selection
-            .conditional_graph(&active, selection.conditional_edges(&indices).unwrap())
-            .unwrap();
         for parent in 0..count {
             let induced: Vec<_> = original
                 .get(parent)
@@ -62,11 +52,34 @@ fn conditional_graph_subsets_equal_fresh_rebuilds() {
                 .copied()
                 .filter(|child| active[parent] && active[*child])
                 .collect();
-            assert_eq!(
-                induced,
-                rebuilt.get(parent).unwrap(),
-                "mask={mask} parent={parent}"
-            );
+            let reader = owners[parent].accepted().unwrap();
+            let expected: Vec<_> = (0..count)
+                .filter(|child| {
+                    if !active[parent] || !active[*child] || parent == *child {
+                        return false;
+                    }
+                    let consumer = owners[*child].accepted().unwrap();
+                    let causal = consumer
+                        .transaction
+                        .transaction
+                        .input_pts_iter()
+                        .chain(consumer.transaction.related_dep_out_points().cloned())
+                        .any(|point| point.tx_hash() == owners[parent].hash());
+                    let read_before_spend =
+                        reader
+                            .transaction
+                            .related_dep_out_points()
+                            .any(|dependency| {
+                                consumer
+                                    .transaction
+                                    .transaction
+                                    .input_pts_iter()
+                                    .any(|input| input == *dependency)
+                            });
+                    causal || read_before_spend
+                })
+                .collect();
+            assert_eq!(induced, expected, "mask={mask} parent={parent}");
         }
     }
 }
@@ -95,7 +108,7 @@ fn reused_graph_drops_multiple_sccs_and_complete_causal_packages() {
 #[test]
 fn inactive_endpoints_are_skipped_but_out_of_range_edges_are_rejected() {
     let active = [true, false, true];
-    let rank = [Some(1), None, Some(0)];
+    let rank = [1, 2, 0];
     let children = Links::from_lists([vec![1, 2], vec![2], Vec::new()]);
     assert_eq!(
         topological_active_order(&active, &rank, &children).unwrap(),

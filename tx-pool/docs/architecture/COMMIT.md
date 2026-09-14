@@ -176,8 +176,11 @@ chain backing dead; [membership](../../src/authority/membership.rs) decides RBF.
 Admission requires every resolved input, cell-dep, dep-group container and expanded
 member to remain live after replacement. A spender already in the pool must be
 removed by that same replacement; a later dependency reader is otherwise rejected.
-Only producers create causal ancestry. Conditional reader-before-spender order
-belongs to [packing](../../src/authority/packing.rs), not the ancestor budget.
+Successful admission fixes the order: earlier readers remain accepted; a later
+reader cannot use an observation made before the spender committed. Only producers
+create causal ancestry. [Packing](../../src/authority/packing.rs) requires retained
+earlier readers before the spender, across blocks when necessary, without adding
+them to the ancestor budget.
 
 RBF counts shared descendants once, checks full input/dependency backing, and
 commits candidate plus victims atomically. Complete relation observations prevent

@@ -36,6 +36,10 @@ Pipeline capacity includes both retained owners and reserved active-job envelope
 These are charged limits, not preallocated memory or a whole-process RSS bound.
 They are internal policy, so operators do not configure competing memory knobs.
 
+An explicit `max_tx_verify_workers = 0` leaves remote verification work queued.
+Direct local submission and control requests still run; zero is not replaced by
+the default worker count.
+
 `Limits::new` rejects unusable envelopes, zero ancestors, zero cycle-rate/time
 bounds, inverted time bounds and arithmetic overflow. Construction requires a
 multi-thread Tokio runtime. Increasing workers divides the active byte/edge
@@ -260,7 +264,10 @@ Update [RPC error mapping](../../rpc/src/error.rs),
 [notice diagnostic detachment](../src/authority/notice.rs) as required by their
 exhaustive matches. Policy is captured before diagnostic detachment; bounded
 strings must preserve the selected behavior. Recent records answer status queries
-and do not gate admission. Regenerate RPC documentation with `make gen-rpc-doc`
+and do not gate admission. Terminal capacity rejections, including evictions,
+remain queryable. An ingress capacity refusal only diagnoses pressure and releases
+relay tracking; it does not write a rejected transaction status.
+Regenerate RPC documentation with `make gen-rpc-doc`
 and verify it with `make check-dirty-rpc-doc`; do not edit generated output by hand.
 Extend the Reject policy matrix, the
 [atomic peer-revocation tests](../src/authority/tests/ingress_contracts.rs), and

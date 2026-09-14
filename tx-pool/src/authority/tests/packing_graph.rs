@@ -161,12 +161,7 @@ fn preference(
         .then_with(|| owners[right.0].hash().cmp(&owners[left.0].hash()))
 }
 
-fn reference_pack(
-    owners: &[Arc<Entry>],
-    limits: TemplatePackingLimits,
-    failure_bound: usize,
-) -> Vec<Byte32> {
-    let parents = semantic_parents(owners);
+fn reference_order(owners: &[Arc<Entry>], parents: &[Vec<usize>]) -> Vec<usize> {
     let mut ordered = Vec::new();
     let mut visited = BTreeSet::new();
     while visited.len() < owners.len() {
@@ -182,14 +177,24 @@ fn reference_pack(
             .max_by(|left, right| {
                 preference(
                     owners,
-                    (*left, &closure(*left, &parents)),
-                    (*right, &closure(*right, &parents)),
+                    (*left, &closure(*left, parents)),
+                    (*right, &closure(*right, parents)),
                 )
             })
             .unwrap();
         visited.insert(next);
         ordered.push(next);
     }
+    ordered
+}
+
+fn reference_pack(
+    owners: &[Arc<Entry>],
+    limits: TemplatePackingLimits,
+    failure_bound: usize,
+) -> Vec<Byte32> {
+    let parents = semantic_parents(owners);
+    let ordered = reference_order(owners, &parents);
     let mut queued: BTreeSet<_> = (0..owners.len())
         .filter(|index| fits(totals(owners, &closure(*index, &parents)), limits))
         .collect();
@@ -344,16 +349,16 @@ fn already_selected_ancestors_still_determine_local_package_order() {
 }
 
 #[test]
-fn residual_chains_preserve_full_closure_order_and_failed_ancestors() {
+fn residual_packages_preserve_full_closure_order_and_failed_ancestors() {
     let snapshot = crate::test_support::genesis_snapshot();
-    let mut chains = 0;
-    let mut forks = 0;
     for mask in 0..(1 << 6) {
         let parents = dag(4, mask);
         let owners = fixture(&parents, |index, _| {
             ([1, 100_000, 60_000, 1_000_000][index], 1, index as u64)
         });
         let selection = Selection::new(&owners, &snapshot, 4).unwrap();
+        let precedence = selection.precedence().unwrap();
+        let ordered = reference_order(&owners, &parents);
         for selected in 0..(1 << 4) {
             // Production selection is ancestor-closed. Include Failed states:
             // a previously non-fitting ancestor can still be pulled by a child.
@@ -380,30 +385,35 @@ fn residual_chains_preserve_full_closure_order_and_failed_ancestors() {
                 if states[index] == CandidatePackingState::Selected {
                     continue;
                 }
-                let mut chain = Vec::new();
-                if selection.chain_package(index, &states, &mut chain).unwrap() {
-                    let mut expected = Vec::new();
-                    selection
-                        .ordered_package(
-                            index,
-                            &states,
-                            &mut Traversal::new(4),
-                            &mut [0; 4],
-                            &mut expected,
-                        )
-                        .unwrap();
-                    assert_eq!(
-                        chain, expected,
-                        "mask={mask} selected={selected} index={index}"
-                    );
-                    chains += 1;
-                } else {
-                    forks += 1;
-                }
+                let mut package = Vec::new();
+                let actual = precedence
+                    .collect_package(
+                        &selection,
+                        index,
+                        &states,
+                        TemplatePackingLimits::new(usize::MAX, u64::MAX),
+                        &mut Traversal::new(4),
+                        &mut package,
+                    )
+                    .unwrap()
+                    .unwrap();
+                let required = closure(index, &parents);
+                let expected: Vec<_> = ordered
+                    .iter()
+                    .copied()
+                    .filter(|member| {
+                        required.contains(member)
+                            && states[*member] != CandidatePackingState::Selected
+                    })
+                    .collect();
+                assert_eq!(
+                    package, expected,
+                    "mask={mask} selected={selected} index={index}"
+                );
+                assert_eq!(actual.entries, expected.len());
             }
         }
     }
-    assert!(chains > 0 && forks > 0);
 }
 
 #[test]
@@ -423,11 +433,20 @@ fn residual_chain_omits_a_large_selected_shared_prefix() {
     states.resize(owners.len(), CandidatePackingState::Original);
     let mut package = Vec::new();
     for index in (501..owners.len()).step_by(2) {
-        assert!(
-            selection
-                .chain_package(index, &states, &mut package)
-                .unwrap()
-        );
+        let aggregate = selection
+            .precedence()
+            .unwrap()
+            .collect_package(
+                &selection,
+                index,
+                &states,
+                TemplatePackingLimits::new(usize::MAX, u64::MAX),
+                &mut Traversal::new(owners.len()),
+                &mut package,
+            )
+            .unwrap()
+            .unwrap();
+        assert_eq!(aggregate.entries, 2);
         assert_eq!(package, [index - 1, index]);
     }
 }

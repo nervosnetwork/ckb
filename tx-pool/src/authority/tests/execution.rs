@@ -777,7 +777,7 @@ async fn internal_insertion_cannot_replace_or_evict_an_existing_owner() {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-async fn remote_orphan_waits_then_accepts_after_its_parent_completes_normal_verification() {
+async fn remote_waiting_transaction_accepts_after_its_parent_completes_normal_verification() {
     let (pool, sink, _, handle) = fixture();
     let parent = fund(&pool, 9013);
     let child = funded_tx(OutPoint::new(parent.hash(), 0), 19_999_998_000);
@@ -838,7 +838,7 @@ async fn remote_orphan_waits_then_accepts_after_its_parent_completes_normal_veri
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-async fn local_submission_and_dry_run_reject_spent_cell_dependencies() {
+async fn dependency_readers_follow_admission_order_including_prepared_reads() {
     use ckb_types::{
         core::{DepType, FeeRate},
         packed::{CellDep, OutPointVec},
@@ -908,11 +908,51 @@ async fn local_submission_and_dry_run_reject_spent_cell_dependencies() {
             .await
             .unwrap()
             .unwrap();
+        let earlier = fund(&pool, nonce + 3)
+            .as_advanced_builder()
+            .set_cell_deps(candidate.cell_deps_iter().collect())
+            .build();
+        within(pool.submit_local(bounded(earlier.clone()), false))
+            .await
+            .unwrap()
+            .unwrap();
+        // Finish verification and prepare admission before the spender wins.
+        // Applying that old plan afterwards must not bypass its spent-cell check.
+        let delayed = entry(&pool.store, candidate.clone(), Source::Local);
+        let jobs::Resolution::Ready(resolved) =
+            jobs::resolve(&pool.store, &delayed, &pool.config).unwrap()
+        else {
+            panic!("the unspent fixture resolves");
+        };
+        let verified = jobs::verify(
+            &pool.store,
+            &delayed,
+            resolved,
+            &pool.config,
+            &pool.cache,
+            &mut pool.commands.clone(),
+            pool.mode,
+        )
+        .await
+        .unwrap();
+        let (delayed_plan, reject) =
+            membership::admission(&pool.store, &delayed, None, &verified, &pool.config, true)
+                .unwrap();
+        assert!(reject.is_none());
         let spender = funded_tx(spent.clone(), 19_999_999_000);
         within(pool.submit_local(bounded(spender.clone()), false))
             .await
             .unwrap()
             .unwrap();
+        assert!(matches!(pool.store.apply(delayed_plan), Err(Error::Stale)));
+        assert!(
+            pool.store
+                .point(&earlier.hash())
+                .1
+                .unwrap()
+                .accepted()
+                .is_some()
+        );
         let before = pool.pool_info().await.unwrap();
         for dry_run in [true, false] {
             let result = within(pool.submit_local(bounded(candidate.clone()), dry_run))

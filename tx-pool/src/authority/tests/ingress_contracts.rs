@@ -19,6 +19,50 @@ fn malformed() -> Reject {
 }
 
 #[test]
+fn ingress_capacity_refusal_preserves_ownership_and_does_not_record_rejection() {
+    for present in [false, true] {
+        for changed in [false, true] {
+            let store = store();
+            let owner = entry(&store, tx(91_004), remote(93, 1));
+            if present {
+                insert(&store, Arc::clone(&owner));
+            }
+            let plan = ingress::capacity_refusal(
+                &store,
+                &owner.hash(),
+                owner.source,
+                FullReason::Pipeline,
+            )
+            .unwrap();
+            assert!(plan.edits().is_empty());
+            assert_eq!(plan.effects().len(), 1);
+            assert!(plan.effects()[0].callback().is_none());
+            assert!(matches!(
+                plan.effects()[0].relay_result(),
+                Some(crate::service::TxVerificationResult::Reject { tx_hash })
+                    if *tx_hash == owner.hash()
+            ));
+            if changed {
+                if present {
+                    replace(&store, Arc::clone(&owner), Phase::Resolve);
+                } else {
+                    insert(&store, Arc::clone(&owner));
+                }
+                assert!(matches!(store.apply(plan), Err(Error::Stale)));
+            } else {
+                store.apply(plan).unwrap();
+                assert_eq!(store.point(&owner.hash()).1.is_some(), present);
+                if present {
+                    assert!(Arc::ptr_eq(&store.point(&owner.hash()).1.unwrap(), &owner));
+                }
+            }
+            assert!(store.outbox.pending_reject(&owner.hash()).is_none());
+            assert!(!store.peer_banned(93.into()));
+        }
+    }
+}
+
+#[test]
 fn refused_plan_retains_its_original_reads_and_discards_speculative_changes_and_effects() {
     for changed in [false, true] {
         let store = store();
