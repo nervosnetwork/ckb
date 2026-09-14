@@ -368,7 +368,7 @@ pub struct TxPoolInfo {
     pub proposed_size: usize,
     /// Count of orphan transactions.
     ///
-    /// These transactions are waiting for missing cells or headers.
+    /// These transactions are waiting for missing cells.
     pub orphan_size: usize,
     /// Total serialized bytes of accepted transactions.
     pub total_tx_size: usize,

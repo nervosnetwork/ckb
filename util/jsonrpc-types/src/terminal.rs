@@ -119,7 +119,7 @@ pub struct TerminalPoolInfo {
     pub proposed: Uint64,
     /// Count of orphan transactions.
     ///
-    /// These transactions are waiting for missing cells or headers.
+    /// These transactions are waiting for missing cells.
     pub orphan: Uint64,
     /// Count of committing transactions.
     ///

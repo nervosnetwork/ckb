@@ -7518,7 +7518,7 @@ Transaction pool information.
 
 * `orphan`: [`Uint64`](#type-uint64) - Count of orphan transactions.
 
-    These transactions are waiting for missing cells or headers.
+    These transactions are waiting for missing cells.
 
 * `pending`: [`Uint64`](#type-uint64) - Count of transactions in the pending state.
 
@@ -7795,7 +7795,7 @@ Transaction pool information.
 
 * `orphan`: [`Uint64`](#type-uint64) - Count of orphan transactions.
 
-    These transactions are waiting for missing cells or headers.
+    These transactions are waiting for missing cells.
 
 * `pending`: [`Uint64`](#type-uint64) - Count of transactions in the pending state.
 
