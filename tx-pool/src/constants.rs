@@ -42,6 +42,8 @@ pub(crate) const EFFECT_JOURNAL_REMOTE_MAX_BATCHES: usize = 4096;
 /// bounded maintenance progress while an untrusted sink is saturated.
 pub(crate) const EFFECT_TRUSTED_HEADROOM_BATCHES: usize = 64;
 pub(crate) const MESSAGE_CONCURRENCY_MULTIPLIER: usize = 2;
+/// One deadline for a template request, including dispatcher queueing.
+pub(crate) const BLOCK_TEMPLATE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(30);
 /// One canonical ceiling for rejection diagnostics retained by either the
 /// authority journal or the recent-reject projection. Keeping both consumers
 /// on this value prevents an outcome that fits one committed boundary but can

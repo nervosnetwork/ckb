@@ -358,7 +358,7 @@ fn resolution_shares_one_detached_cell_across_input_and_dependency_roles() {
 }
 
 #[test]
-fn unknown_inputs_reject_but_dependency_readers_can_precede_pool_spenders() {
+fn resolution_rejects_unknown_inputs_and_retains_spender_observations() {
     let (store, candidate, _) = fixture();
     let missing = entry(
         &store,
@@ -372,7 +372,7 @@ fn unknown_inputs_reject_but_dependency_readers_can_precede_pool_spenders() {
         resolve(&store, &missing, &config()).unwrap(),
         Resolution::Rejected(Reject::Resolve(OutPointError::Unknown(_)), _)
     ));
-    accept(
+    let spender = accept(
         &store,
         candidate.transaction.as_ref().clone(),
         1000,
@@ -383,14 +383,17 @@ fn unknown_inputs_reject_but_dependency_readers_can_precede_pool_spenders() {
     let reader = entry(
         &store,
         ckb_types::core::TransactionBuilder::default()
-            .cell_dep(CellDep::new_builder().out_point(input).build())
+            .cell_dep(CellDep::new_builder().out_point(input.clone()).build())
             .build(),
         Source::Local,
     );
-    assert!(matches!(
-        resolve(&store, &reader, &config()).unwrap(),
-        Resolution::Ready(_)
-    ));
+    let backing = resolved(&store, &reader, &config());
+    assert!(
+        backing
+            .reads
+            .spent()
+            .any(|(point, hash)| point == &input && hash == &spender)
+    );
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]

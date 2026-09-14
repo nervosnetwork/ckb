@@ -495,7 +495,9 @@ fn test_package_txs_with_deps2() {
 }
 
 #[test]
-fn test_package_dep_reader_before_existing_spender() {
+fn test_package_dep_reader_after_rejecting_spent_dependency() {
+    use ckb_types::core::{error::OutPointError, tx_pool::Reject};
+
     let (_, _, always_success_script) = always_success_cell();
     let always_success_tx = create_always_success_tx();
     let issue_tx = TransactionBuilder::default()
@@ -552,7 +554,14 @@ fn test_package_dep_reader_before_existing_spender() {
     assert!(ret.is_ok(), "submit {} {:?}", tx2.proposal_short_id(), ret);
 
     let ret = tx_pool.submit_local_tx(tx1.clone()).unwrap();
-    assert!(ret.is_ok(), "submit {} {:?}", tx1.proposal_short_id(), ret);
+    assert!(matches!(
+        ret,
+        Err(Reject::Resolve(OutPointError::Dead(point)))
+            if point == OutPoint::new(issue_tx.hash(), 1)
+    ));
+    assert!(tx_pool.remove_local_tx(tx2.hash()).unwrap());
+    tx_pool.submit_local_tx(tx1.clone()).unwrap().unwrap();
+    tx_pool.submit_local_tx(tx2.clone()).unwrap().unwrap();
 
     let mut block_template = shared
         .get_block_template(None, None, None)
@@ -609,8 +618,8 @@ fn test_package_dep_reader_before_existing_spender() {
 
     let block: Block = block_template.into();
     let block = block.as_advanced_builder().build();
-    // Admission order does not change the valid set. The dependency reader
-    // must precede the spender so both transactions remain block-valid.
+    // Both transactions can coexist when the dependency reader arrives first.
+    // Packing must preserve that order despite the spender's higher fee.
     assert_eq!(block.transactions()[1], tx1);
     assert_eq!(block.transactions()[2], tx2);
 }

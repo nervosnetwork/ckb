@@ -173,6 +173,9 @@ and bounded table eviction are separate policies.
 [Jobs](../../src/authority/jobs.rs) resolve against the chain snapshot and accepted
 overlay while recording producer/spender premises. A pool spend does not make
 chain backing dead; [membership](../../src/authority/membership.rs) decides RBF.
+Admission requires every resolved input, cell-dep, dep-group container and expanded
+member to remain live after replacement. A spender already in the pool must be
+removed by that same replacement; a later dependency reader is otherwise rejected.
 Only producers create causal ancestry. Conditional reader-before-spender order
 belongs to [packing](../../src/authority/packing.rs), not the ancestor budget.
 

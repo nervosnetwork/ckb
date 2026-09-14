@@ -405,18 +405,14 @@ fn rbf(
     }
     Ok(removed)
 }
-fn validate_backing(
-    verified: &Verified,
-    inputs: &BTreeSet<OutPoint>,
-    removed: &BTreeSet<Byte32>,
-) -> Result<(), Error> {
-    // Inputs require atomic replacement of their spender. A cell-dep reader
-    // may precede an existing spender in a block; packing enforces that order.
+fn validate_backing(verified: &Verified, removed: &BTreeSet<Byte32>) -> Result<(), Error> {
+    // Every resolved cell must remain live after replacement, including
+    // cell-deps and both the container and expanded members of dep groups.
     if let Some((point, _)) = verified
         .resolved()
         .reads
         .spent()
-        .find(|(point, spender)| inputs.contains(*point) && !removed.contains(*spender))
+        .find(|(_, spender)| !removed.contains(*spender))
     {
         return Err(Reject::Resolve(OutPointError::Dead(point.clone())).into());
     }
@@ -545,8 +541,7 @@ fn prepare_admission(
         .iter()
         .map(|hash| (hash.clone(), Removal::Replacement))
         .collect();
-    let inputs = candidate.transaction.input_pts_iter().collect();
-    validate_backing(verified, &inputs, &removed)?;
+    validate_backing(verified, &removed)?;
     let parents = candidate_parents(graph, candidate, verified, &removed)?;
     let ancestors = graph.ancestors(
         parents.iter().cloned(),
@@ -626,13 +621,14 @@ fn prepare_admission(
             graph.limits().accepted,
         )?;
     }
-    validate_backing(verified, &inputs, &removed)?;
+    validate_backing(verified, &removed)?;
     let order = removal_order(graph.entries(), &removed)?;
     let removed_totals = if order.len() > 1 {
         Some(graph.removal_totals(&order, config.max_ancestors_count)?)
     } else {
         None
     };
+    let inputs = candidate.transaction.input_pts_iter().collect();
     for hash in order {
         let old = graph.require(&hash)?;
         let old_snapshot = if let Some(totals) = &removed_totals {
@@ -926,9 +922,6 @@ pub(super) fn removal(
             };
             graph.plan.edit(Some(old), None, effect)?;
         }
-    }
-    if reason.is_none() {
-        plan.notify(Effect::reset());
     }
     Ok(plan)
 }

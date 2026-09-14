@@ -18,9 +18,14 @@ pub(crate) async fn process(pool: Arc<Pool>, message: Message) -> Result<(), Err
             respond(responder, pool.live_cell(&point, data), "get_live_cell");
             Ok(())
         }
-        Message::BlockTemplate(Request { responder, .. }) => {
-            reply_result(responder, pool.block_template().await, "block_template")
-        }
+        Message::BlockTemplate(Request {
+            responder,
+            arguments,
+        }) => reply_result(
+            responder,
+            pool.block_template(arguments).await,
+            "block_template",
+        ),
         Message::SubmitLocalTx(Request {
             responder,
             arguments,
@@ -155,14 +160,6 @@ pub(crate) async fn process(pool: Arc<Pool>, message: Message) -> Result<(), Err
                 ckb_logger::error!("explicit tx-pool save failed: {error}");
             }
             respond(responder, (), "save_pool");
-            Ok(())
-        }
-        Message::UpdateIBDState(Request {
-            responder,
-            arguments,
-        }) => {
-            pool.ibd(arguments);
-            respond(responder, (), "update_ibd_state");
             Ok(())
         }
         Message::EstimateFeeRate(Request {

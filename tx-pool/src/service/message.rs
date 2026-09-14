@@ -418,7 +418,7 @@ impl RemoteTxSubmission {
 }
 
 pub(crate) enum Message {
-    BlockTemplate(SyncRequest<(), BlockTemplateResult>),
+    BlockTemplate(SyncRequest<tokio::time::Instant, BlockTemplateResult>),
     SubmitLocalTx(SyncRequest<BoundedTransaction, SubmitTxResult>),
     RemoveLocalTx(SyncRequest<Byte32, RemoveLocalTxResult>),
     TestAcceptTx(SyncRequest<BoundedTransaction, TestAcceptTxResult>),
@@ -439,7 +439,6 @@ pub(crate) enum Message {
     GetPoolTxDetails(SyncRequest<Byte32, PoolTxDetailInfo>),
     GetTotalRecentRejectNum(SyncRequest<(), Option<u64>>),
 
-    UpdateIBDState(SyncRequest<bool, ()>),
     EstimateFeeRate(SyncRequest<(EstimateMode, bool), FeeEstimatesResult>),
 
     // test
@@ -476,8 +475,7 @@ impl Message {
             | Self::SubmitRemoteTxBatch(_)
             | Self::NotifyTxs(_)
             | Self::NewUncle(_)
-            | Self::SavePool(_)
-            | Self::UpdateIBDState(_) => false,
+            | Self::SavePool(_) => false,
             #[cfg(feature = "internal")]
             Self::PlugEntry(_) => false,
         }
@@ -618,8 +616,8 @@ impl ChainReorgArgs {
     }
 }
 
-/// Rare generation controls that must preserve producer order with chain
-/// reconciliation.
+/// Chain completion and generation controls, independent of transaction handlers
+/// which can be waiting for the block consumer to resume verification.
 ///
 /// Keeping these commands on one bounded lane prevents a clear that follows
 /// an installed chain transition from being overtaken by that transition's
@@ -627,6 +625,7 @@ impl ChainReorgArgs {
 /// on the concurrent dispatcher.
 pub(crate) enum ChainControl {
     Reconcile(SyncRequest<ChainReorgArgs, ()>),
+    UpdateIBDState(SyncRequest<bool, ()>),
     /// Replace the tx-pool snapshot, clear **all** accepted entries, and retire
     /// every pre-pool location as one generation.
     ClearPool(AdmittedAdministration<SyncRequest<Arc<Snapshot>, ()>>),

@@ -51,9 +51,12 @@ Synchronous APIs use the service runtime; direct callback mutation is rejected.
 |---|---|
 | `submit_local_tx` | Completed verification/admission outcome; inspect both transport result and inner `Reject` result |
 | `test_accept_tx` | Same admission policy and final validation without insertion or relay |
+| `remove_local_tx` | Removes the selected transaction and accepted descendants; preserves the network's recent-known history |
 | `submit_remote_tx` / `submit_remote_txs` | Ingress processing, not accepted membership; batch outcome names the processed input prefix, including rejects |
 | `notify_txs` / `notify_new_uncle` | Admission to the bounded request route, not completion of downstream work |
 | `update_tx_pool_for_reorg` | Reliable reconciliation and required publication completed |
+| `update_ibd_state` | Fee-estimator IBD state updated on the ordered chain route, independent of suspended transaction handlers |
+| `get_block_template` | Validated mining template returned within one 30-second request deadline, including queueing; timeout does not cancel the shared builder |
 | `clear_pool` / `clear_verify_queue` | Reliable administrative request completed |
 | `stop` | Cancellation signalled; tasks can still be joining |
 | `suspend_chunk_process` / `continue_chunk_process` | Pool computation pause/resume requested; suspension is cooperative and does not establish VM quiescence |

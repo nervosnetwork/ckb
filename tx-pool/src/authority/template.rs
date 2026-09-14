@@ -29,10 +29,6 @@ use std::{
 };
 use tokio::sync::Notify;
 
-// Limit a reader's cooperative wait for the shared driver. This does not
-// cancel that driver or promise to interrupt synchronous storage operations.
-const TEMPLATE_REFRESH_WAIT: Duration = Duration::from_secs(30);
-
 /// Validity follows the lifecycle and selected transaction/proposal owners.
 /// Unrelated admissions may trigger a refresh without invalidating this template.
 /// Weak identities detect owner replacement without retaining retired entries.
@@ -78,10 +74,10 @@ impl Driver {
             Err(error) => ckb_logger::warn!("candidate uncle unavailable: {error:?}"),
         }
     }
-    pub(super) async fn read(&self) -> Result<JsonBlockTemplate, Error> {
-        let deadline = tokio::time::Instant::now()
-            .checked_add(TEMPLATE_REFRESH_WAIT)
-            .ok_or(Error::Full("template refresh deadline".into()))?;
+    pub(super) async fn read(
+        &self,
+        deadline: tokio::time::Instant,
+    ) -> Result<JsonBlockTemplate, Error> {
         let mut attempted = false;
         loop {
             let updated = self.updated.notified();
@@ -90,6 +86,11 @@ impl Driver {
             }
             if self.store.is_stopped() {
                 return Err(Error::Closed);
+            }
+            // Queueing and previous stale attempts already used this request's
+            // time. An expired reader cannot start another refresh wait.
+            if tokio::time::Instant::now() >= deadline {
+                return Err(Error::Full("template refresh timeout".into()));
             }
             let current = Arc::clone(&self.assembler.current.read());
             if let Some(source) = &current.source {
@@ -110,11 +111,6 @@ impl Driver {
             drop(current);
             if attempted && self.failed.load(Ordering::Acquire) {
                 return Err(Error::Full("template build".into()));
-            }
-            // A ready notification can win timeout_at's first poll. Repeated
-            // stale builds must still respect this reader's original deadline.
-            if tokio::time::Instant::now() >= deadline {
-                return Err(Error::Full("template refresh timeout".into()));
             }
             self.requested.notify_one();
             attempted = true;

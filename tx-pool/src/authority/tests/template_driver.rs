@@ -42,6 +42,9 @@ async fn within<T>(future: impl std::future::Future<Output = T>) -> T {
         .await
         .expect("template event completes")
 }
+fn deadline() -> tokio::time::Instant {
+    tokio::time::Instant::now() + crate::constants::BLOCK_TEMPLATE_TIMEOUT
+}
 fn selected(driver: &Driver) -> Arc<CurrentTemplate> {
     Arc::clone(&driver.assembler.current.read())
 }
@@ -133,13 +136,20 @@ async fn unrelated_acceptance_does_not_invalidate_current_selected_output() {
     let driver = fixture();
     accept(&driver.store, tx(7102), 1, 1, Status::Pending);
     driver.rebuild(&mut Cache::default()).unwrap();
-    let original = within(driver.read()).await.unwrap();
+    let original = within(driver.read(deadline())).await.unwrap();
     accept(&driver.store, tx(7103), 1, 1, Status::Pending);
-    let unchanged = within(driver.read()).await.unwrap();
+    let unchanged = within(driver.read(deadline())).await.unwrap();
     assert_eq!(unchanged.work_id, original.work_id);
     assert_eq!(unchanged.proposals, original.proposals);
     driver.rebuild(&mut Cache::default()).unwrap();
-    assert_eq!(within(driver.read()).await.unwrap().proposals.len(), 2);
+    assert_eq!(
+        within(driver.read(deadline()))
+            .await
+            .unwrap()
+            .proposals
+            .len(),
+        2
+    );
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -161,7 +171,7 @@ async fn removing_a_selected_proposal_requires_a_fresh_publication_before_read()
         Err(Error::Stale)
     ));
     let task = tokio::spawn(Arc::clone(&driver).run());
-    let output = within(driver.read()).await.unwrap();
+    let output = within(driver.read(deadline())).await.unwrap();
     assert!(output.proposals.is_empty());
     driver.store.stop();
     within(task).await.unwrap().unwrap();
@@ -215,11 +225,17 @@ async fn identical_tip_clear_still_requires_a_new_template_source_and_joins() {
     ));
     let task = tokio::spawn(Arc::clone(&driver).run());
     let notify = tokio::spawn(Arc::clone(&driver).notify());
-    assert!(within(driver.read()).await.unwrap().proposals.is_empty());
+    assert!(
+        within(driver.read(deadline()))
+            .await
+            .unwrap()
+            .proposals
+            .is_empty()
+    );
     driver.store.stop();
     within(task).await.unwrap().unwrap();
     within(notify).await.unwrap().unwrap();
-    assert!(matches!(driver.read().await, Err(Error::Closed)));
+    assert!(matches!(driver.read(deadline()).await, Err(Error::Closed)));
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -234,13 +250,27 @@ async fn failed_new_source_build_does_not_return_the_previous_tip_template() {
         .unwrap();
     let task = tokio::spawn(Arc::clone(&driver).run());
     assert!(matches!(
-        within(driver.read()).await,
+        within(driver.read(deadline())).await,
         Err(Error::Full(FullReason::Other("template build")))
     ));
     assert!(Arc::ptr_eq(&selected(&driver), &old));
     assert!(!driver.store.is_faulted());
     driver.store.stop();
     within(task).await.unwrap().unwrap();
+}
+
+#[tokio::test(start_paused = true)]
+async fn time_spent_in_the_dispatch_queue_is_not_renewed_by_the_driver() {
+    let driver = fixture();
+    let deadline = deadline();
+    tokio::time::advance(crate::constants::BLOCK_TEMPLATE_TIMEOUT).await;
+    assert!(matches!(
+        driver.read(deadline).await,
+        Err(Error::Full(FullReason::Other("template refresh timeout")))
+    ));
+    let requested = driver.requested.notified();
+    tokio::pin!(requested);
+    assert!(futures_util::poll!(requested).is_pending());
 }
 
 #[tokio::test(start_paused = true)]
@@ -253,16 +283,16 @@ async fn template_refresh_wait_has_one_deadline_and_keeps_valid_cache_available(
         .apply(chain::clear(&driver.store, None, false).unwrap())
         .unwrap();
     let retained = Arc::strong_count(&old);
-    let read = driver.read();
+    let read = driver.read(deadline());
     tokio::pin!(read);
     assert!(futures_util::poll!(&mut read).is_pending());
     assert_eq!(Arc::strong_count(&old), retained);
-    tokio::time::advance(TEMPLATE_REFRESH_WAIT / 2).await;
+    tokio::time::advance(crate::constants::BLOCK_TEMPLATE_TIMEOUT / 2).await;
     // A completed but stale shared build may wake readers. That wake must not
     // renew a request's original deadline under repeated source changes.
     driver.updated.notify_waiters();
     assert!(futures_util::poll!(&mut read).is_pending());
-    tokio::time::advance(TEMPLATE_REFRESH_WAIT / 2).await;
+    tokio::time::advance(crate::constants::BLOCK_TEMPLATE_TIMEOUT / 2).await;
     driver.updated.notify_waiters();
     assert!(matches!(
         read.await,
@@ -271,9 +301,9 @@ async fn template_refresh_wait_has_one_deadline_and_keeps_valid_cache_available(
     assert!(Arc::ptr_eq(&selected(&driver), &old));
     assert!(!driver.store.is_faulted());
     driver.rebuild(&mut Cache::default()).unwrap();
-    assert!(driver.read().await.unwrap().proposals.is_empty());
+    assert!(driver.read(deadline()).await.unwrap().proposals.is_empty());
     driver.store.stop();
-    assert!(matches!(driver.read().await, Err(Error::Closed)));
+    assert!(matches!(driver.read(deadline()).await, Err(Error::Closed)));
 }
 
 #[test]

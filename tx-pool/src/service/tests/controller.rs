@@ -51,6 +51,44 @@ fn full_controller() -> (TxPoolController, mpsc::Receiver<Message>) {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn block_template_deadline_includes_time_before_dispatch() {
+    let (sender, mut receiver) = mpsc::channel(1);
+    let controller = controller(sender);
+    let client = controller.clone();
+    let mut call = tokio::task::spawn_blocking(move || client.get_block_template(None, None, None));
+    tokio::time::timeout(Duration::from_secs(5), async {
+        while controller.sender.capacity() != 0 {
+            tokio::task::yield_now().await;
+        }
+    })
+    .await
+    .unwrap();
+    // Keep the request in the channel: no handler or template driver has
+    // started its work. The public caller must still reach its deadline.
+    let result = tokio::time::timeout(
+        crate::constants::BLOCK_TEMPLATE_TIMEOUT + Duration::from_secs(5),
+        &mut call,
+    )
+    .await;
+    let Message::BlockTemplate(request) = receiver.try_recv().unwrap() else {
+        panic!("the template request stayed queued");
+    };
+    let expired = request.arguments <= tokio::time::Instant::now();
+    drop(request);
+    let completed_in_queue = result.is_ok();
+    let result = match result {
+        Ok(result) => result.unwrap(),
+        Err(_) => call.await.unwrap(),
+    };
+    assert!(
+        completed_in_queue,
+        "a queued template request cannot wait indefinitely"
+    );
+    assert!(expired);
+    assert!(result.unwrap_err().to_string().contains("timed out"));
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn ordinary_compute_and_template_waits_preserve_reserved_read_routes() {
     use ckb_types::core::{
         TransactionBuilder,

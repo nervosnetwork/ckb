@@ -2,6 +2,7 @@
 
 use crate::block_assembler::BoundedCandidateUncle;
 use crate::error::{handle_recv_error, handle_send_cmd_error, handle_try_send_error};
+use crate::service::message::SyncRequest;
 use crate::service::{
     AdministrationGate, AdmittedAdministration, AsyncRequest, BlockTemplateResult,
     BoundedProposalIds, BoundedTransaction, BoundedTransactionError, BoundedTransactionHashes,
@@ -60,15 +61,7 @@ macro_rules! send_message {
         let (responder, response) = oneshot::channel();
         let request = Request::call($args, responder);
         let message = Message::$msg_type(request);
-        let sender = if message.uses_reserved_read_handlers(crate::callback::in_callback()) {
-            &$self.query_sender
-        } else {
-            &$self.sender
-        };
-        sender.try_send(message).map_err(|e| {
-            let (_m, e) = handle_try_send_error(e);
-            e
-        })?;
+        $self.enqueue(message)?;
         block_in_place(|| response.recv())
             .map_err(handle_recv_error)
             .map_err(Into::into)
@@ -86,20 +79,9 @@ macro_rules! send_admitted_chain_control {
                 )
                 .into()
             })?;
-        let (responder, response) = oneshot::channel();
-        let request = Request::call($args, responder);
-        let command = ChainControl::$command(AdmittedAdministration::new(admission, request));
-        block_in_place(|| {
-            $self
-                .handle
-                .block_on($self.chain_control_sender.send(command))
+        $self.send_chain_control($args, |request| {
+            ChainControl::$command(AdmittedAdministration::new(admission, request))
         })
-        .map_err(|error| {
-            ckb_error::OtherError::new(format!("send ordered chain control fails: {error}"))
-        })?;
-        block_in_place(|| response.recv())
-            .map_err(handle_recv_error)
-            .map_err(Into::into)
     }};
 }
 
@@ -133,11 +115,38 @@ fn bounded_direct_transaction(
 }
 
 impl TxPoolController {
-    fn send_notify(&self, message: Message) -> Result<(), AnyError> {
-        self.sender.try_send(message).map_err(|error| {
+    fn enqueue(&self, message: Message) -> Result<(), AnyError> {
+        let sender = if message.uses_reserved_read_handlers(crate::callback::in_callback()) {
+            &self.query_sender
+        } else {
+            &self.sender
+        };
+        sender.try_send(message).map_err(|error| {
             let (_, error) = handle_try_send_error(error);
             error.into()
         })
+    }
+
+    fn send_chain_control<A>(
+        &self,
+        arguments: A,
+        command: impl FnOnce(SyncRequest<A, ()>) -> ChainControl,
+    ) -> Result<(), AnyError> {
+        let (responder, response) = oneshot::channel();
+        let command = command(Request::call(arguments, responder));
+        // Chain completion must remain available while transaction handlers
+        // await Resume. Backpressure preserves every ordered control, even
+        // when the bounded lane is occupied by an earlier transition.
+        block_in_place(|| {
+            self.handle
+                .block_on(self.chain_control_sender.send(command))
+        })
+        .map_err(|error| {
+            ckb_error::OtherError::new(format!("send ordered chain control fails: {error}"))
+        })?;
+        block_in_place(|| response.recv())
+            .map_err(handle_recv_error)
+            .map_err(Into::into)
     }
 
     /// Return whether tx-pool service is started
@@ -156,14 +165,27 @@ impl TxPoolController {
         self.signal.cancel();
     }
 
-    /// Generate and return block_template
+    /// Return a block template within one deadline, including dispatcher queueing.
     pub fn get_block_template(
         &self,
         _bytes_limit: Option<u64>,
         _proposals_limit: Option<u64>,
         _max_version: Option<Version>,
     ) -> Result<BlockTemplateResult, AnyError> {
-        send_message!(self, BlockTemplate, ())
+        let deadline = tokio::time::Instant::now()
+            .checked_add(crate::constants::BLOCK_TEMPLATE_TIMEOUT)
+            .ok_or_else(|| {
+                ckb_error::OtherError::new("block template deadline overflow".to_owned())
+            })?;
+        let (responder, response) = oneshot::channel();
+        self.enqueue(Message::BlockTemplate(Request::call(deadline, responder)))?;
+        block_in_place(|| {
+            response.recv_timeout(deadline.saturating_duration_since(tokio::time::Instant::now()))
+        })
+        .map_err(|error| {
+            ckb_error::OtherError::new(format!("block template response unavailable: {error}"))
+                .into()
+        })
     }
 
     /// Notify new uncle
@@ -174,7 +196,7 @@ impl TxPoolController {
                     "tx-pool candidate-uncle ingress rejected: {error:?}"
                 ))
             })?;
-        self.send_notify(Message::NewUncle(uncle))
+        self.enqueue(Message::NewUncle(uncle))
     }
 
     /// Make tx-pool consistent after a reorg, by re-adding or recursively erasing
@@ -193,36 +215,15 @@ impl TxPoolController {
         // derived inside the authority from its paired old/new snapshots; a
         // caller-provided subset has no policy or cache-maintenance authority.
         drop(detached_proposal_id);
-        let (responder, response) = oneshot::channel();
-        let command = ChainControl::Reconcile(Request::call(
+        self.send_chain_control(
             ChainReorgArgs::bounded(
                 detached_blocks,
                 attached_blocks,
                 snapshot,
                 self.chain_reorg_payload_limit,
             ),
-            responder,
-        ));
-        // Reorg messages are authoritative chain-state transitions, not
-        // best-effort notifications. Dropping one when the bounded channel is
-        // briefly full leaves committed transactions in the pool and loses
-        // detached-transaction recovery permanently, because a later reorg
-        // message is only a delta for that later fork. Apply backpressure to
-        // the chain worker instead. `block_in_place` mirrors the controller's
-        // synchronous request API while `handle.block_on` drives the async
-        // bounded send without busy waiting.
-        block_in_place(|| {
-            self.handle
-                .block_on(self.chain_control_sender.send(command))
-        })
-        .map_err(|error| {
-            AnyError::from(ckb_error::OtherError::new(format!(
-                "send chain reconciliation fails: {error}"
-            )))
-        })?;
-        block_in_place(|| response.recv())
-            .map_err(handle_recv_error)
-            .map_err(Into::into)
+            ChainControl::Reconcile,
+        )
     }
 
     /// Submit local tx to tx-pool
@@ -330,7 +331,7 @@ impl TxPoolController {
     /// Enqueue bounded transaction notifications.
     /// Success reports queue admission, not completion of verification.
     pub fn notify_txs(&self, txs: Vec<TransactionView>) -> Result<(), AnyError> {
-        self.send_notify(Message::NotifyTxs(NotifyTxBatch::try_new(txs)?))
+        self.enqueue(Message::NotifyTxs(NotifyTxBatch::try_new(txs)?))
     }
 
     /// Enqueue bounded transaction notifications.
@@ -458,7 +459,7 @@ impl TxPoolController {
     /// Updates IBD state.
     pub fn update_ibd_state(&self, in_ibd: bool) -> Result<(), AnyError> {
         reject_callback_mutation!("update_ibd_state");
-        send_message!(self, UpdateIBDState, in_ibd)
+        self.send_chain_control(in_ibd, ChainControl::UpdateIBDState)
     }
 
     /// Estimates fee rate.

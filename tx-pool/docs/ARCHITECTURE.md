@@ -77,6 +77,8 @@ Source records permissions/provenance, while phase records its current work or
 accepted/recovery state. A phase change creates a new owner instance. The paired
 view supplies chain context and invalidation. Public pending/gap/proposed position
 is a projection against that view, distinct from the owner's admission phase.
+Gap means a proposal is inside the two-step confirmation gap. Missing dependencies
+never assign Gap: Waiting owners count as orphans and have no accepted pool status.
 [Entry and Source](../src/authority/model.rs) define these facts.
 
 Decision modules prepare Plans; **Store alone writes live owners and their

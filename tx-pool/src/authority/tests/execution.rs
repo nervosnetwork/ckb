@@ -368,6 +368,101 @@ async fn pause_during_compute_capacity_wait_refunds_permit_and_stop_wakes_waiter
     assert_eq!(pool.cpu.available_permits(), capacity);
 }
 
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn suspended_transaction_handlers_leave_chain_completion_independent() {
+    use crate::service::{DEFAULT_CHANNEL_SIZE, Message, Request, TxPoolServiceBuilder};
+    use ckb_channel::oneshot;
+
+    let directory = tempfile::tempdir().unwrap();
+    let configuration = TxPoolConfig {
+        max_tx_verify_workers: 1,
+        persisted_data: directory.path().join("pool"),
+        recent_reject: Default::default(),
+        ..config()
+    };
+    let handle = Handle::new(tokio::runtime::Handle::current(), None);
+    let (builder, controller, _relay) = TxPoolServiceBuilder::new(
+        configuration,
+        chain_snapshot(),
+        None,
+        Arc::new(RwLock::new(init_cache())),
+        &handle,
+        FeeEstimator::new_dummy(),
+    )
+    .unwrap();
+    let pool = builder.pool_for_test();
+    controller.suspend_chunk_process().unwrap();
+    let mut submissions = Vec::new();
+    for index in 0..crate::constants::MESSAGE_CONCURRENCY_MULTIPLIER {
+        let (responder, response) = oneshot::channel();
+        controller
+            .sender
+            .try_send(Message::SubmitLocalTx(Request::call(
+                bounded(fund(&pool, 91_100 + index as u32)),
+                responder,
+            )))
+            .unwrap();
+        submissions.push(response);
+    }
+    let generation = builder.start_with_handle(DummyTxPoolNetwork);
+    within(async {
+        while !controller.service_started() || controller.sender.capacity() != DEFAULT_CHANNEL_SIZE
+        {
+            tokio::task::yield_now().await;
+        }
+    })
+    .await;
+    // Every submitted request has left the channel and occupies a handler.
+    // Suspend prevents any of them from passing the computation gate.
+    assert_eq!(*pool.commands.borrow(), ChunkCommand::Suspend);
+    for response in &submissions {
+        assert!(matches!(
+            response.try_recv(),
+            Err(std::sync::mpsc::TryRecvError::Empty)
+        ));
+    }
+    let client = controller.clone();
+    let snapshot = pool.store.snapshot().1;
+    let (reconciled, reconciliation) = tokio::sync::oneshot::channel();
+    let mut completion = tokio::task::spawn_blocking(move || {
+        client
+            .update_tx_pool_for_reorg(
+                Default::default(),
+                Default::default(),
+                Default::default(),
+                snapshot,
+            )
+            .unwrap();
+        reconciled.send(()).unwrap();
+        client.update_ibd_state(false)
+    });
+    within(reconciliation).await.unwrap();
+    let completed = tokio::time::timeout(Duration::from_secs(2), &mut completion).await;
+    assert_eq!(*pool.commands.borrow(), ChunkCommand::Suspend);
+    // Release and join even when the old dispatcher deadlocks, so a failed
+    // regression leaves no blocking caller behind.
+    controller.continue_chunk_process().unwrap();
+    let independent = completed.is_ok();
+    match completed {
+        Ok(result) => result.unwrap().unwrap(),
+        Err(_) => within(completion).await.unwrap().unwrap(),
+    }
+    for response in submissions {
+        within(tokio::task::spawn_blocking(move || response.recv()))
+            .await
+            .unwrap()
+            .unwrap()
+            .unwrap();
+    }
+    controller.stop();
+    within(generation).await.unwrap();
+    assert!(!pool.is_faulted());
+    assert!(
+        independent,
+        "IBD completion must not require resuming suspended transaction handlers"
+    );
+}
+
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn suspended_computation_leaves_resolver_verifier_and_local_submission_unstarted() {
     let (pool, _, _, _) = fixture();
@@ -702,11 +797,33 @@ async fn remote_orphan_waits_then_accepts_after_its_parent_completes_normal_veri
         matches!(entry.phase, Phase::Waiting(_))
     })
     .await;
+    let info = pool.pool_info().await.unwrap();
+    assert_eq!(
+        (info.pending_size, info.proposed_size, info.orphan_size),
+        (1, 0, 1)
+    );
+    assert_eq!(
+        pool.transaction(&child.hash()).await.unwrap().tx_status,
+        TxStatus::Unknown
+    );
+    assert_eq!(
+        pool.detail(&child.hash()).await.unwrap().entry_status,
+        "unknown"
+    );
     pool.submit_remote(bounded(parent.clone()), cycles, 94.into())
         .await
         .unwrap();
     observe(&pool, &parent.hash(), |entry| entry.accepted().is_some()).await;
     observe(&pool, &child.hash(), |entry| entry.accepted().is_some()).await;
+    let info = pool.pool_info().await.unwrap();
+    assert_eq!(
+        (info.pending_size, info.proposed_size, info.orphan_size),
+        (3, 0, 0)
+    );
+    assert_eq!(
+        pool.detail(&child.hash()).await.unwrap().entry_status,
+        "pending"
+    );
     assert!(
         pool.store
             .point(&child.hash())
@@ -718,6 +835,107 @@ async fn remote_orphan_waits_then_accepts_after_its_parent_completes_normal_veri
             .contains(&parent.hash())
     );
     shutdown(&pool, tasks, publisher).await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn local_submission_and_dry_run_reject_spent_cell_dependencies() {
+    use ckb_types::{
+        core::{DepType, FeeRate},
+        packed::{CellDep, OutPointVec},
+        prelude::*,
+    };
+
+    let configuration = TxPoolConfig {
+        min_rbf_rate: FeeRate::from_u64(1000),
+        ..config()
+    };
+    let handle = Handle::new(tokio::runtime::Handle::current(), None);
+    let store = Store::new(chain_snapshot(), &configuration).unwrap();
+    let (pool, sink, _) = Pool::with_store(
+        configuration,
+        store,
+        &handle,
+        Arc::new(RwLock::new(init_cache())),
+        None,
+        None,
+        FeeEstimator::new_dummy(),
+    )
+    .unwrap();
+    let publisher =
+        handle.spawn(Arc::clone(&pool.store.outbox).run(endpoints(sink, Callbacks::new())));
+
+    // A direct dep, an expanded member and the group container must all be live.
+    for (index, (dep_type, spend_group)) in [
+        (DepType::Code, false),
+        (DepType::DepGroup, false),
+        (DepType::DepGroup, true),
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        let nonce = 91_000 + index as u32 * 10;
+        let producer = funded_parent(nonce, 20_000_000_000);
+        accept(&pool.store, producer.clone(), 1, 1, Status::Pending);
+        let member = OutPoint::new(producer.hash(), 0);
+        let group = funded_parent(nonce + 1, 20_000_000_000)
+            .as_advanced_builder()
+            .set_outputs_data(vec![
+                OutPointVec::new_builder()
+                    .push(member.clone())
+                    .build()
+                    .as_bytes()
+                    .pack(),
+            ])
+            .build();
+        accept(&pool.store, group.clone(), 1, 1, Status::Pending);
+        let group_point = OutPoint::new(group.hash(), 0);
+        let dependency = match dep_type {
+            DepType::Code => member.clone(),
+            DepType::DepGroup => group_point.clone(),
+        };
+        let spent = if spend_group { group_point } else { member };
+        let candidate = fund(&pool, nonce + 2)
+            .as_advanced_builder()
+            .cell_dep(
+                CellDep::new_builder()
+                    .out_point(dependency)
+                    .dep_type(dep_type)
+                    .build(),
+            )
+            .build();
+        // Establish validity before the spender commits; no worker timing is assumed.
+        within(pool.submit_local(bounded(candidate.clone()), true))
+            .await
+            .unwrap()
+            .unwrap();
+        let spender = funded_tx(spent.clone(), 19_999_999_000);
+        within(pool.submit_local(bounded(spender.clone()), false))
+            .await
+            .unwrap()
+            .unwrap();
+        let before = pool.pool_info().await.unwrap();
+        for dry_run in [true, false] {
+            let result = within(pool.submit_local(bounded(candidate.clone()), dry_run))
+                .await
+                .unwrap();
+            assert!(
+                matches!(result, Err(Reject::Resolve(OutPointError::Dead(point))) if point == spent)
+            );
+            assert!(pool.store.point(&candidate.hash()).1.is_none());
+            let after = pool.pool_info().await.unwrap();
+            assert_eq!(after.pending_size, before.pending_size);
+            assert_eq!(after.orphan_size, 0);
+            assert!(
+                pool.store
+                    .point(&spender.hash())
+                    .1
+                    .unwrap()
+                    .accepted()
+                    .is_some()
+            );
+        }
+    }
+    shutdown(&pool, JoinSet::new(), publisher).await;
 }
 
 #[cfg(feature = "internal")]
@@ -1307,7 +1525,10 @@ async fn committed_chain_reconciliation_publishes_detached_uncle_candidates() {
     let template = pool.template.as_ref().unwrap();
     within(async {
         loop {
-            let output = template.read().await.unwrap();
+            let output = template
+                .read(tokio::time::Instant::now() + crate::constants::BLOCK_TEMPLATE_TIMEOUT)
+                .await
+                .unwrap();
             if output
                 .uncles
                 .iter()
@@ -1861,6 +2082,9 @@ async fn local_removal_completes_the_accepted_closure_beyond_an_expiry_page() {
     }
     let unrelated = accept(&pool.store, output_tx(7600), 1, 1, Status::Pending);
     let prepared = membership::removal(&pool.store, &root, &pool.config, None).unwrap();
+    // Local removal must not erase the network's recent-known history and
+    // immediately request the deliberately removed producer again.
+    assert!(prepared.effects().is_empty());
     assert_eq!(
         prepared.edits().len(),
         crate::constants::MAX_POOL_MUTATION_CANDIDATES + 1

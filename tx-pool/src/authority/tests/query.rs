@@ -238,6 +238,59 @@ fn verification_owner_and_declared_cycles_are_hidden_until_acceptance() {
 }
 
 #[test]
+fn missing_dependencies_stay_orphan_across_proposal_windows() {
+    use crate::authority::{ingress, jobs};
+    use ckb_proposal_table::ProposalView;
+
+    let (backing, base) = chain_store(Arc::new(ckb_test_chain_utils::always_success_consensus()));
+    let transaction = funded_tx(OutPoint::new(tx(6012).hash(), 0), 19_999_999_000);
+    let proposal = transaction.proposal_short_id();
+    for proposals in [
+        ProposalView::default(),
+        ProposalView::new([proposal.clone()], []),
+        ProposalView::new([], [proposal]),
+    ] {
+        let snapshot = Arc::new(Snapshot::new(
+            base.tip_header().clone(),
+            base.total_difficulty().clone(),
+            base.epoch_ext().clone(),
+            backing.store().get_snapshot(),
+            proposals,
+            base.cloned_consensus(),
+        ));
+        let store = Store::new(snapshot, &config()).unwrap();
+        let candidate = entry(
+            &store,
+            transaction.clone(),
+            ingress::remote_source(5.into(), 42).unwrap(),
+        );
+        let jobs::Resolution::Waiting(keys, reads) =
+            jobs::resolve(&store, &candidate, &config()).unwrap()
+        else {
+            panic!("the missing producer must prevent admission in every proposal window");
+        };
+        let mut plan = Plan::new(store.snapshot().0, Class::Remote, reads);
+        plan.edit(None, Some(candidate.with_phase(Phase::Waiting(keys))), None)
+            .unwrap();
+        store.apply(plan).unwrap();
+        let info = summary(&store, &config()).unwrap();
+        assert_eq!(
+            (info.pending_size, info.proposed_size, info.orphan_size),
+            (0, 0, 1)
+        );
+        assert_eq!(
+            detail(&store, &candidate.hash(), &config())
+                .unwrap()
+                .entry_status,
+            "unknown"
+        );
+        assert!(transaction_status(&store, &candidate.hash()).is_none());
+        assert!(ids(&store).pending.is_empty());
+        assert!(ids(&store).proposed.is_empty());
+    }
+}
+
+#[test]
 fn canonical_storage_fallback_and_fee_target_validation_remain_available() {
     let store = Store::new(chain_snapshot(), &config()).unwrap();
     assert!(

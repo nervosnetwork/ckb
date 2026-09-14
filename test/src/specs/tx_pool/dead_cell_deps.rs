@@ -266,16 +266,19 @@ fn run_get_block_template_case(
     node0.submit_block(&block);
     node0.mine(node0.consensus().tx_proposal_window().closest());
 
-    // Accepted membership is independent of arrival order. The block
-    // selector imposes the consensus-required C-before-B order only on
-    // the selected set.
+    // An RPC reader cannot enter after its dependency has been spent in the
+    // pool. Once the spender is removed, the reader may enter normally.
     if submit_spender_first {
         node0.submit_transaction(&tx_b);
-        node0.submit_transaction(&tx_c);
-    } else {
-        node0.submit_transaction(&tx_c);
-        node0.submit_transaction(&tx_b);
+        let error = node0
+            .rpc_client()
+            .send_transaction_result(tx_c.data().into())
+            .expect_err("the pool-spent cell dep must be rejected");
+        assert!(error.to_string().contains("TransactionFailedToResolve"));
+        assert!(node0.rpc_client().remove_transaction(tx_b.hash()));
     }
+    node0.submit_transaction(&tx_c);
+    node0.submit_transaction(&tx_b);
 
     let fee_rate = |tx: &ckb_types::core::TransactionView| {
         let score = node0

@@ -429,6 +429,13 @@ impl Pool {
                     arguments,
                     responder,
                 }) => (self.reconcile(&arguments).await, responder, None),
+                ChainControl::UpdateIBDState(Request {
+                    arguments,
+                    responder,
+                }) => {
+                    block_offload(|| self.estimator.update_ibd_state(arguments));
+                    (Ok(()), responder, None)
+                }
                 ChainControl::ClearPool(command) => {
                     let (
                         admission,
@@ -589,11 +596,14 @@ impl Pool {
         self.open()?;
         Ok(query::accepted_with_cycles(&self.store, ids))
     }
-    pub(crate) async fn block_template(&self) -> Result<ckb_jsonrpc_types::BlockTemplate, Error> {
+    pub(crate) async fn block_template(
+        &self,
+        deadline: tokio::time::Instant,
+    ) -> Result<ckb_jsonrpc_types::BlockTemplate, Error> {
         self.template
             .as_ref()
             .ok_or(Error::Full("block assembler disabled".into()))?
-            .read()
+            .read(deadline)
             .await
     }
     pub(crate) fn uncle(&self, uncle: BoundedCandidateUncle) {
@@ -646,9 +656,6 @@ impl Pool {
         self.recent
             .as_ref()
             .map(|recent| block_offload(|| recent.get_estimate_total_keys_num()))
-    }
-    pub(crate) fn ibd(&self, in_ibd: bool) {
-        block_offload(|| self.estimator.update_ibd_state(in_ibd));
     }
     pub(crate) async fn estimate_fee(
         &self,

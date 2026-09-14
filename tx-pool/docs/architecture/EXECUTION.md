@@ -60,6 +60,11 @@ processing ready blocks and truncations. When that backlog empties, it resumes
 pool computation before waiting for more work. Scope exit and unwind also resume
 the pool. There is no delayed restart or intermediate resume between queued blocks.
 
+Reconciliation, IBD updates and generation clears share the ordered chain-control
+driver. None consumes an ordinary transaction handler: those handlers may all be
+waiting for the block consumer to resume verification. An IBD update completes
+after earlier chain publication and before its caller releases the pause.
+
 Pausing changes execution permission without retiring a transaction or its Job.
 A running VM cooperatively suspends with its scheduler state, consumed cycles,
 compute permit and memory reservation retained; Resume continues that execution.
@@ -248,14 +253,17 @@ The overlay has no loss-triggered resynchronization: a missing removal can leave
 a stale consumed-cell filter even after delivery resumes. It does not establish
 a complete current membership snapshot.
 
-[Queries](../../src/authority/query.rs) derive views from owners. Preaccepted
-payloads expose pending status without accepted proof; history stays separate
-from live membership. The sole [template driver](../../src/authority/template.rs)
+[Queries](../../src/authority/query.rs) expose transaction status only for accepted
+owners. Missing dependencies contribute to the orphan count; proposal-window Gap
+and retained history stay separate from that waiting phase.
+The sole [template driver](../../src/authority/template.rs)
 captures accepted owners, builds outside Store guards and validates selected-owner,
 lifecycle and uncle sources before publication to BlockAssembler. Unrelated
 additions need not invalidate output; selected-owner replacement and same-tip clear
-do. Mandatory base bytes are checked before optional fitting. A refresh wait has
-one 30-second deadline; it does not bound synchronous work or stop the shared driver.
+do. Mandatory base bytes are checked before optional fitting. Each template request
+carries one 30-second deadline from controller entry through queueing and refresh.
+The caller's wait ends at that deadline even before dispatch; the driver does not
+renew it. This does not interrupt synchronous work or stop the shared driver.
 
 On a rebuild, the driver reuses cellbase and extension payloads within the same
 lifecycle view. It computes DAO for the final selection and assigns each attempt a fresh
