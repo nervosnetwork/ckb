@@ -122,10 +122,10 @@ jobs:
         with:
           repository: nervosnetwork/ckb-py-integration-test
           ref: 0a1924fbadedb4d7d330656ebf08d7ee6844999e
-          path: python-tests
+          path: ckb-py-integration-test
       - name: Original sync assertion with live diagnostics
         if: ${{ !cancelled() && steps.build.outcome == 'success' && matrix.runner == 'ubuntu-24.04' }}
-        working-directory: python-tests
+        working-directory: ckb-py-integration-test
         env:
           PYTHONPATH: ${{ github.workspace }}/candidate/tx-pool/scripts
           CKB_LOG: info,ckb_network=debug,ckb_sync=debug,ckb_chain=debug,tentacle=debug
