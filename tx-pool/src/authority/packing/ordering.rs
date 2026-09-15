@@ -81,17 +81,7 @@ impl Selection<'_> {
                 PackageOrderKey::new(index, &self.candidates[index], self.graph.ancestors[index])
             })?;
             if ordered.len() == active.iter().filter(|is_active| **is_active).count() {
-                let mut edges = Vec::new();
-                for (parent, children) in graph.iter().enumerate() {
-                    if active[parent] {
-                        edges.extend(
-                            children
-                                .iter()
-                                .filter_map(|child| active[*child].then_some((*child, parent))),
-                        );
-                    }
-                }
-                let parents = Links::from_edges(len, &edges)?;
+                let parents = graph.reversed(&active)?;
                 let mut positions = vec![0usize; len];
                 let mut proposed = vec![false; len];
                 let mut eligible = Vec::new();
@@ -147,7 +137,7 @@ impl Selection<'_> {
     }
 
     fn precedence_graph(&self) -> Result<Links, PackingError> {
-        let mut spenders = HashMap::<&[u8], usize>::new();
+        let mut spenders = HashMap::<&[u8], usize>::with_capacity(self.candidates.len());
         for (index, candidate) in self.candidates.iter().enumerate() {
             for input in candidate
                 .accepted
@@ -355,59 +345,7 @@ fn strongly_connected_active(
         }
     }
 
-    let mut parent_counts = vec![0usize; active.len()];
-    for (parent, next) in children.iter().enumerate() {
-        if !active
-            .get(parent)
-            .copied()
-            .ok_or(PackingError::Projection)?
-        {
-            continue;
-        }
-        for child in next {
-            if !active
-                .get(*child)
-                .copied()
-                .ok_or(PackingError::Projection)?
-            {
-                continue;
-            }
-            let count = parent_counts
-                .get_mut(*child)
-                .ok_or(PackingError::Projection)?;
-            *count = count.checked_add(1).ok_or(PackingError::Arithmetic)?;
-        }
-    }
-    let mut parents = Vec::with_capacity(active.len());
-    for count in parent_counts {
-        let row = Vec::with_capacity(count);
-        parents.push(row);
-    }
-    for (parent, next) in children.iter().enumerate() {
-        if !active
-            .get(parent)
-            .copied()
-            .ok_or(PackingError::Projection)?
-        {
-            continue;
-        }
-        for child in next {
-            if !active
-                .get(*child)
-                .copied()
-                .ok_or(PackingError::Projection)?
-            {
-                continue;
-            }
-            parents
-                .get_mut(*child)
-                .ok_or(PackingError::Projection)?
-                .push(parent);
-        }
-    }
-    for previous in &mut parents {
-        previous.sort_unstable();
-    }
+    let parents = children.reversed(active)?;
 
     visited.fill(false);
     let mut components = Vec::with_capacity(active.iter().filter(|is_active| **is_active).count());

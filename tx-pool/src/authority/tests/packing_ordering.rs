@@ -111,6 +111,18 @@ fn inactive_endpoints_are_skipped_but_out_of_range_edges_are_rejected() {
     let priority = |index| Reverse([1, 2, 0][index]);
     let children = Links::from_lists([vec![1, 2], vec![2], Vec::new()]);
     assert_eq!(
+        children
+            .reversed(&active)
+            .unwrap()
+            .iter()
+            .collect::<Vec<_>>(),
+        vec![&[][..], &[][..], &[0][..]]
+    );
+    assert!(matches!(
+        children.reversed(&active[..2]),
+        Err(PackingError::Projection)
+    ));
+    assert_eq!(
         topological_active_order(&active, &children, priority).unwrap(),
         vec![0, 2]
     );
@@ -129,6 +141,10 @@ fn inactive_endpoints_are_skipped_but_out_of_range_edges_are_rejected() {
     assert_eq!(remaining, [false, false, true]);
 
     let malformed = Links::from_lists([vec![3], Vec::new(), Vec::new()]);
+    assert!(matches!(
+        malformed.reversed(&active),
+        Err(PackingError::Projection)
+    ));
     assert_eq!(
         topological_active_order(&active, &malformed, priority),
         Err(PackingError::Projection)

@@ -63,6 +63,46 @@ impl Links {
         self.edges.get(start..end)
     }
 
+    /// Reverse the active subgraph directly into compact adjacency. Incoming
+    /// rows are already sorted because source indices are visited in order.
+    #[expect(
+        clippy::indexing_slicing,
+        clippy::arithmetic_side_effects,
+        reason = "The first pass validates endpoints. Every count, prefix sum and cursor is bounded by the existing edge array's length; offsets already have len + 1 elements."
+    )]
+    pub(super) fn reversed(&self, active: &[bool]) -> Result<Self, PackingError> {
+        let len = self.len();
+        if active.len() != len {
+            return Err(PackingError::Projection);
+        }
+        let mut offsets = vec![0usize; len + 1];
+        for (parent, children) in self.iter().enumerate() {
+            if active[parent] {
+                for &child in children {
+                    if *active.get(child).ok_or(PackingError::Projection)? {
+                        offsets[child + 1] += 1;
+                    }
+                }
+            }
+        }
+        for index in 0..len {
+            offsets[index + 1] += offsets[index];
+        }
+        let mut cursors = offsets[..len].to_vec();
+        let mut edges = vec![0; offsets[len]];
+        for (parent, children) in self.iter().enumerate() {
+            if active[parent] {
+                for &child in children {
+                    if active[child] {
+                        edges[cursors[child]] = parent;
+                        cursors[child] += 1;
+                    }
+                }
+            }
+        }
+        Ok(Self { offsets, edges })
+    }
+
     #[expect(
         clippy::indexing_slicing,
         reason = "The private offsets always delimit the edge array."
