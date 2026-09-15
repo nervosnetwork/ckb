@@ -27,10 +27,156 @@ use tokio::time::sleep;
 
 const MAX_TX_VERIFY_CYCLES: u64 = 70_000_000;
 const UNUSED_SNAPSHOT_COLUMNS: u32 = 1;
+
+#[test]
+fn verify_queue_preserves_network_origin_without_budgeting_local_recovery() {
+    let mut queue = VerifyQueue::new(MAX_TX_VERIFY_CYCLES);
+    let recovery = build_tx(vec![(&H256([1; 32]).into(), 0)], 1);
+    let proposal = build_tx(vec![(&H256([2; 32]).into(), 0)], 1);
+    let relay = build_tx(vec![(&H256([3; 32]).into(), 0)], 1);
+    queue.add_tx(recovery.clone(), false, None).unwrap();
+    queue.add_tx(proposal.clone(), true, None).unwrap();
+    queue
+        .add_tx(relay.clone(), false, Some((1, 1.into())))
+        .unwrap();
+
+    let proposed = queue.pop_front(false).unwrap();
+    assert_eq!(proposed.tx, proposal);
+    assert!(proposed.is_proposal);
+    assert!(proposed.remote.is_none());
+    let recovered = queue.remove_tx_by_hash(&recovery.hash()).unwrap();
+    assert!(!recovered.is_proposal);
+    assert!(recovered.remote.is_none());
+    let relayed = queue.pop_front(false).unwrap();
+    assert_eq!(relayed.tx, relay);
+    assert!(!relayed.is_proposal);
+    assert_eq!(relayed.remote, Some((1, 1.into())));
+}
+
+#[test]
+fn time_budget_refusal_is_retryable_and_not_a_persistent_rejection() {
+    let reject = crate::error::Reject::ExcessiveVerifyTime;
+    assert!(!reject.is_malformed_tx());
+    assert!(!reject.should_recorded());
+    assert!(reject.is_allowed_relay());
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn network_budget_refusal_does_not_prevent_unbudgeted_verification() {
+    use ckb_types::{
+        bytes::Bytes,
+        core::{
+            Capacity, capacity_bytes,
+            cell::{CellMetaBuilder, ResolvedTransaction},
+        },
+        packed::{CellDep, CellInput, CellOutput, OutPoint, Script},
+        prelude::*,
+    };
+    let program = Bytes::from_static(include_bytes!("../../../../script/testdata/always_success"));
+    let lock = Script::new_builder()
+        .code_hash(CellOutput::calc_data_hash(&program))
+        .build();
+    let input = CellOutput::new_builder()
+        .capacity(capacity_bytes!(200))
+        .lock(lock.clone())
+        .build();
+    let input_out_point = OutPoint::new(H256([1; 32]).into(), 0);
+    let code_out_point = OutPoint::new(H256([2; 32]).into(), 0);
+    let transaction = TransactionBuilder::default()
+        .input(CellInput::new(input_out_point.clone(), 0))
+        .cell_dep(
+            CellDep::new_builder()
+                .out_point(code_out_point.clone())
+                .build(),
+        )
+        .output(
+            CellOutput::new_builder()
+                .capacity(capacity_bytes!(100))
+                .lock(lock)
+                .build(),
+        )
+        .output_data(Bytes::new())
+        .build();
+    let rtx = Arc::new(ResolvedTransaction {
+        transaction,
+        resolved_cell_deps: vec![
+            CellMetaBuilder::from_cell_output(CellOutput::default(), program)
+                .out_point(code_out_point)
+                .build(),
+        ],
+        resolved_inputs: vec![
+            CellMetaBuilder::from_cell_output(input, Bytes::new())
+                .out_point(input_out_point)
+                .build(),
+        ],
+        resolved_dep_groups: Vec::new(),
+    });
+    let snapshot = snapshot(Arc::new(ConsensusBuilder::default().build()));
+    let tx_env = Arc::new(ckb_verification::TxVerifyEnv::new_submit(
+        snapshot.tip_header(),
+    ));
+    let (_commands, mut command_rx) = watch::channel(ckb_script::ChunkCommand::Resume);
+
+    // Queued relay/proposal and directly processed orphans share the same budget.
+    for commands in [Some(&mut command_rx), None] {
+        let refused = crate::util::verify_rtx(
+            Arc::clone(&snapshot),
+            Arc::clone(&rtx),
+            Arc::clone(&tx_env),
+            &None,
+            u64::MAX,
+            commands,
+            Some(std::time::Duration::ZERO),
+        )
+        .await;
+        assert!(matches!(
+            refused,
+            Err(crate::error::Reject::ExcessiveVerifyTime)
+        ));
+    }
+    let local = crate::util::verify_rtx(
+        Arc::clone(&snapshot),
+        Arc::clone(&rtx),
+        Arc::clone(&tx_env),
+        &None,
+        u64::MAX,
+        None,
+        None,
+    )
+    .await
+    .expect("RPC verification has no network time budget");
+    let recovered = crate::util::verify_rtx(
+        Arc::clone(&snapshot),
+        Arc::clone(&rtx),
+        Arc::clone(&tx_env),
+        &None,
+        u64::MAX,
+        Some(&mut command_rx),
+        None,
+    )
+    .await
+    .expect("queued local recovery has no network time budget");
+    let network = crate::util::verify_rtx(
+        snapshot,
+        rtx,
+        tx_env,
+        &None,
+        u64::MAX,
+        Some(&mut command_rx),
+        Some(std::time::Duration::from_secs(2)),
+    )
+    .await
+    .expect("a later network attempt can verify normally");
+    assert!(local.cycles > 0);
+    assert_eq!(local, recovered);
+    assert_eq!(local, network);
+}
+
 #[tokio::test]
 async fn verify_queue_basic() {
     let tx = TransactionBuilder::default().build();
     let entry = Entry {
+        is_proposal: false,
         tx: tx.clone(),
         remote: None,
     };
@@ -248,6 +394,7 @@ async fn verify_queue_pops_proposals_by_arrival_order() {
 #[tokio::test]
 async fn verify_queue_remove() {
     let entry1 = Entry {
+        is_proposal: false,
         tx: TransactionBuilder::default()
             .set_outputs_data(vec![Default::default()])
             .build(),
@@ -256,6 +403,7 @@ async fn verify_queue_remove() {
     let entry1_id = entry1.tx.proposal_short_id();
     eprintln!("entry1_id: {:?}", entry1_id);
     let entry2 = Entry {
+        is_proposal: false,
         tx: TransactionBuilder::default()
             .set_cell_deps(vec![Default::default(), Default::default()])
             .build(),
@@ -264,6 +412,7 @@ async fn verify_queue_remove() {
     let entry2_id = entry2.tx.proposal_short_id();
     eprintln!("entry2_id: {:?}", entry2_id);
     let entry3 = Entry {
+        is_proposal: false,
         tx: TransactionBuilder::default().build(),
         remote: None,
     };
@@ -271,6 +420,7 @@ async fn verify_queue_remove() {
     eprintln!("entry3_id: {:?}", entry3_id);
 
     let entry4 = Entry {
+        is_proposal: false,
         tx: TransactionBuilder::default()
             .set_cell_deps(vec![
                 Default::default(),
@@ -325,6 +475,7 @@ fn tx_pool_config() -> TxPoolConfig {
         min_fee_rate: FeeRate::zero(),
         min_rbf_rate: FeeRate::zero(),
         max_tx_verify_cycles: MAX_TX_VERIFY_CYCLES,
+        max_tx_verify_time_ms: std::num::NonZeroU32::new(8_000).unwrap(),
         max_tx_verify_workers: 1,
         max_ancestors_count: 125,
         keep_rejected_tx_hashes_days: 1,
@@ -490,4 +641,26 @@ async fn notify_tx_notifies_relayer_when_verify_queue_is_full() {
         }
         _ => panic!("expected reject notification"),
     }
+}
+
+#[tokio::test]
+async fn relay_and_proposal_budget_refusals_release_the_known_marker() {
+    let (service, receiver) = service_with_relay_receiver();
+    let snapshot = service.tx_pool.read().await.cloned_snapshot();
+    let tx = build_tx(vec![(&H256([1; 32]).into(), 0)], 1);
+    for remote in [Some((1, 1.into())), None] {
+        service
+            .after_process(
+                tx.clone(),
+                remote,
+                &snapshot,
+                &Err(crate::error::Reject::ExcessiveVerifyTime),
+            )
+            .await;
+        assert!(matches!(
+            receiver.try_recv().expect("budget refusal must release the known marker"),
+            TxVerificationResult::Reject { tx_hash } if tx_hash == tx.hash()
+        ));
+    }
+    assert!(receiver.try_recv().is_err(), "one completion per attempt");
 }

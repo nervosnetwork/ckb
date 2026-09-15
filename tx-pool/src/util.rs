@@ -104,29 +104,15 @@ pub(crate) async fn verify_rtx(
     cache_entry: &Option<CachedScriptCycles>,
     max_tx_verify_cycles: Cycle,
     command_rx: Option<&mut watch::Receiver<ChunkCommand>>,
+    active_time_limit: Option<std::time::Duration>,
 ) -> Result<Completed, Reject> {
     let consensus = snapshot.cloned_consensus();
     let data_loader = snapshot.as_data_loader();
 
     let cached_script_cycles = cache_entry.map(|entry| entry.cycles);
 
-    if let Some(command_rx) = command_rx {
-        ContextualTransactionVerifier::new_with_cached_script_cycles(
-            Arc::clone(&rtx),
-            consensus,
-            data_loader,
-            Arc::clone(&tx_env),
-            cached_script_cycles,
-        )
-        .verify_with_pause(max_tx_verify_cycles, command_rx)
-        .await
-        .and_then(|result| {
-            verify_dao_script_size(&snapshot, rtx)?;
-            Ok(result)
-        })
-        .map_err(Reject::Verification)
-    } else {
-        block_in_place(|| {
+    match (command_rx, active_time_limit) {
+        (None, None) => block_in_place(|| {
             ContextualTransactionVerifier::new_with_cached_script_cycles(
                 Arc::clone(&rtx),
                 consensus,
@@ -140,7 +126,38 @@ pub(crate) async fn verify_rtx(
                 Ok(result)
             })
             .map_err(Reject::Verification)
-        })
+        }),
+        (command_rx, active_time_limit) => {
+            // Directly processed network orphans retain their scheduling path.
+            let mut resume_channel;
+            let command_rx = match command_rx {
+                Some(command_rx) => command_rx,
+                None => {
+                    resume_channel = watch::channel(ChunkCommand::Resume);
+                    &mut resume_channel.1
+                }
+            };
+            let verifier = ContextualTransactionVerifier::new_with_cached_script_cycles(
+                Arc::clone(&rtx),
+                consensus,
+                data_loader,
+                tx_env,
+                cached_script_cycles,
+            );
+            let verified = match active_time_limit {
+                Some(limit) => verifier
+                    .verify_with_pause_and_budget(max_tx_verify_cycles, command_rx, limit)
+                    .await
+                    .map_err(Reject::Verification)?
+                    .ok_or(Reject::ExcessiveVerifyTime)?,
+                None => verifier
+                    .verify_with_pause(max_tx_verify_cycles, command_rx)
+                    .await
+                    .map_err(Reject::Verification)?,
+            };
+            verify_dao_script_size(&snapshot, rtx).map_err(Reject::Verification)?;
+            Ok(verified)
+        }
     }
 }
 

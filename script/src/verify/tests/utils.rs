@@ -297,6 +297,18 @@ impl TransactionScriptsVerifierWithEnv {
             .await
     }
 
+    pub(crate) async fn verify_with_budget_async(
+        &self,
+        version: ScriptVersion,
+        rtx: &ResolvedTransaction,
+        command_rx: &mut tokio::sync::watch::Receiver<ChunkCommand>,
+        active_time_limit: std::time::Duration,
+    ) -> Result<ResumableVerificationOutcome, Error> {
+        self.build_verifier(version, rtx)
+            .resumable_verify_with_signal_and_budget(Cycle::MAX, command_rx, active_time_limit)
+            .await
+    }
+
     pub(crate) fn verify_map<R, F>(
         &self,
         version: ScriptVersion,

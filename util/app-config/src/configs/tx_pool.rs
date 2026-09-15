@@ -2,6 +2,7 @@ use ckb_jsonrpc_types::{FeeRateDef, JsonBytes, ScriptHashType};
 use ckb_types::H256;
 use ckb_types::core::{Cycle, FeeRate};
 use serde::{Deserialize, Serialize};
+use std::num::NonZeroU32;
 use std::path::{Path, PathBuf};
 use url::Url;
 
@@ -19,6 +20,10 @@ pub struct TxPoolConfig {
     pub min_rbf_rate: FeeRate,
     /// tx pool rejects txs that cycles greater than max_tx_verify_cycles
     pub max_tx_verify_cycles: Cycle,
+    /// Positive maximum active VM verification time for network transactions, in milliseconds.
+    /// Declared cycles and internal machine calibration may select a lower budget.
+    /// Local RPC submissions and recovery are not time-limited.
+    pub max_tx_verify_time_ms: NonZeroU32,
     /// max tx verify workers, default is 3/4 of cpu cores
     #[serde(default = "default_max_tx_verify_workers")]
     pub max_tx_verify_workers: usize,

@@ -23,6 +23,7 @@ const SHRINK_THRESHOLD: usize = 100;
 pub struct Entry {
     pub(crate) tx: TransactionView,
     pub(crate) remote: Option<(Cycle, PeerIndex)>,
+    pub(crate) is_proposal: bool,
 }
 
 impl PartialEq for Entry {
@@ -250,7 +251,11 @@ impl VerifyQueue {
         })?;
         self.inner.insert(VerifyEntry {
             id: tx.proposal_short_id(),
-            inner: Entry { tx, remote },
+            inner: Entry {
+                tx,
+                remote,
+                is_proposal: is_proposal_tx,
+            },
             is_large_cycle,
             priority_order: (priority, added_time),
         });

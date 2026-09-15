@@ -542,6 +542,50 @@ pub fn test_duplicate_cell_deps() {
     );
 }
 
+#[tokio::test]
+async fn network_budget_keeps_cached_cycle_and_contextual_checks() {
+    let (_commands, mut command_rx) = tokio::sync::watch::channel(ckb_script::ChunkCommand::Resume);
+    let verifier = contextual_verifier_with_cached_script_cycles(
+        capacity_bytes!(200),
+        capacity_bytes!(150),
+        42,
+    );
+    let verified = verifier
+        .verify_with_pause_and_budget(42, &mut command_rx, std::time::Duration::ZERO)
+        .await
+        .unwrap()
+        .expect("cached scripts do not spend VM time");
+    assert_eq!(
+        verified,
+        Completed {
+            cycles: 42,
+            fee: capacity_bytes!(50)
+        }
+    );
+    assert_error_eq!(
+        verifier
+            .verify_with_pause_and_budget(41, &mut command_rx, std::time::Duration::ZERO)
+            .await
+            .unwrap_err(),
+        ScriptError::ExceededMaximumCycles(41).unknown_source(),
+    );
+    let invalid = contextual_verifier_with_cached_script_cycles(
+        capacity_bytes!(149),
+        capacity_bytes!(150),
+        42,
+    );
+    assert_error_eq!(
+        invalid
+            .verify_with_pause_and_budget(42, &mut command_rx, std::time::Duration::ZERO)
+            .await
+            .unwrap_err(),
+        TransactionError::OutputsSumOverflow {
+            inputs_sum: capacity_bytes!(149),
+            outputs_sum: capacity_bytes!(150),
+        },
+    );
+}
+
 #[test]
 pub fn test_duplicate_header_deps() {
     let transaction = TransactionBuilder::default()

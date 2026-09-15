@@ -416,7 +416,12 @@ impl TxPoolService {
         }
 
         if let Some((ret, snapshot)) = self
-            ._process_tx(tx.clone(), remote.map(|r| r.0), None)
+            ._process_tx(
+                tx.clone(),
+                remote.map(|r| r.0),
+                None,
+                remote.map(|r| self.verification_time_limit(Some(r.0))),
+            )
             .await
         {
             self.after_process(tx, remote, &snapshot, &ret).await;
@@ -547,6 +552,11 @@ impl TxPoolService {
                             tx_hash,
                         });
                     }
+                    Err(Reject::ExcessiveVerifyTime) => {
+                        // Proposal deliveries have no peer metadata. Release
+                        // their known marker too so a later attempt can retry.
+                        self.send_result_to_relayer(TxVerificationResult::Reject { tx_hash });
+                    }
                     Err(reject) => {
                         debug!("after_process {} reject: {} ", tx_hash, reject);
                         if reject.should_recorded() {
@@ -627,7 +637,12 @@ impl TxPoolService {
                         }
                     }
                 } else if let Some((ret, _snapshot)) = self
-                    ._process_tx(orphan.tx.clone(), Some(orphan.cycle), None)
+                    ._process_tx(
+                        orphan.tx.clone(),
+                        Some(orphan.cycle),
+                        None,
+                        Some(self.verification_time_limit(Some(orphan.cycle))),
+                    )
                     .await
                 {
                     let orphan_hash = orphan.tx.hash();
@@ -707,11 +722,17 @@ impl TxPoolService {
         self.verify_queue.write().await.remove_txs_by_peer(&peer);
     }
 
+    pub(crate) fn verification_time_limit(&self, declared_cycles: Option<Cycle>) -> Duration {
+        let cap = Duration::from_millis(u64::from(self.tx_pool_config.max_tx_verify_time_ms.get()));
+        declared_cycles.map_or(cap, |cycles| crate::calibration::for_cycles(cycles, cap))
+    }
+
     pub(crate) async fn _process_tx(
         &self,
         tx: TransactionView,
         declared_cycles: Option<Cycle>,
         command_rx: Option<&mut watch::Receiver<ChunkCommand>>,
+        active_time_limit: Option<Duration>,
     ) -> Option<(Result<Completed, Reject>, Arc<Snapshot>)> {
         let verify_cache_key = VerifyCacheKey::from(&tx);
         let instant = Instant::now();
@@ -733,6 +754,7 @@ impl TxPoolService {
             &verify_cache,
             max_cycles,
             command_rx,
+            active_time_limit,
         )
         .await;
 
@@ -799,6 +821,7 @@ impl TxPoolService {
             tx_env,
             &verify_cache,
             max_cycles,
+            None,
             None,
         )
         .await
@@ -906,6 +929,7 @@ impl TxPoolService {
                     tx_env,
                     &verify_cache,
                     max_cycles,
+                    None,
                     None,
                 )
                 .await

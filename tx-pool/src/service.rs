@@ -584,6 +584,7 @@ impl TxPoolServiceBuilder {
 
     /// Start a background thread tx-pool service by taking ownership of the Builder, and returns a TxPoolController.
     pub fn start(self, network: NetworkController) {
+        crate::calibration::initialize();
         let consensus = self.snapshot.cloned_consensus();
 
         let verify_queue = Arc::new(RwLock::new(VerifyQueue::new(

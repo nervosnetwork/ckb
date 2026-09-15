@@ -6982,6 +6982,7 @@ An enum value from one of:
   - `Duplicated` :  Transaction already exists in transaction_pool
   - `Malformed` :  Malformed transaction
   - `DeclaredWrongCycles` :  Declared wrong cycles
+  - `ExcessiveVerifyTime` :  Verification exceeded this node's local tx-pool time limit.
   - `Resolve` :  Resolve failed
   - `Verification` :  Verification failed
   - `Expiry` :  Transaction expired
@@ -8015,5 +8016,7 @@ For example, a cellbase transaction is not allowed in `send_transaction` RPC.
 (-1111): The transaction is rejected for RBF checking.
 ### ERROR `PoolRejectedInvalidated`
 (-1112): The transaction is rejected for ref cell consuming.
+### ERROR `PoolRejectedTransactionByVerifyTimeLimit`
+(-1113): Network verification exceeded this node's local time budget.
 ### ERROR `Indexer`
 (-1200): The indexer error.

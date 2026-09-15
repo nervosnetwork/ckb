@@ -213,6 +213,11 @@ min_fee_rate = 1_000 # Here fee_rate are calculated directly using size in units
 # min_rbf_rate > min_fee_rate means RBF is enabled
 min_rbf_rate = 1_500 # Here fee_rate are calculated directly using size in units of shannons/KB
 max_tx_verify_cycles = 70_000_000
+
+# Maximum active VM time for network transactions, in milliseconds (must be positive).
+# The node calibrates a lower budget from declared cycles. Queueing and suspension
+# are excluded; local RPC submissions and recovery have no time budget.
+# max_tx_verify_time_ms = 8_000
 max_ancestors_count = 25
 
 [store]

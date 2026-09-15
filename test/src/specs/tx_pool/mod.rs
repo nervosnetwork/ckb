@@ -21,6 +21,7 @@ mod send_low_fee_rate_tx;
 mod send_multisig_secp_tx;
 mod send_secp_tx;
 mod send_tx_chain;
+mod time_budget;
 mod txs_relay_order;
 mod utils;
 mod valid_since;
@@ -48,6 +49,7 @@ pub use send_low_fee_rate_tx::*;
 pub use send_multisig_secp_tx::*;
 pub use send_secp_tx::*;
 pub use send_tx_chain::*;
+pub use time_budget::*;
 pub use txs_relay_order::*;
 pub use valid_since::*;
 

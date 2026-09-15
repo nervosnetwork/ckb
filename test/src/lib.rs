@@ -546,6 +546,7 @@ fn all_specs() -> Vec<Box<dyn Spec>> {
         Box::new(SendLargeCyclesTxInBlock::new()),
         Box::new(SendLargeCyclesTxToRelay::new()),
         Box::new(NotifyLargeCyclesTx::new()),
+        Box::new(NetworkVerificationTimeBudget),
         Box::new(LoadProgramFailedTx::new()),
         Box::new(RelayWithWrongTx::new()),
         Box::new(TxsRelayOrder),

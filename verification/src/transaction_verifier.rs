@@ -7,7 +7,7 @@ use ckb_dao::DaoCalculator;
 use ckb_dao_utils::DaoError;
 use ckb_error::Error;
 #[cfg(not(target_family = "wasm"))]
-use ckb_script::ChunkCommand;
+use ckb_script::{ChunkCommand, ResumableVerificationOutcome};
 use ckb_script::{ScriptError, TransactionScriptsVerifier};
 use ckb_traits::{
     CellDataProvider, EpochProvider, ExtensionProvider, HeaderFieldsProvider, HeaderProvider,
@@ -156,6 +156,31 @@ where
             }
         }
     }
+    #[cfg(not(target_family = "wasm"))]
+    async fn verify_with_budget(
+        &self,
+        max_cycles: Cycle,
+        command_rx: &mut tokio::sync::watch::Receiver<ChunkCommand>,
+        active_time_limit: std::time::Duration,
+    ) -> Result<ResumableVerificationOutcome, Error> {
+        match self.cached_cycles {
+            Some(cycles) if cycles <= max_cycles => {
+                Ok(ResumableVerificationOutcome::Completed(cycles))
+            }
+            Some(_) => Err(ScriptError::ExceededMaximumCycles(max_cycles)
+                .unknown_source()
+                .into()),
+            None => {
+                self.inner
+                    .resumable_verify_with_signal_and_budget(
+                        max_cycles,
+                        command_rx,
+                        active_time_limit,
+                    )
+                    .await
+            }
+        }
+    }
 }
 
 /// Context-dependent verification checks for transaction
@@ -237,6 +262,30 @@ where
         };
         let fee = self.fee_calculator.transaction_fee()?;
         Ok(Completed { cycles, fee })
+    }
+
+    /// Verify a network transaction with a shared active VM time budget.
+    /// Returns `None` on local budget exhaustion, which is not a script error.
+    /// Cached script cycles still undergo all contextual and cycle-limit checks.
+    /// Uncached VM scripts require a Tokio multi-thread runtime.
+    #[cfg(not(target_family = "wasm"))]
+    pub async fn verify_with_pause_and_budget(
+        &self,
+        max_cycles: Cycle,
+        command_rx: &mut tokio::sync::watch::Receiver<ChunkCommand>,
+        active_time_limit: std::time::Duration,
+    ) -> Result<Option<Completed>, Error> {
+        self.time_relative.verify()?;
+        self.capacity.verify()?;
+        let fee = self.fee_calculator.transaction_fee()?;
+        match self
+            .script
+            .verify_with_budget(max_cycles, command_rx, active_time_limit)
+            .await?
+        {
+            ResumableVerificationOutcome::Completed(cycles) => Ok(Some(Completed { cycles, fee })),
+            ResumableVerificationOutcome::DeadlineExceeded => Ok(None),
+        }
     }
 
     /// Perform context-dependent verification with command

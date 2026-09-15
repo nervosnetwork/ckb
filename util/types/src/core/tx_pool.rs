@@ -45,6 +45,11 @@ pub enum Reject {
     #[error("Declared wrong cycles {0}, actual {1}")]
     DeclaredWrongCycles(Cycle, Cycle),
 
+    /// Active VM verification exhausted this node's network transaction time budget.
+    /// This is a retryable resource limit, not consensus invalidity.
+    #[error("Transaction verification exceeded the local tx-pool time limit")]
+    ExcessiveVerifyTime,
+
     /// Resolve failed
     #[error("Resolve failed {0}")]
     Resolve(OutPointError),
@@ -98,7 +103,7 @@ impl Reject {
 
     /// Returns true if the reject should be recorded.
     pub fn should_recorded(&self) -> bool {
-        !matches!(self, Reject::Duplicated(..))
+        !matches!(self, Reject::Duplicated(..) | Reject::ExcessiveVerifyTime)
     }
 
     /// Returns true if tx can be resubmitted, allowing relay

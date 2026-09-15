@@ -3,6 +3,7 @@
 //! mechanism
 
 pub mod block_assembler;
+mod calibration;
 mod callback;
 mod component;
 pub mod error;
