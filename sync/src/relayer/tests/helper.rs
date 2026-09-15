@@ -136,9 +136,17 @@ pub(crate) fn dummy_network(shared: &Shared) -> NetworkController {
 pub(crate) struct RelayerTestScope {
     // Field order is the lifecycle proof: stop/join tx-pool while the relay
     // receiver and database are live, then release the chain service.
-    _tx_pool: ckb_tx_pool::internal_test_support::BlockingTxPoolTestScope,
+    tx_pool: Option<ckb_tx_pool::internal_test_support::BlockingTxPoolTestScope>,
     _sync_shared: Arc<SyncShared>,
     chain: ChainServiceScope,
+}
+
+impl RelayerTestScope {
+    /// Join the pool in place; this scope must still outlive the relayer's
+    /// controller handles so the chain can join when the test ends.
+    pub(crate) fn stop_tx_pool(&mut self) {
+        drop(self.tx_pool.take());
+    }
 }
 
 impl std::ops::Deref for RelayerTestScope {
@@ -249,7 +257,7 @@ pub(crate) fn build_chain(tip: BlockNumber) -> (RelayerTestScope, Relayer, OutPo
     let relayer = Relayer::new(chain.chain_controller().clone(), Arc::clone(&sync_shared));
     (
         RelayerTestScope {
-            _tx_pool: tx_pool,
+            tx_pool: Some(tx_pool),
             _sync_shared: sync_shared,
             chain,
         },

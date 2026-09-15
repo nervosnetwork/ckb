@@ -69,7 +69,7 @@ Synchronous APIs use the service runtime; direct callback mutation is rejected.
 | `clear_pool` / `clear_verify_queue` | Reliable administrative request completed |
 | `stop` | Cancellation signalled; tasks can still be joining |
 | `suspend_chunk_process` / `continue_chunk_process` | Pool computation pause/resume requested; suspension is cooperative and does not establish VM quiescence |
-| `service_started` | Startup replay has completed when true; false does not prove shutdown joins finished |
+| `service_started` | Startup replay has completed when true; false acknowledges neither closed request queues nor completed shutdown joins |
 
 ## Operational triage
 

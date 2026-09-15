@@ -13,27 +13,6 @@ use std::{
     time::{Duration, Instant},
 };
 
-fn stop_tx_pool(relayer: &crate::relayer::Relayer) {
-    let controller = relayer.shared.shared().tx_pool_controller();
-    let start_deadline = Instant::now() + Duration::from_secs(5);
-    while !controller.service_started() && Instant::now() < start_deadline {
-        std::thread::yield_now();
-    }
-    assert!(
-        controller.service_started(),
-        "the fixture tx-pool reaches Running"
-    );
-    controller.stop();
-    let stop_deadline = Instant::now() + Duration::from_secs(5);
-    while controller.service_started() && Instant::now() < stop_deadline {
-        std::thread::yield_now();
-    }
-    assert!(
-        !controller.service_started(),
-        "the fixture controller stops"
-    );
-}
-
 #[test]
 fn relay_rejects_a_cycle_declaration_above_consensus_before_tx_pool_handoff() {
     let (_chain, relayer, always_success_out_point) = build_chain(1);
@@ -85,7 +64,7 @@ fn relay_rejects_a_cycle_declaration_above_consensus_before_tx_pool_handoff() {
 
 #[test]
 fn remote_closed_controller_releases_known_projection() {
-    let (_chain, relayer, always_success_out_point) = build_chain(1);
+    let (mut chain, relayer, always_success_out_point) = build_chain(1);
     let transaction = new_transaction(&relayer, 701, &always_success_out_point);
     let hash = transaction.hash();
     let source_peer = PeerIndex::from(7usize);
@@ -97,7 +76,7 @@ fn remote_closed_controller_releases_known_projection() {
         Some(&vec![hash.clone()])
     );
 
-    stop_tx_pool(&relayer);
+    chain.stop_tx_pool();
     let controller = relayer.shared.shared().tx_pool_controller().clone();
     let runtime = tokio::runtime::Builder::new_current_thread()
         .enable_all()

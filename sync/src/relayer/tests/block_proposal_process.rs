@@ -9,7 +9,7 @@ use ckb_types::bytes::Bytes;
 use ckb_types::packed::{self, ProposalShortId};
 use ckb_types::prelude::*;
 use std::sync::Arc;
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 #[test]
 fn test_no_unknown() {
@@ -201,31 +201,15 @@ fn test_clear_expired_inflight_proposals() {
 
 #[test]
 fn proposal_closed_controller_consumes_request_without_pinning_known() {
-    let (_chain, relayer, always_success_out_point) = build_chain(1);
+    let (mut chain, relayer, always_success_out_point) = build_chain(1);
     let transaction = new_transaction(&relayer, 702, &always_success_out_point);
     let hash = transaction.hash();
     let proposal = transaction.proposal_short_id();
     let state = relayer.shared.state();
     state.insert_inflight_proposals(vec![proposal.clone()], 1);
 
+    chain.stop_tx_pool();
     let controller = relayer.shared.shared().tx_pool_controller();
-    let start_deadline = Instant::now() + Duration::from_secs(5);
-    while !controller.service_started() && Instant::now() < start_deadline {
-        std::thread::yield_now();
-    }
-    assert!(
-        controller.service_started(),
-        "the fixture tx-pool reaches Running"
-    );
-    controller.stop();
-    let stop_deadline = Instant::now() + Duration::from_secs(5);
-    while controller.service_started() && Instant::now() < stop_deadline {
-        std::thread::yield_now();
-    }
-    assert!(
-        !controller.service_started(),
-        "the fixture controller stops"
-    );
     let rt = tokio::runtime::Builder::new_current_thread()
         .enable_all()
         .build()

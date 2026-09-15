@@ -30,7 +30,7 @@ pub fn verification_commands(
 pub struct BlockingTxPoolTestScope {
     signal: CancellationToken,
     runtime: Handle,
-    dispatcher: Option<JoinHandle<()>>,
+    dispatcher: JoinHandle<()>,
     relay_results: Option<TxVerificationResultReceiver>,
 }
 
@@ -48,15 +48,15 @@ impl BlockingTxPoolTestScope {
 impl Drop for BlockingTxPoolTestScope {
     fn drop(&mut self) {
         self.signal.cancel();
-        let Some(mut dispatcher) = self.dispatcher.take() else {
-            return;
-        };
         self.runtime.block_on(async {
-            if tokio::time::timeout(TEST_SHUTDOWN_TIMEOUT, &mut dispatcher)
+            if tokio::time::timeout(TEST_SHUTDOWN_TIMEOUT, &mut self.dispatcher)
                 .await
                 .is_err()
             {
-                dispatcher.abort();
+                self.dispatcher.abort();
+                // Abort only requests cancellation; joining releases the
+                // receiver before the fixture's runtime and database can drop.
+                let _ = (&mut self.dispatcher).await;
             }
         });
     }
@@ -80,7 +80,7 @@ pub fn start_blocking_test_service(
     BlockingTxPoolTestScope {
         signal,
         runtime,
-        dispatcher: Some(dispatcher),
+        dispatcher,
         relay_results: Some(relay_results),
     }
 }
