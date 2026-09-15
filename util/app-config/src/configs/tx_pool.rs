@@ -2,6 +2,7 @@ use ckb_jsonrpc_types::{FeeRateDef, JsonBytes, ScriptHashType};
 use ckb_types::H256;
 use ckb_types::core::{Cycle, FeeRate};
 use serde::{Deserialize, Serialize};
+#[cfg(feature = "test")]
 use std::num::NonZeroU32;
 use std::path::{Path, PathBuf};
 use url::Url;
@@ -20,9 +21,9 @@ pub struct TxPoolConfig {
     pub min_rbf_rate: FeeRate,
     /// tx pool rejects txs that cycles greater than max_tx_verify_cycles
     pub max_tx_verify_cycles: Cycle,
-    /// Positive maximum active VM verification time for network transactions, in milliseconds.
-    /// Declared cycles and internal machine calibration may select a lower budget.
-    /// Local RPC submissions and recovery are not time-limited.
+    /// Test-only override of the network verification time cap, in milliseconds.
+    #[cfg(feature = "test")]
+    #[doc(hidden)]
     pub max_tx_verify_time_ms: NonZeroU32,
     /// max tx verify workers, default is 3/4 of cpu cores
     #[serde(default = "default_max_tx_verify_workers")]
@@ -45,6 +46,20 @@ pub struct TxPoolConfig {
     pub recent_reject: PathBuf,
     /// The expiration time for pool transactions in hours
     pub expiry_hours: u8,
+}
+
+impl TxPoolConfig {
+    /// Internal network verification cap; only test builds support an override.
+    pub fn max_tx_verify_time(&self) -> std::time::Duration {
+        #[cfg(feature = "test")]
+        {
+            std::time::Duration::from_millis(u64::from(self.max_tx_verify_time_ms.get()))
+        }
+        #[cfg(not(feature = "test"))]
+        {
+            std::time::Duration::from_secs(ckb_chain_spec::consensus::MIN_BLOCK_INTERVAL)
+        }
+    }
 }
 
 /// default max tx verify workers is 3/4 of cpu cores

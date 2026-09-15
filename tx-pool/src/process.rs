@@ -723,7 +723,7 @@ impl TxPoolService {
     }
 
     pub(crate) fn verification_time_limit(&self, declared_cycles: Option<Cycle>) -> Duration {
-        let cap = Duration::from_millis(u64::from(self.tx_pool_config.max_tx_verify_time_ms.get()));
+        let cap = self.tx_pool_config.max_tx_verify_time();
         declared_cycles.map_or(cap, |cycles| crate::calibration::for_cycles(cycles, cap))
     }
 

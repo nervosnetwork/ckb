@@ -57,6 +57,7 @@ nix = { version = "0.29.0", default-features = false, features = ["signal"] }
 colored = "2.0"
 
 [features]
+test = ["ckb-app-config/test"]
 deadlock_detection = ["ckb-util/deadlock_detection"]
 profiling = ["ckb-memory-tracker/profiling", "ckb-shared/stats"]
 with_sentry = [

@@ -4,6 +4,7 @@ use ckb_jsonrpc_types::FeeRateDef;
 use ckb_types::core::{Cycle, FeeRate};
 use serde::Deserialize;
 use std::cmp;
+#[cfg(feature = "test")]
 use std::num::NonZeroU32;
 use std::path::PathBuf;
 
@@ -42,6 +43,7 @@ pub(crate) struct TxPoolConfig {
     #[serde(with = "FeeRateDef", default = "default_min_rbf_rate")]
     min_rbf_rate: FeeRate,
     max_tx_verify_cycles: Cycle,
+    #[cfg(feature = "test")]
     #[serde(default = "default_max_tx_verify_time_ms")]
     max_tx_verify_time_ms: NonZeroU32,
     max_ancestors_count: usize,
@@ -73,8 +75,9 @@ fn default_min_rbf_rate() -> FeeRate {
     DEFAULT_MIN_RBF_RATE
 }
 
+#[cfg(feature = "test")]
 const fn default_max_tx_verify_time_ms() -> NonZeroU32 {
-    NonZeroU32::new(8_000).unwrap()
+    NonZeroU32::new(ckb_chain_spec::consensus::MIN_BLOCK_INTERVAL as u32 * 1_000).unwrap()
 }
 
 impl Default for crate::TxPoolConfig {
@@ -98,6 +101,7 @@ impl Default for TxPoolConfig {
             min_fee_rate: DEFAULT_MIN_FEE_RATE,
             min_rbf_rate: DEFAULT_MIN_RBF_RATE,
             max_tx_verify_cycles: DEFAULT_MAX_TX_VERIFY_CYCLES,
+            #[cfg(feature = "test")]
             max_tx_verify_time_ms: default_max_tx_verify_time_ms(),
             max_ancestors_count: DEFAULT_MAX_ANCESTORS_COUNT,
             persisted_data: Default::default(),
@@ -122,6 +126,7 @@ impl From<TxPoolConfig> for crate::TxPoolConfig {
             min_fee_rate,
             min_rbf_rate,
             max_tx_verify_cycles,
+            #[cfg(feature = "test")]
             max_tx_verify_time_ms,
             max_ancestors_count,
             persisted_data,
@@ -134,6 +139,7 @@ impl From<TxPoolConfig> for crate::TxPoolConfig {
             min_fee_rate,
             min_rbf_rate,
             max_tx_verify_cycles,
+            #[cfg(feature = "test")]
             max_tx_verify_time_ms,
             max_tx_verify_workers,
             max_ancestors_count: cmp::max(DEFAULT_MAX_ANCESTORS_COUNT, max_ancestors_count),
@@ -151,7 +157,33 @@ mod tests {
     use super::*;
 
     #[test]
-    fn network_time_cap_defaults_for_old_configs_and_is_configurable() {
+    #[cfg(not(feature = "test"))]
+    fn network_time_cap_is_not_a_user_configuration() {
+        let config = crate::TxPoolConfig::default();
+        assert_eq!(
+            config.max_tx_verify_time(),
+            std::time::Duration::from_secs(ckb_chain_spec::consensus::MIN_BLOCK_INTERVAL)
+        );
+        let value = toml::Value::try_from(config).unwrap();
+        let _: TxPoolConfig = value.clone().try_into().unwrap();
+        for field in [
+            "max_tx_verify_time_ms",
+            "min_tx_verify_time_ms",
+            "cycles_per_ms",
+        ] {
+            assert!(!value.as_table().unwrap().contains_key(field));
+            let mut configured = value.clone();
+            configured
+                .as_table_mut()
+                .unwrap()
+                .insert(field.into(), toml::Value::Integer(1));
+            assert!(configured.try_into::<TxPoolConfig>().is_err(), "{field}");
+        }
+    }
+
+    #[test]
+    #[cfg(feature = "test")]
+    fn test_build_can_override_the_network_time_cap() {
         let mut value = toml::Value::try_from(crate::TxPoolConfig::default()).unwrap();
         let fields = value.as_table_mut().unwrap();
         fields.remove("max_tx_verify_time_ms");
@@ -169,10 +201,8 @@ mod tests {
             .insert("max_tx_verify_time_ms".into(), toml::Value::Integer(12_000));
         let configured: TxPoolConfig = value.clone().try_into().unwrap();
         assert_eq!(
-            crate::TxPoolConfig::from(configured)
-                .max_tx_verify_time_ms
-                .get(),
-            12_000
+            crate::TxPoolConfig::from(configured).max_tx_verify_time(),
+            std::time::Duration::from_millis(12_000)
         );
         value["max_tx_verify_time_ms"] = toml::Value::Integer(0);
         assert!(value.try_into::<TxPoolConfig>().is_err());
