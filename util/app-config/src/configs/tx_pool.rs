@@ -45,10 +45,9 @@ pub struct TxPoolConfig {
     /// computation to leave room for control and I/O.
     #[serde(default = "default_max_tx_verify_workers")]
     pub max_tx_verify_workers: usize,
-    /// Maximum active VM-work budget for network relay/proposal verification,
-    /// in milliseconds. Local RPC and recovery have no time budget.
-    /// ELF loading counts; queueing, suspension and non-script checks do not.
-    /// Defaults to one minimum block interval (8 seconds).
+    /// Test-only override of the network verification time cap, in milliseconds.
+    #[cfg(feature = "test")]
+    #[doc(hidden)]
     pub max_tx_verify_time_ms: u32,
 
     /// Transaction expiration time in hours.
@@ -65,6 +64,20 @@ pub struct TxPoolConfig {
     /// `data_dir/tx-pool/recent_reject`. Relative paths use the node root directory.
     #[serde(default)]
     pub recent_reject: PathBuf,
+}
+
+impl TxPoolConfig {
+    /// Internal network verification cap; only test builds support an override.
+    pub fn max_tx_verify_time(&self) -> std::time::Duration {
+        #[cfg(feature = "test")]
+        {
+            std::time::Duration::from_millis(u64::from(self.max_tx_verify_time_ms))
+        }
+        #[cfg(not(feature = "test"))]
+        {
+            std::time::Duration::from_secs(ckb_chain_spec::consensus::MIN_BLOCK_INTERVAL)
+        }
+    }
 }
 
 /// default max tx verify workers is 3/4 of cpu cores

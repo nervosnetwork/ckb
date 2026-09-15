@@ -52,6 +52,7 @@ console-subscriber = { workspace = true, optional = true }
 tonic = { workspace = true, optional = true }
 
 [dev-dependencies]
+ckb-app-config = { workspace = true, features = ["test"] }
 tempfile.workspace = true
 tokio = { workspace = true, features = ["test-util"] }
 libc.workspace = true

@@ -131,7 +131,7 @@ impl Source {
         self,
         config: &ckb_app_config::TxPoolConfig,
     ) -> Option<Duration> {
-        let cap = Duration::from_millis(u64::from(config.max_tx_verify_time_ms));
+        let cap = config.max_tx_verify_time();
         Some(match self {
             Self::Local | Self::Recovery => return None,
             Self::Remote {

@@ -18,7 +18,6 @@ share validation, but legacy ancestor normalization has its own compatibility fl
 | `max_tx_verify_workers` | `max(3 × CPU cores / 4, 1)` | Worker population; compute permits also depend on Tokio runtime size |
 | `verify_ordering` | `fee_rate` | `arrival_time` or `fee_rate`; selection order, not completion order |
 | `max_tx_verify_cycles` | `TWO_IN_TWO_OUT_CYCLES × 20` | Remote small/large scheduling boundary, not a VM limit |
-| `max_tx_verify_time_ms` | 8,000 | Maximum active VM-work time for network relay/proposal verification, including initial loading |
 | `min_fee_rate` / `min_rbf_rate` | 1,000 / 1,500 | Shannons per kilobyte; admission and replacement policy |
 | `max_ancestors_count` | 1,000 | Ancestor limit; legacy parsing floors smaller values to 1,000 |
 | `expiry_hours` | 12 | Ordinary transaction expiration; replacement history has separate lifetime rules |
@@ -26,9 +25,10 @@ share validation, but legacy ancestor normalization has its own compatibility fl
 | `persisted_data` / `recent_reject` | Under the node's `tx-pool` data directory | Persistence file base and recent-rejection database; relative paths use the node root |
 
 VM execution rate and the minimum startup allowance are calibrated internally
-once per process using fixed local work. Startup logs report the effective values;
-`max_tx_verify_time_ms` always caps the selected network budget. Local RPC and
-recovery use synchronous verification without a time budget. See the
+once per process using fixed local work. Startup logs report the effective values.
+The network budget is internally capped at `MIN_BLOCK_INTERVAL` (currently
+8 seconds), including initial loading. Local RPC and recovery use synchronous
+verification without a time budget. See the
 [execution contract](architecture/EXECUTION.md) for calibration and accounting.
 
 `max_tx_pool_size` retains its existing serialized-byte meaning. Internal
@@ -45,9 +45,9 @@ An explicit `max_tx_verify_workers = 0` leaves remote verification work queued.
 Direct local submission and control requests still run; zero is not replaced by
 the default worker count.
 
-`Limits::new` rejects unusable envelopes, zero ancestors, a zero time cap and arithmetic overflow. Construction requires a
-multi-thread Tokio runtime. Increasing workers divides the active byte/edge
-envelope among more jobs and can make a previously viable configuration invalid.
+`Limits::new` rejects unusable envelopes, zero ancestors and arithmetic overflow.
+Construction requires a multi-thread Tokio runtime. Increasing workers divides
+the active byte/edge envelope among more jobs and can make a previously viable configuration invalid.
 Check the full calculation in [budget.rs](../src/authority/budget.rs) before tuning.
 
 ## Caller completion
@@ -80,7 +80,7 @@ instrumentation. Gauges are observations, not admission authority.
 |---|---|---|
 | Remote pressure while local progress remains possible | `ckb_tx_pool_pipeline_residency`: remote/total entries and bytes, active work | Distinguish retained backlog from active compute; check per-peer limits and workload shape |
 | Commits or reorg calls wait after state changed | `ckb_tx_pool_effect_usage`: batches/bytes, publisher logs | Identify an unready FIFO head, slow synchronous endpoint or endpoint failure |
-| VM-time rejection | Rejection class and configured time budget | Reproduce actual VM work; do not classify local resource refusal as consensus invalidity |
+| VM-time rejection | Rejection class and startup calibration values | Reproduce actual VM work; do not classify local resource refusal as consensus invalidity |
 | Template refresh error | Selected-owner/lifecycle source and template-driver logs | Check invalidation or build failure; a refresh deadline does not cancel the shared driver |
 | Shutdown stalls | Handler/background join versus publisher join | Follow owned tasks and synchronous providers; `started=false` is insufficient |
 | Startup has no restored transactions | Persistence-load log and v2 file | Preserve the failed input for diagnosis; malformed v2 does not fall back to v1 |

@@ -166,7 +166,7 @@ impl Limits {
         if job_bytes <= ENTRY_BYTES
             || job_edges == 0
             || config.max_ancestors_count == 0
-            || config.max_tx_verify_time_ms == 0
+            || config.max_tx_verify_time().is_zero()
         {
             return Err(bad());
         }

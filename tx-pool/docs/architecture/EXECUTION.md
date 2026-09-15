@@ -94,9 +94,12 @@ machine; neither is a configuration setting or learned from peer transactions.
 The result is a conservative estimate, not a bound on every script's running time.
 It is reused until restart, so it does not track later load or CPU frequency changes.
 
-Declared network cycles select `max(ceil(cycles / rate), minimum)`, capped by
-`max_tx_verify_time_ms`. Network work without a declaration uses the cap. A failed
-calibration also selects the cap, preserving the configured resource limit.
+Declared network cycles select `max(ceil(cycles / rate), minimum)`, capped at
+one minimum target block interval (`MIN_BLOCK_INTERVAL`, currently 8 seconds).
+Network work without a declaration and failed calibration both use this internal
+cap. It is not a user setting. Native integration builds enable the `test` Cargo
+feature to override `max_tx_verify_time_ms`; the field and its parser do not
+exist in production builds.
 
 The [script verifier](../../../script/src/verify.rs) shares a selected budget
 across the transaction's ordinary VM groups. The child publishes its group's cumulative

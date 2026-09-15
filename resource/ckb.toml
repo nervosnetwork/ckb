@@ -227,15 +227,6 @@ max_tx_verify_cycles = 70_000_000
 # further limit concurrent computation to leave room for control and I/O.
 # Set max_tx_verify_workers explicitly to override the automatic worker count.
 
-# VM-work limit for network relay and proposal transactions. VM speed and the
-# startup allowance are calibrated internally; declared cycles select a budget
-# capped by this maximum.
-# Network work without a declaration uses the maximum. Local RPC submissions
-# and recovery have no time budget. These limits do not change consensus validity.
-# ELF loading and dynamic exec/spawn count; queueing, suspension, resolution
-# and other non-script checks do not.
-# max_tx_verify_time_ms = 8_000
-
 # Transaction and recent rejection retention.
 # expiry_hours = 12
 # keep_rejected_tx_hashes_days = 7

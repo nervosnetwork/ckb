@@ -12,8 +12,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Add `verify_ordering`, defaulting to `fee_rate`, with explicit `arrival_time`
   selection also supported. Selection order does not promise completion order.
 - Add an active VM-time budget for network relay and proposal transactions,
-  with internally calibrated VM speed and startup allowance, capped by
-  `max_tx_verify_time_ms`. Local RPC and recovery use synchronous verification
+  with internally calibrated VM speed and startup allowance, capped at one
+  minimum target block interval (currently 8 seconds). Local RPC and recovery use synchronous verification
   without a time budget; consensus cycle accounting is unchanged.
 
 ### Changed
