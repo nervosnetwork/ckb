@@ -519,7 +519,11 @@ fn two_phase_commit_verifier_and_live_proposal_view_agree_pointwise() {
                     Arc::new(proposal_block.clone()),
                     Switch::DISABLE_ALL,
                 )
-                .expect("the proposal block installs");
+                .unwrap_or_else(|error| {
+                    panic!(
+                        "proposal block installation failed: window={proposal_window:?} uncle={propose_in_uncle} parent={parent:?} error={error:?}"
+                    )
+                });
             parent = proposal_block.header();
 
             for tip in 1..=proposal_window.farthest() + 1 {
@@ -576,7 +580,12 @@ fn two_phase_commit_verifier_and_live_proposal_view_agree_pointwise() {
                             Arc::new(next.clone()),
                             Switch::DISABLE_ALL,
                         )
-                        .expect("the canonical empty successor installs");
+                        .unwrap_or_else(|error| {
+                            panic!(
+                                "empty successor installation failed: window={proposal_window:?} tip={tip} uncle={propose_in_uncle} parent={parent:?} live_tip={:?} error={error:?}",
+                                shared.snapshot().tip_header(),
+                            )
+                        });
                     parent = next.header();
                 }
             }

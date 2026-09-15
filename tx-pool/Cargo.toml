@@ -94,6 +94,7 @@ path = "benches/packing/contract.rs"
 required-features = ["packing-bench"]
 
 [features]
+calibration-observation = []
 packing-bench = []
 allocation-observation = []
 cross-version-legacy-bench-adapter = []

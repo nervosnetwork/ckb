@@ -66,7 +66,7 @@ impl Measurement {
             execution_time: Duration::ZERO,
         };
         for version in [ScriptVersion::V0, ScriptVersion::V1, ScriptVersion::V2] {
-            let sample = || Self::sample(version, &program, &metadata);
+            let sample = || Self::sample(version, &program, &metadata, SAMPLE_CYCLES);
             let mut samples = [sample()?, sample()?, sample()?];
             samples.sort_unstable_by_key(|sample| sample.execution_time);
             let median = samples[1];
@@ -84,9 +84,10 @@ impl Measurement {
         version: ScriptVersion,
         program: &Bytes,
         metadata: &ProgramMetadata,
+        cycles: u64,
     ) -> Result<Self, Error> {
         let started = Instant::now();
-        let core = version.init_core_machine(SAMPLE_CYCLES);
+        let core = version.init_core_machine(cycles);
         let mut machine = Machine::new(
             DefaultMachineBuilder::new(core)
                 .instruction_cycle_func(Box::new(estimate_cycles))
@@ -178,6 +179,89 @@ impl VmTiming {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Hardware observations run separately from concurrent unit tests. The
+    /// holdouts exercise a short branch loop and a larger division/remainder
+    /// program, at cycle counts below and above the calibration quantum.
+    #[cfg(feature = "calibration-observation")]
+    #[test]
+    #[ignore = "hardware observation: run alone with the prod profile and --nocapture"]
+    fn observe_calibration_against_holdout_workloads() {
+        let calibration = Measurement::measure().unwrap();
+        let timing = VmTiming::from_sample(calibration);
+        println!(
+            "CALIBRATION_SAMPLE {}",
+            serde_json::json!({
+                "backend": std::any::type_name::<Machine>(),
+                "cycles": calibration.cycles,
+                "loading_ns": calibration.loading_time.as_nanos(),
+                "execution_ns": calibration.execution_time.as_nanos(),
+                "cycles_per_ms": timing.cycles_per_ms,
+                "minimum_ms": timing.minimum.as_millis(),
+            })
+        );
+        let workloads: [(&str, &[u32], usize, u64); 2] = [
+            (
+                "branch",
+                &[0x0012_8293, 0xffdf_f06f], // addi t0,t0,1; j -4
+                4 * 1024,
+                1_000_000,
+            ),
+            (
+                "division",
+                &[
+                    0x0012_8293, // addi t0,t0,1
+                    0x0252_c333, // div t1,t0,t0
+                    0x0253_63b3, // rem t2,t1,t0
+                    0xff5f_f06f, // j -12
+                ],
+                1024 * 1024,
+                50_000_000,
+            ),
+        ];
+        for (name, instructions, size, cycles) in workloads {
+            let mut program = vec![0; size];
+            for (bytes, instruction) in program.chunks_exact_mut(4).zip(instructions) {
+                bytes.copy_from_slice(&instruction.to_le_bytes());
+            }
+            let program = Bytes::from(program);
+            let metadata = ProgramMetadata {
+                actions: vec![LoadingAction {
+                    addr: 0,
+                    size: size as u64,
+                    flags: FLAG_EXECUTABLE | FLAG_FREEZED,
+                    source: 0..size as u64,
+                    offset_from_addr: 0,
+                }],
+                entry: 0,
+            };
+            for version in [ScriptVersion::V0, ScriptVersion::V1, ScriptVersion::V2] {
+                for repeat in 0..3 {
+                    let sample = Measurement::sample(version, &program, &metadata, cycles)
+                        .expect("the holdout must execute to its cycle limit");
+                    let elapsed = sample.loading_time + sample.execution_time;
+                    let budget = timing.limit(cycles, Duration::from_secs(8));
+                    println!(
+                        "CALIBRATION_HOLDOUT {}",
+                        serde_json::json!({
+                            "workload": name, "version": format!("{version:?}"),
+                            "repeat": repeat, "program_bytes": size,
+                            "declared_cycles": cycles, "executed_cycles": sample.cycles,
+                            "loading_ns": sample.loading_time.as_nanos(),
+                            "execution_ns": sample.execution_time.as_nanos(),
+                            "budget_ns": budget.as_nanos(),
+                            "within_budget": elapsed <= budget,
+                        })
+                    );
+                    assert!(sample.cycles > cycles - 32 && sample.cycles <= cycles);
+                    assert!(
+                        elapsed <= budget,
+                        "{name} {version:?}: {elapsed:?} > {budget:?}"
+                    );
+                }
+            }
+        }
+    }
 
     #[test]
     fn fixed_workload_runs_to_its_cycle_limit_on_every_script_version() {

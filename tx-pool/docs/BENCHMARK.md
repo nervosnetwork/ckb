@@ -409,6 +409,42 @@ python3 -m unittest discover -s tx-pool/scripts -p test_packing_benchmark.py
 
 ## Maintenance gates
 
+### Cross-machine diagnostics
+
+The [diagnostic workflow](../../.github/workflows/tx_pool_diagnostics.yml) runs
+on Linux and macOS, on x86-64 and ARM64 hosted runners. It records source, binary,
+toolchain, CPU and runner-image identities. Calibration holdouts run alone in
+fresh processes with the production VM backend; `calibration-observation` keeps
+their wall-clock assertions out of ordinary concurrent unit suites.
+
+```sh
+cargo nextest run --locked --cargo-profile prod -p ckb-tx-pool \
+  --features calibration-observation \
+  -E 'test(observe_calibration_against_holdout_workloads)' --run-ignored only \
+  --test-threads 1 --retries 0 --success-output immediate
+```
+
+Holdouts cover different instructions, program sizes and cycle counts; the real
+secp256k1 admission fixture also checks successful network verification. They do
+not bound every script, provider delay or later machine load.
+
+`TemplatesDuringAdmission` records actual template RPC latency and accepted
+transaction counts, checks selected-owner invalidation and confirms publication
+of new proposals. A fast cached response and the delay until newly admitted work
+becomes visible are separate observations. The sync diagnostic reuses the
+external test's original assertion and deadline, retaining live RPC state and
+node logs before teardown. Passing repetitions do not establish an old failure's
+root cause.
+
+The Linux x86-64 job compares three fixed packing scenarios with the historical
+PR revision `54c26b2`, after its behavior gates pass. Captures preserve complete
+work and order checks; three pairs are a diagnostic screen, not evidence of
+equivalence or statistical significance. Separate instrumented builds record
+allocation calls and requested bytes; those timings are excluded. Artifacts include failed attempts and
+expire after 14 days; retain the source-bound packet before making a lasting claim.
+
+### Harness checks
+
 After changing the executor, runner or analyzer, run:
 
 ```sh

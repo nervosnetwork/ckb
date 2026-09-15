@@ -514,6 +514,7 @@ fn all_specs() -> Vec<Box<dyn Spec>> {
         Box::new(OrphanTxAccepted),
         Box::new(RpcMissingDependencyAndNetworkWaiting),
         Box::new(DepReadersPrecedeSpenderAcrossBlocks),
+        Box::new(TemplatesDuringAdmission),
         Box::new(TxPoolOrphanNormal),
         Box::new(TxPoolOrphanReverse),
         Box::new(TxPoolOrphanUnordered),
