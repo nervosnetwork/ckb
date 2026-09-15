@@ -85,11 +85,11 @@ fn rejected_tx_can_be_requested_again_from_another_peer() {
     let content = packed::RelayTransactionHashes::new_builder()
         .tx_hashes(vec![tx_hash.clone()])
         .build();
-    // The isolated fixture has no registered sessions, so the protocol
-    // status may be `Ignored` after the hash is queued. The authoritative
-    // assertion is the request projection below.
-    let _status =
-        TransactionHashesProcess::new(content.as_reader(), &relayer, replacement_peer).execute();
+    assert!(
+        TransactionHashesProcess::new(content.as_reader(), &relayer, replacement_peer)
+            .execute()
+            .is_ok()
+    );
     assert_eq!(
         state.pop_ask_for_txs().get(&replacement_peer),
         Some(&vec![tx_hash])

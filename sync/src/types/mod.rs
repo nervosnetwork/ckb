@@ -35,7 +35,7 @@ use ckb_types::{
 };
 use ckb_util::{Mutex, MutexGuard, RwLock, RwLockReadGuard, RwLockWriteGuard, shrink_to_fit};
 use dashmap::{self, DashMap};
-use keyed_priority_queue::{self, KeyedPriorityQueue};
+use keyed_priority_queue::KeyedPriorityQueue;
 use lru::LruCache;
 use std::collections::{BTreeMap, HashMap, HashSet, btree_map::Entry};
 use std::hash::Hash;
@@ -1527,61 +1527,48 @@ impl SyncState {
     }
 
     pub fn add_ask_for_txs(&self, peer_index: PeerIndex, tx_hashes: Vec<Byte32>) -> Status {
+        use keyed_priority_queue::Entry;
+
         let mut unknown_tx_hashes = self.unknown_tx_hashes.lock();
+        // Count retained registrations, which can outlive the peer's connection.
+        // Admission and insertion share the lock, independently of callers' status handling.
+        let mut peer_unknown_count = unknown_tx_hashes
+            .iter()
+            .filter(|(_, priority)| priority.peers.contains(&peer_index))
+            .count();
+        let mut status = Status::ok();
 
         for tx_hash in tx_hashes
             .into_iter()
             .take(MAX_UNKNOWN_TX_HASHES_SIZE_PER_PEER)
         {
+            let hashes_full = unknown_tx_hashes.len() >= MAX_UNKNOWN_TX_HASHES_SIZE;
             match unknown_tx_hashes.entry(tx_hash) {
-                keyed_priority_queue::Entry::Occupied(entry) => {
+                Entry::Occupied(entry) if entry.get_priority().peers.contains(&peer_index) => {
+                    continue;
+                }
+                _ if peer_unknown_count >= MAX_UNKNOWN_TX_HASHES_SIZE_PER_PEER => {
+                    return StatusCode::TooManyUnknownTransactions.into();
+                }
+                Entry::Occupied(entry) => {
                     let mut priority = entry.get_priority().clone();
-                    if !priority.peers.contains(&peer_index) {
-                        priority.push_peer(peer_index);
-                        entry.set_priority(priority);
-                    }
+                    priority.push_peer(peer_index);
+                    entry.set_priority(priority);
                 }
-                keyed_priority_queue::Entry::Vacant(entry) => {
-                    entry.set_priority(UnknownTxHashPriority {
-                        request_time: Instant::now(),
-                        peers: vec![peer_index],
-                        requested: false,
-                    })
+                Entry::Vacant(_) if hashes_full => {
+                    status = Status::ignored();
+                    continue;
                 }
+                Entry::Vacant(entry) => entry.set_priority(UnknownTxHashPriority {
+                    request_time: Instant::now(),
+                    peers: vec![peer_index],
+                    requested: false,
+                }),
             }
+            peer_unknown_count += 1;
         }
 
-        // Enforce the per-peer registration bound independently of the
-        // number of distinct hashes. Repeated announcements of one hash must
-        // neither duplicate the peer nor bypass this bound.
-        {
-            let mut peer_unknown_counter = 0;
-            for (_hash, priority) in unknown_tx_hashes.iter() {
-                for peer in priority.peers.iter() {
-                    if *peer == peer_index {
-                        peer_unknown_counter += 1;
-                    }
-                }
-            }
-            if peer_unknown_counter >= MAX_UNKNOWN_TX_HASHES_SIZE_PER_PEER {
-                return StatusCode::TooManyUnknownTransactions.into();
-            }
-        }
-
-        // The global bound counts unique hashes after per-peer multiplicity
-        // has been normalized above.
-        if unknown_tx_hashes.len() >= MAX_UNKNOWN_TX_HASHES_SIZE
-            || unknown_tx_hashes.len()
-                >= self.peers.state.len() * MAX_UNKNOWN_TX_HASHES_SIZE_PER_PEER
-        {
-            warn!(
-                "unknown_tx_hashes is too long, len: {}",
-                unknown_tx_hashes.len()
-            );
-            return Status::ignored();
-        }
-
-        Status::ok()
+        status
     }
 
     pub fn already_known_tx(&self, hash: &Byte32) -> bool {
