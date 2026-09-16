@@ -1,6 +1,8 @@
 use ckb_chain::{ChainController, ChainServiceScope};
 use ckb_chain_spec::consensus::{Consensus, ConsensusBuilder};
-use ckb_constant::sync::{CHAIN_SYNC_TIMEOUT, EVICTION_HEADERS_RESPONSE_TIME, MAX_TIP_AGE};
+use ckb_constant::sync::{
+    CHAIN_SYNC_TIMEOUT, EVICTION_HEADERS_RESPONSE_TIME, MAX_LOCATOR_SIZE, MAX_TIP_AGE,
+};
 use ckb_dao::DaoCalculator;
 use ckb_error::InternalErrorKind;
 use ckb_network::{
@@ -37,7 +39,10 @@ use std::{
 
 use crate::{
     Status, StatusCode, SyncShared,
-    synchronizer::{BlockFetcher, BlockProcess, GetBlocksProcess, HeadersProcess, Synchronizer},
+    synchronizer::{
+        BlockFetcher, BlockProcess, GetBlocksProcess, GetHeadersProcess, HeadersProcess,
+        Synchronizer,
+    },
     types::{HeadersSyncController, IBDState, PeerState},
 };
 
@@ -1267,6 +1272,28 @@ fn get_blocks_process() {
     assert_eq!(
         process.execute(),
         StatusCode::RequestDuplicate.with_context("Request duplicate block")
+    );
+}
+
+#[test]
+fn get_headers_rejects_oversized_locator_before_processing() {
+    let (_chain, _shared, synchronizer) = start_chain(Some(Consensus::default()));
+    let message = packed::GetHeaders::new_builder()
+        .block_locator_hashes(vec![Byte32::zero(); MAX_LOCATOR_SIZE + 1])
+        .hash_stop(Byte32::zero())
+        .build();
+    let nc = Arc::new(mock_network_context(1)) as Arc<dyn CKBProtocolContext + Sync + 'static>;
+
+    let status =
+        GetHeadersProcess::new(message.as_reader(), &synchronizer, 0.into(), &nc).execute();
+
+    assert_eq!(status.code(), StatusCode::ProtocolMessageIsMalformed);
+    assert_eq!(
+        status.to_string(),
+        format!(
+            "ProtocolMessageIsMalformed(400): Locator count({}) > MAX_LOCATOR_SIZE({MAX_LOCATOR_SIZE})",
+            MAX_LOCATOR_SIZE + 1
+        )
     );
 }
 

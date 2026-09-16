@@ -111,6 +111,7 @@ pub(crate) async fn verify_rtx(
     let cached_script_cycles = cache_entry.map(|entry| entry.cycles);
 
     if let Some(command_rx) = command_rx {
+        verify_dao_script_size(&snapshot, Arc::clone(&rtx)).map_err(Reject::Verification)?;
         ContextualTransactionVerifier::new_with_cached_script_cycles(
             Arc::clone(&rtx),
             consensus,
@@ -120,13 +121,10 @@ pub(crate) async fn verify_rtx(
         )
         .verify_with_pause(max_tx_verify_cycles, command_rx)
         .await
-        .and_then(|result| {
-            verify_dao_script_size(&snapshot, rtx)?;
-            Ok(result)
-        })
         .map_err(Reject::Verification)
     } else {
         block_in_place(|| {
+            verify_dao_script_size(&snapshot, Arc::clone(&rtx)).map_err(Reject::Verification)?;
             ContextualTransactionVerifier::new_with_cached_script_cycles(
                 Arc::clone(&rtx),
                 consensus,
@@ -135,10 +133,6 @@ pub(crate) async fn verify_rtx(
                 cached_script_cycles,
             )
             .verify(max_tx_verify_cycles, false)
-            .and_then(|result| {
-                verify_dao_script_size(&snapshot, rtx)?;
-                Ok(result)
-            })
             .map_err(Reject::Verification)
         })
     }
