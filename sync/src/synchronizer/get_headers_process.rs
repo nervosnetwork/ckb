@@ -36,19 +36,19 @@ impl<'a> GetHeadersProcess<'a> {
     pub fn execute(self) -> Status {
         let active_chain = self.synchronizer.shared.active_chain();
 
-        let block_locator_hashes = self
-            .message
-            .block_locator_hashes()
-            .iter()
-            .map(|x| x.to_entity())
-            .collect::<Vec<Byte32>>();
-        let hash_stop = self.message.hash_stop().to_entity();
+        let block_locator_hashes = self.message.block_locator_hashes();
         let locator_size = block_locator_hashes.len();
         if locator_size > MAX_LOCATOR_SIZE {
             return StatusCode::ProtocolMessageIsMalformed.with_context(format!(
                 "Locator count({locator_size}) > MAX_LOCATOR_SIZE({MAX_LOCATOR_SIZE})"
             ));
         }
+
+        let block_locator_hashes = block_locator_hashes
+            .iter()
+            .map(|x| x.to_entity())
+            .collect::<Vec<Byte32>>();
+        let hash_stop = self.message.hash_stop().to_entity();
 
         if active_chain.is_initial_block_download() {
             info!(
