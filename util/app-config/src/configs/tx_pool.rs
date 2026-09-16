@@ -5,41 +5,79 @@ use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 use url::Url;
 
-// The default values are set in the legacy version.
-/// Transaction pool configuration
+/// Selection order for queued verification; completion may occur out of order.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum VerifyOrdering {
+    /// First-come first-served by arrival time.
+    ArrivalTime,
+    /// Highest fee rate first, with arrival time breaking ties (default).
+    #[default]
+    FeeRate,
+}
+
+/// Transaction-pool admission, verification and retention policy.
+/// Defaults and configuration-file compatibility are defined in the legacy parser.
 #[derive(Clone, Debug, Serialize)]
 pub struct TxPoolConfig {
-    /// Keep the transaction pool below <max_tx_pool_size> mb
+    /// Maximum serialized transaction bytes retained in the accepted pool.
+    /// The pool derives additional memory and work bounds internally.
     pub max_tx_pool_size: usize,
-    /// txs with lower fee rate than this will not be relayed or be mined
+    /// Minimum fee rate for relay and mining, in shannons per kilobyte.
     #[serde(with = "FeeRateDef")]
     pub min_fee_rate: FeeRate,
-    /// txs need to pay larger fee rate than this for RBF
+    /// Replacement fee rate, in shannons per kilobyte; values above
+    /// `min_fee_rate` enable replacement by fee.
     #[serde(with = "FeeRateDef")]
     pub min_rbf_rate: FeeRate,
-    /// tx pool rejects txs that cycles greater than max_tx_verify_cycles
+    /// Maximum ancestor count, including the transaction itself. Configuration
+    /// files retain the historical floor of 1,000.
+    pub max_ancestors_count: usize,
+
+    /// Selection order for queued verification, defaulting to fee rate.
+    pub verify_ordering: VerifyOrdering,
+    /// Remote declared-cycle threshold separating small and large work.
+    /// The historical name remains accepted, but this is a scheduling policy,
+    /// not an admission or VM execution limit.
     pub max_tx_verify_cycles: Cycle,
-    /// max tx verify workers, default is 3/4 of cpu cores
+    /// Verification worker population, defaulting to at least one and otherwise
+    /// three quarters of CPU cores. Runtime capacity can further limit concurrent
+    /// computation to leave room for control and I/O.
     #[serde(default = "default_max_tx_verify_workers")]
     pub max_tx_verify_workers: usize,
-    /// max ancestors size limit for a single tx
-    pub max_ancestors_count: usize,
-    /// rejected tx time to live by days
+    /// Test-only override of the network verification time cap, in milliseconds.
+    #[cfg(feature = "test")]
+    #[doc(hidden)]
+    pub max_tx_verify_time_ms: u32,
+
+    /// Transaction expiration time in hours.
+    pub expiry_hours: u8,
+    /// Retention of recent rejection records in days.
     pub keep_rejected_tx_hashes_days: u8,
-    /// rejected tx count limit
+    /// Maximum number of recent rejection records.
     pub keep_rejected_tx_hashes_count: u64,
-    /// The file to persist the tx pool on the disk when tx pool have been shutdown.
-    ///
-    /// By default, it is a subdirectory of 'tx-pool' subdirectory under the data directory.
+    /// Persistence file base path, defaulting to `data_dir/tx-pool/persisted_data`.
+    /// Relative paths are resolved against the node root directory.
     #[serde(default)]
     pub persisted_data: PathBuf,
-    /// The recent reject record database directory path.
-    ///
-    /// By default, it is a subdirectory of 'tx-pool' subdirectory under the data directory.
+    /// Recent rejection database directory, defaulting to
+    /// `data_dir/tx-pool/recent_reject`. Relative paths use the node root directory.
     #[serde(default)]
     pub recent_reject: PathBuf,
-    /// The expiration time for pool transactions in hours
-    pub expiry_hours: u8,
+}
+
+impl TxPoolConfig {
+    /// Internal network verification cap; only test builds support an override.
+    pub fn max_tx_verify_time(&self) -> std::time::Duration {
+        #[cfg(feature = "test")]
+        {
+            std::time::Duration::from_millis(u64::from(self.max_tx_verify_time_ms))
+        }
+        #[cfg(not(feature = "test"))]
+        {
+            std::time::Duration::from_secs(ckb_chain_spec::consensus::MIN_BLOCK_INTERVAL)
+        }
+    }
 }
 
 /// default max tx verify workers is 3/4 of cpu cores

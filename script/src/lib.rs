@@ -16,4 +16,6 @@ pub use crate::types::{
     TransactionState, TxData, VerifyResult, VmArgs, VmIsa, VmState, VmVersion,
 };
 pub use crate::verify::TransactionScriptsVerifier;
+#[cfg(not(target_family = "wasm"))]
+pub use crate::verify::{ResumableVerificationOutcome, TxPoolVmExecutionMode};
 pub use crate::verify_env::TxVerifyEnv;

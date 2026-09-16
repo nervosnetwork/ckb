@@ -53,8 +53,9 @@ fn start_chain(consensus: Option<Consensus>) -> (ChainServiceScope, Shared, Sync
     builder = builder.consensus(consensus);
 
     let (shared, mut pack) = builder.build().unwrap();
+    let relay_receiver = pack.take_relay_tx_receiver();
 
-    let chain = ChainServiceScope::new(pack.take_chain_services_builder());
+    let chain = ChainServiceScope::new(pack.into_chain_services_builder());
 
     while chain
         .chain_controller()
@@ -66,7 +67,7 @@ fn start_chain(consensus: Option<Consensus>) -> (ChainServiceScope, Shared, Sync
     let sync_shared = Arc::new(SyncShared::new(
         shared.clone(),
         Default::default(),
-        pack.take_relay_tx_receiver(),
+        relay_receiver,
     ));
     let synchronizer = Synchronizer::new(chain.chain_controller().clone(), sync_shared);
 
@@ -1306,12 +1307,10 @@ fn test_internal_db_error() {
     builder = builder.consensus(consensus);
 
     let (shared, mut pack) = builder.build().unwrap();
+    let relay_receiver = pack.take_relay_tx_receiver();
+    drop(pack);
 
-    let sync_shared = Arc::new(SyncShared::new(
-        shared,
-        Default::default(),
-        pack.take_relay_tx_receiver(),
-    ));
+    let sync_shared = Arc::new(SyncShared::new(shared, Default::default(), relay_receiver));
 
     let mut chain_controller = ChainController::faux();
     let block = Arc::new(BlockBuilder::default().build());

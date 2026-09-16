@@ -7,8 +7,8 @@ use ckb_logger::internal::{log_enabled, trace};
 use ckb_logger::{debug, error, info, log_enabled_target, trace_target};
 use ckb_merkle_mountain_range::leaf_index_to_mmr_size;
 use ckb_proposal_table::ProposalTable;
-use ckb_shared::Shared;
 use ckb_shared::block_status::BlockStatus;
+use ckb_shared::{Shared, Snapshot};
 use ckb_store::{ChainStore, StoreTransaction, attach_block_cell, detach_block_cell};
 use ckb_systemtime::unix_time_as_millis;
 use ckb_tx_pool::TxPoolController;
@@ -46,6 +46,24 @@ pub(crate) struct ConsumeUnverifiedBlocks {
     processor: ConsumeUnverifiedBlockProcessor,
 }
 
+/// The sole block consumer owns this pause across already queued work. Dropping
+/// it on idle, shutdown or unwind restores pool computation; pool Stop remains
+/// terminal. This does not wait for VM quiescence or pause chain publication.
+struct VerificationPause<'a>(&'a TxPoolController);
+
+impl<'a> VerificationPause<'a> {
+    fn new(controller: &'a TxPoolController) -> Self {
+        let _ = controller.suspend_chunk_process();
+        Self(controller)
+    }
+}
+
+impl Drop for VerificationPause<'_> {
+    fn drop(&mut self) {
+        let _ = self.0.continue_chunk_process();
+    }
+}
+
 impl ConsumeUnverifiedBlocks {
     pub(crate) fn new(
         shared: Shared,
@@ -69,7 +87,14 @@ impl ConsumeUnverifiedBlocks {
     }
 
     pub(crate) fn start(mut self) {
+        let mut pool_pause = None;
         loop {
+            // Keep the pause across a ready backlog, but release it before
+            // waiting for more work. Keep using select! so truncate and stop
+            // remain eligible between every pair of blocks.
+            if self.unverified_block_rx.is_empty() && self.truncate_block_rx.is_empty() {
+                pool_pause.take();
+            }
             let trace_begin_loop = minstant::Instant::now();
             select! {
                 recv(self.unverified_block_rx) -> msg => match msg {
@@ -78,7 +103,7 @@ impl ConsumeUnverifiedBlocks {
                         if let Some(handle) = ckb_metrics::handle() {
                             handle.ckb_chain_consume_unverified_block_waiting_block_duration.observe(trace_begin_loop.elapsed().as_secs_f64())
                         }
-                        let _ = self.tx_pool_controller.suspend_chunk_process();
+                        pool_pause.get_or_insert_with(|| VerificationPause::new(&self.tx_pool_controller));
 
                         let _trace_now = minstant::Instant::now();
                         let block_hash = unverified_task.block.hash();
@@ -97,8 +122,6 @@ impl ConsumeUnverifiedBlocks {
                         if let Some(handle) = ckb_metrics::handle() {
                             handle.ckb_chain_consume_unverified_block_duration.observe(_trace_now.elapsed().as_secs_f64())
                         }
-
-                        let _ = self.tx_pool_controller.continue_chunk_process();
                     },
                     Err(err) => {
                         error!("unverified_block_rx err: {}", err);
@@ -107,9 +130,8 @@ impl ConsumeUnverifiedBlocks {
                 },
                 recv(self.truncate_block_rx) -> msg => match msg {
                     Ok(Request { responder, arguments: target_tip_hash }) => {
-                        let _ = self.tx_pool_controller.suspend_chunk_process();
+                        pool_pause.get_or_insert_with(|| VerificationPause::new(&self.tx_pool_controller));
                         let _ = responder.send(self.processor.truncate(&target_tip_hash));
-                        let _ = self.tx_pool_controller.continue_chunk_process();
                     },
                     Err(err) => {
                         info!("truncate_block_tx has been closed, err: {}", err);
@@ -371,30 +393,21 @@ impl ConsumeUnverifiedBlockProcessor {
             );
 
             self.update_proposal_table(&fork);
-            let (detached_proposal_id, new_proposals) = self
+            let new_proposals = self
                 .proposal_table
                 .finalize(origin_proposals, tip_header.number());
-            fork.detached_proposal_id = detached_proposal_id;
 
             let new_snapshot =
                 self.shared
                     .new_snapshot(tip_header, cannon_total_difficulty, epoch, new_proposals);
 
-            self.shared.store_snapshot(Arc::clone(&new_snapshot));
+            self.install_chain_tip_transition(&fork, new_snapshot);
 
             let tx_pool_controller = self.shared.tx_pool_controller();
-            if tx_pool_controller.service_started() {
-                if let Err(e) = tx_pool_controller.update_tx_pool_for_reorg(
-                    fork.detached_blocks().clone(),
-                    fork.attached_blocks().clone(),
-                    fork.detached_proposal_id().clone(),
-                    new_snapshot,
-                ) {
-                    error!("[verify block] notify update_tx_pool_for_reorg error {}", e);
-                }
-                if let Err(e) = tx_pool_controller.update_ibd_state(in_ibd) {
-                    error!("Notify update_ibd_state error {}", e);
-                }
+            if tx_pool_controller.service_started()
+                && let Err(e) = tx_pool_controller.update_ibd_state(in_ibd)
+            {
+                error!("Notify update_ibd_state error {}", e);
             }
 
             self.shared
@@ -437,9 +450,32 @@ impl ConsumeUnverifiedBlockProcessor {
         }
         for blk in fork.attached_blocks() {
             self.proposal_table
-                .insert(blk.header().number(), blk.union_proposal_ids());
+                .insert(blk.header().number(), blk.union_proposal_ids_iter());
         }
         self.reload_proposal_table(fork);
+    }
+
+    /// Install one new best-chain snapshot and publish its exact ordered delta
+    /// to the transaction-pool authority.
+    ///
+    /// This boundary is intentionally independent of the public
+    /// `service_started` readiness flag. The capacity-one reorg channel exists
+    /// before chain processing starts and applies backpressure until its sole
+    /// consumer is live, so a startup transition is delayed rather than lost.
+    /// Persistence replay and this consumer may overlap, but both enter the
+    /// same version-checked transaction-pool authority; no repair scan or
+    /// second membership owner is required.
+    fn install_chain_tip_transition(&self, fork: &ForkChanges, new_snapshot: Arc<Snapshot>) {
+        self.shared.store_snapshot(Arc::clone(&new_snapshot));
+        let tx_pool_controller = self.shared.tx_pool_controller();
+        if let Err(error) = tx_pool_controller.update_tx_pool_for_reorg(
+            fork.detached_blocks().clone(),
+            fork.attached_blocks().clone(),
+            HashSet::new(),
+            new_snapshot,
+        ) {
+            error!("[verify block] publish chain-tip transition error {error}");
+        }
     }
 
     // if rollback happen, go back check whether need reload proposal_table from block
@@ -461,8 +497,13 @@ impl ConsumeUnverifiedBlockProcessor {
                 .map(|blk| blk.header().number())
                 .unwrap_or(common);
 
-            let proposal_start =
-                cmp::max(1, (new_tip + 1).saturating_sub(proposal_window.farthest()));
+            let Some(candidate_number) = new_tip.checked_add(1) else {
+                return;
+            };
+            let proposal_start = cmp::max(
+                1,
+                candidate_number.saturating_sub(proposal_window.farthest()),
+            );
 
             debug!("reload_proposal_table [{}, {}]", proposal_start, common);
             for bn in proposal_start..=common {
@@ -473,7 +514,8 @@ impl ConsumeUnverifiedBlockProcessor {
                     .and_then(|hash| self.shared.store().get_block(&hash))
                     .expect("block stored");
 
-                self.proposal_table.insert(bn, blk.union_proposal_ids());
+                self.proposal_table
+                    .insert(bn, blk.union_proposal_ids_iter());
             }
         }
     }
@@ -671,7 +713,7 @@ impl ConsumeUnverifiedBlockProcessor {
                                 verify_result
                             };
                             match verified {
-                                Ok((cycles, cache_entries)) => {
+                                Ok((cycles, completed)) => {
                                     let txs_sizes = resolved
                                         .iter()
                                         .map(|rtx| {
@@ -687,16 +729,13 @@ impl ConsumeUnverifiedBlockProcessor {
                                         &txn,
                                         &b.header().hash(),
                                         ext.clone(),
-                                        Some(&cache_entries),
+                                        Some(&completed),
                                         Some(txs_sizes),
                                     )?;
 
                                     if !switch.disable_script() && b.transactions().len() > 1 {
                                         self.monitor_block_txs_verified(
-                                            b,
-                                            &resolved,
-                                            &cache_entries,
-                                            cycles,
+                                            b, &resolved, &completed, cycles,
                                         );
                                     }
                                 }
@@ -760,12 +799,12 @@ impl ConsumeUnverifiedBlockProcessor {
         txn: &StoreTransaction,
         hash: &Byte32,
         mut ext: BlockExt,
-        cache_entries: Option<&[Completed]>,
+        completed: Option<&[Completed]>,
         txs_sizes: Option<Vec<u64>>,
     ) -> Result<(), Error> {
         ext.verified = Some(true);
-        if let Some(entries) = cache_entries {
-            let (txs_fees, cycles) = entries
+        if let Some(completed) = completed {
+            let (txs_fees, cycles) = completed
                 .iter()
                 .map(|entry| (entry.fee, entry.cycles))
                 .unzip();
@@ -790,7 +829,7 @@ impl ConsumeUnverifiedBlockProcessor {
         &self,
         b: &BlockView,
         resolved: &[Arc<ResolvedTransaction>],
-        cache_entries: &[Completed],
+        completed: &[Completed],
         cycles: Cycle,
     ) {
         info!(
@@ -805,14 +844,14 @@ impl ConsumeUnverifiedBlockProcessor {
 
         // log tx verification result for monitor node
         if log_enabled_target!("ckb_tx_monitor", Trace) {
-            // `cache_entries` already excludes cellbase tx, but `resolved` includes cellbase tx, skip it
-            // to make them aligned
-            for (rtx, cycles) in resolved.iter().skip(1).zip(cache_entries.iter()) {
+            // Completed results exclude cellbase; skip its resolved transaction
+            // to align the monitor records.
+            for (rtx, completed) in resolved.iter().skip(1).zip(completed.iter()) {
                 trace_target!(
                     "ckb_tx_monitor",
                     r#"{{"tx_hash":"{:#x}","cycles":{}}}"#,
                     rtx.transaction.hash(),
-                    cycles.cycles
+                    completed.cycles
                 );
             }
         }
@@ -875,7 +914,7 @@ impl ConsumeUnverifiedBlockProcessor {
             .and_then(|index| snapshot.get_epoch_ext(&index))
             .expect("checked");
         let origin_proposals = snapshot.proposals();
-        let mut fork = self.make_fork_for_truncate(&target_tip_header, snapshot.tip_header());
+        let fork = self.make_fork_for_truncate(&target_tip_header, snapshot.tip_header());
 
         let db_txn = self.shared.store().begin_transaction();
         self.rollback(&fork, &db_txn)?;
@@ -889,10 +928,9 @@ impl ConsumeUnverifiedBlockProcessor {
         db_txn.commit()?;
 
         self.update_proposal_table(&fork);
-        let (detached_proposal_id, new_proposals) = self
+        let new_proposals = self
             .proposal_table
             .finalize(origin_proposals, target_tip_header.number());
-        fork.detached_proposal_id = detached_proposal_id;
 
         let new_snapshot = self.shared.new_snapshot(
             target_tip_header,
@@ -901,7 +939,7 @@ impl ConsumeUnverifiedBlockProcessor {
             new_proposals,
         );
 
-        self.shared.store_snapshot(Arc::clone(&new_snapshot));
+        self.install_chain_tip_transition(&fork, new_snapshot);
 
         Ok(())
     }
@@ -924,3 +962,7 @@ fn is_sorted_assert(fork: &ForkChanges) {
 
 #[cfg(not(debug_assertions))]
 fn is_sorted_assert(_fork: &ForkChanges) {}
+
+#[cfg(test)]
+#[path = "tests/verification_priority.rs"]
+mod priority_tests;

@@ -61,6 +61,32 @@ fn test_submit_transaction_error() {
 }
 
 #[test]
+fn verification_time_limit_has_a_distinct_rpc_error() {
+    assert_eq!(
+        serde_json::to_value(RPCError::from_submit_transaction_reject(
+            &Reject::ExcessiveVerifyTime
+        ))
+        .unwrap(),
+        serde_json::json!({
+            "code": -1113,
+            "message": "PoolRejectedTransactionByVerifyTimeLimit: Transaction verification exceeded the local tx-pool time limit",
+            "data": "ExcessiveVerifyTime"
+        })
+    );
+    assert_eq!(
+        serde_json::to_value(RPCError::from_submit_transaction_reject(&Reject::Full(
+            "capacity".to_owned()
+        )))
+        .unwrap(),
+        serde_json::json!({
+            "code": -1106,
+            "message": "PoolIsFull: Transaction is replaced because the pool is full, capacity",
+            "data": "Full(\"capacity\")"
+        })
+    );
+}
+
+#[test]
 fn test_out_point_error_from_ckb_error() {
     let err: CKBError = OutPointError::InvalidHeader(Byte32::new([0; 32])).into();
     assert_eq!(

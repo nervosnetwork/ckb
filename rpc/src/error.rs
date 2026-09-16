@@ -115,6 +115,10 @@ pub enum RPCError {
     PoolRejectedRBF = -1111,
     /// (-1112): The transaction is rejected for ref cell consuming.
     PoolRejectedInvalidated = -1112,
+    /// (-1113): Transaction verification exceeded the node's tx-pool time limit.
+    ///
+    /// This is a local resource policy, not a consensus verification failure.
+    PoolRejectedTransactionByVerifyTimeLimit = -1113,
     /// (-1200): The indexer error.
     Indexer = -1200,
 }
@@ -181,6 +185,7 @@ impl RPCError {
                 RPCError::PoolRejectedTransactionByMaxAncestorsCountLimit
             }
             Reject::Full(_) => RPCError::PoolIsFull,
+            Reject::ExcessiveVerifyTime => RPCError::PoolRejectedTransactionByVerifyTimeLimit,
             Reject::Duplicated(_) => RPCError::PoolRejectedDuplicatedTransaction,
             Reject::Malformed(_, _) => RPCError::PoolRejectedMalformedTransaction,
             Reject::DeclaredWrongCycles(..) => RPCError::PoolRejectedMalformedTransaction,
@@ -192,6 +197,7 @@ impl RPCError {
                 RPCError::PoolRejectedTransactionBySizeLimit
             }
             Reject::Expiry(_) => RPCError::TransactionExpired,
+            Reject::Internal(_) => RPCError::CKBInternalError,
         };
         RPCError::custom_with_error(code, reject)
     }

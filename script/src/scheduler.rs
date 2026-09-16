@@ -115,6 +115,8 @@ where
     /// read it anywhere except when initializing the root vm.
     /// Note: This field is intentionally not serialized in FullSuspendedState.
     root_vm_args: Vec<Bytes>,
+    #[cfg(test)]
+    test_program_load_hook: Option<Arc<dyn Fn(bool) + Send + Sync>>,
 
     /// MessageBox is expected to be empty before returning from `run`
     /// function, there is no need to persist messages.
@@ -149,7 +151,14 @@ where
             message_box: Arc::new(Mutex::new(Vec::new())),
             terminated_vms: BTreeMap::default(),
             root_vm_args: Vec::new(),
+            #[cfg(test)]
+            test_program_load_hook: None,
         }
+    }
+
+    #[cfg(test)]
+    pub(crate) fn set_program_load_test_hook(&mut self, hook: Arc<dyn Fn(bool) + Send + Sync>) {
+        self.test_program_load_hook = Some(hook);
     }
 
     /// Return total cycles.
@@ -941,6 +950,10 @@ where
     fn boot_vm(&mut self, location: &DataLocation, args: VmArgs) -> Result<VmId, Error> {
         let id = self.next_vm_id;
         self.next_vm_id += 1;
+        #[cfg(test)]
+        if let Some(hook) = self.test_program_load_hook.as_ref() {
+            hook(id != ROOT_VM_ID);
+        }
         let (context, mut machine) = self.create_dummy_vm(&id)?;
         let (program, _) = {
             let sc = context.snapshot2_context.lock().expect("lock");

@@ -8,8 +8,8 @@ use crate::tests::{
     utils::{MockChain, MockNetworkContext},
 };
 
-#[tokio::test(flavor = "multi_thread")]
-async fn get_transactions_proof_with_missing_txs() {
+#[test]
+fn get_transactions_proof_with_missing_txs() {
     let chain = MockChain::new();
     let nc = MockNetworkContext::new(SupportProtocols::LightClient);
 
@@ -45,9 +45,7 @@ async fn get_transactions_proof_with_missing_txs() {
     chain.mine_to(end_block_number);
 
     // Rollback
-    let mut detached_proposal_ids = HashSet::default();
-    detached_proposal_ids.insert(tx2.proposal_short_id());
-    chain.rollback_to(base_header.number(), detached_proposal_ids);
+    chain.rollback_to(base_header.number());
 
     let block_start_number = chain.mine_block(|block| {
         let cellbase = block.transactions().get(0).unwrap();
@@ -95,7 +93,10 @@ async fn get_transactions_proof_with_missing_txs() {
     assert!(nc.sent_messages().borrow().is_empty());
 
     let peer_index = PeerIndex::new(1);
-    protocol.received(nc.context(), peer_index, data).await;
+    chain
+        .shared()
+        .async_handle()
+        .block_on(protocol.received(nc.context(), peer_index, data));
 
     assert!(nc.not_banned(peer_index));
 

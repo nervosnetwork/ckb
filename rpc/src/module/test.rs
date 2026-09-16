@@ -502,8 +502,9 @@ pub trait IntegrationTestRpc {
     #[rpc(name = "calculate_dao_field")]
     fn calculate_dao_field(&self, block_template: BlockTemplate) -> Result<Byte32>;
 
-    /// Submits a new test local transaction into the transaction pool, only for testing.
-    /// If the transaction is already in the pool, rebroadcast it to peers.
+    /// Resolves a local test transaction and queues its script verification.
+    /// Missing or spent dependencies are rejected before queueing. A successful
+    /// response acknowledges the queue; final validity is reported by `get_transaction`.
     ///
     /// ## Params
     ///
@@ -516,6 +517,7 @@ pub trait IntegrationTestRpc {
     /// * [`PoolRejectedTransactionByMinFeeRate (-1104)`](../enum.RPCError.html#variant.PoolRejectedTransactionByMinFeeRate) - The transaction fee rate must be greater than or equal to the config option `tx_pool.min_fee_rate`.
     /// * [`PoolRejectedTransactionByMaxAncestorsCountLimit (-1105)`](../enum.RPCError.html#variant.PoolRejectedTransactionByMaxAncestorsCountLimit) - The ancestors count must be greater than or equal to the config option `tx_pool.max_ancestors_count`.
     /// * [`PoolIsFull (-1106)`](../enum.RPCError.html#variant.PoolIsFull) - Pool is full.
+    /// * [`PoolRejectedTransactionByVerifyTimeLimit (-1113)`](../enum.RPCError.html#variant.PoolRejectedTransactionByVerifyTimeLimit) - Transaction verification exceeded the local tx-pool time limit.
     /// * [`PoolRejectedDuplicatedTransaction (-1107)`](../enum.RPCError.html#variant.PoolRejectedDuplicatedTransaction) - The transaction is already in the pool.
     /// * [`TransactionFailedToResolve (-301)`](../enum.RPCError.html#variant.TransactionFailedToResolve) - Failed to resolve the referenced cells and headers used in the transaction, as inputs or dependencies.
     /// * [`TransactionFailedToVerify (-302)`](../enum.RPCError.html#variant.TransactionFailedToVerify) - Failed to verify the transaction.
