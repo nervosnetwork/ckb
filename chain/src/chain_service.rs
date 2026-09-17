@@ -9,8 +9,9 @@ use ckb_logger::{self, debug, error, info, warn};
 use ckb_shared::block_status::BlockStatus;
 use ckb_shared::shared::Shared;
 use ckb_stop_handler::new_crossbeam_exit_rx;
+use ckb_store::ChainStore;
 use ckb_types::core::BlockView;
-use ckb_verification::{BlockVerifier, NonContextualBlockTxsVerifier};
+use ckb_verification::{BlockVerifier, NonContextualBlockTxsVerifier, UnclesBodyVerifier};
 use ckb_verification_traits::Verifier;
 
 /// Chain background service to receive LonelyBlock and only do `non_contextual_verify`
@@ -88,6 +89,13 @@ impl ChainService {
             .map(|_| ())
     }
 
+    fn mark_invalid_block_status(&self, block_hash: &ckb_types::packed::Byte32) {
+        if self.shared.store().get_block_header(block_hash).is_none() {
+            self.shared
+                .insert_block_status(block_hash.clone(), BlockStatus::BLOCK_INVALID);
+        }
+    }
+
     // `self.non_contextual_verify` is very fast.
     fn asynchronous_process_block(&self, lonely_block: LonelyBlock) {
         let block_number = lonely_block.block().number();
@@ -114,6 +122,22 @@ impl ChainService {
             return;
         }
 
+        let uncle_verifier = UnclesBodyVerifier::new(
+            self.shared.consensus().max_uncles_num(),
+            self.shared.consensus().max_block_proposals_limit(),
+        );
+        if let Err(err) = uncle_verifier.verify(lonely_block.block()) {
+            error!(
+                "block {}-{} uncles body verify failed: {:?}",
+                block_number, block_hash, err
+            );
+            if self.shared.store().get_block_header(&block_hash).is_none() {
+                self.shared.block_status_map().remove(&block_hash);
+            }
+            lonely_block.execute_callback(Err(err));
+            return;
+        }
+
         if lonely_block.switch().is_none()
             || matches!(lonely_block.switch(), Some(switch) if !switch.disable_non_contextual())
         {
@@ -123,8 +147,7 @@ impl ChainService {
                     "block {}-{} verify failed: {:?}",
                     block_number, block_hash, err
                 );
-                self.shared
-                    .insert_block_status(lonely_block.block().hash(), BlockStatus::BLOCK_INVALID);
+                self.mark_invalid_block_status(&block_hash);
                 lonely_block.execute_callback(Err(err));
                 return;
             }

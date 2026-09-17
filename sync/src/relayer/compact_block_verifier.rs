@@ -1,5 +1,6 @@
 use crate::{Status, StatusCode, attempt, relayer::MAX_RELAY_TXS_NUM_PER_BATCH};
-use ckb_types::packed;
+use ckb_hash::new_blake2b;
+use ckb_types::{core::ExtraHashView, packed, prelude::*};
 use std::collections::HashSet;
 
 // we assume that all the short_ids and prefilled transactions
@@ -11,7 +12,49 @@ impl CompactBlockVerifier {
     pub(crate) fn verify(block: &packed::CompactBlock) -> Status {
         attempt!(PrefilledVerifier::verify(block));
         attempt!(ShortIdsVerifier::verify(block));
+        attempt!(BodyCommitmentsVerifier::verify(block));
         Status::ok()
+    }
+}
+
+pub struct BodyCommitmentsVerifier {}
+
+impl BodyCommitmentsVerifier {
+    pub(crate) fn verify(block: &packed::CompactBlock) -> Status {
+        let header = block.header();
+        let raw = header.raw();
+
+        let proposals_hash = block.as_reader().proposals().calc_proposals_hash();
+        if proposals_hash != raw.proposals_hash() {
+            return StatusCode::CompactBlockHasInvalidHeader
+                .with_context("compact proposals do not match the authenticated header");
+        }
+
+        let uncles_hash = calc_uncles_hash(&block.uncles());
+        let extension_hash = block
+            .extension()
+            .map(|extension| extension.as_reader().calc_raw_data_hash());
+        let extra_hash = ExtraHashView::new(uncles_hash, extension_hash).extra_hash();
+        if extra_hash != raw.extra_hash() {
+            return StatusCode::CompactBlockHasInvalidHeader
+                .with_context("compact uncles or extension do not match the authenticated header");
+        }
+
+        Status::ok()
+    }
+}
+
+fn calc_uncles_hash(uncles: &packed::Byte32Vec) -> packed::Byte32 {
+    if uncles.is_empty() {
+        packed::Byte32::zero()
+    } else {
+        let mut ret = [0u8; 32];
+        let mut blake2b = new_blake2b();
+        for uncle in uncles.as_reader().iter() {
+            blake2b.update(uncle.as_slice());
+        }
+        blake2b.finalize(&mut ret);
+        ret.into()
     }
 }
 

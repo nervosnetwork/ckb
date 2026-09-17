@@ -26,6 +26,7 @@ ckb-channel.workspace = true
 ckb-traits.workspace = true
 ckb-error.workspace = true
 ckb-tx-pool.workspace = true
+ckb-hash.workspace = true
 sentry = { workspace = true, optional = true }
 ckb-constant.workspace = true
 ckb-stop-handler.workspace = true
