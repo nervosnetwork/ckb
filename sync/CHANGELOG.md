@@ -7,6 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.3.3](https://github.com/nervosnetwork/ckb/compare/ckb-sync-v1.3.2...ckb-sync-v1.3.3) - 2026-09-19
+
+### Fixed
+
+- validate GetHeaders locator length before allocation (#5314) (by @Officeyutong)
+- relay: deduplicate peer entries for duplicate unknown tx hashes to prevent queue amplification (by @eval-exec)
+
+### Removed
+
+- remove network alert module (#5304) (by @chenyukang)
+
+### Contributors
+
+- @Officeyutong
+- @chenyukang
+- @eval-exec
+
 ## [1.3.2](https://github.com/nervosnetwork/ckb/compare/ckb-sync-v1.3.1...ckb-sync-v1.3.2) - 2026-07-28
 
 ### Changed
