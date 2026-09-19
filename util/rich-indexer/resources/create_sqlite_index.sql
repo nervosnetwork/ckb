@@ -1,7 +1,6 @@
 CREATE INDEX IF NOT EXISTS "index_block_table_block_hash" ON "block" ("block_hash");
 
 CREATE INDEX IF NOT EXISTS "index_block_association_proposal_table_block_id" ON "block_association_proposal" ("block_id");
-CREATE INDEX IF NOT EXISTS "index_block_association_uncle_table_block_id" ON "block_association_uncle" ("block_id");
 
 CREATE INDEX IF NOT EXISTS "index_tx_table_tx_hash" ON "ckb_transaction" ("tx_hash");
 CREATE INDEX IF NOT EXISTS "index_tx_table_block_id" ON "ckb_transaction" ("block_id");

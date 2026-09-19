@@ -21,12 +21,6 @@ CREATE TABLE IF NOT EXISTS block_association_proposal(
     proposal BLOB NOT NULL
 );
 
-CREATE TABLE IF NOT EXISTS block_association_uncle(
-    id INTEGER PRIMARY KEY,
-    block_id INTEGER NOT NULL,
-    uncle_id INTEGER NOT NULL
-);
-
 CREATE TABLE IF NOT EXISTS ckb_transaction(
     id INTEGER PRIMARY KEY,
     tx_hash BLOB NOT NULL,
