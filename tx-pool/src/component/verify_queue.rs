@@ -16,6 +16,10 @@ use tokio::sync::Notify;
 
 // 256mb for total_tx_size limit, default max_tx_pool_size is 180mb
 const DEFAULT_MAX_VERIFY_QUEUE_TX_SIZE: usize = 256_000_000;
+// Serialized size does not account for the fixed overhead of TransactionView and
+// the indexes maintained for every VerifyEntry. Keep a count limit as a second
+// line of defense against queues containing a large number of small transactions.
+const DEFAULT_MAX_VERIFY_TRANSACTIONS: usize = 100_000;
 const SHRINK_THRESHOLD: usize = 100;
 
 /// The verify queue Entry to verify.
@@ -62,6 +66,8 @@ pub(crate) struct VerifyQueue {
     ready_rx: Arc<Notify>,
     /// total tx size in the queue, will reject new transaction if exceed the limit
     total_tx_size: usize,
+    /// transaction count limit, independent of the serialized-size limit
+    max_transactions: usize,
     /// large cycle threshold, from `pool_config.max_tx_verify_cycles`
     large_cycle_threshold: u64,
 }
@@ -73,6 +79,7 @@ impl VerifyQueue {
             inner: MultiIndexVerifyEntryMap::default(),
             ready_rx: Arc::new(Notify::new()),
             total_tx_size: 0,
+            max_transactions: DEFAULT_MAX_VERIFY_TRANSACTIONS,
             large_cycle_threshold,
         }
     }
@@ -102,9 +109,15 @@ impl VerifyQueue {
         self.total_tx_size = total_tx_size;
     }
 
+    #[cfg(test)]
+    pub(crate) fn set_max_transactions_for_test(&mut self, max_transactions: usize) {
+        self.max_transactions = max_transactions;
+    }
+
     /// Returns true if the queue is full.
     pub fn is_full(&self, add_tx_size: usize) -> bool {
-        add_tx_size >= DEFAULT_MAX_VERIFY_QUEUE_TX_SIZE - self.total_tx_size
+        self.len() >= self.max_transactions
+            || add_tx_size >= DEFAULT_MAX_VERIFY_QUEUE_TX_SIZE - self.total_tx_size
     }
 
     /// Returns true if the queue contains a tx with the specified id.
@@ -238,7 +251,7 @@ impl VerifyQueue {
         };
         if self.is_full(tx_size) {
             return Err(Reject::Full(format!(
-                "verify_queue total_tx_size exceeded, failed to add tx: {:#x}",
+                "verify_queue count or total_tx_size exceeded, failed to add tx: {:#x}",
                 tx.hash()
             )));
         }
