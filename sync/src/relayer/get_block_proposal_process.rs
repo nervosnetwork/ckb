@@ -64,17 +64,26 @@ impl<'a> GetBlockProposalProcess<'a> {
             }
             fetch_txs.unwrap()
         };
-        // Transactions that do not exist on this node
-        let not_exist_proposals: Vec<packed::ProposalShortId> = proposals
-            .into_iter()
-            .filter(|short_id| !fetched_transactions.contains_key(short_id))
-            .collect();
+        // Cache the misses and try to serve them again on a timer.
+        //
+        // Block-relay-only peers are deliberately excluded: caching their misses would
+        // turn a single GetBlockProposal into a standing subscription that pushes every
+        // matching transaction to them as soon as it enters the pool, which is exactly
+        // the transaction relay traffic such connections must not carry. They still get
+        // whatever is already in the pool, which is what compact block reconstruction
+        // needs.
+        if !self.nc.is_block_relay_only(self.peer) {
+            // Transactions that do not exist on this node
+            let not_exist_proposals: Vec<packed::ProposalShortId> = proposals
+                .into_iter()
+                .filter(|short_id| !fetched_transactions.contains_key(short_id))
+                .collect();
 
-        // Cache request, try process on timer
-        self.relayer
-            .shared()
-            .state()
-            .insert_get_block_proposals(self.peer, not_exist_proposals);
+            self.relayer
+                .shared()
+                .state()
+                .insert_get_block_proposals(self.peer, not_exist_proposals);
+        }
 
         let mut relay_bytes = 0;
         let mut relay_proposals = Vec::new();
