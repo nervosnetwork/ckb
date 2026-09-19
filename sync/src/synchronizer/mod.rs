@@ -11,6 +11,7 @@ mod block_process;
 mod get_blocks_process;
 mod get_headers_process;
 mod headers_process;
+mod headers_rate_limiter;
 mod in_ibd_process;
 
 pub(crate) use self::block_fetcher::BlockFetcher;
@@ -41,6 +42,7 @@ use ckb_network::{
 use ckb_shared::types::HeaderIndexView;
 use ckb_stop_handler::{new_crossbeam_exit_rx, register_thread};
 use ckb_systemtime::unix_time_as_millis;
+use headers_rate_limiter::HeadersRateLimiter;
 
 #[cfg(test)]
 use ckb_types::core;
@@ -354,6 +356,7 @@ pub struct Synchronizer {
     /// Sync shared state
     pub shared: Arc<SyncShared>,
     fetch_channel: Option<channel::Sender<FetchCMD>>,
+    headers_rate_limiter: HeadersRateLimiter,
 }
 
 impl Synchronizer {
@@ -365,6 +368,7 @@ impl Synchronizer {
             chain,
             shared,
             fetch_channel: None,
+            headers_rate_limiter: HeadersRateLimiter::default(),
         }
     }
 
@@ -985,6 +989,9 @@ impl CKBProtocolHandler for Synchronizer {
     }
 
     async fn notify(&mut self, nc: Arc<dyn CKBProtocolContext + Sync>, token: u64) {
+        if token == SEND_GET_HEADERS_TOKEN {
+            self.headers_rate_limiter.retain_recent();
+        }
         if !self.peers().state.is_empty() {
             let start_time = Instant::now();
             trace!("Start notify token={}", token);
