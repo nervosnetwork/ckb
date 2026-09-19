@@ -10,6 +10,140 @@ use crate::{
 use std::collections::HashSet;
 
 #[test]
+fn test_proxy_identity_ban_expiry_and_address_isolation() {
+    for ip in ["127.0.0.1", "::1", "10.0.0.2"] {
+        let ip: std::net::IpAddr = ip.parse().unwrap();
+        let protocol = if ip.is_ipv4() { "ip4" } else { "ip6" };
+        let peer = PeerId::random();
+        let addr: Multiaddr = format!("/{protocol}/{ip}/tcp/1000/p2p/{peer}")
+            .parse()
+            .unwrap();
+        let other: Multiaddr = format!("/{protocol}/{ip}/tcp/1001/p2p/{}", PeerId::random())
+            .parse()
+            .unwrap();
+        let moved: Multiaddr = format!("/ip4/192.0.2.1/tcp/2000/p2p/{peer}")
+            .parse()
+            .unwrap();
+        let mut store = PeerStore::default().with_shared_proxy_addrs(&[ip]);
+        store.ban_addr(&addr, u64::MAX, "test".into());
+        assert!(store.is_addr_banned(&addr));
+        assert!(store.is_addr_banned(&moved));
+        assert!(!store.is_addr_banned(&other));
+        assert!(!store.ban_list().is_ip_banned(&ip));
+        assert!(store.ban_list().get_banned_addrs().is_empty());
+
+        store.ban_addr(&addr, 0, "expired".into());
+        assert!(!store.is_addr_banned(&addr));
+        store.ban_addr(&addr, u64::MAX, "test".into());
+        assert!(store.is_addr_banned(&addr));
+        store.clear_ban_list();
+        assert!(!store.is_addr_banned(&addr));
+    }
+}
+
+#[test]
+fn test_proxy_behaviour_ban_and_explicit_ip_ban() {
+    let addr = random_addr();
+    let other = random_addr();
+    let mut store = PeerStore::default().with_shared_proxy_addrs(&["127.0.0.1".parse().unwrap()]);
+    store.add_addr(addr.clone(), Flags::COMPATIBILITY).unwrap();
+    for _ in 0..6 {
+        assert!(store.report(&addr, Behaviour::TestBad).is_ok());
+    }
+    assert!(store.report(&addr, Behaviour::TestBad).is_banned());
+    assert!(store.is_addr_banned(&addr));
+    assert!(!store.is_addr_banned(&other));
+    assert!(store.addr_manager().get(&addr).is_none());
+
+    // Operator bans must still apply even when the IP belongs to a trusted proxy.
+    store.ban_network(
+        multiaddr_to_ip_network(&addr).unwrap(),
+        10_000,
+        "manual".into(),
+    );
+    assert!(store.is_addr_banned(&other));
+}
+
+#[test]
+fn test_untrusted_address_still_banned_by_ip() {
+    let mut store = PeerStore::default().with_shared_proxy_addrs(&["::1".parse().unwrap()]);
+    store.ban_addr(&random_addr(), 10_000, "test".into());
+    assert!(store.is_addr_banned(&random_addr()));
+    assert_eq!(store.ban_list().count(), 1);
+}
+
+// An outbound `/onion3` peer is dialled through SOCKS5, so its connected address carries no
+// IP at all. Such a peer used to escape banning entirely, whatever it did.
+#[test]
+fn test_outbound_onion_addr_is_banned_by_identity() {
+    const ONION: &str = "vww6ybal4bd7szmgncyruucpgfkqahzddi37ktceo3ah7ngmcopnpyyd";
+    let peer = PeerId::random();
+    let addr: Multiaddr = format!("/onion3/{ONION}:1234/p2p/{peer}").parse().unwrap();
+    let other: Multiaddr = format!("/onion3/{ONION}:1234/p2p/{}", PeerId::random())
+        .parse()
+        .unwrap();
+    // The same identity reached over clearnet must be banned too.
+    let moved: Multiaddr = format!("/ip4/192.0.2.1/tcp/2000/p2p/{peer}")
+        .parse()
+        .unwrap();
+
+    // No onion listener configured: the fallback must not depend on `shared_proxy_addrs`.
+    let mut store = PeerStore::default();
+    assert!(!store.is_addr_banned(&addr));
+    store.ban_addr(&addr, u64::MAX, "test".into());
+    assert!(store.is_addr_banned(&addr));
+    assert!(store.is_addr_banned(&moved));
+    assert!(!store.is_addr_banned(&other));
+    // Nothing IP based was recorded, there is no IP to record.
+    assert!(store.ban_list().get_banned_addrs().is_empty());
+    assert!(!store.is_addr_banned(&random_addr()));
+}
+
+// Behaviour reports on an onion peer must reach the identity ban as well.
+#[test]
+fn test_outbound_onion_behaviour_ban() {
+    const ONION: &str = "vww6ybal4bd7szmgncyruucpgfkqahzddi37ktceo3ah7ngmcopnpyyd";
+    let addr: Multiaddr = format!("/onion3/{ONION}:1234/p2p/{}", PeerId::random())
+        .parse()
+        .unwrap();
+    let mut store = PeerStore::default();
+    store.add_addr(addr.clone(), Flags::COMPATIBILITY).unwrap();
+    for _ in 0..6 {
+        assert!(store.report(&addr, Behaviour::TestBad).is_ok());
+    }
+    assert!(store.report(&addr, Behaviour::TestBad).is_banned());
+    assert!(store.is_addr_banned(&addr));
+    assert!(store.addr_manager().get(&addr).is_none());
+}
+
+// An address with neither an IP nor a peer id must not panic and must not ban anything.
+#[test]
+fn test_ban_addr_without_ip_or_peer_id_is_a_noop() {
+    const ONION: &str = "vww6ybal4bd7szmgncyruucpgfkqahzddi37ktceo3ah7ngmcopnpyyd";
+    let addr: Multiaddr = format!("/onion3/{ONION}:1234").parse().unwrap();
+    let mut store = PeerStore::default();
+    store.ban_addr(&addr, u64::MAX, "test".into());
+    assert!(!store.is_addr_banned(&addr));
+    assert!(store.ban_list().get_banned_addrs().is_empty());
+}
+
+#[test]
+fn test_proxy_identity_bans_are_bounded() {
+    use crate::peer_store::ban_list::{BanList, MAX_BANNED_PEERS};
+    let mut bans = BanList::default();
+    let first = random_addr();
+    bans.ban_peer(extract_peer_id(&first).unwrap(), u64::MAX);
+    for _ in 1..MAX_BANNED_PEERS {
+        bans.ban_peer(PeerId::random(), u64::MAX);
+    }
+    assert!(bans.is_addr_banned(&first));
+    let last = random_addr();
+    bans.ban_peer(extract_peer_id(&last).unwrap(), u64::MAX);
+    assert!(!bans.is_addr_banned(&first));
+    assert!(bans.is_addr_banned(&last));
+}
+
+#[test]
 fn test_add_connected_peer() {
     let mut peer_store: PeerStore = Default::default();
     let addr = random_addr();
