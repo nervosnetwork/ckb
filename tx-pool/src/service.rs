@@ -104,6 +104,7 @@ pub(crate) type TestAcceptTxResult = Result<EntryCompleted, Reject>;
 type GetTxStatusResult = Result<(TxStatus, Option<Cycle>), AnyError>;
 type GetTransactionWithStatusResult = Result<TransactionWithStatus, AnyError>;
 type FetchTxsWithCyclesResult = Vec<(TransactionView, Cycle)>;
+type FetchTxsWithCyclesArgs = (HashSet<Byte32>, usize);
 
 pub(crate) type ChainReorgArgs = (
     VecDeque<BlockView>,
@@ -123,7 +124,7 @@ pub(crate) enum Message {
     NotifyTxs(Notify<Vec<TransactionView>>),
     FreshProposalsFilter(AsyncRequest<Vec<ProposalShortId>, Vec<ProposalShortId>>),
     FetchTxs(AsyncRequest<HashSet<ProposalShortId>, HashMap<ProposalShortId, TransactionView>>),
-    FetchTxsWithCycles(AsyncRequest<HashSet<Byte32>, FetchTxsWithCyclesResult>),
+    FetchTxsWithCycles(AsyncRequest<FetchTxsWithCyclesArgs, FetchTxsWithCyclesResult>),
     GetTxPoolInfo(Request<(), TxPoolInfo>),
     GetLiveCell(Request<(OutPoint, bool), CellStatus>),
     GetTxStatus(Request<Byte32, GetTxStatusResult>),
@@ -366,8 +367,19 @@ impl TxPoolController {
         &self,
         tx_hashes: HashSet<Byte32>,
     ) -> Result<FetchTxsWithCyclesResult, AnyError> {
+        self.fetch_txs_with_cycles_limited(tx_hashes, usize::MAX)
+            .await
+    }
+
+    /// Return transactions with cycles up to `max_serialized_bytes` worth of
+    /// relay-transaction payloads.
+    pub async fn fetch_txs_with_cycles_limited(
+        &self,
+        tx_hashes: HashSet<Byte32>,
+        max_serialized_bytes: usize,
+    ) -> Result<FetchTxsWithCyclesResult, AnyError> {
         let (responder, response) = tokio::sync::oneshot::channel();
-        let request = AsyncRequest::call(tx_hashes, responder);
+        let request = AsyncRequest::call((tx_hashes, max_serialized_bytes), responder);
         self.sender
             .try_send(Message::FetchTxsWithCycles(request))
             .map_err(|e| {
@@ -962,13 +974,10 @@ async fn process(mut service: TxPoolService, message: Message) {
         }
         Message::FetchTxsWithCycles(AsyncRequest {
             responder,
-            arguments: tx_hashes,
+            arguments: (tx_hashes, max_serialized_bytes),
         }) => {
             let tx_pool = service.tx_pool.read().await;
-            let txs = tx_hashes
-                .into_iter()
-                .filter_map(|tx_hash| tx_pool.get_tx_with_cycles(&tx_hash))
-                .collect();
+            let txs = tx_pool.get_txs_with_cycles_limited(tx_hashes, max_serialized_bytes);
             if let Err(e) = responder.send(txs) {
                 error!("Responder sending fetch_txs_with_cycles failed {:?}", e);
             };
