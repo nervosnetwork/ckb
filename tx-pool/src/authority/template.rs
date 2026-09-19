@@ -317,6 +317,9 @@ impl Driver {
             }
             self.updated.notify_waiters();
             if stale {
+                // Only publication can become stale after a coherent capture.
+                // Give concurrent commits a chance to finish before recapturing.
+                tokio::task::yield_now().await;
                 continue;
             }
             tokio::select! { _ = &mut changed => {}, _ = &mut requested => {} }

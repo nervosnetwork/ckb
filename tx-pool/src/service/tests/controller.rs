@@ -50,6 +50,25 @@ fn full_controller() -> (TxPoolController, mpsc::Receiver<Message>) {
     (controller(sender), receiver)
 }
 
+#[test]
+fn chain_lane_availability_tracks_ownership_independently_of_startup() {
+    let (sender, _receiver) = mpsc::channel(1);
+    let mut controller = controller(sender);
+    let (sender, receiver) = mpsc::channel(1);
+    controller.chain_control_sender = sender;
+    controller.started.store(false, Ordering::Release);
+    assert!(!controller.service_started());
+    assert!(
+        controller.accepts_chain_updates(),
+        "startup retains chain publication"
+    );
+    drop(receiver);
+    assert!(
+        !controller.accepts_chain_updates(),
+        "chain-only commands have no pool consumer"
+    );
+}
+
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn block_template_deadline_includes_time_before_dispatch() {
     let (sender, mut receiver) = mpsc::channel(1);

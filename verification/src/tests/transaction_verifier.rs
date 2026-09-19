@@ -476,12 +476,100 @@ fn contextual_verifier_with_sealed_script_proof(
         &HeaderView::new_advanced_builder().build(),
     ));
     let rules = ScriptVerificationRules::from_env(&consensus, &tx_env);
-    let key = TxVerificationCacheKey::from_transaction(&rtx.transaction, rules);
+    let key = TxVerificationCacheKey::from_resolved(&rtx, rules);
     let proof = ScriptVerificationProof::from_vm_success(key, cached_script_cycles);
     (
         ContextualTransactionVerifier::new(rtx, consensus, ContextualTestDataLoader, tx_env),
         proof,
     )
+}
+
+#[test]
+fn canonical_verifier_reexecutes_when_a_cached_cells_visible_origin_changes() {
+    let program = Bytes::from_static(include_bytes!("../../../script/testdata/always_success"));
+    let script = Script::new_builder()
+        .code_hash(CellOutput::calc_data_hash(&program))
+        .hash_type(ScriptHashType::Data)
+        .build();
+    let origin = HeaderView::new_advanced_builder()
+        .number(1u64)
+        .epoch(EpochNumberWithFraction::new(0, 1, 10))
+        .build();
+    let transaction = TransactionBuilder::default()
+        .input(CellInput::new(OutPoint::new(h256!("0x1").into(), 0), 0))
+        .cell_dep(
+            CellDep::new_builder()
+                .out_point(OutPoint::new(h256!("0x2").into(), 0))
+                .build(),
+        )
+        .header_dep(origin.hash())
+        .output(
+            CellOutput::new_builder()
+                .capacity(capacity_bytes!(100))
+                .build(),
+        )
+        .output_data(Bytes::new())
+        .build();
+    let mut resolved = ResolvedTransaction {
+        transaction,
+        resolved_inputs: vec![
+            CellMetaBuilder::from_cell_output(
+                CellOutput::new_builder()
+                    .capacity(capacity_bytes!(200))
+                    .lock(script)
+                    .build(),
+                Bytes::new(),
+            )
+            .build(),
+        ],
+        resolved_cell_deps: vec![
+            CellMetaBuilder::from_cell_output(CellOutput::default(), program).build(),
+        ],
+        resolved_dep_groups: Vec::new(),
+    };
+    let consensus = Arc::new(ConsensusBuilder::default().build());
+    let env = Arc::new(TxVerifyEnv::new_commit(&origin));
+    let verifier = |rtx: &ResolvedTransaction| {
+        ContextualTransactionVerifier::new(
+            Arc::new(rtx.clone()),
+            Arc::clone(&consensus),
+            ContextualTestDataLoader,
+            Arc::clone(&env),
+        )
+    };
+    let unconfirmed = verifier(&resolved)
+        .verify_scripts(u64::MAX, None)
+        .unwrap()
+        .executed_proof()
+        .unwrap();
+    assert!(
+        verifier(&resolved)
+            .verify_scripts(u64::MAX, Some(unconfirmed))
+            .unwrap()
+            .was_reused()
+    );
+    resolved.resolved_inputs[0].transaction_info = Some(TransactionInfo {
+        block_hash: origin.hash(),
+        block_number: 1,
+        block_epoch: origin.epoch(),
+        index: 1,
+    });
+    let confirmed = verifier(&resolved)
+        .verify_scripts(u64::MAX, Some(unconfirmed))
+        .unwrap();
+    assert!(
+        !confirmed.was_reused(),
+        "confirmation changes the syscall-visible origin"
+    );
+    let confirmed = confirmed.executed_proof().unwrap();
+    resolved.resolved_inputs[0].transaction_info = None;
+    assert!(
+        !verifier(&resolved)
+            .verify_scripts(u64::MAX, Some(confirmed))
+            .unwrap()
+            .was_reused(),
+        "a reorg must not reuse the confirmed proof for the unconfirmed cell"
+    );
 }
 
 #[test]

@@ -130,7 +130,11 @@ impl<'a> Graph<'a> {
             self.store.budget.limits.accepted.items,
         )?;
         for hash in &descendants {
-            let own = Aggregate::one(accepted(self.entries.get(hash).ok_or(Error::Stale)?)?);
+            let own = Aggregate::one(accepted(
+                self.entries
+                    .get(hash)
+                    .ok_or(Error::Fault("captured descendant"))?,
+            )?);
             let mut seen = BTreeSet::new();
             let mut stack = vec![hash.clone()];
             while let Some(parent) = stack.pop() {
@@ -140,7 +144,10 @@ impl<'a> Graph<'a> {
                 if let Some((_, total)) = totals.get_mut(&parent) {
                     *total = total.add(own)?;
                 }
-                let entry = self.entries.get(&parent).ok_or(Error::Stale)?;
+                let entry = self
+                    .entries
+                    .get(&parent)
+                    .ok_or(Error::Fault("captured ancestor"))?;
                 stack.extend(accepted(entry)?.parents.iter().cloned());
             }
         }

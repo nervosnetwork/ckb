@@ -14,6 +14,32 @@ use std::{
 };
 
 #[test]
+fn requested_bodies_require_the_current_source_and_an_unknown_hash() {
+    let (_chain, relayer, always_success) = build_chain(1);
+    let state = relayer.shared.state();
+    let peer = PeerIndex::from(1);
+    let other = PeerIndex::from(2);
+    let transactions: Vec<_> = (0..3)
+        .map(|nonce| new_transaction(&relayer, 800 + nonce, &always_success))
+        .collect();
+    state.add_ask_for_txs(peer, vec![transactions[0].hash()]);
+    state.add_ask_for_txs(other, vec![transactions[1].hash()]);
+    state.pop_ask_for_txs();
+    let bodies = || {
+        transactions
+            .iter()
+            .cloned()
+            .map(|transaction| (transaction, 1))
+    };
+    assert_eq!(
+        state.requested_transactions(peer, bodies()),
+        vec![(transactions[0].clone(), 1)]
+    );
+    state.mark_as_known_tx(transactions[0].hash());
+    assert!(state.requested_transactions(peer, bodies()).is_empty());
+}
+
+#[test]
 fn relay_rejects_a_cycle_declaration_above_consensus_before_tx_pool_handoff() {
     let (_chain, relayer, always_success_out_point) = build_chain(1);
     let transaction = new_transaction(&relayer, 700, &always_success_out_point);

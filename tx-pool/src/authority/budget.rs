@@ -77,6 +77,8 @@ impl Amount {
             && self.cycles <= limit.cycles
     }
     fn fraction(self, numerator: usize, denominator: usize) -> Option<Self> {
+        // Subquotas partition retained resources; serialized bytes and cycles
+        // keep the whole-pool ceilings rather than becoming peer admission policy.
         Some(Self {
             items: self
                 .items
@@ -139,13 +141,15 @@ impl Limits {
         consensus: &Consensus,
         residency: ResidencyLimits,
     ) -> Result<Self, Error> {
-        let bad = || Error::Full("invalid transaction-pool resource configuration".into());
+        let bad = || Error::Full("transaction-pool resource bound arithmetic overflow".into());
         let workers = config.max_tx_verify_workers;
-        let remote_items = workers.checked_add(1).ok_or_else(bad)?;
-        let active_items = remote_items.checked_add(1).ok_or_else(bad)?;
-        if active_items > tokio::sync::Semaphore::MAX_PERMITS {
-            return Err(bad());
-        }
+        let active_items = workers
+            .checked_add(2)
+            .filter(|slots| *slots <= tokio::sync::Semaphore::MAX_PERMITS)
+            .ok_or(Error::Full(
+                "max_tx_verify_workers exceeds the active task limit".into(),
+            ))?;
+        let remote_items = active_items.checked_sub(1).ok_or_else(bad)?;
         let pipeline_bytes = residency.pipeline;
         let max_block_bytes = usize::try_from(consensus.max_block_bytes()).map_err(|_| bad())?;
         let raw_edges = pipeline_bytes / 160;
@@ -163,12 +167,16 @@ impl Limits {
                     .and_then(|n| n.checked_add(1))
                     .ok_or_else(bad)?,
             );
-        if job_bytes <= ENTRY_BYTES
-            || job_edges == 0
-            || config.max_ancestors_count == 0
-            || config.max_tx_verify_time().is_zero()
-        {
-            return Err(bad());
+        if job_bytes <= ENTRY_BYTES || job_edges == 0 {
+            return Err(Error::Full("per-job memory is too small; reduce max_tx_verify_workers or increase max_tx_pool_size".into()));
+        }
+        if config.max_ancestors_count == 0 {
+            return Err(Error::Full("max_ancestors_count must be positive".into()));
+        }
+        if config.max_tx_verify_time().is_zero() {
+            return Err(Error::Full(
+                "network verification time cap must be positive".into(),
+            ));
         }
         let active = MaterializationLimits {
             bytes: job_bytes.checked_mul(active_items).ok_or_else(bad)?,

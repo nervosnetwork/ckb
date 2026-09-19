@@ -184,12 +184,11 @@ fn disabled_script_verification_does_not_publish_cache_proof() {
         &always_success_out_point,
     );
     let parent = shared.consensus().genesis_block().header();
-    let block = gen_block(&parent, vec![tx.clone()], vec![], vec![]);
+    let block = gen_block(&parent, vec![tx], vec![], vec![]);
     let rules = ScriptVerificationRules::from_env(
         shared.consensus(),
         &TxVerifyEnv::new_commit(&block.header()),
     );
-    let key = TxVerificationCacheKey::from_transaction(&tx, rules);
     let snapshot = shared.cloned_snapshot();
     let mut seen_inputs = std::collections::HashSet::new();
     let resolved = block
@@ -207,6 +206,7 @@ fn disabled_script_verification_does_not_publish_cache_proof() {
             )
         })
         .collect::<Vec<_>>();
+    let key = TxVerificationCacheKey::from_resolved(&resolved[1], rules);
     let cache = Arc::new(tokio::sync::RwLock::new(
         ckb_verification::cache::init_cache(),
     ));
@@ -260,7 +260,6 @@ fn contextual_verification_does_not_reuse_cache_across_script_rules() {
         shared.consensus(),
         &TxVerifyEnv::new_commit(&block.header()),
     );
-    let current_key = TxVerificationCacheKey::from_transaction(&tx, current_rules);
     let stale_consensus = Arc::new(
         ConsensusBuilder::new(
             shared.consensus().genesis_block().clone(),
@@ -283,6 +282,7 @@ fn contextual_verification_does_not_reuse_cache_across_script_rules() {
         )
         .expect("the cache fixture resolves against genesis"),
     );
+    let current_key = TxVerificationCacheKey::from_resolved(&resolved, current_rules);
     let stale_outcome = ContextualTransactionVerifier::new(
         resolved,
         stale_consensus,

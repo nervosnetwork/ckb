@@ -3,11 +3,7 @@ use crate::relayer::Relayer;
 use crate::types::SyncShared;
 use ckb_logger::error;
 use ckb_network::{CKBProtocolContext, PeerIndex};
-use ckb_types::{
-    core::{Cycle, TransactionView},
-    packed,
-    prelude::*,
-};
+use ckb_types::{packed, prelude::*};
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -65,25 +61,13 @@ impl<'a> TransactionsProcess<'a> {
 
     pub fn execute(self) -> Status {
         let shared_state = self.relayer.shared().state();
-        let txs: Vec<(TransactionView, Cycle)> = {
-            // ignore the tx if it's already known or it has never been requested before
-            let mut tx_filter = shared_state.tx_filter();
-            tx_filter.remove_expired();
-            let unknown_tx_hashes = shared_state.unknown_tx_hashes();
-
+        let txs = shared_state.requested_transactions(
+            self.peer,
             self.message
                 .transactions()
                 .iter()
-                .map(|tx| (tx.transaction().to_entity().into_view(), tx.cycles().into()))
-                .filter(|(tx, _)| {
-                    !tx_filter.contains(&tx.hash())
-                        && unknown_tx_hashes
-                            .get_priority(&tx.hash())
-                            .map(|priority| priority.requesting_peer() == Some(self.peer))
-                            .unwrap_or_default()
-                })
-                .collect()
-        };
+                .map(|tx| (tx.transaction().to_entity().into_view(), tx.cycles().into())),
+        );
 
         if txs.is_empty() {
             return Status::ok();

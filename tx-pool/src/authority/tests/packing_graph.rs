@@ -843,7 +843,7 @@ fn compiled_graph_checks_limits_sources_cycles_and_arithmetic() {
     ));
     assert!(matches!(
         Selection::new(&owners[1..], &snapshot, 64),
-        Err(Error::Stale)
+        Err(Error::Fault("template graph"))
     ));
     let mut duplicate = owners[..1].to_vec();
     duplicate.push(Arc::clone(&owners[0]));

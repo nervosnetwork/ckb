@@ -468,6 +468,9 @@ impl ConsumeUnverifiedBlockProcessor {
     fn install_chain_tip_transition(&self, fork: &ForkChanges, new_snapshot: Arc<Snapshot>) {
         self.shared.store_snapshot(Arc::clone(&new_snapshot));
         let tx_pool_controller = self.shared.tx_pool_controller();
+        if !tx_pool_controller.accepts_chain_updates() {
+            return;
+        }
         if let Err(error) = tx_pool_controller.update_tx_pool_for_reorg(
             fork.detached_blocks().clone(),
             fork.attached_blocks().clone(),

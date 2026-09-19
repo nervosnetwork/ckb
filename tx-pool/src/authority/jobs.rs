@@ -499,7 +499,7 @@ pub(super) async fn verify(
     store.read_selected(view, &resolved.reads, || ())?;
     let environment = Arc::new(environment(status(&snapshot, &entry.proposal()), &snapshot));
     let rules = ScriptVerificationRules::from_env(snapshot.consensus(), &environment);
-    let key = TxVerificationCacheKey::from_transaction(&entry.transaction, rules);
+    let key = TxVerificationCacheKey::from_resolved(&resolved.transaction, rules);
     let cached = cache.read().await.lookup(&key);
     let budget = entry
         .source

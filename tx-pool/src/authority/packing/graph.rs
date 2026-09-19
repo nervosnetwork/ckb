@@ -155,7 +155,10 @@ impl Graph {
         for (child, candidate) in candidates.iter().enumerate() {
             indegree.push(candidate.accepted.parents.len());
             for parent in &candidate.accepted.parents {
-                edges.push((*positions.get(parent).ok_or(Error::Stale)?, child));
+                edges.push((
+                    *positions.get(parent).ok_or(PackingError::Projection)?,
+                    child,
+                ));
             }
         }
         let children = Links::from_edges(len, &edges)?;

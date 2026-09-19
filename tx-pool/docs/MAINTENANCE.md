@@ -360,6 +360,7 @@ network-config parsing. Scheduling thresholds and VM-work budgets are local poli
 
 [Persistence](../src/persisted.rs) reads v1/v2, preferring v2 when present, and
 writes v2 accepted/recovery partitions through a temporary file and rename.
+After committing v2, the writer removes the superseded v1 migration file.
 Replay verifies transaction bodies again; it does not restore prior acceptance
 proof or replacement blockers. Back up persisted data before upgrade. Downgrade
 and reverse conversion are unsupported. Invalid v2 input is logged and startup

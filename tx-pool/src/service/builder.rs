@@ -251,8 +251,8 @@ impl TxPoolServiceBuilder {
                 tokio::select! {
                     result = &mut replay => {
                         match result {
-                            Ok((loaded, stale)) => {
-                                info!("Persistent tx-pool data loaded: {loaded} accepted, {stale} stale");
+                            Ok((loaded, rejected)) => {
+                                info!("Persistent tx-pool data loaded: {loaded} accepted, {rejected} rejected");
                                 startup_complete = true;
                             }
                             Err(error) => {

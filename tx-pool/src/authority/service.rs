@@ -710,28 +710,28 @@ impl Pool {
     }
     #[expect(
         clippy::arithmetic_side_effects,
-        reason = "Loaded and stale counts partition the bounded input vector."
+        reason = "Loaded and rejected counts partition the bounded input vector."
     )]
     pub(crate) async fn replay(
         &self,
         transactions: Vec<TransactionView>,
     ) -> Result<(usize, usize), AnyError> {
         let mut loaded = 0;
-        let mut stale = 0;
+        let mut rejected = 0;
         for transaction in transactions {
             let transaction = match BoundedTransaction::try_new(transaction) {
                 Ok(transaction) => transaction,
                 Err(_) => {
-                    stale += 1;
+                    rejected += 1;
                     continue;
                 }
             };
             match self.submit_local(transaction, false).await? {
                 Ok(_) => loaded += 1,
-                Err(_) => stale += 1,
+                Err(_) => rejected += 1,
             }
         }
-        Ok((loaded, stale))
+        Ok((loaded, rejected))
     }
     #[cfg(feature = "internal")]
     pub(crate) async fn package_transactions(

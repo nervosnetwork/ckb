@@ -23,8 +23,11 @@ The predefined matrix has five graph shapes, equal/CPFP fees and All/Partial
 limits: 16,384 entries, ancestor limit 64, bounded chain cohorts. Partial permits
 595,000 bytes and 3,500,000,000 cycles. Three Latin-order blocks compare all three
 versions, giving 180 fresh-process captures. Each process performs 32 measured
-selections after three warmups. Every capture agrees on transaction set, order,
-fees, bytes and cycles. No failed samples were substituted.
+selections after three warmups. The external three-arm capture driver compares
+each capture's fixture digest, complete result receipt and byte/cycle limits with
+the other arms in its block. Those receipts agree on transaction set, order, fees,
+bytes and cycles. The Rust harness alone checks within-arm determinism.
+No failed samples were substituted.
 
 Absolute values below are medians of process means; changes are medians of
 paired ratios. Every process meets the accumulated-time qualification: at least

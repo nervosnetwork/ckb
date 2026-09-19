@@ -13,6 +13,31 @@ fn tx_hash(index: usize) -> packed::Byte32 {
 }
 
 #[test]
+fn disconnect_releases_requests_and_immediately_uses_a_remaining_source() {
+    let (_chain, relayer, _) = build_chain(1);
+    let state = relayer.shared.state();
+    let departed = PeerIndex::from(1);
+    let backup = PeerIndex::from(2);
+    let (only_departed, shared, only_backup) = (tx_hash(1), tx_hash(2), tx_hash(3));
+    state.add_ask_for_txs(departed, vec![only_departed.clone(), shared.clone()]);
+    state.add_ask_for_txs(backup, vec![shared.clone(), only_backup.clone()]);
+    let requested = state.pop_ask_for_txs();
+    assert!(requested[&departed].contains(&shared));
+    assert_eq!(requested[&backup], vec![only_backup]);
+    state.remove_peer_tx_requests(departed);
+    assert!(
+        state
+            .unknown_tx_hashes()
+            .get_priority(&only_departed)
+            .is_none()
+    );
+    assert_eq!(state.unknown_tx_hashes().len(), 2);
+    assert_eq!(state.pop_ask_for_txs()[&backup], vec![shared]);
+    state.remove_peer_tx_requests(backup);
+    assert!(state.unknown_tx_hashes().is_empty());
+}
+
+#[test]
 fn unknown_transaction_peer_limit_rejects_new_hashes() {
     let (_chain, relayer, _) = build_chain(1);
     let state = relayer.shared.state();

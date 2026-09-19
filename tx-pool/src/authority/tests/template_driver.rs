@@ -49,6 +49,25 @@ fn selected(driver: &Driver) -> Arc<CurrentTemplate> {
     Arc::clone(&driver.assembler.current.read())
 }
 
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn missing_parent_in_a_coherent_capture_faults_and_releases_template_readers() {
+    let driver = fixture();
+    let child = tx(7199);
+    accept(&driver.store, child.clone(), 1, 1, Status::Proposed);
+    let owner = driver.store.point(&child.hash()).1.unwrap();
+    let mut accepted = owner.accepted().unwrap().clone();
+    accepted.parents.insert(tx(7198).hash());
+    replace(&driver.store, owner, Phase::Accepted(accepted));
+    let mut reader = Box::pin(driver.read(deadline()));
+    assert!(futures_util::poll!(reader.as_mut()).is_pending());
+    assert!(matches!(
+        within(Arc::clone(&driver).run()).await,
+        Err(Error::Fault(_))
+    ));
+    assert!(driver.store.is_faulted());
+    assert!(matches!(within(reader).await, Err(Error::Fault(_))));
+}
+
 fn template_bytes(current: &CurrentTemplate) -> usize {
     // Exercise the public miner conversion, including all selected contents.
     let block: ckb_types::packed::Block = JsonBlockTemplate::from(&current.template).into();

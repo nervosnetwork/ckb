@@ -96,6 +96,8 @@ make_static_metric! {
 }
 
 pub struct Metrics {
+    /// Transaction notifications omitted at bounded service/subscriber channels.
+    pub ckb_notify_transaction_dropped: IntCounterVec,
     /// Gauge metric for CKB chain tip header number
     pub ckb_chain_tip: IntGauge,
     /// CKB chain unverified tip header number
@@ -272,6 +274,11 @@ static METRICS: std::sync::LazyLock<Metrics> = std::sync::LazyLock::new(|| {
                 .unwrap()
         ),
     ckb_freezer_size: register_int_gauge!("ckb_freezer_size", "The CKB freezer size").unwrap(),
+    ckb_notify_transaction_dropped: register_int_counter_vec!(
+        "ckb_notify_transaction_dropped",
+        "Transaction notification handoffs omitted by a full or closed bounded channel",
+        &["boundary", "reason"]
+    ).unwrap(),
     ckb_freezer_read: register_int_counter!("ckb_freezer_read", "The CKB freezer read").unwrap(),
     ckb_freezer_number: register_int_gauge!("ckb_freezer_number", "The CKB freezer number").unwrap(),
     ckb_relay_transaction_short_id_collide: register_int_counter!(

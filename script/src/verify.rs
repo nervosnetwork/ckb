@@ -565,13 +565,13 @@ where
         signal: &mut Receiver<ChunkCommand>,
         mut budget: Option<&mut VmVerificationBudget>,
     ) -> Result<ResumableVerificationOutcome, ScriptError> {
-        let mut scheduler = self.create_scheduler(script_group)?;
         if budget
             .as_ref()
             .is_some_and(|budget| budget.remaining.is_zero())
         {
             return Ok(ResumableVerificationOutcome::DeadlineExceeded);
         }
+        let mut scheduler = self.create_scheduler(script_group)?;
         let mut pause = VMPause::new();
         let child_pause = pause.clone();
 

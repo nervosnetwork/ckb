@@ -950,6 +950,7 @@ impl CKBProtocolHandler for Relayer {
         );
         // Retains all keys in the rate limiter that were used recently enough.
         self.rate_limiter.retain_recent();
+        self.shared.state().remove_peer_tx_requests(peer_index);
     }
 
     async fn notify(&mut self, nc: Arc<dyn CKBProtocolContext + Sync>, token: u64) {

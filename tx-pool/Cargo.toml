@@ -100,7 +100,6 @@ packing-bench = []
 allocation-observation = []
 cross-version-legacy-bench-adapter = []
 internal = []
-ci = []
 profiling = ["tracing", "tracing-subscriber"]
 tokio-trace = ["console-subscriber", "tonic", "profiling"]
 # Preserve existing feature selections without an unused direct dependency.

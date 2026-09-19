@@ -29,14 +29,18 @@ cli-test: prod # Run ckb command line usage bats test
 	./ckb-bin/src/tests/bats_tests/cli_test.sh
 
 .PHONY: test
-test: ## Run all tests, including some tests can be time-consuming to execute (tagged with [ignore])
+test: test-production-config ## Run all tests, including some tests can be time-consuming to execute (tagged with [ignore])
 	cargo nextest run ${VERBOSE} --features ${CKB_FEATURES} --workspace --no-fail-fast --hide-progress-bar --success-output immediate-final --failure-output immediate-final --run-ignored all
 	$(MAKE) doc-test
 
 .PHONY: quick-test
-quick-test: ## Run all tests, excluding some tests can be time-consuming to execute (tagged with [ignore])
+quick-test: test-production-config ## Run all tests, excluding some tests can be time-consuming to execute (tagged with [ignore])
 	cargo nextest run ${VERBOSE} --features ${CKB_FEATURES} --workspace --no-fail-fast --hide-progress-bar --success-output immediate-final --failure-output immediate-final --run-ignored default
 	$(MAKE) doc-test
+
+.PHONY: test-production-config
+test-production-config: ## Check the production parser without workspace integration-test features.
+	cargo nextest run ${VERBOSE} --locked -p ckb-app-config --lib --no-default-features --hide-progress-bar
 
 .PHONY: cov-install-tools
 cov-install-tools:

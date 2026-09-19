@@ -117,7 +117,7 @@ pub(crate) async fn verify_rtx(
     rtx: Arc<ResolvedTransaction>,
     tx_env: Arc<TxVerifyEnv>,
     cache_entry: Option<ScriptVerificationProof>,
-    max_tx_verify_cycles: Cycle,
+    max_cycles: Cycle,
     command_rx: &mut watch::Receiver<ChunkCommand>,
     budget: Option<TxPoolVerificationBudget>,
 ) -> Result<ScriptVerificationOutcome, Reject> {
@@ -133,11 +133,11 @@ pub(crate) async fn verify_rtx(
     let outcome = match budget {
         // Local submissions verify synchronously. Reuse the blocking boundary
         // so this work cannot occupy the executor needed by chain controls.
-        None => block_offload(|| verifier.verify_scripts(max_tx_verify_cycles, cache_entry))
+        None => block_offload(|| verifier.verify_scripts(max_cycles, cache_entry))
             .map_err(Reject::Verification)?,
         Some(budget) => match verifier
             .verify_with_pause_and_budget(
-                max_tx_verify_cycles,
+                max_cycles,
                 cache_entry,
                 command_rx,
                 budget.active_vm_time,

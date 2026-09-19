@@ -26,8 +26,8 @@ fn resolved(store: &Store, candidate: &Entry, config: &TxPoolConfig) -> Arc<Reso
     }
 }
 fn key(candidate: &Entry, snapshot: &Snapshot) -> TxVerificationCacheKey {
-    TxVerificationCacheKey::from_transaction(
-        &candidate.transaction,
+    TxVerificationCacheKey::from_resolved(
+        &ResolvedTransaction::dummy_resolve(candidate.transaction.as_ref().clone()),
         ScriptVerificationRules::from_env(
             snapshot.consensus(),
             &environment(Status::Pending, snapshot),

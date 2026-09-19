@@ -29,7 +29,7 @@ use ckb_tx_pool::service::{TxVerificationResult, TxVerificationResultReceiver};
 use ckb_types::BlockNumberAndHash;
 use ckb_types::{
     U256,
-    core::{self, BlockNumber, EpochExt},
+    core::{self, BlockNumber, Cycle, EpochExt, TransactionView},
     packed::{self, Byte32},
     prelude::*,
 };
@@ -47,7 +47,7 @@ use std::{cmp, fmt, iter};
 const GET_HEADERS_CACHE_SIZE: usize = 10000;
 // TODO: Need discussed
 const GET_HEADERS_TIMEOUT: Duration = Duration::from_secs(15);
-const FILTER_SIZE: usize = 50000;
+const FILTER_SIZE: usize = MAX_UNKNOWN_TX_HASHES_SIZE;
 // 2 ** 13 < 6 * 1800 < 2 ** 14
 const ONE_DAY_BLOCK_NUMBER: u64 = 8192;
 pub(crate) const FILTER_TTL: u64 = 4 * 60 * 60;
@@ -1483,10 +1483,7 @@ impl SyncState {
             .collect()
     }
 
-    // maybe someday we can use
-    // where T: Iterator<Item=Byte32>,
-    // for<'a> &'a T: Iterator<Item=&'a Byte32>,
-    pub fn mark_as_known_txs(&self, hashes: impl Iterator<Item = Byte32> + std::clone::Clone) {
+    pub fn mark_as_known_txs(&self, hashes: impl Iterator<Item = Byte32>) {
         let mut unknown_tx_hashes = self.unknown_tx_hashes.lock();
         let mut tx_filter = self.tx_filter.lock();
 
@@ -1494,6 +1491,26 @@ impl SyncState {
             unknown_tx_hashes.remove(&hash);
             tx_filter.insert(hash);
         }
+    }
+
+    /// Filter relay bodies against one coherent request/known observation.
+    /// Both this read and known publication acquire requests before the filter.
+    pub fn requested_transactions(
+        &self,
+        peer: PeerIndex,
+        transactions: impl Iterator<Item = (TransactionView, Cycle)>,
+    ) -> Vec<(TransactionView, Cycle)> {
+        let requests = self.unknown_tx_hashes.lock();
+        let mut known = self.tx_filter.lock();
+        known.remove_expired();
+        transactions
+            .filter(|(tx, _)| {
+                !known.contains(&tx.hash())
+                    && requests
+                        .get_priority(&tx.hash())
+                        .is_some_and(|request| request.requesting_peer() == Some(peer))
+            })
+            .collect()
     }
 
     pub fn pop_ask_for_txs(&self) -> HashMap<PeerIndex, Vec<Byte32>> {
@@ -1524,6 +1541,30 @@ impl SyncState {
             }
         }
         result
+    }
+
+    /// Release departed sources immediately and retry an available backup.
+    pub fn remove_peer_tx_requests(&self, peer: PeerIndex) {
+        let mut requests = self.unknown_tx_hashes.lock();
+        let hashes: Vec<_> = requests
+            .iter()
+            .filter(|(_, request)| request.peers.contains(&peer))
+            .map(|(hash, _)| hash.clone())
+            .collect();
+        for hash in hashes {
+            if let Some(mut request) = requests.remove(&hash) {
+                let interrupted = request.requesting_peer() == Some(peer);
+                request.peers.retain(|source| *source != peer);
+                if request.peers.is_empty() {
+                    continue;
+                }
+                if interrupted {
+                    request.requested = false;
+                    request.request_time = Instant::now();
+                }
+                requests.push(hash, request);
+            }
+        }
     }
 
     pub fn add_ask_for_txs(&self, peer_index: PeerIndex, tx_hashes: Vec<Byte32>) -> Status {
@@ -1579,6 +1620,7 @@ impl SyncState {
         self.tx_filter.lock()
     }
 
+    #[cfg(test)]
     pub fn unknown_tx_hashes(
         &self,
     ) -> MutexGuard<'_, KeyedPriorityQueue<Byte32, UnknownTxHashPriority>> {

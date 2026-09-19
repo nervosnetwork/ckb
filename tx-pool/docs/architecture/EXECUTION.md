@@ -101,6 +101,11 @@ cap. It is not a user setting. Native integration builds enable the `test` Cargo
 feature to override `max_tx_verify_time_ms`; the field and its parser do not
 exist in production builds.
 
+Shared script proofs bind witness content, VM rules and resolved input/cell-dep
+origins observable through header dependencies. Confirmation and reorg can change
+the latter without changing the transaction hash. The canonical verifier derives
+and checks this key as well as the pool/block cache callers.
+
 The [script verifier](../../../script/src/verify.rs) shares a selected budget
 across the transaction's ordinary VM groups. The child publishes its group's cumulative
 running time and current phase; coalesced notifications cannot lose completed slices.

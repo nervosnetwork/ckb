@@ -1,11 +1,13 @@
 //! TX verification cache
 
 use ckb_chain_spec::consensus::Consensus;
+use ckb_hash::new_blake2b;
 use ckb_script::TxVerifyEnv;
 use ckb_types::{
-    core::{Capacity, Cycle, TransactionView},
-    prelude::Unpack,
+    core::{Capacity, Cycle, cell::ResolvedTransaction},
+    prelude::{Entity, Unpack},
 };
+use std::collections::HashSet;
 
 /// Script-rule generation under which a cached result was produced.
 ///
@@ -46,22 +48,48 @@ impl ScriptVerificationRules {
 
 /// Semantic key for [`TxVerificationCache`].
 ///
-/// Script verification covers witnesses, while [`TransactionView::hash`]
-/// deliberately does not. Keeping the witness hash and script rules behind
-/// one type makes both a raw-hash lookup and a context-free lookup impossible.
+/// Bind witnesses, VM rules and the cell origins visible through header deps.
+/// An input or cell-dep can move between unconfirmed and confirmed state, or
+/// between blocks after a reorg, without changing the transaction's witness hash.
 #[derive(Clone, Copy, Debug, Hash, Eq, PartialEq)]
 pub struct TxVerificationCacheKey {
     witness_hash: [u8; 32],
     script_rules: ScriptVerificationRules,
+    cell_origins: [u8; 32],
 }
 
 impl TxVerificationCacheKey {
-    /// Bind transaction identity to the script rules under which it is
-    /// verified. Neither component can be omitted by a cache caller.
-    pub fn from_transaction(tx: &TransactionView, script_rules: ScriptVerificationRules) -> Self {
+    /// Derive the same identity at lookup and canonical verification. Header
+    /// and extension syscalls expose a cell's origin only when that block is
+    /// among the transaction's header deps; other origins all return ITEM_MISSING.
+    pub fn from_resolved(rtx: &ResolvedTransaction, script_rules: ScriptVerificationRules) -> Self {
+        let mut cell_origins = [0; 32];
+        let headers = rtx.transaction.header_deps();
+        if !headers.is_empty() {
+            let headers: HashSet<_> = headers.into_iter().collect();
+            let mut hasher = new_blake2b();
+            for cells in [&rtx.resolved_inputs, &rtx.resolved_cell_deps] {
+                hasher.update(&(cells.len() as u64).to_le_bytes());
+                for cell in cells {
+                    match cell
+                        .transaction_info
+                        .as_ref()
+                        .filter(|info| headers.contains(&info.block_hash))
+                    {
+                        Some(info) => {
+                            hasher.update(&[1]);
+                            hasher.update(info.block_hash.as_slice());
+                        }
+                        None => hasher.update(&[0]),
+                    }
+                }
+            }
+            hasher.finalize(&mut cell_origins);
+        }
         Self {
-            witness_hash: tx.witness_hash().unpack(),
+            witness_hash: rtx.transaction.witness_hash().unpack(),
             script_rules,
+            cell_origins,
         }
     }
 

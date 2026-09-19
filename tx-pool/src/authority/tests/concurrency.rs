@@ -20,6 +20,62 @@ use ckb_verification::cache::init_cache;
 use std::{collections::BTreeMap, time::Duration};
 use tokio::sync::{RwLock as AsyncRwLock, mpsc};
 
+#[test]
+fn exhausted_wake_counter_faults_and_notifies_every_progress_waiter() {
+    use std::{
+        future::Future,
+        task::{Context, Waker},
+    };
+
+    let store = store();
+    let key = DependencyKey::Cell(OutPoint::new(tx(9810).hash(), 0));
+    let owner = entry(&store, tx(9811), Source::Local)
+        .with_phase(Phase::Waiting(BTreeSet::from([key.clone()])));
+    insert(&store, owner);
+    store
+        .relation(&RelationKey::Dependency(key.clone()))
+        .unwrap()
+        .lock()
+        .next_pass = u64::MAX;
+    let mut work = std::pin::pin!(store.work.notified());
+    let mut changed = std::pin::pin!(store.changed.notified());
+    let mut template = std::pin::pin!(store.template_changed.notified());
+    let mut publication = std::pin::pin!(store.outbox.failed.notified());
+    let mut context = Context::from_waker(Waker::noop());
+    for future in [&mut work, &mut changed, &mut template, &mut publication] {
+        assert!(future.as_mut().poll(&mut context).is_pending());
+    }
+    store.start_wake(&key);
+    assert!(store.is_faulted());
+    for future in [&mut work, &mut changed, &mut template, &mut publication] {
+        assert!(future.as_mut().poll(&mut context).is_ready());
+    }
+}
+
+#[test]
+fn a_missing_child_in_a_coherent_descendant_capture_is_a_fault() {
+    let store = store();
+    let parent = accept(&store, output_tx(9812), 1, 1, Status::Pending);
+    let child = accept(
+        &store,
+        spend(9813, &[OutPoint::new(parent.clone(), 0)], &[]),
+        1,
+        1,
+        Status::Pending,
+    );
+    assert_eq!(store.capture_descendants(&parent).unwrap().1.len(), 2);
+    // Simulate a broken owner/index invariant, not a concurrent transition:
+    // production Apply always retires both sides under these owner guards.
+    store.shards[store.owner_shard(&child)]
+        .write()
+        .owners
+        .remove(&child);
+    assert!(matches!(
+        store.capture_descendants(&parent),
+        Err(Error::Fault("accepted descendant projection"))
+    ));
+}
+
 // Independent ordered-map reference for lock-footprint selection in these tests.
 fn add_lock_request(footprint: &mut BTreeMap<usize, bool>, index: usize, write: bool) {
     footprint

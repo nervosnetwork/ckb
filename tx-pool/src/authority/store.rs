@@ -193,7 +193,7 @@ impl<T> Guard<'_, T> {
         }
     }
 }
-/// Temporary lock footprint: present bits select shards; write bits only upgrade.
+/// Per-commit lock footprint: present bits select shards; write bits only upgrade.
 #[derive(Default)]
 struct LockFootprint {
     present: [u64; SHARDS.div_ceil(64)],
@@ -760,7 +760,7 @@ impl Store {
                             .owners
                             .get(hash)
                             .filter(|entry| entry.accepted().is_some())
-                            .ok_or(Error::Stale)?;
+                            .ok_or(Error::Fault("accepted descendant projection"))?;
                         owners.push(Arc::clone(child));
                     }
                 }

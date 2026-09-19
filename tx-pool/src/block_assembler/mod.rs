@@ -48,7 +48,7 @@ use std::{cmp, iter};
 pub(crate) use template::{BlockTemplate, CurrentTemplate};
 
 /// Deterministic optional-content prefix compiled against one exact block-byte
-/// budget. Proposals retain score order, uncles retain candidate order, and
+/// budget. Proposals retain score order, uncles follow candidate iteration, and
 /// only proposals that actually fit may exclude a conflicting uncle.
 pub(crate) struct FittedOptionalContent {
     pub(crate) proposals: Vec<ProposalShortId>,

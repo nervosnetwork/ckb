@@ -334,6 +334,17 @@ pub(crate) fn write_snapshot(base: &Path, snapshot: PersistenceSnapshot) -> Resu
                 "Failed to rename temp file [{tmp:?}] to [{path:?}], cause: {err}"
             ))
         })?;
+        // The committed v2 snapshot supersedes migration input. Leaving v1
+        // behind would resurrect it if an operator later clears only v2.
+        let legacy = versioned_path(base, LEGACY_VERSION);
+        if let Err(error) = std::fs::remove_file(&legacy)
+            && error.kind() != std::io::ErrorKind::NotFound
+        {
+            return Err(OtherError::new(format!(
+                "Failed to remove migrated tx-pool file [{legacy:?}]: {error}"
+            ))
+            .into());
+        }
         Ok(())
     })();
     if write_result.is_err() {

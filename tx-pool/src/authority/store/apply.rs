@@ -771,7 +771,7 @@ impl Store {
                 let wait_after_pass = match row.next_pass.checked_add(u64::from(deferred)) {
                     Some(pass) => pass,
                     None => {
-                        self.faulted.store(true, Ordering::Release);
+                        self.fault();
                         row.next_pass
                     }
                 };
@@ -835,7 +835,7 @@ impl Store {
             }
             row.wake = Some(Wake { pass, after: None });
         } else {
-            self.faulted.store(true, Ordering::Release);
+            self.fault();
             return;
         }
         // Wake and dirty membership change under this same row lock. A newer

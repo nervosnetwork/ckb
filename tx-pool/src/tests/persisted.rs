@@ -120,6 +120,33 @@ fn persistence_loader_accepts_legacy_v1_vector() {
 }
 
 #[test]
+fn successful_v2_write_retires_legacy_migration_input() {
+    let directory = tempfile::tempdir().unwrap();
+    let base = directory.path().join("pool");
+    let legacy = versioned_path(&base, LEGACY_VERSION);
+    let old = TransactionVec::new_builder()
+        .set(vec![transaction(1).data()])
+        .build();
+    std::fs::write(&legacy, old.as_slice()).unwrap();
+    assert_eq!(
+        load_persistence_snapshot(&config(&base))
+            .unwrap()
+            .accepted
+            .len(),
+        1
+    );
+    write_snapshot(&base, PersistenceSnapshot::default()).unwrap();
+    assert!(!legacy.exists());
+    std::fs::remove_file(versioned_path(&base, VERSION)).unwrap();
+    assert!(
+        load_persistence_snapshot(&config(&base))
+            .unwrap()
+            .accepted
+            .is_empty()
+    );
+}
+
+#[test]
 fn accepted_partition_wins_a_defensive_recovery_duplicate() {
     let accepted = transaction(5);
     let other_witness = accepted

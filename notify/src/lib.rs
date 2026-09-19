@@ -274,7 +274,7 @@ impl NotifyService {
     fn handle_notify_new_transaction(&self, tx_entry: PoolTransactionEntry) {
         trace!("New tx event {:?}", tx_entry);
         for subscriber in self.new_transaction_subscribers.values() {
-            try_notify_transaction(subscriber, tx_entry.clone());
+            try_notify_transaction(subscriber, tx_entry.clone(), "subscriber");
         }
     }
 
@@ -295,7 +295,7 @@ impl NotifyService {
     fn handle_notify_proposed_transaction(&self, tx_entry: PoolTransactionEntry) {
         trace!("Proposed tx event {:?}", tx_entry);
         for subscriber in self.proposed_transaction_subscribers.values() {
-            try_notify_transaction(subscriber, tx_entry.clone());
+            try_notify_transaction(subscriber, tx_entry.clone(), "subscriber");
         }
     }
 
@@ -316,7 +316,7 @@ impl NotifyService {
     fn handle_notify_reject_transaction(&self, tx_entry: (PoolTransactionEntry, Reject)) {
         trace!("Tx reject event {:?}", tx_entry);
         for subscriber in self.reject_transaction_subscribers.values() {
-            try_notify_transaction(subscriber, tx_entry.clone());
+            try_notify_transaction(subscriber, tx_entry.clone(), "subscriber");
         }
     }
 
@@ -385,7 +385,7 @@ impl NotifyController {
     /// Best effort: omit the event if the service or subscriber channel is full
     /// or closed. Delivery never creates a task waiting for channel space.
     pub fn notify_new_transaction(&self, tx_entry: PoolTransactionEntry) {
-        try_notify_transaction(&self.new_transaction_notifier, tx_entry);
+        try_notify_transaction(&self.new_transaction_notifier, tx_entry, "service");
     }
 
     /// Subscribes to proposed transaction notifications with the given name.
@@ -405,7 +405,7 @@ impl NotifyController {
     /// Best effort: omit the event if the service or subscriber channel is full
     /// or closed. Delivery never creates a task waiting for channel space.
     pub fn notify_proposed_transaction(&self, tx_entry: PoolTransactionEntry) {
-        try_notify_transaction(&self.proposed_transaction_notifier, tx_entry);
+        try_notify_transaction(&self.proposed_transaction_notifier, tx_entry, "service");
     }
 
     /// Subscribes to rejected transaction notifications with the given name.
@@ -425,7 +425,11 @@ impl NotifyController {
     /// Best effort: omit the event if the service or subscriber channel is full
     /// or closed. Delivery never creates a task waiting for channel space.
     pub fn notify_reject_transaction(&self, tx_entry: PoolTransactionEntry, reject: Reject) {
-        try_notify_transaction(&self.reject_transaction_notifier, (tx_entry, reject));
+        try_notify_transaction(
+            &self.reject_transaction_notifier,
+            (tx_entry, reject),
+            "service",
+        );
     }
 
     /// Subscribes to log notifications with the given name.
@@ -448,8 +452,18 @@ impl NotifyController {
 // One nonblocking handoff policy at both transaction notification boundaries.
 // A failed send owns the payload until this call returns; no deferred task or
 // retry retains it after a full or closed channel refuses it.
-fn try_notify_transaction<T>(sender: &Sender<T>, notification: T) {
+fn try_notify_transaction<T>(sender: &Sender<T>, notification: T, boundary: &'static str) {
     if let Err(error) = sender.try_send(notification) {
+        if let Some(metrics) = ckb_metrics::handle() {
+            let reason = match &error {
+                tokio::sync::mpsc::error::TrySendError::Full(_) => "full",
+                tokio::sync::mpsc::error::TrySendError::Closed(_) => "closed",
+            };
+            metrics
+                .ckb_notify_transaction_dropped
+                .with_label_values(&[boundary, reason])
+                .inc();
+        }
         debug!("Transaction notification omitted: {}", error);
     }
 }

@@ -114,15 +114,22 @@ async fn full_subscribers_drop_immediately_and_resume_without_delaying_fast_subs
 
 #[test]
 fn full_and_closed_transaction_handoffs_release_their_payload_ownership() {
+    let _ = ckb_metrics::METRICS_SERVICE_ENABLED.set(true);
+    let metric = &ckb_metrics::handle()
+        .unwrap()
+        .ckb_notify_transaction_dropped;
+    let full = metric.with_label_values(&["service", "full"]);
+    let closed_count = metric.with_label_values(&["service", "closed"]);
+    let before = (full.get(), closed_count.get());
     let (sender, mut receiver) = mpsc::channel(1);
     let queued = Arc::new(vec![0u8; 1024]);
     let queued_owner = Arc::downgrade(&queued);
-    try_notify_transaction(&sender, queued);
+    try_notify_transaction(&sender, queued, "service");
     assert!(queued_owner.upgrade().is_some());
 
     let refused = Arc::new(vec![1u8; 1024]);
     let refused_owner = Arc::downgrade(&refused);
-    try_notify_transaction(&sender, refused);
+    try_notify_transaction(&sender, refused, "service");
     assert!(
         refused_owner.upgrade().is_none(),
         "full send retains no payload"
@@ -136,9 +143,13 @@ fn full_and_closed_transaction_handoffs_release_their_payload_ownership() {
     receiver.close();
     let closed = Arc::new(vec![2u8; 1024]);
     let closed_owner = Arc::downgrade(&closed);
-    try_notify_transaction(&sender, closed);
+    try_notify_transaction(&sender, closed, "service");
     assert!(
         closed_owner.upgrade().is_none(),
         "closed send retains no payload"
+    );
+    assert_eq!(
+        (full.get(), closed_count.get()),
+        (before.0 + 1, before.1 + 1)
     );
 }

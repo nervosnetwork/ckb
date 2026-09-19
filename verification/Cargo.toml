@@ -11,6 +11,7 @@ rust-version = "1.95.0"
 
 [dependencies]
 ckb-types.workspace = true
+ckb-hash.workspace = true
 ckb-script.workspace = true
 ckb-pow.workspace = true
 ckb-systemtime.workspace = true

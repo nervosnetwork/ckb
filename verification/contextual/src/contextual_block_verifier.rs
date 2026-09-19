@@ -356,7 +356,7 @@ impl<'a, 'b, CS: ChainStore + VersionbitsIndexer + 'static> BlockTxsVerifier<'a,
         let keys: Vec<TxVerificationCacheKey> = rtxs
             .iter()
             .skip(1)
-            .map(|rtx| TxVerificationCacheKey::from_transaction(&rtx.transaction, rules))
+            .map(|rtx| TxVerificationCacheKey::from_resolved(rtx, rules))
             .collect();
         self.handle.spawn(async move {
             let guard = txs_verify_cache.read().await;
@@ -403,7 +403,7 @@ impl<'a, 'b, CS: ChainStore + VersionbitsIndexer + 'static> BlockTxsVerifier<'a,
             .par_iter()
             .enumerate()
             .map(|(index, tx)| {
-                let cache_key = TxVerificationCacheKey::from_transaction(&tx.transaction, rules);
+                let cache_key = TxVerificationCacheKey::from_resolved(tx, rules);
 
                 let verifier = ContextualTransactionVerifier::new(
                     Arc::clone(tx),

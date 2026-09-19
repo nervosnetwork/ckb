@@ -154,6 +154,12 @@ impl TxPoolController {
         self.started.load(Ordering::Acquire)
     }
 
+    /// Whether chain publication still has an owner, including before startup.
+    /// Chain-only import/replay drops the pool builder and closes this lane.
+    pub fn accepts_chain_updates(&self) -> bool {
+        !self.chain_control_sender.is_closed()
+    }
+
     /// Return reference of tokio runtime handle
     pub fn handle(&self) -> &Handle {
         &self.handle

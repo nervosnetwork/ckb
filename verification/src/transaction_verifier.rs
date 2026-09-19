@@ -156,7 +156,7 @@ where
         tx_env: Arc<TxVerifyEnv>,
     ) -> Self {
         let script_rules = ScriptVerificationRules::from_env(&consensus, &tx_env);
-        let cache_key = TxVerificationCacheKey::from_transaction(&rtx.transaction, script_rules);
+        let cache_key = TxVerificationCacheKey::from_resolved(&rtx, script_rules);
         ContextualTransactionVerifier {
             time_relative: TimeRelativeTransactionVerifier::new(
                 Arc::clone(&rtx),

@@ -1,6 +1,6 @@
 use crate::utils::{build_relay_tx_hashes, wait_until};
 use crate::{Net, Node, Spec};
-use ckb_constant::sync::{MAX_RELAY_TXS_NUM_PER_BATCH, MAX_UNKNOWN_TX_HASHES_SIZE_PER_PEER};
+use ckb_constant::sync::MAX_UNKNOWN_TX_HASHES_SIZE_PER_PEER;
 use ckb_network::SupportProtocols;
 use ckb_types::{packed, prelude::*};
 use std::collections::HashSet;
@@ -19,7 +19,6 @@ impl Spec for TooManyUnknownTransactions {
         net.connect(node0);
 
         let limit = MAX_UNKNOWN_TX_HASHES_SIZE_PER_PEER;
-        assert!(limit <= MAX_RELAY_TXS_NUM_PER_BATCH);
         let tx_hashes: Vec<_> = (0..=limit)
             .map(|index| {
                 let mut bytes = [0; 32];
