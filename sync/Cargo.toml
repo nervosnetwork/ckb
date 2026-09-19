@@ -1,6 +1,6 @@
 [package]
 name = "ckb-sync"
-version = "1.3.2"
+version = "1.3.3"
 license = "MIT"
 authors = ["Nervos Core Dev <dev@nervos.org>"]
 edition = "2024"
