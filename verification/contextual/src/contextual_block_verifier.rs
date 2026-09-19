@@ -103,7 +103,7 @@ impl<'a, 'b, CS: ChainStore> UncleVerifierContext<'a, 'b, CS> {
 
 impl<'a, 'b, CS: ChainStore> UncleProvider for UncleVerifierContext<'a, 'b, CS> {
     fn double_inclusion(&self, hash: &Byte32) -> bool {
-        self.context.store.get_block_number(hash).is_some() || self.context.store.is_uncle(hash)
+        self.context.store.is_main_chain(hash) || self.context.store.is_uncle(hash)
     }
 
     fn descendant(&self, uncle: &HeaderView) -> bool {
@@ -111,7 +111,7 @@ impl<'a, 'b, CS: ChainStore> UncleProvider for UncleVerifierContext<'a, 'b, CS> 
         let uncle_number = uncle.number();
         let store = &self.context.store;
 
-        if store.get_block_number(&parent_hash).is_some() {
+        if store.is_main_chain(&parent_hash) {
             return store
                 .get_block_header(&parent_hash)
                 .map(|parent| (parent.number() + 1) == uncle_number)

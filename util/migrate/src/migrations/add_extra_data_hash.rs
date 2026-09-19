@@ -1,6 +1,6 @@
 use ckb_db::{Direction, IteratorMode, Result, RocksDB};
 use ckb_db_migration::{Migration, ProgressBar, ProgressStyle};
-use ckb_db_schema::{COLUMN_CELL_DATA, COLUMN_CELL_DATA_HASH};
+use ckb_db_schema::legacy::{COLUMN_CELL_DATA, COLUMN_CELL_DATA_HASH};
 use ckb_types::{packed, prelude::*};
 use std::sync::Arc;
 

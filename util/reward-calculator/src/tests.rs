@@ -1,6 +1,5 @@
 use ckb_chain_spec::consensus::{Consensus, ConsensusBuilder, ProposalWindow};
-use ckb_db::RocksDB;
-use ckb_db_schema::COLUMNS;
+use ckb_db::{RocksDB, Schema};
 use ckb_occupied_capacity::IntoCapacity;
 use ckb_store::{ChainDB, ChainStore};
 use ckb_types::{
@@ -15,7 +14,7 @@ use crate::RewardCalculator;
 #[test]
 fn get_proposal_ids_by_hash() {
     let tmp_dir = TempDir::new().unwrap();
-    let db = RocksDB::open_in(&tmp_dir, COLUMNS);
+    let db = RocksDB::open_in(&tmp_dir, Schema::V1);
     let store = ChainDB::new(db, Default::default());
 
     let proposal1 = ProposalShortId::new([1; 10]);
@@ -60,7 +59,7 @@ fn get_proposal_ids_by_hash() {
 #[test]
 fn test_txs_fees() {
     let tmp_dir = TempDir::new().unwrap();
-    let db = RocksDB::open_in(&tmp_dir, COLUMNS);
+    let db = RocksDB::open_in(&tmp_dir, Schema::V1);
     let store = ChainDB::new(db, Default::default());
 
     // Default PROPOSER_REWARD_RATIO is Ratio(4, 10)
@@ -85,7 +84,8 @@ fn test_txs_fees() {
 
     let txn = store.begin_transaction();
     txn.insert_block(&block).unwrap();
-    txn.insert_block_ext(&block.hash(), &ext).unwrap();
+    txn.insert_block_ext(block.number(), &block.hash(), &ext)
+        .unwrap();
     txn.commit().unwrap();
 
     let reward_calculator = RewardCalculator::new(&consensus, &store);
@@ -121,7 +121,7 @@ fn test_txs_fees() {
 #[test]
 fn test_proposal_reward() {
     let tmp_dir = TempDir::new().unwrap();
-    let db = RocksDB::open_in(&tmp_dir, COLUMNS);
+    let db = RocksDB::open_in(&tmp_dir, Schema::V1);
     let store = ChainDB::new(db, Default::default());
 
     let consensus = ConsensusBuilder::default()
@@ -303,9 +303,12 @@ fn test_proposal_reward() {
         txn.attach_block(&block).unwrap();
     }
 
-    txn.insert_block_ext(&block_14.hash(), &ext_14).unwrap();
-    txn.insert_block_ext(&block_15.hash(), &ext_15).unwrap();
-    txn.insert_block_ext(&block_18.hash(), &ext_18).unwrap();
+    txn.insert_block_ext(block_14.number(), &block_14.hash(), &ext_14)
+        .unwrap();
+    txn.insert_block_ext(block_15.number(), &block_15.hash(), &ext_15)
+        .unwrap();
+    txn.insert_block_ext(block_18.number(), &block_18.hash(), &ext_18)
+        .unwrap();
     txn.commit().unwrap();
 
     assert_eq!(block_12.hash(), store.get_block_hash(12).unwrap());

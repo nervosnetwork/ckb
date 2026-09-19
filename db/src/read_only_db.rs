@@ -8,6 +8,7 @@ use std::path::Path;
 use std::sync::Arc;
 
 /// ReadOnlyDB wrapper
+#[derive(Clone)]
 pub struct ReadOnlyDB {
     pub(crate) inner: Arc<RawReadOnlyDB>,
 }

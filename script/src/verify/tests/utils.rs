@@ -1,8 +1,7 @@
 use ckb_chain_spec::consensus::ConsensusBuilder;
 use ckb_chain_spec::consensus::TWO_IN_TWO_OUT_BYTES;
 use ckb_crypto::secp::{Generator, Privkey, Pubkey, Signature};
-use ckb_db::RocksDB;
-use ckb_db_schema::COLUMNS;
+use ckb_db::{RocksDB, Schema};
 use ckb_hash::{blake2b_256, new_blake2b};
 use ckb_store::{
     ChainDB,
@@ -161,7 +160,7 @@ pub(crate) struct TransactionScriptsVerifierWithEnv {
 impl TransactionScriptsVerifierWithEnv {
     pub(crate) fn new() -> Self {
         let tmp_dir = TempDir::new().unwrap();
-        let db = RocksDB::open_in(&tmp_dir, COLUMNS);
+        let db = RocksDB::open_in(&tmp_dir, Schema::V1);
         let store = Arc::new(ChainDB::new(db, Default::default()));
         let version_1_enabled_at = 5;
         let version_2_enabled_at = 10;
