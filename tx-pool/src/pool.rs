@@ -271,7 +271,7 @@ impl TxPool {
         let removed: Vec<_> = self
             .pool_map
             .iter()
-            .filter(|&entry| self.expiry + entry.inner.timestamp < now_ms)
+            .filter(|&entry| now_ms.saturating_sub(entry.inner.timestamp) > self.expiry)
             .map(|entry| entry.inner.clone())
             .collect();
 

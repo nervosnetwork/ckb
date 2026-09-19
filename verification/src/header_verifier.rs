@@ -84,7 +84,7 @@ impl<'a, DL: HeaderFieldsProvider> TimestampVerifier<'a, DL> {
             }
             .into());
         }
-        let max = self.now + ALLOWED_FUTURE_BLOCKTIME;
+        let max = self.now.saturating_add(ALLOWED_FUTURE_BLOCKTIME);
         if self.header.timestamp() > max {
             return Err(TimestampError::BlockTimeTooNew {
                 max,
