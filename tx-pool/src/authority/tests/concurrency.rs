@@ -780,7 +780,7 @@ async fn production_overlap(shared_code: bool) {
     let mut cycles = Vec::new();
     for tx in &pair {
         cycles.push(
-            pool.submit_local(BoundedTransaction::try_new(tx.clone()).unwrap(), true)
+            pool.test_accept(BoundedTransaction::try_new(tx.clone()).unwrap())
                 .await
                 .unwrap()
                 .unwrap()

@@ -213,14 +213,9 @@ impl TxPoolController {
         &self,
         detached_blocks: VecDeque<BlockView>,
         attached_blocks: VecDeque<BlockView>,
-        detached_proposal_id: HashSet<ProposalShortId>,
         snapshot: Arc<Snapshot>,
     ) -> Result<(), AnyError> {
         reject_callback_mutation!("update_tx_pool_for_reorg");
-        // Public compatibility facade only. Proposal position changes are
-        // derived inside the authority from its paired old/new snapshots; a
-        // caller-provided subset has no policy or cache-maintenance authority.
-        drop(detached_proposal_id);
         self.send_chain_control(
             ChainReorgArgs::bounded(
                 detached_blocks,

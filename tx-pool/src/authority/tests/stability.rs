@@ -274,12 +274,7 @@ fn reconcile(
     tokio::task::spawn_blocking(move || {
         let start = Instant::now();
         controller
-            .update_tx_pool_for_reorg(
-                detached.into(),
-                attached.into(),
-                Default::default(),
-                snapshot,
-            )
+            .update_tx_pool_for_reorg(detached.into(), attached.into(), snapshot)
             .unwrap();
         start.elapsed()
     })
@@ -442,7 +437,7 @@ async fn round(
     // Once its callback has entered, polling Pending proves publication blocks
     // completion without depending on another task being scheduled. Other local
     // submissions below use the public controller and supply the latency sample.
-    let mut probe_submission = Box::pin(pool.submit_local(bounded(probe.clone()), false));
+    let mut probe_submission = Box::pin(pool.submit_local(bounded(probe.clone())));
     tokio::select! {
         result = within(entry) => result.unwrap(),
         result = probe_submission.as_mut() => panic!("local completed before callback entry: {result:?}"),

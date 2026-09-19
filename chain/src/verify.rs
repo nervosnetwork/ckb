@@ -474,7 +474,6 @@ impl ConsumeUnverifiedBlockProcessor {
         if let Err(error) = tx_pool_controller.update_tx_pool_for_reorg(
             fork.detached_blocks().clone(),
             fork.attached_blocks().clone(),
-            HashSet::new(),
             new_snapshot,
         ) {
             error!("[verify block] publish chain-tip transition error {error}");

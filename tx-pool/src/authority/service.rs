@@ -293,19 +293,16 @@ impl Pool {
             TxPoolVmExecutionMode::YieldRuntimeWorker => block_offload(operation),
         }
     }
-    async fn direct_capacity(
-        &self,
-        wait: bool,
-    ) -> Result<(OwnedSemaphorePermit, ActivePermit), Error> {
-        if !wait {
-            self.open()?;
-            let cpu = Arc::clone(&self.cpu)
-                .try_acquire_owned()
-                .map_err(|_| Error::Full("active computation".into()))?;
-            self.computation_ready()?;
-            let memory = self.store.budget.active(Source::Local)?;
-            return Ok((cpu, memory));
-        }
+    fn try_direct_capacity(&self) -> Result<(OwnedSemaphorePermit, ActivePermit), Error> {
+        self.open()?;
+        let cpu = Arc::clone(&self.cpu)
+            .try_acquire_owned()
+            .map_err(|_| Error::Full("active computation".into()))?;
+        self.computation_ready()?;
+        let memory = self.store.budget.active(Source::Local)?;
+        Ok((cpu, memory))
+    }
+    async fn direct_capacity(&self) -> Result<(OwnedSemaphorePermit, ActivePermit), Error> {
         loop {
             let changed = self.store.budget.changed.notified();
             tokio::pin!(changed);
@@ -726,7 +723,7 @@ impl Pool {
                     continue;
                 }
             };
-            match self.submit_local(transaction, false).await? {
+            match self.submit_local(transaction).await? {
                 Ok(_) => loaded += 1,
                 Err(_) => rejected += 1,
             }

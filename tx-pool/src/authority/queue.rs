@@ -29,16 +29,16 @@ enum WorkOwner {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 struct Key {
-    source: u8,
-    fee: Option<(u64, u64)>,
+    source_priority: u8,
+    fee_and_size: Option<(u64, u64)>,
     arrival: u64,
     hash: Byte32,
 }
 impl Ord for Key {
     fn cmp(&self, other: &Self) -> Ordering {
-        self.source
-            .cmp(&other.source)
-            .then_with(|| match (self.fee, other.fee) {
+        self.source_priority
+            .cmp(&other.source_priority)
+            .then_with(|| match (self.fee_and_size, other.fee_and_size) {
                 (Some((a, size_a)), Some((b, size_b))) => {
                     crate::util::fee_rate_cross_product(b, size_a)
                         .cmp(&crate::util::fee_rate_cross_product(a, size_b))
@@ -111,7 +111,7 @@ impl Queues {
         }
     }
     fn key(&self, entry: &Entry) -> Option<(WorkStage, bool, WorkOwner, Key)> {
-        let (stage, fee) = match &entry.phase {
+        let (stage, fee_and_size) = match &entry.phase {
             Phase::Resolve => (WorkStage::Resolve, None),
             Phase::Verify(resolved) => (
                 WorkStage::Verify,
@@ -138,8 +138,8 @@ impl Queues {
             large,
             owner,
             Key {
-                source: entry.source.priority(),
-                fee,
+                source_priority: entry.source.priority(),
+                fee_and_size,
                 arrival: entry.arrival,
                 hash: entry.hash(),
             },

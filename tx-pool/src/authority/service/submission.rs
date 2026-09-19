@@ -3,6 +3,12 @@
 use super::super::model::Resolved;
 use super::*;
 
+#[derive(Clone, Copy)]
+enum LocalAction {
+    Submit,
+    Preview,
+}
+
 /// Local entry points share resolution and its original observations. Their
 /// completion boundary differs: ordinary submission verifies before replying;
 /// the integration-test entry point transfers resolved work to the queue.
@@ -163,154 +169,174 @@ impl Pool {
         }
         Ok(())
     }
-    pub(super) async fn reject_local(
+    async fn reject_local(
         &self,
         view: u64,
         hash: &Byte32,
         reject: Reject,
         reads: ReadSet,
-        dry_run: bool,
+        action: LocalAction,
     ) -> Result<Reject, Error> {
-        if dry_run {
-            let check = Plan::new(view, Class::Trusted, reads);
-            self.store.apply(check.dry_run())?;
-        } else {
-            let batch = self
-                .commit(|| {
-                    ingress::rejection(
-                        &self.store,
-                        Plan::new(view, ingress::class(Source::Local), reads.clone()),
-                        None,
-                        hash,
-                        Source::Local,
-                        reject.clone(),
-                    )
-                })
-                .await?;
-            self.published(batch).await?;
+        match action {
+            LocalAction::Preview => {
+                let check = Plan::new(view, Class::Trusted, reads);
+                self.store.apply(check.dry_run())?;
+            }
+            LocalAction::Submit => {
+                let batch = self
+                    .commit(|| {
+                        ingress::rejection(
+                            &self.store,
+                            Plan::new(view, ingress::class(Source::Local), reads.clone()),
+                            None,
+                            hash,
+                            Source::Local,
+                            reject.clone(),
+                        )
+                    })
+                    .await?;
+                self.published(batch).await?;
+            }
         }
         Ok(reject)
     }
+    /// Reply after verification, admission and publication complete.
     pub(crate) async fn submit_local(
         &self,
         transaction: BoundedTransaction,
-        dry_run: bool,
+    ) -> Result<Result<EntryCompleted, Reject>, Error> {
+        self.process_local(transaction, LocalAction::Submit).await
+    }
+
+    /// Verify admission without changing membership or waiting for capacity.
+    pub(crate) async fn test_accept(
+        &self,
+        transaction: BoundedTransaction,
+    ) -> Result<Result<EntryCompleted, Reject>, Error> {
+        self.process_local(transaction, LocalAction::Preview).await
+    }
+
+    async fn process_local(
+        &self,
+        transaction: BoundedTransaction,
+        action: LocalAction,
     ) -> Result<Result<EntryCompleted, Reject>, Error> {
         let transaction = transaction.into_transaction();
         let arrival = self.store.next_arrival()?;
         loop {
-            self.open()?;
-            // A dry-run may be invoked by a publication callback. It must not
-            // wait for active jobs whose terminal publication needs that callback.
-            let (cpu, _memory) = match self.direct_capacity(!dry_run).await {
-                Ok(capacity) => capacity,
-                Err(Error::Full(reason)) => return Ok(Err(Reject::Full(reason.to_string()))),
-                Err(error) => return Err(error),
-            };
-            let LocalPreparation {
-                candidate,
-                before,
-                view,
-                reads,
-                resolved,
-            } = match self.run_compute(&cpu, || self.prepare_local(&transaction, arrival)) {
-                Ok(prepared) => prepared,
+            match self.attempt_local(&transaction, arrival, action).await {
                 Err(Error::Stale) => continue,
-                Err(Error::Rejected(reject)) => return Ok(Err(reject)),
-                Err(Error::Full(reason)) => return Ok(Err(Reject::Full(reason.to_string()))),
-                Err(error) => return Err(error),
-            };
-            let resolved = match resolved {
-                Ok(resolved) => resolved,
-                Err(reject) => {
-                    drop(cpu);
-                    match self
-                        .reject_local(view, &transaction.hash(), reject, reads, dry_run)
-                        .await
-                    {
-                        Err(Error::Stale) => continue,
-                        result => return result.map(Err),
-                    }
-                }
-            };
-            let verified = jobs::verify(
-                &self.store,
-                &candidate,
-                Arc::clone(&resolved),
-                &self.config,
-                &self.cache,
-                &mut self.commands.clone(),
-                self.mode,
-            )
-            .await;
-            drop(cpu);
-            self.open()?;
-            let verified = match verified {
-                Ok(verified) => verified,
-                Err(Error::Stale) => continue,
-                Err(Error::Rejected(reject)) => {
-                    match self
-                        .reject_local(resolved.view, &transaction.hash(), reject, reads, dry_run)
-                        .await
-                    {
-                        Err(Error::Stale) => continue,
-                        result => return result.map(Err),
-                    }
-                }
-                Err(Error::Full(reason)) => return Ok(Err(Reject::Full(reason.to_string()))),
-                Err(error) => return Err(error),
-            };
-            let mut retain_history = !dry_run;
-            let mut attempt = || {
-                self.open()?;
-                let (plan, reject) = membership::admission(
-                    &self.store,
-                    &candidate,
-                    before.clone(),
-                    &verified,
-                    &self.config,
-                    retain_history,
-                )?;
-                let applied = if dry_run {
-                    self.store.apply(plan.dry_run())
-                } else {
-                    self.store.apply_admission(plan, &mut retain_history)
-                };
-                applied.map(|batch| (batch, reject))
-            };
-            let applied = if dry_run {
-                attempt()
-            } else {
-                self.commit_attempt(attempt).await
-            };
-            match applied {
-                Ok((batch, rejection)) => {
-                    self.published(batch).await?;
-                    return Ok(rejection.map_or_else(
-                        || {
-                            Ok(EntryCompleted {
-                                cycles: verified.cycles(),
-                                fee: verified.resolved().fee,
-                            })
-                        },
-                        Err,
-                    ));
-                }
-                Err(Error::Stale) => continue,
-                Err(Error::Full(reason)) => return Ok(Err(Reject::Full(reason.to_string()))),
-                Err(error) => return Err(error),
+                result => return result,
             }
         }
     }
 
-    pub(crate) async fn submit_local_test(
+    /// A stale attempt releases its work before retrying with the same arrival.
+    /// Active memory remains owned through admission and publication.
+    async fn attempt_local(
+        &self,
+        transaction: &Arc<TransactionView>,
+        arrival: u64,
+        action: LocalAction,
+    ) -> Result<Result<EntryCompleted, Reject>, Error> {
+        self.open()?;
+        let capacity = match action {
+            LocalAction::Submit => self.direct_capacity().await,
+            // A preview may run inside a publication callback. Waiting for
+            // jobs whose publication needs that callback would deadlock.
+            LocalAction::Preview => self.try_direct_capacity(),
+        };
+        let (cpu, _memory) = match capacity {
+            Ok(capacity) => capacity,
+            Err(error) => return capacity_rejection(error).map(Err),
+        };
+        let LocalPreparation {
+            candidate,
+            before,
+            view,
+            reads,
+            resolved,
+        } = match self.run_compute(&cpu, || self.prepare_local(transaction, arrival)) {
+            Ok(prepared) => prepared,
+            Err(Error::Rejected(reject)) => return Ok(Err(reject)),
+            Err(error) => return capacity_rejection(error).map(Err),
+        };
+        let resolved = match resolved {
+            Ok(resolved) => resolved,
+            Err(reject) => {
+                drop(cpu);
+                return self
+                    .reject_local(view, &transaction.hash(), reject, reads, action)
+                    .await
+                    .map(Err);
+            }
+        };
+        let verified = jobs::verify(
+            &self.store,
+            &candidate,
+            Arc::clone(&resolved),
+            &self.config,
+            &self.cache,
+            &mut self.commands.clone(),
+            self.mode,
+        )
+        .await;
+        drop(cpu);
+        self.open()?;
+        let verified = match verified {
+            Ok(verified) => verified,
+            Err(Error::Rejected(reject)) => {
+                return self
+                    .reject_local(resolved.view, &transaction.hash(), reject, reads, action)
+                    .await
+                    .map(Err);
+            }
+            Err(error) => return capacity_rejection(error).map(Err),
+        };
+        let mut retain_history = matches!(action, LocalAction::Submit);
+        let mut attempt = || {
+            self.open()?;
+            let (plan, reject) = membership::admission(
+                &self.store,
+                &candidate,
+                before.clone(),
+                &verified,
+                &self.config,
+                retain_history,
+            )?;
+            let applied = match action {
+                LocalAction::Preview => self.store.apply(plan.dry_run()),
+                LocalAction::Submit => self.store.apply_admission(plan, &mut retain_history),
+            };
+            applied.map(|batch| (batch, reject))
+        };
+        let applied = match action {
+            LocalAction::Preview => attempt(),
+            LocalAction::Submit => self.commit_attempt(attempt).await,
+        };
+        let (batch, rejection) = match applied {
+            Ok(applied) => applied,
+            Err(error) => return capacity_rejection(error).map(Err),
+        };
+        self.published(batch).await?;
+        Ok(match rejection {
+            Some(reject) => Err(reject),
+            None => Ok(EntryCompleted {
+                cycles: verified.cycles(),
+                fee: verified.resolved().fee,
+            }),
+        })
+    }
+
+    /// Acknowledge resolved queue ownership; script verification finishes later.
+    pub(crate) async fn enqueue_local_test(
         &self,
         transaction: BoundedTransaction,
     ) -> Result<Result<(), Reject>, Error> {
         let transaction = transaction.into_transaction();
         let arrival = self.store.next_arrival()?;
         loop {
-            let (cpu, _memory) = self.direct_capacity(true).await?;
+            let (cpu, _memory) = self.direct_capacity().await?;
             let prepared = self.run_compute(&cpu, || self.prepare_local(&transaction, arrival));
             drop(cpu);
             let LocalPreparation {
@@ -323,8 +349,7 @@ impl Pool {
                 Ok(prepared) => prepared,
                 Err(Error::Stale) => continue,
                 Err(Error::Rejected(reject)) => return Ok(Err(reject)),
-                Err(Error::Full(reason)) => return Ok(Err(Reject::Full(reason.to_string()))),
-                Err(error) => return Err(error),
+                Err(error) => return capacity_rejection(error).map(Err),
             };
             if before.is_some() {
                 return Ok(Err(Reject::Duplicated(transaction.hash())));
@@ -332,7 +357,13 @@ impl Pool {
             let resolved = match resolved {
                 Ok(resolved) => resolved,
                 Err(reject) => match self
-                    .reject_local(view, &transaction.hash(), reject, reads, false)
+                    .reject_local(
+                        view,
+                        &transaction.hash(),
+                        reject,
+                        reads,
+                        LocalAction::Submit,
+                    )
                     .await
                 {
                     Err(Error::Stale) => continue,
@@ -357,8 +388,7 @@ impl Pool {
                     return Ok(Ok(()));
                 }
                 Err(Error::Stale) => continue,
-                Err(Error::Full(reason)) => return Ok(Err(Reject::Full(reason.to_string()))),
-                Err(error) => return Err(error),
+                Err(error) => return capacity_rejection(error).map(Err),
             }
         }
     }
@@ -399,7 +429,7 @@ impl Pool {
                 .map_err(|_| Reject::Full("internal transaction materialization".into()))?
                 .into_transaction();
             loop {
-                let (_, _memory) = self.direct_capacity(true).await.map_err(as_reject)?;
+                let (_, _memory) = self.direct_capacity().await.map_err(as_reject)?;
                 let (view, _) = self.store.snapshot();
                 let mut reads = ReadSet::default();
                 let before = self
@@ -485,6 +515,13 @@ impl Pool {
             }
         }
         Ok(())
+    }
+}
+
+fn capacity_rejection(error: Error) -> Result<Reject, Error> {
+    match error {
+        Error::Full(reason) => Ok(Reject::Full(reason.to_string())),
+        error => Err(error),
     }
 }
 

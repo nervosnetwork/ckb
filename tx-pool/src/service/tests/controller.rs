@@ -265,7 +265,6 @@ async fn authoritative_reorg_delivery_is_independent_of_rpc_readiness() {
         publisher_controller.update_tx_pool_for_reorg(
             VecDeque::new(),
             VecDeque::new(),
-            HashSet::new(),
             publisher_snapshot,
         )
     });
@@ -395,12 +394,7 @@ fn closed_reorg_consumer_fails_without_waiting() {
     };
 
     let error = controller
-        .update_tx_pool_for_reorg(
-            VecDeque::new(),
-            VecDeque::new(),
-            HashSet::new(),
-            genesis_snapshot(),
-        )
+        .update_tx_pool_for_reorg(VecDeque::new(), VecDeque::new(), genesis_snapshot())
         .expect_err("an explicitly disabled tx-pool has no chain consumer");
     assert!(error.to_string().contains("channel closed"));
 }
@@ -428,12 +422,7 @@ async fn generation_clear_cannot_overtake_a_prior_chain_transition() {
     let reorg_controller = controller.clone();
     let reorg_snapshot = Arc::clone(&snapshot);
     let reorg = tokio::task::spawn_blocking(move || {
-        reorg_controller.update_tx_pool_for_reorg(
-            VecDeque::new(),
-            VecDeque::new(),
-            HashSet::new(),
-            reorg_snapshot,
-        )
+        reorg_controller.update_tx_pool_for_reorg(VecDeque::new(), VecDeque::new(), reorg_snapshot)
     });
 
     let Some(ChainControl::Reconcile(Request {

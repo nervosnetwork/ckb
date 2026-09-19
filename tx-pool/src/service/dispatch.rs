@@ -31,7 +31,7 @@ pub(crate) async fn process(pool: Arc<Pool>, message: Message) -> Result<(), Err
             arguments,
         }) => reply(
             responder,
-            pool.submit_local(arguments, false)
+            pool.submit_local(arguments)
                 .await
                 .map(|result| result.map(|_| ())),
             "submit_local_tx",
@@ -41,7 +41,7 @@ pub(crate) async fn process(pool: Arc<Pool>, message: Message) -> Result<(), Err
             arguments,
         }) => reply(
             responder,
-            pool.submit_local_test(arguments).await,
+            pool.enqueue_local_test(arguments).await,
             "submit_local_test_tx",
         ),
         Message::TestAcceptTx(Request {
@@ -49,7 +49,7 @@ pub(crate) async fn process(pool: Arc<Pool>, message: Message) -> Result<(), Err
             arguments,
         }) => reply(
             responder,
-            pool.submit_local(arguments, true).await,
+            pool.test_accept(arguments).await,
             "test_accept_tx",
         ),
         Message::RemoveLocalTx(Request {

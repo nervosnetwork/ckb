@@ -37,8 +37,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   these selection-only measurements do not establish whole-node throughput.
 - Intentionally change the public Rust API: fallible builder construction returns
   the controller and sole verification-result receiver; callbacks receive
-  immutable snapshots and the old mutable TxPool export is removed. This requires
-  a SemVer-major release relative to the prior published crate. See the
+  immutable snapshots and the old mutable TxPool export is removed.
+  `update_tx_pool_for_reorg` no longer accepts obsolete detached proposal IDs.
+  These API changes require a SemVer-major release relative to the prior
+  published crate. See the
   [migration guide](docs/MAINTENANCE.md#integrating-callers-and-stored-data).
 - Replace the fragmented pre-pool queues with one charged transaction
   authority and atomic Plan/Apply transitions. In-flight retained transactions

@@ -2303,6 +2303,7 @@ fn run() -> BenchResult<()> {
                     .update_tx_pool_for_reorg(
                         VecDeque::new(),
                         VecDeque::new(),
+                        #[cfg(feature = "cross-version-legacy-bench-adapter")]
                         HashSet::new(),
                         reorg_snapshot,
                     )
@@ -2374,6 +2375,7 @@ fn run() -> BenchResult<()> {
             .update_tx_pool_for_reorg(
                 VecDeque::new(),
                 VecDeque::new(),
+                #[cfg(feature = "cross-version-legacy-bench-adapter")]
                 HashSet::new(),
                 Arc::clone(&snapshot),
             )

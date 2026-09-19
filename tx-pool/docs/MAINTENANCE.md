@@ -288,8 +288,8 @@ and publication. It remains usable during startup and while block verification
 pauses pool computation. A growing verification queue during a block backlog is
 expected; its owners and suspended VM state remain retained. Once the backlog
 empties, the block consumer signals Resume before waiting for more blocks.
-The compatibility argument containing detached proposal IDs does not decide
-projection; paired snapshots supply those facts.
+Proposal projection derives from paired snapshots; the reorg API accepts only
+detached blocks, attached blocks and the successor snapshot.
 
 [Pool::reconcile](../src/authority/service.rs) owns the ChainPause through commit
 and publication. [chain::reconcile](../src/authority/chain.rs) prepares the owner
@@ -347,6 +347,9 @@ builder, controller and sole `TxVerificationResultReceiver`, rather than taking
 an external relay sender. Registered callbacks receive `TxEntrySnapshot`; reject
 callbacks no longer receive mutable pool access. See [builder](../src/service/builder.rs),
 [callback types](../src/callback.rs) and [shared assembly](../../shared/src/shared_builder.rs).
+`update_tx_pool_for_reorg` takes detached blocks, attached blocks and the successor
+snapshot; remove the old detached-proposal-ID argument from callers. Proposal
+projection comes from the paired snapshots.
 
 Configuration compatibility covers upgrades from released node configuration
 files. Existing sizes, fees, worker counts, retention and paths retain their

@@ -232,7 +232,7 @@ async fn remote_receive_resolve_verify_commit_publish_and_join() {
     let (pool, sink, drain, handle) = fixture();
     let tx = fund(&pool, 4001);
     let cycles = pool
-        .submit_local(bounded(tx.clone()), true)
+        .test_accept(bounded(tx.clone()))
         .await
         .unwrap()
         .unwrap()
@@ -286,7 +286,7 @@ async fn suspended_workers_keep_verification_queued_and_dry_run_declines_without
     let (pool, sink, _, handle) = fixture();
     let tx = fund(&pool, 4002);
     let cycles = pool
-        .submit_local(bounded(tx.clone()), true)
+        .test_accept(bounded(tx.clone()))
         .await
         .unwrap()
         .unwrap()
@@ -303,9 +303,7 @@ async fn suspended_workers_keep_verification_queued_and_dry_run_declines_without
         Phase::Resolve
     ));
     assert!(matches!(
-        within(pool.submit_local(bounded(tx.clone()), true))
-            .await
-            .unwrap(),
+        within(pool.test_accept(bounded(tx.clone()))).await.unwrap(),
         Err(Reject::Full(_))
     ));
     // The block consumer waits for this lane. Suspending computation must not
@@ -351,7 +349,7 @@ async fn pause_during_compute_capacity_wait_refunds_permit_and_stop_wakes_waiter
     assert!(futures_util::poll!(compute.as_mut()).is_pending());
     assert_eq!(pool.cpu.available_permits(), capacity);
     assert!(matches!(
-        pool.direct_capacity(false).await,
+        pool.try_direct_capacity(),
         Err(Error::Full(FullReason::Other("verification is suspended")))
     ));
     assert_eq!(pool.cpu.available_permits(), capacity);
@@ -426,12 +424,7 @@ async fn suspended_transaction_handlers_leave_chain_completion_independent() {
     let (reconciled, reconciliation) = tokio::sync::oneshot::channel();
     let mut completion = tokio::task::spawn_blocking(move || {
         client
-            .update_tx_pool_for_reorg(
-                Default::default(),
-                Default::default(),
-                Default::default(),
-                snapshot,
-            )
+            .update_tx_pool_for_reorg(Default::default(), Default::default(), snapshot)
             .unwrap();
         reconciled.send(()).unwrap();
         client.update_ibd_state(false)
@@ -473,7 +466,7 @@ async fn suspended_computation_leaves_resolver_verifier_and_local_submission_uns
     let capacity = pool.cpu.available_permits();
     let mut resolver = Box::pin(Arc::clone(&pool).worker(WorkStage::Resolve, 0));
     let mut verifier = Box::pin(Arc::clone(&pool).worker(WorkStage::Verify, 0));
-    let mut submission = Box::pin(pool.submit_local(bounded(local.clone()), false));
+    let mut submission = Box::pin(pool.submit_local(bounded(local.clone())));
     // Poll the production futures through their first wait, with available CPU
     // capacity and queued work. Suspension, rather than scheduler timing, is
     // the only reason these computations cannot select or resolve a job.
@@ -498,13 +491,13 @@ async fn suspended_computation_leaves_resolver_verifier_and_local_submission_uns
 async fn dry_run_under_active_pressure_returns_without_owner_or_publication_changes() {
     let (pool, _, _, _) = fixture();
     let tx = fund(&pool, 4003);
-    let (cpu, memory) = pool.direct_capacity(true).await.unwrap();
+    let (cpu, memory) = pool.direct_capacity().await.unwrap();
     let all_cpu = Arc::clone(&pool.cpu)
         .try_acquire_many_owned(pool.cpu.available_permits() as u32)
         .unwrap();
     let before = pool.store.capture(false).2.len();
     assert!(matches!(
-        within(pool.submit_local(bounded(tx), true)).await.unwrap(),
+        within(pool.test_accept(bounded(tx))).await.unwrap(),
         Err(Reject::Full(_))
     ));
     assert_eq!(pool.store.capture(false).2.len(), before);
@@ -565,7 +558,7 @@ async fn stop_joins_a_suspended_verification_queue_and_preserves_accepted_state(
     let (pool, sink, _, handle) = fixture();
     let tx = fund(&pool, 4006);
     let cycles = pool
-        .submit_local(bounded(tx.clone()), true)
+        .test_accept(bounded(tx.clone()))
         .await
         .unwrap()
         .unwrap()
@@ -782,7 +775,7 @@ async fn remote_waiting_transaction_accepts_after_its_parent_completes_normal_ve
     let parent = fund(&pool, 9013);
     let child = funded_tx(OutPoint::new(parent.hash(), 0), 19_999_998_000);
     let cycles = pool
-        .submit_local(bounded(parent.clone()), true)
+        .test_accept(bounded(parent.clone()))
         .await
         .unwrap()
         .unwrap()
@@ -791,14 +784,23 @@ async fn remote_waiting_transaction_accepts_after_its_parent_completes_normal_ve
     let (tasks, publisher) =
         pool.start_background(&handle, endpoints(sink, Callbacks::new()), chain);
     for dry_run in [true, false] {
+        let result = within(async {
+            if dry_run {
+                pool.test_accept(bounded(child.clone())).await
+            } else {
+                pool.submit_local(bounded(child.clone())).await
+            }
+        })
+        .await
+        .unwrap();
         assert!(matches!(
-            within(pool.submit_local(bounded(child.clone()), dry_run)).await.unwrap(),
+            result,
             Err(Reject::Resolve(OutPointError::Unknown(point))) if point == OutPoint::new(parent.hash(), 0)
         ));
         assert!(pool.store.point(&child.hash()).1.is_none());
     }
     assert!(matches!(
-        within(pool.submit_local_test(bounded(child.clone()))).await.unwrap(),
+        within(pool.enqueue_local_test(bounded(child.clone()))).await.unwrap(),
         Err(Reject::Resolve(OutPointError::Unknown(point))) if point == OutPoint::new(parent.hash(), 0)
     ));
     pool.submit_remote(bounded(child.clone()), cycles, 93.into())
@@ -823,7 +825,7 @@ async fn remote_waiting_transaction_accepts_after_its_parent_completes_normal_ve
     );
     let waiting = pool.store.point(&child.hash()).1.unwrap();
     assert!(matches!(
-        within(pool.submit_local(bounded(child.clone()), false))
+        within(pool.submit_local(bounded(child.clone())))
             .await
             .unwrap(),
         Err(Reject::Resolve(OutPointError::Unknown(_)))
@@ -880,14 +882,14 @@ async fn local_test_submission_acknowledges_queue_before_background_validation()
     // Start no verifier until both acknowledgements and queue observations are
     // complete. Resolution succeeds even though one script cannot be located.
     for transaction in [&valid, &invalid] {
-        within(pool.submit_local_test(bounded(transaction.clone())))
+        within(pool.enqueue_local_test(bounded(transaction.clone())))
             .await
             .unwrap()
             .unwrap();
         let queued = pool.store.point(&transaction.hash()).1.unwrap();
         assert!(matches!(queued.phase, Phase::Verify(_)));
         assert!(matches!(
-            within(pool.submit_local_test(bounded(transaction.clone()))).await.unwrap(),
+            within(pool.enqueue_local_test(bounded(transaction.clone()))).await.unwrap(),
             Err(Reject::Duplicated(hash)) if hash == transaction.hash()
         ));
         assert!(Arc::ptr_eq(
@@ -897,7 +899,7 @@ async fn local_test_submission_acknowledges_queue_before_background_validation()
     }
     assert_eq!(pool.pool_info().await.unwrap().verify_queue_size, 2);
     assert!(matches!(
-        within(pool.submit_local(bounded(invalid.clone()), true))
+        within(pool.test_accept(bounded(invalid.clone())))
             .await
             .unwrap(),
         Err(Reject::Verification(_))
@@ -993,7 +995,7 @@ async fn dependency_readers_follow_admission_order_including_prepared_reads() {
             )
             .build();
         // Establish validity before the spender commits; no worker timing is assumed.
-        within(pool.submit_local(bounded(candidate.clone()), true))
+        within(pool.test_accept(bounded(candidate.clone())))
             .await
             .unwrap()
             .unwrap();
@@ -1001,7 +1003,7 @@ async fn dependency_readers_follow_admission_order_including_prepared_reads() {
             .as_advanced_builder()
             .set_cell_deps(candidate.cell_deps_iter().collect())
             .build();
-        within(pool.submit_local(bounded(earlier.clone()), false))
+        within(pool.submit_local(bounded(earlier.clone())))
             .await
             .unwrap()
             .unwrap();
@@ -1029,7 +1031,7 @@ async fn dependency_readers_follow_admission_order_including_prepared_reads() {
                 .unwrap();
         assert!(reject.is_none());
         let spender = funded_tx(spent.clone(), 19_999_999_000);
-        within(pool.submit_local(bounded(spender.clone()), false))
+        within(pool.submit_local(bounded(spender.clone())))
             .await
             .unwrap()
             .unwrap();
@@ -1044,9 +1046,15 @@ async fn dependency_readers_follow_admission_order_including_prepared_reads() {
         );
         let before = pool.pool_info().await.unwrap();
         for dry_run in [true, false] {
-            let result = within(pool.submit_local(bounded(candidate.clone()), dry_run))
-                .await
-                .unwrap();
+            let result = within(async {
+                if dry_run {
+                    pool.test_accept(bounded(candidate.clone())).await
+                } else {
+                    pool.submit_local(bounded(candidate.clone())).await
+                }
+            })
+            .await
+            .unwrap();
             assert!(
                 matches!(result, Err(Reject::Resolve(OutPointError::Dead(point))) if point == spent)
             );
@@ -1234,7 +1242,7 @@ async fn claimed_worker_retains_rejection_under_remote_notice_pressure_while_tru
     let (tasks, publisher) =
         pool.start_background(&handle, endpoints(sink, Callbacks::new()), chain);
     assert!(
-        within(pool.submit_local(bounded(trusted.clone()), false))
+        within(pool.submit_local(bounded(trusted.clone())))
             .await
             .unwrap()
             .is_ok()
@@ -1277,7 +1285,7 @@ async fn one_runtime_worker_preserves_direct_verification_query_and_shutdown_pro
     let (tasks, publisher) =
         pool.start_background(&handle, endpoints(sink, Callbacks::new()), chain);
     assert!(
-        within(pool.submit_local(bounded(transaction.clone()), false))
+        within(pool.submit_local(bounded(transaction.clone())))
             .await
             .unwrap()
             .is_ok()
@@ -1316,7 +1324,7 @@ async fn control_progress_while_sync_computation_is_at_capacity() {
     }
     assert_eq!(pool.cpu.available_permits(), 0);
     assert!(matches!(
-        pool.direct_capacity(false).await,
+        pool.try_direct_capacity(),
         Err(Error::Full(FullReason::Other("active computation")))
     ));
     let control = Arc::clone(&pool);
@@ -1441,7 +1449,7 @@ async fn peer_pressure_refuses_rbf_without_losing_victim_and_same_peer_retry_suc
     let replacement = funded_tx(victim.input_pts_iter().next().unwrap(), 19_999_990_000);
     let publisher =
         tokio::spawn(Arc::clone(&pool.store.outbox).run(endpoints(sink, Callbacks::new())));
-    let cycles = within(pool.submit_local(bounded(victim.clone()), false))
+    let cycles = within(pool.submit_local(bounded(victim.clone())))
         .await
         .unwrap()
         .unwrap()
@@ -1739,16 +1747,22 @@ async fn direct_non_contextual_rejection_preserves_empty_membership_for_send_and
     // that premise explicitly; idle background workers also acquire this permit
     // briefly while looking for work, so they do not belong in this path test.
     let occupied = pool.compute().await.unwrap();
-    let refused = within(pool.submit_local(bounded(invalid.clone()), true))
+    let refused = within(pool.test_accept(bounded(invalid.clone())))
         .await
         .unwrap();
     assert!(matches!(refused, Err(Reject::Full(ref reason)) if reason == "active computation"));
     assert!(pool.store.capture(false).2.is_empty());
     drop(occupied);
     for dry_run in [true, false] {
-        let result = within(pool.submit_local(bounded(invalid.clone()), dry_run))
-            .await
-            .unwrap();
+        let result = within(async {
+            if dry_run {
+                pool.test_accept(bounded(invalid.clone())).await
+            } else {
+                pool.submit_local(bounded(invalid.clone())).await
+            }
+        })
+        .await
+        .unwrap();
         assert!(
             matches!(result, Err(Reject::Verification(_))),
             "dry_run={dry_run}, actual={result:?}"
@@ -1757,7 +1771,7 @@ async fn direct_non_contextual_rejection_preserves_empty_membership_for_send_and
         assert!(pool.store.budget.active(Source::Local).is_ok());
     }
     assert!(matches!(
-        within(pool.submit_local_test(bounded(invalid)))
+        within(pool.enqueue_local_test(bounded(invalid)))
             .await
             .unwrap(),
         Err(Reject::Verification(_))
@@ -1816,11 +1830,11 @@ async fn saved_replacement_history_reenters_through_verified_recovery() {
     let replacement = funded_tx(transaction.input_pts_iter().next().unwrap(), 19_999_990_000);
     let publisher =
         tokio::spawn(Arc::clone(&pool.store.outbox).run(endpoints(sink, Callbacks::new())));
-    within(pool.submit_local(bounded(transaction.clone()), false))
+    within(pool.submit_local(bounded(transaction.clone())))
         .await
         .unwrap()
         .unwrap();
-    within(pool.submit_local(bounded(replacement.clone()), false))
+    within(pool.submit_local(bounded(replacement.clone())))
         .await
         .unwrap()
         .unwrap();
@@ -1983,7 +1997,7 @@ async fn optional_history_pressure_preserves_local_and_owned_job_admission() {
         let publisher =
             tokio::spawn(Arc::clone(&pool.store.outbox).run(endpoints(sink, callbacks)));
         if local {
-            let result = within(pool.submit_local(bounded(replacement), false)).await;
+            let result = within(pool.submit_local(bounded(replacement))).await;
             if stop {
                 assert!(matches!(result, Err(Error::Closed)));
             } else {
@@ -2353,7 +2367,7 @@ async fn background_rejection_releases_work_before_a_blocked_callback_and_preser
             let submitting = Arc::clone(&pool);
             let expected = local.hash();
             let response =
-                tokio::spawn(async move { submitting.submit_local(bounded(local), false).await });
+                tokio::spawn(async move { submitting.submit_local(bounded(local)).await });
             observe(&pool, &expected, |entry| entry.accepted().is_some()).await;
             // A committed direct local request still waits for its effects.
             assert!(!response.is_finished());
