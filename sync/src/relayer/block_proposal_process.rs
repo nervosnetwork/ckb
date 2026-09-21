@@ -24,14 +24,19 @@ impl<'a> BlockProposalProcess<'a> {
         );
         {
             let block_proposals = self.message;
-            let limit = shared.consensus().max_block_proposals_limit()
-                * (shared.consensus().max_uncles_num() as u64);
+            let max_block_proposals_limit = shared.consensus().max_block_proposals_limit();
+            let max_uncles_num = shared.consensus().max_uncles_num() as u64;
+            let Some(limit) = max_block_proposals_limit.checked_mul(max_uncles_num) else {
+                return StatusCode::ProtocolMessageIsMalformed.with_context(format!(
+                    "consensus max_block_proposals_limit({max_block_proposals_limit}) * max_uncles_num({max_uncles_num}) overflows"
+                ));
+            };
             if (block_proposals.transactions().len() as u64) > limit {
                 return StatusCode::ProtocolMessageIsMalformed.with_context(format!(
                     "Transactions count({}) > consensus max_block_proposals_limit({}) * max_uncles_num({})",
                     block_proposals.transactions().len(),
-                    shared.consensus().max_block_proposals_limit(),
-                    shared.consensus().max_uncles_num(),
+                    max_block_proposals_limit,
+                    max_uncles_num,
                 ));
             }
         }

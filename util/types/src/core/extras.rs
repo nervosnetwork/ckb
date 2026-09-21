@@ -1,6 +1,6 @@
 use crate::{
     U256,
-    core::{BlockNumber, Capacity, CapacityResult, Cycle, EpochNumber},
+    core::{BlockNumber, Capacity, CapacityError, CapacityResult, Cycle, EpochNumber},
     packed,
     prelude::*,
 };
@@ -118,9 +118,18 @@ impl EpochExt {
 
     /// Returns the total primary reward for the epoch.
     pub fn primary_reward(&self) -> Capacity {
-        Capacity::shannons(
-            self.base_block_reward.as_u64() * self.length + self.remainder_reward.as_u64(),
-        )
+        self.checked_primary_reward()
+            .expect("epoch primary reward should not overflow")
+    }
+
+    /// Returns the total primary reward for the epoch, checking numeric overflow.
+    pub fn checked_primary_reward(&self) -> CapacityResult<Capacity> {
+        self.base_block_reward
+            .as_u64()
+            .checked_mul(self.length)
+            .and_then(|reward| reward.checked_add(self.remainder_reward.as_u64()))
+            .map(Capacity::shannons)
+            .ok_or(CapacityError::Overflow)
     }
     /// Returns the base block reward.
     pub fn base_block_reward(&self) -> &Capacity {
@@ -201,9 +210,20 @@ impl EpochExt {
 
     /// Sets the primary reward by calculating base and remainder rewards.
     pub fn set_primary_reward(&mut self, primary_reward: Capacity) {
+        self.try_set_primary_reward(primary_reward)
+            .expect("epoch length should be non-zero when setting primary reward");
+    }
+
+    /// Sets the primary reward by calculating base and remainder rewards, checking epoch length.
+    pub fn try_set_primary_reward(&mut self, primary_reward: Capacity) -> CapacityResult<()> {
+        if self.length == 0 {
+            return Err(CapacityError::Overflow);
+        }
+
         let primary_reward_u64 = primary_reward.as_u64();
         self.base_block_reward = Capacity::shannons(primary_reward_u64 / self.length);
         self.remainder_reward = Capacity::shannons(primary_reward_u64 % self.length);
+        Ok(())
     }
 
     /// Sets the compact difficulty target.
@@ -232,8 +252,10 @@ impl EpochExt {
 
     /// Returns the block reward for a specific block number in this epoch.
     pub fn block_reward(&self, number: BlockNumber) -> CapacityResult<Capacity> {
-        if number >= self.start_number()
-            && number < self.start_number() + self.remainder_reward.as_u64()
+        if number
+            .checked_sub(self.start_number())
+            .map(|offset| offset < self.remainder_reward.as_u64())
+            .unwrap_or(false)
         {
             self.base_block_reward.safe_add(Capacity::one())
         } else {
@@ -257,9 +279,18 @@ impl EpochExt {
         block_number: BlockNumber,
         secondary_epoch_issuance: Capacity,
     ) -> CapacityResult<Capacity> {
-        let mut g2 = Capacity::shannons(secondary_epoch_issuance.as_u64() / self.length());
-        let remainder = secondary_epoch_issuance.as_u64() % self.length();
-        if block_number >= self.start_number() && block_number < self.start_number() + remainder {
+        let length = self.length();
+        if length == 0 {
+            return Err(CapacityError::Overflow);
+        }
+
+        let mut g2 = Capacity::shannons(secondary_epoch_issuance.as_u64() / length);
+        let remainder = secondary_epoch_issuance.as_u64() % length;
+        if block_number
+            .checked_sub(self.start_number())
+            .map(|offset| offset < remainder)
+            .unwrap_or(false)
+        {
             g2 = g2.safe_add(Capacity::one())?;
         }
         Ok(g2)
@@ -452,7 +483,7 @@ impl EpochNumberWithFraction {
         let number = self.number();
         let length = self.length();
         let index = self.index();
-        if index + n >= length {
+        if index.saturating_add(n) >= length {
             number + 1
         } else {
             number

@@ -603,7 +603,7 @@ impl Synchronizer {
                     // that for the first time, OR this peer was able to catch up to some earlier point
                     // where we checked against our tip.
                     // Either way, set a new timeout based on current tip.
-                    state.chain_sync.timeout = now + CHAIN_SYNC_TIMEOUT;
+                    state.chain_sync.timeout = now.saturating_add(CHAIN_SYNC_TIMEOUT);
                     state.chain_sync.work_header = Some(tip_header);
                     state.chain_sync.total_difficulty = Some(local_total_difficulty);
                     state.chain_sync.sent_getheaders = false;
@@ -621,7 +621,8 @@ impl Synchronizer {
                         }
                     } else {
                         state.chain_sync.sent_getheaders = true;
-                        state.chain_sync.timeout = now + EVICTION_HEADERS_RESPONSE_TIME;
+                        state.chain_sync.timeout =
+                            now.saturating_add(EVICTION_HEADERS_RESPONSE_TIME);
                         active_chain.send_getheaders_to_peer(
                             nc,
                             *peer,
