@@ -56,7 +56,7 @@ pub struct TransactionInfo {
 }
 
 impl TransactionInfo {
-    /// Returns the transaction key for database lookups.
+    /// Returns the legacy packed transaction key embedded in serialized `TransactionInfo`.
     pub fn key(&self) -> packed::TransactionKey {
         packed::TransactionKey::new_builder()
             .block_hash(self.block_hash.clone())

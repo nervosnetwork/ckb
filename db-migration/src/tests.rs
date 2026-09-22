@@ -21,7 +21,7 @@ fn test_default_migration() {
     {
         let mut migrations = Migrations::default();
         migrations.add_migration(Arc::new(DefaultMigration::new("20191116225943")));
-        let db = RocksDB::open(&config, 1);
+        let db = RocksDB::open_with_columns(&config, 1);
         migrations.init_db_version(&db).unwrap();
         let r = migrations.migrate(db, false).unwrap();
         assert_eq!(
@@ -37,7 +37,7 @@ fn test_default_migration() {
         migrations.add_migration(Arc::new(DefaultMigration::new("20191116225943")));
         migrations.add_migration(Arc::new(DefaultMigration::new("20191127101121")));
         let r = migrations
-            .migrate(RocksDB::open(&config, 1), false)
+            .migrate(RocksDB::open_with_columns(&config, 1), false)
             .unwrap();
         assert_eq!(
             b"20191127101121".to_vec(),
@@ -91,7 +91,7 @@ fn test_customized_migration() {
     {
         let mut migrations = Migrations::default();
         migrations.add_migration(Arc::new(DefaultMigration::new("20191116225943")));
-        let db = RocksDB::open(&config, 1);
+        let db = RocksDB::open_with_columns(&config, 1);
         migrations.init_db_version(&db).unwrap();
         let db = migrations.migrate(db, false).unwrap();
 
@@ -105,7 +105,7 @@ fn test_customized_migration() {
         migrations.add_migration(Arc::new(DefaultMigration::new("20191116225943")));
         migrations.add_migration(Arc::new(CustomizedMigration));
         let db = migrations
-            .migrate(RocksDB::open(&config, 1), false)
+            .migrate(RocksDB::open_with_columns(&config, 1), false)
             .unwrap();
         assert!(
             vec![1u8, 1, 1, 1].as_slice()
@@ -204,7 +204,7 @@ fn test_background_migration() {
     {
         let mut migrations = Migrations::default();
         migrations.add_migration(Arc::new(DefaultMigration::new("20191116225943")));
-        let db = RocksDB::open(&config, 12);
+        let db = RocksDB::open_with_columns(&config, 12);
         migrations.init_db_version(&db).unwrap();
         let r = migrations.migrate(db, false).unwrap();
         assert_eq!(
@@ -241,7 +241,7 @@ fn test_background_migration() {
 
         assert!(migrations.can_run_in_background(&db));
         let db = migrations
-            .migrate(RocksDB::open(&config, 12), true)
+            .migrate(RocksDB::open_with_columns(&config, 12), true)
             .unwrap();
 
         // wait for background migration to finish
@@ -283,7 +283,7 @@ fn test_background_migration() {
 
         assert!(migrations.can_run_in_background(&db));
         let db = migrations
-            .migrate(RocksDB::open(&config, 12), true)
+            .migrate(RocksDB::open_with_columns(&config, 12), true)
             .unwrap();
 
         std::thread::sleep(std::time::Duration::from_millis(100));

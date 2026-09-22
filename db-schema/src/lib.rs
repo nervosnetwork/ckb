@@ -1,49 +1,21 @@
 //! The schema include constants define the low level database column families.
 
-/// Column families alias type
+pub mod hash_index;
+pub mod keys;
+pub mod legacy;
+pub mod v1;
+
+pub use hash_index::{BlockHashIndexValue, BlockIndexFlag};
+pub use keys::{
+    BLOCK_BODY_KEY_SIZE, BLOCK_HASH_SIZE, BLOCK_KEY_SIZE, BLOCK_NUMBER_KEY_SIZE, BlockBodyKey,
+    BlockHash, BlockKey, BlockNumberKey, CELL_KEY_SIZE, CellKey, OutPoint, TxHash, block_body_key,
+    block_key, block_number_key, cell_key, decode_block_key, decode_block_number_key,
+    out_point_key,
+};
+pub use v1::*;
+
+/// Column families alias type.
 pub type Col = &'static str;
-/// Total column number
-pub const COLUMNS: u32 = 19;
-/// Column store chain index
-pub const COLUMN_INDEX: Col = "0";
-/// Column store block's header
-pub const COLUMN_BLOCK_HEADER: Col = "1";
-/// Column store block's body
-pub const COLUMN_BLOCK_BODY: Col = "2";
-/// Column store block's uncle and uncles’ proposal zones
-pub const COLUMN_BLOCK_UNCLE: Col = "3";
-/// Column store meta data
-pub const COLUMN_META: Col = "4";
-/// Column store transaction extra information
-pub const COLUMN_TRANSACTION_INFO: Col = "5";
-/// Column store block extra information
-pub const COLUMN_BLOCK_EXT: Col = "6";
-/// Column store block's proposal ids
-pub const COLUMN_BLOCK_PROPOSAL_IDS: Col = "7";
-/// Column store indicates track block epoch
-pub const COLUMN_BLOCK_EPOCH: Col = "8";
-/// Column store indicates track block epoch
-pub const COLUMN_EPOCH: Col = "9";
-/// Column store cell
-pub const COLUMN_CELL: Col = "10";
-/// Column store main chain consensus include uncles
-///
-/// <https://github.com/nervosnetwork/rfcs/blob/master/rfcs/0020-ckb-consensus-protocol/0020-ckb-consensus-protocol.md#specification>
-pub const COLUMN_UNCLES: Col = "11";
-/// Column store cell data
-pub const COLUMN_CELL_DATA: Col = "12";
-/// Column store block number-hash pair
-pub const COLUMN_NUMBER_HASH: Col = "13";
-/// Column store cell data hash
-pub const COLUMN_CELL_DATA_HASH: Col = "14";
-/// Column store block extension data
-pub const COLUMN_BLOCK_EXTENSION: Col = "15";
-/// Column store chain root MMR data
-pub const COLUMN_CHAIN_ROOT_MMR: Col = "16";
-/// Column store filter data for client-side filtering
-pub const COLUMN_BLOCK_FILTER: Col = "17";
-/// Column store filter data hash for client-side filtering
-pub const COLUMN_BLOCK_FILTER_HASH: Col = "18";
 
 /// META_TIP_HEADER_KEY tracks the latest known best block header
 pub const META_TIP_HEADER_KEY: &[u8] = b"TIP_HEADER";
