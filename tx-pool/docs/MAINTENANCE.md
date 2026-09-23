@@ -3,6 +3,45 @@
 Use this page for configuration, caller completion, diagnosis and migration.
 [Architecture](ARCHITECTURE.md) owns the design contracts and source map.
 
+## Changing a rule safely
+
+Start at the rule's producer, then follow its observations, committed changes
+and completion boundary. This index identifies the enforcement to inspect;
+the linked implementation and architecture pages remain authoritative.
+
+| Invariant | Producer and enforcement | Regression evidence | Consequence of violating it |
+|---|---|---|---|
+| A decision retains its original positive, negative and complete-relation premises | [Graph](../src/authority/membership/graph.rs) records policy reads in its borrowed [Plan](../src/authority/store/plan.rs); merging rejects changed observations and Apply checks original identities | [Contracts](../src/authority/tests/contracts.rs): original owner, missing spender and late-reader cases | Stale work can act on a successor or miss a new dependent |
+| Guards cover the whole change in a single lock order | [CommitLocks and acquire](../src/authority/store.rs) derive read support and sorted unique guards; [OwnerChanges](../src/authority/store/apply.rs) derives write support from the edits; debug assertions check order and complete edit consumption | [Concurrency](../src/authority/tests/concurrency.rs): lock-footprint order/write dominance, mixed guards and compatible commit overlap | Deadlock, an unprotected read or a skipped owner edit |
+| Owners, projections, charges and notice obligations commit together | [Application](../src/authority/store/apply.rs) preflights before mutation; exhaustive `Shard::apply_edit` handles local projections; retired payloads outlive guards | [Concurrency](../src/authority/tests/concurrency.rs): preflight refusal, history retry and payload retirement | Partial membership, inconsistent indexes or a destructor under authority locks |
+| Admission counts each affected existing owner once against the shared bound | [Membership](../src/authority/membership.rs) budgets the union of replacement families, capacity-trim families and late-producer descendants | [Membership](../src/authority/tests/membership.rs): exact 100, refusing 101 and overlapping families | Unbounded mutation work or incorrect capacity refusal |
+| Cancellation releases the capability it owns without erasing committed effects | [Job and active permit](../src/authority/jobs.rs), [budget](../src/authority/budget.rs) and [outbox](../src/authority/notice.rs) own separate lifetimes; activation follows guard release | [Execution](../src/authority/tests/execution.rs) and [notice](../src/authority/tests/notice.rs): pause/stop refund, cancelled waiters and publisher failure | Leaked capacity, missing publication or a blocked caller |
+| Chain success acknowledges reconciliation and required publication | [Builder](../src/service/builder.rs) transfers the sole chain receiver to its consumer; [controller](../src/service/controller.rs) waits for its reply independently of RPC readiness | [Controller](../src/service/tests/controller.rs): real builder startup, abandonment and stop; [lifecycle contract](architecture/EXECUTION.md) | Lost startup transitions or a success response ahead of required effects |
+| A published template still describes its captured sources | [Driver](../src/authority/template.rs) validates lifecycle, selected owners and uncle receipt at publication; [BlockTemplate](../src/block_assembler/template.rs) owns its time lower bound | [Template driver](../src/authority/tests/template_driver.rs): same-tip clear, owner reentry and stale uncle preparation; [assembler](../src/block_assembler/tests/mod.rs): byte and time boundaries | Stale mining content or an invalid template timestamp |
+
+For a replacement-policy change, begin in membership preparation. Identify every
+fact used to choose victims and validate backing, including empty relations.
+The read-set types preserve observations that were recorded; they cannot infer
+an omitted business premise. Use the late-reader, stale-rejection and shared
+mutation-budget cases to challenge the changed rule before inspecting lock code.
+
+For a new shard projection, start with `Shard::apply_edit`, full-generation
+replacement and lifecycle refresh. Its exhaustive destructuring forces the new
+field to be considered, while tests must establish the correct update. For a
+new projection, extend the independent `assert_state` oracle in
+[state transitions](../src/authority/tests/state_transitions.rs), including
+clear and lifecycle changes. If it retains more memory, check `owner_amount` in
+[budget](../src/authority/budget.rs) and `accepted_transaction_charge_bytes` in
+[residency](../src/authority/residency.rs).
+
+For a template optional-content change, start with `fit_optional_content`:
+selected proposals consume bytes before compatible uncles, and only selected proposals
+participate in conflict filtering.
+
+Resource ceilings and fallible reservations do not promise recovery from every
+allocation failure. The committed mutation tail still uses Rust's abort-on-OOM
+contract, described in [commit and concurrency](architecture/COMMIT.md).
+
 ## Configuration and capacity
 
 Values below are current defaults from [legacy conversion](../../util/app-config/src/legacy/tx_pool.rs)
@@ -232,3 +271,20 @@ The `ckb_relay_tx_verify_result_queue_size` metric observes this mailbox, with
 its item bound exposed as `ckb_relay_tx_verify_result_queue_capacity`. Mailbox
 draining continues without peers and during IBD; the metric does not represent
 the relayer's separate pending-broadcast cache or remaining reconstruction work.
+
+`ckb_relay_tx_verify_result_queue_resets{reason="capacity"|"accounting"}`
+counts forced mailbox reconstruction. An ordinary authority `GenerationReset`
+does not increment it unless the mailbox also overflows. The accounting reason
+indicates an internal projection inconsistency, not normal pressure.
+
+`ckb_relay_pending_transactions_discarded{reason="capacity"|"reset"}` counts
+announcements evicted by the relayer cache or discarded when its projection is
+reset. Updating an existing announcement, draining it for a broadcast attempt
+or removing a rejected transaction does not count as capacity loss. A reset can
+originate from authority policy or mailbox reconstruction; these counters do not
+establish whether a peer received a transaction.
+
+Transaction subscription handoffs already report full/closed drops through
+`ckb_notify_transaction_dropped{boundary,reason}`. Verification interruptions
+remain internal retryable outcomes; their absence from public rejection events
+is the contract described under [rejection reasons](#add-a-rejection-reason).
