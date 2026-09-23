@@ -13,7 +13,6 @@ rust-version = "1.95.0"
 [dependencies]
 ckb-types.workspace = true
 ckb-error.workspace = true
-ckb-logger.workspace = true
 ckb-util.workspace = true
 ckb-metrics.workspace = true
 sha2.workspace = true

@@ -299,6 +299,31 @@ impl RocksDB {
                 }
             },
             |db| {
+                // Older databases have a contiguous prefix of numbered CFs.
+                // Extend that prefix only before the first Freezer publication;
+                // reopening a published layout must never recreate a lost CF.
+                let count = cfnames
+                    .iter()
+                    .filter(|name| name.parse::<u32>().is_ok())
+                    .count() as u32;
+                let legacy = count < columns
+                    && !cfnames.iter().any(|name| name.starts_with("freezer."))
+                    && (0..count).all(|col| cfnames.contains(&col.to_string()));
+                let db = if legacy
+                    && db
+                        .get_pinned(GENERATION_KEY)
+                        .map_err(internal_error)?
+                        .is_none()
+                {
+                    drop(db);
+                    let names: Vec<_> = cfnames
+                        .into_iter()
+                        .chain((count..columns).map(|col| col.to_string()))
+                        .collect();
+                    OptimisticTransactionDB::open_cf(&opts, path, names).map_err(internal_error)?
+                } else {
+                    db
+                };
                 let options = PAYLOAD_COLUMNS
                     .into_iter()
                     .filter(|col| col.parse::<u32>().expect("numeric payload column") < columns)

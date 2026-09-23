@@ -532,6 +532,7 @@ fn opening_discards_unpublished_partial_generations_but_rejects_missing_active_c
         ..Default::default()
     };
     assert!(RocksDB::open_with_check(&config, COLUMNS).is_err());
+    assert!(RocksDB::prepare_for_bulk_load_open(directory.path(), COLUMNS).is_err());
 }
 
 #[test]

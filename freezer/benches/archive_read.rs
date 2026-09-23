@@ -1,3 +1,6 @@
+//! Reproducible Freezer and RocksDB read-path benchmarks.
+#![allow(missing_docs)] // Criterion generates a public benchmark entry point.
+
 use ckb_freezer::{Freezer, FreezerFilesBuilder};
 use ckb_types::{
     core::{BlockBuilder, TransactionBuilder},
