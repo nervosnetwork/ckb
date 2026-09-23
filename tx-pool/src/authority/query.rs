@@ -8,6 +8,7 @@ use super::{
 };
 use crate::component::sort_key::AncestorsScoreSortKey;
 use ckb_app_config::TxPoolConfig;
+use ckb_fee_estimator::FeeSample;
 use ckb_snapshot::Snapshot;
 use ckb_store::ChainStore;
 use ckb_types::{
@@ -365,6 +366,18 @@ pub(super) fn accepted_with_cycles(
             entry
                 .accepted()
                 .map(|value| (entry.transaction.as_ref().clone(), value.cycles))
+        })
+        .collect()
+}
+pub(super) fn fee_samples(store: &Store) -> Vec<FeeSample> {
+    store
+        .capture_accepted()
+        .owners
+        .into_iter()
+        .filter_map(|entry| {
+            entry
+                .accepted()
+                .map(|value| FeeSample::new(value.size, value.cycles, value.fee))
         })
         .collect()
 }

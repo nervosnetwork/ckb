@@ -441,6 +441,35 @@ fn canonical_storage_fallback_and_fee_target_validation_remain_available() {
 }
 
 #[test]
+fn fee_samples_match_accepted_rpc_entries() {
+    let store = store();
+    for (index, status) in [Status::Pending, Status::Gap, Status::Proposed]
+        .into_iter()
+        .enumerate()
+    {
+        accept(
+            &store,
+            tx(7200 + index as u32),
+            1000 + index as u64,
+            9,
+            status,
+        );
+    }
+    insert(&store, entry(&store, tx(7210), Source::Local));
+    let projection = entry_info(&store, &config()).unwrap();
+    let mut expected: Vec<_> = projection
+        .pending
+        .into_values()
+        .chain(projection.proposed.into_values())
+        .map(|value| FeeSample::new(value.size as usize, value.cycles, value.fee))
+        .collect();
+    expected.sort_unstable();
+    let mut actual = fee_samples(&store);
+    actual.sort_unstable();
+    assert_eq!(actual, expected);
+}
+
+#[test]
 fn fee_estimate_preserves_capacity_boundaries_block_targets_and_minimum_rate() {
     let size = tx(0).data().serialized_size_in_block();
     let cycles = 1_000;

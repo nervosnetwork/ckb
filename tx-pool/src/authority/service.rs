@@ -680,8 +680,14 @@ impl Pool {
         mode: EstimateMode,
         fallback: bool,
     ) -> Result<ckb_types::core::FeeRate, AnyError> {
-        let entries = self.entry_info().await?;
-        match block_offload(|| self.estimator.estimate_fee_rate(mode, entries)) {
+        let estimated = self
+            .read(|| {
+                Ok(self
+                    .estimator
+                    .estimate_fee_rate(mode, || query::fee_samples(&self.store)))
+            })
+            .await?;
+        match estimated {
             Ok(rate) => Ok(rate),
             Err(error) if !fallback => Err(error.into()),
             Err(_) => {
