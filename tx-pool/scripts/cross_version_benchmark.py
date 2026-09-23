@@ -8,11 +8,9 @@ import hashlib
 import json
 import math
 import os
-import platform
 import random
 import re
 import resource
-import shlex
 import statistics
 import subprocess
 import sys
@@ -22,6 +20,8 @@ import tomllib
 from pathlib import Path
 
 import rejection_diagnostics
+from benchmark_build import (binary_record, build_binary, effective_features,
+                             git_record, host_identity, load_build, sha256)
 from measurement_process import run_process
 from measurement_window import parse_measurement_window, parse_readiness, wall_alignment
 
@@ -60,8 +60,7 @@ BUILD = re.compile(
 CORPUS_PREFIX = "BENCH_CORPUS "
 TERMINALS_PREFIX = "BENCH_TERMINALS "
 MAX_SCENARIO_TRANSACTIONS = 65_536
-FINAL_BUILD_PROFILE = "prod"
-SCHEMA_VERSION = 12
+SCHEMA_VERSION = 13
 PROTOCOL_CONTRACT = "protocol"
 CONSENSUS_LOCK_PACKAGES = ("ckb-vm", "ckb-vm-definitions")
 HEX_32 = re.compile(r"^[0-9a-f]{64}$")
@@ -159,43 +158,6 @@ def balanced_schedule(runs: int, replicates: int, seed: int, key: str) -> list[l
              for start in block] for block in blocks]
 
 
-def sha256(path: Path) -> str:
-    digest = hashlib.sha256()
-    with path.open("rb") as source:
-        for chunk in iter(lambda: source.read(1024 * 1024), b""):
-            digest.update(chunk)
-    return digest.hexdigest()
-
-
-def command_output(command: list[str], root: Path | None = None) -> str:
-    try:
-        return run_process(
-            command,
-            cwd=root,
-            text=True,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.STDOUT,
-            timeout=120,
-            check=True,
-        ).stdout.strip()
-    except (OSError, subprocess.CalledProcessError, subprocess.TimeoutExpired) as error:
-        raise RuntimeError(f"cannot run {command[0]} in {root or Path.cwd()}: {error}") from error
-
-
-def git_record(root: Path) -> dict[str, str]:
-    root = root.resolve()
-    status = command_output(["git", "status", "--porcelain=v1", "--untracked-files=all"], root)
-    if status:
-        raise RuntimeError(f"measurement worktree is dirty: {root}")
-    return {
-        "root": str(root),
-        "commit": command_output(["git", "rev-parse", "HEAD"], root),
-        "cargo_lock_sha256": sha256(root / "Cargo.lock"),
-        "cargo_manifest_sha256": sha256(root / "Cargo.toml"),
-        "tx_pool_manifest_sha256": sha256(root / "tx-pool" / "Cargo.toml"),
-    }
-
-
 def consensus_dependency_identity(root: Path, build_features: str) -> dict[str, object]:
     lock_packages = tomllib.loads((root / "Cargo.lock").read_text()).get("package")
     if not isinstance(lock_packages, list):
@@ -244,103 +206,6 @@ def consensus_dependency_identity(root: Path, build_features: str) -> dict[str, 
         "enabled_features": enabled,
         "root_build_features": build_features,
     }
-
-
-def binary_record(path: Path) -> dict[str, object]:
-    resolved = path.expanduser().resolve()
-    if not resolved.is_file():
-        raise RuntimeError(f"fixed binary does not exist: {resolved}")
-    return {"path": str(resolved), "sha256": sha256(resolved), "size": resolved.stat().st_size}
-
-
-def require_final_build_profile(profile: str | None) -> str:
-    if profile != FINAL_BUILD_PROFILE:
-        raise ValueError("fixed binaries require an explicit prod profile attestation")
-    return profile
-
-
-def build_binary(
-    root: Path, target_dir: Path, features: str
-) -> tuple[dict[str, object], dict[str, object]]:
-    root, target_dir = root.resolve(), target_dir.resolve()
-    command = [
-        "cargo",
-        "bench",
-        "-p",
-        "ckb-tx-pool",
-        "--bench",
-        "profile_one_shot",
-        "--no-run",
-        "--locked",
-        "--profile",
-        FINAL_BUILD_PROFILE,
-        "--message-format=json",
-    ]
-    if features:
-        command.extend(("--features", features))
-    environment = os.environ.copy()
-    environment["CARGO_TARGET_DIR"] = str(target_dir)
-    environment["CARGO_INCREMENTAL"] = "0"
-    encoded = environment.get("CARGO_ENCODED_RUSTFLAGS")
-    inherited = encoded.split("\x1f") if encoded else shlex.split(environment.get("RUSTFLAGS", ""))
-    environment.pop("RUSTFLAGS", None)
-    environment["CARGO_ENCODED_RUSTFLAGS"] = "\x1f".join(
-        [*inherited, f"--remap-path-prefix={root}=/ckb-txpool-cross-source"]
-    )
-    completed = run_process(
-        command,
-        timeout=3600,
-        cwd=root,
-        env=environment,
-        text=True,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-        check=False,
-    )
-    if completed.returncode != 0:
-        raise RuntimeError(
-            f"benchmark build failed ({completed.returncode}):\n"
-            f"{completed.stdout[-4000:]}\n{completed.stderr[-4000:]}"
-        )
-    executables = set()
-    for line in completed.stdout.splitlines():
-        try:
-            message = json.loads(line)
-        except json.JSONDecodeError:
-            continue
-        target = message.get("target", {})
-        if (
-            message.get("reason") == "compiler-artifact"
-            and target.get("name") == "profile_one_shot"
-            and "bench" in target.get("kind", [])
-            and message.get("executable")
-        ):
-            executables.add(Path(message["executable"]).resolve())
-    if len(executables) != 1:
-        raise RuntimeError("Cargo did not report exactly one profile_one_shot executable")
-    return binary_record(executables.pop()), {
-        "provenance": "built_once_by_runner",
-        "command": command,
-        "target_dir": str(target_dir),
-        "features": features,
-        "profile": FINAL_BUILD_PROFILE,
-        "inherited_rustflags": inherited,
-    }
-
-
-def prepare_binary(
-    root: Path,
-    supplied: Path | None,
-    target_dir: Path | None,
-    features: str,
-    supplied_profile: str | None,
-) -> tuple[dict[str, object], dict[str, object]]:
-    if supplied is not None:
-        return binary_record(supplied), {
-            "provenance": "supplied_by_sha256",
-            "profile": require_final_build_profile(supplied_profile),
-        }
-    return build_binary(root, target_dir or root / "target" / "tx-pool-cross", features)
 
 
 def parse_scenario(value: str) -> dict[str, object]:
@@ -940,17 +805,6 @@ def read_checkpoint(path: Path) -> dict[str, object]:
     return record
 
 
-def host_identity() -> dict[str, object]:
-    return {
-        "platform": platform.platform(),
-        "machine": platform.machine(),
-        "python": platform.python_version(),
-        "cpu_count": os.cpu_count(),
-        "rustc": command_output(["rustc", "-Vv"]),
-        "cargo": command_output(["cargo", "-V"]),
-    }
-
-
 def environment_snapshot() -> dict[str, object]:
     return {"captured_unix_ns": time.time_ns(), "load_average": list(os.getloadavg())}
 
@@ -960,7 +814,7 @@ def arguments() -> argparse.Namespace:
     for side in ("baseline", "candidate"):
         parser.add_argument(f"--{side}-root", type=Path, required=True)
         parser.add_argument(f"--{side}-binary", type=Path)
-        parser.add_argument(f"--{side}-binary-profile")
+        parser.add_argument(f"--{side}-build-receipt", type=Path)
         parser.add_argument(f"--{side}-target-dir", type=Path)
         parser.add_argument(f"--{side}-build-features", default="")
     parser.add_argument("--output", type=Path, required=True)
@@ -997,8 +851,8 @@ def arguments() -> argparse.Namespace:
         parser.error("cooldowns must be non-negative and limits positive")
     if median_interval([1.0] * args.runs, args.confidence_level) is None:
         parser.error("--runs cannot support a finite interval at --confidence-level")
-    if args.comparison == "aa" and (args.baseline_binary is None or args.candidate_binary is None):
-        parser.error("A/A requires two explicit copies or paths of the same fixed binary")
+    if args.comparison == "aa" and (args.baseline_build_receipt is None or args.candidate_build_receipt is None):
+        parser.error("A/A requires build receipts for the same fixed binary")
     margin = args.aa_equivalence_margin_percent
     if margin is not None and (args.comparison != "aa" or not math.isfinite(margin) or not 0 < margin < 100):
         parser.error("--aa-equivalence-margin-percent requires A/A and a finite value between 0 and 100")
@@ -1009,18 +863,16 @@ def arguments() -> argparse.Namespace:
     if args.resume != args.output.exists():
         parser.error("--resume requires an existing output; a new run requires a new output")
     for side in ("baseline", "candidate"):
-        binary = getattr(args, f"{side}_binary")
-        target = getattr(args, f"{side}_target_dir")
-        profile = getattr(args, f"{side}_binary_profile")
-        if binary is not None and target is not None:
-            parser.error(f"--{side}-target-dir cannot accompany --{side}-binary")
-        if binary is None and profile is not None:
-            parser.error(f"--{side}-binary-profile requires --{side}-binary")
-        if binary is not None:
-            try:
-                require_final_build_profile(profile)
-            except ValueError as error:
-                parser.error(str(error))
+        receipt = getattr(args, f"{side}_build_receipt")
+        if getattr(args, f"{side}_binary") is not None and receipt is None:
+            parser.error(f"--{side}-binary requires --{side}-build-receipt")
+        if receipt is not None and getattr(args, f"{side}_target_dir") is not None:
+            parser.error(f"--{side}-target-dir cannot accompany a build receipt")
+        try:
+            setattr(args, f"{side}_build_features", effective_features(
+                getattr(args, f"{side}_build_features"), args.allocation_observation == "enabled", "profile_one_shot"))
+        except ValueError as error:
+            parser.error(str(error))
     return args
 
 
@@ -1046,6 +898,8 @@ def configuration(args: argparse.Namespace, scenarios: list[dict[str, object]]) 
         "aa_equivalence_margin_percent": args.aa_equivalence_margin_percent,
         "timeout_seconds": args.timeout_seconds,
         "allocation_observation": args.allocation_observation,
+        "build_receipts": {side: binary_record(path) if (path := getattr(args, f"{side}_build_receipt")) else None
+                           for side in ("baseline", "candidate")},
     }
 
 
@@ -1246,8 +1100,13 @@ def validate_frozen(
     host: dict[str, object],
     supplied: dict[str, Path | None],
 ) -> None:
+    for identity in record.get("configuration", {}).get("build_receipts", {}).values():
+        if identity is not None and binary_record(Path(identity["path"])) != identity:
+            raise RuntimeError("frozen build receipt input changed")
     if record.get("metric_scopes") != METRIC_SCOPES:
         raise RuntimeError("measurement metric scopes changed")
+    if record.get("build_runner_sha256") != sha256(Path(__file__).with_name("benchmark_build.py")):
+        raise RuntimeError("benchmark build runner changed")
     if record.get("runner_sha256") != sha256(Path(__file__)):
         raise RuntimeError("benchmark runner changed")
     if record.get("process_runner_sha256") != sha256(Path(__file__).with_name("measurement_process.py")):
@@ -1303,8 +1162,6 @@ def main() -> None:
     config = configuration(args, scenarios)
     host = host_identity()
     supplied = {side: getattr(args, f"{side}_binary") for side in ("baseline", "candidate")}
-    if args.comparison == "aa" and sha256(supplied["baseline"]) != sha256(supplied["candidate"]):
-        raise RuntimeError("A/A binary hashes differ")
     if args.resume:
         record = read_checkpoint(args.output)
         if record.get("schema") != SCHEMA_VERSION or record.get("configuration") != config:
@@ -1316,19 +1173,21 @@ def main() -> None:
             side: getattr(args, f"{side}_target_dir") or roots[side] / "target" / "tx-pool-cross"
             for side in ("baseline", "candidate")
         }
-        if all(supplied[side] is None for side in supplied) and targets["baseline"].resolve() == targets["candidate"].resolve():
+        if all(getattr(args, f"{side}_build_receipt") is None for side in supplied) and targets["baseline"].resolve() == targets["candidate"].resolve():
             raise RuntimeError("baseline and candidate target directories must be isolated")
         for side in ("baseline", "candidate"):
-            contexts[side]["binary"], contexts[side]["build"] = prepare_binary(
-                roots[side],
-                supplied[side],
-                getattr(args, f"{side}_target_dir"),
-                getattr(args, f"{side}_build_features"),
-                getattr(args, f"{side}_binary_profile"),
-            )
+            features = getattr(args, f"{side}_build_features")
+            receipt = getattr(args, f"{side}_build_receipt")
+            if receipt is not None:
+                binary, build = load_build(receipt, roots[side], "profile_one_shot", features, supplied[side])
+            else:
+                build = build_binary(roots[side], targets[side], features, "profile_one_shot")
+                binary = build["binary"]
+            contexts[side].update(binary=binary, build=build)
         record = {
             "schema": SCHEMA_VERSION,
             "runner_sha256": sha256(Path(__file__)),
+            "build_runner_sha256": sha256(Path(__file__).with_name("benchmark_build.py")),
             "process_runner_sha256": sha256(Path(__file__).with_name("measurement_process.py")),
             "harness_sha256": harness_hash,
             "harness_bundle": harness_bundle(roots["baseline"]),
@@ -1343,6 +1202,8 @@ def main() -> None:
             "summary": {},
             "complete": False,
         }
+    if args.comparison == "aa" and contexts["baseline"]["binary"]["sha256"] != contexts["candidate"]["binary"]["sha256"]:
+        raise RuntimeError("A/A binary hashes differ")
     record["environment"]["starts"].append(environment_snapshot())
     write_checkpoint(args.output, record)
     cool(args.initial_cooldown_seconds)

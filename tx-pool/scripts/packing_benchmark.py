@@ -14,7 +14,8 @@ import os
 import statistics
 from pathlib import Path
 
-from cross_version_benchmark import binary_record, git_record, host_identity, sha256
+from benchmark_build import (binary_record, effective_features, git_record, host_identity,
+                             load_build, sha256, validate_build)
 from measurement_process import run_process
 from measurement_window import validate_measurement_window, wall_alignment
 
@@ -204,8 +205,12 @@ def source_identity(root: Path):
 
 def replay(output: Path):
     receipt = json.loads((output / "receipt.json").read_text())
-    require(receipt.get("schema_version") == 1 and receipt.get("contract") == CONTRACT
+    require(receipt.get("schema_version") in (1, 2) and receipt.get("contract") == CONTRACT
             and receipt.get("state") == "complete", "capture is incomplete or unsupported")
+    if receipt["schema_version"] == 2:
+        build = receipt["build"]
+        features = effective_features(build["features"], receipt["observation_mode"] == "allocation", "packing_one_shot")
+        validate_build(build, receipt["source"]["git"], "packing_one_shot", features, receipt["binary"])
     require(set(receipt.get("artifacts", {})) == {"stdout.log", "stderr.log"}, "capture log membership differs")
     for name, identity in receipt["artifacts"].items():
         path = output / name
@@ -222,9 +227,9 @@ def main():
     replay_parser.add_argument("output", type=Path)
     capture = subcommands.add_parser("capture", help="run one fixed-source process with repeated selection windows")
     capture.add_argument("--root", type=Path, required=True)
-    capture.add_argument("--binary", type=Path, required=True)
-    capture.add_argument("--binary-profile", choices=("prod",), required=True,
-                        help="attest this supplied binary was built from --root with --profile prod and the requested observation features")
+    capture.add_argument("--build-receipt", type=Path, required=True)
+    capture.add_argument("--binary", type=Path, help="optional copy of the receipt executable")
+    capture.add_argument("--build-features", default="")
     capture.add_argument("--observation", choices=("timing", "allocation"), default="timing",
                          help="allocation requires packing-bench,allocation-observation and never reports selection throughput")
     capture.add_argument("--output", type=Path, required=True, help="new directory outside the source checkout")
@@ -246,20 +251,23 @@ def main():
         explicit_limits(args.limit)
     require(math.isfinite(args.timeout_seconds) and args.timeout_seconds > 0, "invalid timeout")
     integer(args.min_selection_ns, "min_selection_ns", positive=True)
-    root, binary = args.root.resolve(strict=True), args.binary.resolve(strict=True)
+    root = args.root.resolve(strict=True)
+    features = effective_features(args.build_features, args.observation == "allocation", "packing_one_shot")
+    binary_identity, build = load_build(args.build_receipt, root, "packing_one_shot", features, args.binary)
+    binary = Path(binary_identity["path"])
     output = args.output.resolve()
     require(not output.is_relative_to(root), "capture artifacts must be outside the measured checkout")
     output.mkdir(parents=True, exist_ok=False)
     receipt_path = output / "receipt.json"
     expected = {name: getattr(args, name) for name in ("shape", "fees", "count", "limit", "repeats", "warm")}
     command = [str(binary)] + [str(expected[name]) for name in ("shape", "fees", "count", "limit", "repeats", "warm")]
-    receipt = {"schema_version": 1, "contract": CONTRACT, "state": "preparing", "expected": expected,
-               "command": command, "binary_profile_attestation": args.binary_profile,
+    receipt = {"schema_version": 2, "contract": CONTRACT, "state": "preparing", "expected": expected,
+               "command": command, "build": build,
                "minimum_selection_ns": args.min_selection_ns, "observation_mode": args.observation}
     try:
-        receipt.update(source=source_identity(root), binary=binary_record(binary), host=host_identity())
+        receipt.update(source=source_identity(root), binary=binary_identity, host=host_identity())
         receipt["runner_sources"] = {name: sha256(Path(__file__).resolve().parent / name) for name in
-                                     ("packing_benchmark.py", "measurement_process.py", "measurement_window.py", "cross_version_benchmark.py")}
+                                     ("packing_benchmark.py", "measurement_process.py", "measurement_window.py", "benchmark_build.py")}
         receipt["state"] = "running"
         receipt_path.write_text(json.dumps(receipt, indent=2) + "\n")
         env = {key: value for key, value in os.environ.items() if not key.startswith("TX_POOL_")}

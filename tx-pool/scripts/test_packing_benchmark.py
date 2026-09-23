@@ -1,10 +1,16 @@
 """Fail-closed packing result contract tests; native fixtures have Rust checks."""
 import copy
+import io
 import json
+import subprocess
+import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
+import benchmark_build
+import packing_benchmark
 from packing_benchmark import explicit_limits, parse, replay, sha256
 
 
@@ -212,11 +218,47 @@ class PackingContractTests(unittest.TestCase):
             (directory / "stdout.log").write_text(self.output() + "tampered")
             with self.assertRaises(ValueError):
                 replay(directory)
+
             (directory / "stdout.log").write_text(self.output())
             receipt["state"] = "failed"
             (directory / "receipt.json").write_text(json.dumps(receipt))
             with self.assertRaises(ValueError):
                 replay(directory)
+
+    def test_capture_binds_its_cargo_receipt_and_replays_schema_two(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            directory = Path(temporary).resolve()
+            root = directory / "source"
+            root.mkdir()
+            binary = directory / "packing-fixture"
+            binary.write_text(f"#!{sys.executable}\nprint({self.output()!r})\n")
+            binary.chmod(0o700)
+            source = {"root": str(root), "commit": "fixed"}
+            artifact = dict(reason="compiler-artifact", target=dict(name="packing_one_shot", kind=["bench"]),
+                            executable=str(binary))
+            with mock.patch.object(benchmark_build, "git_record", return_value=source), mock.patch.object(
+                    benchmark_build, "command_output", return_value="fixed"), mock.patch.object(
+                    benchmark_build, "run_process", return_value=subprocess.CompletedProcess([], 0, json.dumps(artifact), "")):
+                build = benchmark_build.build_binary(root, directory / "target", "ckb-tx-pool/packing-bench", "packing_one_shot")
+            build_path = directory / "build.json"
+            build_path.write_text(json.dumps(build))
+            output = directory / "capture"
+            command = ["packing_benchmark.py", "capture", "--root", str(root), "--build-receipt", str(build_path),
+                       "--output", str(output), "--shape", "independent", "--fees", "equal", "--count", "8",
+                       "--limit", "all", "--repeats", "2", "--warm", "1"]
+            with mock.patch.object(benchmark_build, "git_record", return_value=source), mock.patch.object(
+                    packing_benchmark, "source_identity", return_value={"git": source}), mock.patch.object(
+                    packing_benchmark, "host_identity", return_value={}), mock.patch.object(
+                    sys, "argv", command), mock.patch.object(sys, "stdout", io.StringIO()):
+                packing_benchmark.main()
+            receipt = json.loads((output / "receipt.json").read_text())
+            self.assertEqual(receipt["schema_version"], 2)
+            self.assertEqual(receipt["build"], build)
+            self.assertEqual(replay(output), receipt["observation"])
+            receipt["build"]["source"] = {"wrong": "source"}
+            (output / "receipt.json").write_text(json.dumps(receipt))
+            with self.assertRaisesRegex(RuntimeError, "source, bench"):
+                replay(output)
 
 
 if __name__ == "__main__":

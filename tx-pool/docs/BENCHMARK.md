@@ -43,23 +43,23 @@ with `--resume`.
 
 ## A/A comparison
 
-From the clean candidate root, build one uninstrumented binary:
+Build each arm once from its clean checkout. The shared build tool records the
+source, Cargo command, features, toolchain and selected compiler artifact:
 
 ```sh
-cargo build --locked -p ckb-tx-pool --bench profile_one_shot \
-  --profile prod --message-format=json-render-diagnostics
+python3 tx-pool/scripts/benchmark_build.py \
+  --root /absolute/path/to/prepared-candidate --bench profile_one_shot \
+  --target-dir /tmp/candidate-bench-target --output /tmp/candidate-build.json
 ```
 
-Select the `executable` from Cargo's `profile_one_shot` compiler-artifact record.
-Use that exact binary on both sides (substitute its path below):
+Use that build receipt on both sides of its A/A control:
 
 ```sh
 python3 tx-pool/scripts/cross_version_benchmark.py \
   --baseline-root /absolute/path/to/prepared-candidate \
   --candidate-root /absolute/path/to/prepared-candidate \
-  --baseline-binary /absolute/path/to/profile_one_shot \
-  --candidate-binary /absolute/path/to/profile_one_shot \
-  --baseline-binary-profile prod --candidate-binary-profile prod \
+  --baseline-build-receipt /tmp/candidate-build.json \
+  --candidate-build-receipt /tmp/candidate-build.json \
   --comparison aa --aa-equivalence-margin-percent 2 \
   --output /tmp/txpool-aa.json \
   --runs 24 --replicates-per-sample 4 \
@@ -69,21 +69,24 @@ python3 tx-pool/scripts/cross_version_benchmark.py \
 
 Choose and freeze the workload and margins using the
 [quality rules](#quality-and-decision-rules) before A/A and A/B.
-
 ## Execution and output
 
 The runner records source/build/host identities, commands and binary hashes.
-Supplied executables require
-`--baseline-binary-profile prod` / `--candidate-binary-profile prod`.
+Supplied builds require `--baseline-build-receipt` / `--candidate-build-receipt`.
+Optional `--baseline-binary` / `--candidate-binary` select a copied executable;
+its hash and size must match the receipt. Automatic A/B builds use the same Cargo
+build operation. A receipt establishes the recorded producer-to-artifact link;
+it is not a signature against deliberate falsification of the evidence.
 Pilots must agree on transaction bytes/hashes, declared cycles, script preflight
 and runtime consensus. Measured attempts use randomized, balanced AB/BA blocks.
 `--order-seed` and the complete resulting schedule are part of the frozen
 configuration; changing either requires a new study.
 
-Schema 12 `attempts[]` retains commands, raw output, source side, attempt ID,
+Schema 13 `attempts[]` retains commands, raw output, source side, attempt ID,
 corpus, terminals, window and metrics. Start/outcome checkpoints are atomic;
 completion rechecks source and binary identity. Host-load snapshots accompany
-every outcome but cannot certify isolation.
+every outcome but cannot certify isolation. Host identity includes node name and
+CPU model alongside the software/toolchain fields.
 
 `--resume` revalidates configuration and identities, reuses completed attempts and
 runs only never-started attempts. An abandoned `running` attempt becomes a retained
@@ -163,7 +166,7 @@ studies omit the timing-duration gate; calibration always checks it.
 | `aa_equivalence_unresolved` | The margin is not established; not proof of inequivalence |
 | `noisy`, `imprecise`, `short_target_window`, failure | Preserve the result and exclusion; no ranking |
 
-A/A uses two explicit paths to the same binary hash, may use one clean checkout,
+A/A uses two build receipts for the same binary hash, may use one clean checkout,
 and requires `--comparison aa --aa-equivalence-margin-percent 2` for measurement.
 Allocation instrumentation must be disabled; duration-only calibration can omit
 the margin. A/A never ranks implementations. Practical equivalence/non-inferiority
@@ -257,18 +260,17 @@ preflights before correcting their cause.
 enables this adapter without tracing. Build from a frozen checkout:
 
 ```sh
-cargo build --locked -p ckb-tx-pool --bench packing_one_shot \
-  --profile prod --features packing-bench --message-format=json-render-diagnostics \
-  > /tmp/packing-build.jsonl
+python3 tx-pool/scripts/benchmark_build.py \
+  --root /absolute/path/to/frozen-checkout --bench packing_one_shot \
+  --target-dir /tmp/packing-target --output /tmp/packing-build.json
 ```
 
-Select the `executable` from Cargo's `packing_one_shot` compiler-artifact record,
-preserve the build log, and supply its absolute path:
+The builder automatically includes `packing-bench`. Supply its build receipt:
 
 ```sh
 python3 tx-pool/scripts/packing_benchmark.py capture \
   --root /absolute/path/to/frozen-checkout \
-  --binary /absolute/path/to/packing_one_shot --binary-profile prod \
+  --build-receipt /tmp/packing-build.json \
   --shape mixed --fees cpfp --count 4096 --limit budget:595000:3500000000 \
   --repeats 5 --warm 2 --output /tmp/packing-mixed-cpfp
 
@@ -328,13 +330,17 @@ single-capture median gives no confidence interval or acceptance verdict.
 are `functional_only` with `templates/s = null`. Admission/profile analyzers reject
 packing markers; external CPU profiles must validate each selection's wall alignment.
 
-The capture directory contains raw logs and a source/binary/host/harness receipt.
+The capture directory contains raw logs and a source/binary/host/harness receipt,
+including the Cargo build receipt. New captures use schema 2; schema 1 captures
+remain replayable as historical observations without upgrading their provenance.
 Failed and interrupted attempts remain failed; replay verifies log sizes/hashes
 and reproduces the observation without the original binary or checkout. Process
 lifetime/cleanup uses the same bounded POSIX helper as other benchmarks.
 
-For allocations, build separately with `--features packing-bench,allocation-observation`
-and capture with `--observation allocation`. Fixture, source preparation and each
+For allocations, build separately with `--allocation-observation enabled`
+and capture with `--observation allocation`. Both tools derive the same effective
+features; extra adapter features must match via the builder's `--features` and
+capture's `--build-features`. Fixture, source preparation and each
 selection have separate windows; output is `allocation_only` without templates/s.
 Counts cover process-wide `alloc`/`realloc` requests, including full realloc sizes,
 failed requests and other threads. They measure neither retained bytes nor RSS.
@@ -381,6 +387,7 @@ cargo nextest run -p ckb-tx-pool --features profiling --test profile_spans --tes
 python3 -m unittest tx-pool/scripts/test_profile.py
 python3 -m unittest tx-pool/scripts/test_cross_version_benchmark.py
 python3 -m unittest tx-pool/scripts/test_measurement_process.py
+python3 -m unittest discover -s tx-pool/scripts -p 'test*benchmark*.py'
 ```
 
 Final performance decisions require the candidate and baseline frozen before

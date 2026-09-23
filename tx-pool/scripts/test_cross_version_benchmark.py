@@ -151,7 +151,7 @@ class BuildProfileContractTest(unittest.TestCase):
     def test_completion_rechecks_source_instead_of_cached_identity(self) -> None:
         source = {"root": "/fixed-source", "commit": "before"}
         contexts = {"baseline": {"source": source, "consensus": {}}}
-        record = {"runner_sha256": "same", "process_runner_sha256": "same", "measurement_window_sha256": "same",
+        record = {"runner_sha256": "same", "build_runner_sha256": "same", "process_runner_sha256": "same", "measurement_window_sha256": "same",
                   "rejection_diagnostics_sha256": "same",
                   "harness_sha256": "same", "host": {}, "sides": contexts,
                   "metric_scopes": BENCHMARK.METRIC_SCOPES}
@@ -315,35 +315,6 @@ class BuildProfileContractTest(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "invalid scenario"):
             BENCHMARK.parse_scenario("rbf_pairs,32769,32768,13,18")
 
-    def test_runner_builds_and_records_prod_profile(self) -> None:
-        self.assertEqual(BENCHMARK.require_final_build_profile("prod"), "prod")
-        with self.assertRaisesRegex(ValueError, "explicit prod"):
-            BENCHMARK.require_final_build_profile("bench")
-        with tempfile.TemporaryDirectory(prefix="txpool-cross-build-profile-") as raw:
-            temporary = Path(raw)
-            root = temporary / "source"
-            target = temporary / "target"
-            executable = target / "prod" / "deps" / "profile_one_shot-fixed"
-            root.mkdir()
-            executable.parent.mkdir(parents=True)
-            executable.write_bytes(b"fixed-binary")
-            message = {
-                "reason": "compiler-artifact",
-                "target": {"name": "profile_one_shot", "kind": ["bench"]},
-                "executable": str(executable),
-            }
-            completed = subprocess.CompletedProcess(
-                args=[], returncode=0, stdout=json.dumps(message), stderr=""
-            )
-            with mock.patch.object(BENCHMARK, "run_process", return_value=completed) as run:
-                binary, build = BENCHMARK.build_binary(root, target, "profiling")
-
-            command = run.call_args.args[0]
-            self.assertIn("--profile", command)
-            self.assertEqual(command[command.index("--profile") + 1], "prod")
-            self.assertEqual(build["profile"], "prod")
-            self.assertEqual(binary["sha256"], BENCHMARK.sha256(executable))
-
     def test_checkpoint_round_trip_and_attempt_ids_are_resume_authority(self) -> None:
         with tempfile.TemporaryDirectory(prefix="txpool-cross-checkpoint-") as raw:
             path = Path(raw) / "result.json"
@@ -461,7 +432,7 @@ class BuildProfileContractTest(unittest.TestCase):
     def aa_command(root, output):
         return [str(SCRIPT), "--baseline-root", str(root), "--candidate-root", str(root),
                 "--baseline-binary", str(root / "binary"), "--candidate-binary", str(root / "binary"),
-                "--baseline-binary-profile", "prod", "--candidate-binary-profile", "prod",
+                "--baseline-build-receipt", str(root / "build.json"), "--candidate-build-receipt", str(root / "build.json"),
                 "--output", str(output), "--comparison", "aa", "--runs", "6",
                 "--initial-cooldown-seconds", "0", "--cooldown-seconds", "0",
                 "--scenario", "always_success,8,0,1,1"]
@@ -481,12 +452,25 @@ class BuildProfileContractTest(unittest.TestCase):
             with mock.patch.object(sys, "argv", command + ["--calibration-only"]):
                 self.assertIsNone(BENCHMARK.arguments().aa_equivalence_margin_percent)
 
+    def test_cli_derives_both_allocation_builds_and_rejects_conflicting_modes(self):
+        with tempfile.TemporaryDirectory() as raw:
+            root = Path(raw)
+            command = self.aa_command(root, root / "result.json") + ["--comparison", "ab"]
+            with mock.patch.object(sys, "argv", command + ["--allocation-observation", "enabled"]):
+                args = BENCHMARK.arguments()
+            self.assertEqual(args.baseline_build_features, "ckb-tx-pool/allocation-observation")
+            self.assertEqual(args.candidate_build_features, args.baseline_build_features)
+            with mock.patch.object(sys, "argv", command + ["--baseline-build-features", "allocation-observation"]), mock.patch.object(sys, "stderr", io.StringIO()):
+                with self.assertRaises(SystemExit):
+                    BENCHMARK.arguments()
+
     def test_aa_main_persists_its_decision_and_rejects_margin_change_on_resume(self) -> None:
         # Exercise orchestration and durable decisions with controlled observations;
         # the separate executable control covers resource collection and parsing.
         with tempfile.TemporaryDirectory() as raw:
             root = Path(raw)
             (root / "binary").write_bytes(b"one fixed identity")
+            (root / "build.json").write_text("{}")
             harness = root / "tx-pool/benches/profile_one_shot.rs"
             harness.parent.mkdir(parents=True)
             harness.write_text("fixed harness")
@@ -505,7 +489,7 @@ class BuildProfileContractTest(unittest.TestCase):
                                 outcome="success", corpus={}, metrics=metrics)
                 with mock.patch.object(BENCHMARK, "git_record", return_value={"root": str(root), "commit": "fixed"}), mock.patch.object(
                     BENCHMARK, "consensus_dependency_identity", return_value={"locked_packages": [], "enabled_features": []}
-                ), mock.patch.object(BENCHMARK, "host_identity", return_value={}), mock.patch.object(
+                ), mock.patch.object(BENCHMARK, "load_build", return_value=(BENCHMARK.binary_record(root / "binary"), {})), mock.patch.object(BENCHMARK, "host_identity", return_value={}), mock.patch.object(
                     BENCHMARK, "run_attempt", side_effect=observation
                 ) as run, mock.patch.object(sys, "stdout", io.StringIO()):
                     with mock.patch.object(sys, "argv", command):
@@ -697,14 +681,14 @@ class MeasurementRepairTest(unittest.TestCase):
 
     def test_window_parser_change_rejects_frozen_record(self):
         record = dict(metric_scopes=BENCHMARK.METRIC_SCOPES,
-                      runner_sha256="same", process_runner_sha256="same", measurement_window_sha256="old")
+                      runner_sha256="same", build_runner_sha256="same", process_runner_sha256="same", measurement_window_sha256="old")
         with mock.patch.object(BENCHMARK, "sha256", return_value="same"):
             with self.assertRaisesRegex(RuntimeError, "window parser changed"):
                 BENCHMARK.validate_frozen(record, {}, "same", {}, {})
 
     def test_rejection_verifier_change_rejects_frozen_record(self):
         record = dict(metric_scopes=BENCHMARK.METRIC_SCOPES,
-                      runner_sha256="same", process_runner_sha256="same", measurement_window_sha256="same",
+                      runner_sha256="same", build_runner_sha256="same", process_runner_sha256="same", measurement_window_sha256="same",
                       rejection_diagnostics_sha256="old")
         with mock.patch.object(BENCHMARK, "sha256", return_value="same"):
             with self.assertRaisesRegex(RuntimeError, "rejection diagnostic verifier changed"):

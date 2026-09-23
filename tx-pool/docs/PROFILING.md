@@ -199,8 +199,10 @@ it does not establish complete-node Console qualification.
 
 Use [cross_version_benchmark.py](../scripts/cross_version_benchmark.py) with the same
 prepared roots/scenarios as a comparison, a separate output file and
-`--allocation-observation enabled`. The runner builds with that feature, or a
-supplied binary must already include it. Only allocation calls/bytes may rank
+`--allocation-observation enabled`. The runner builds with that feature. For a
+supplied build, first use `benchmark_build.py --allocation-observation enabled`
+and pass its build receipt; the receipt and runtime build must both match the
+requested mode. Only allocation calls/bytes may rank
 that experiment; the recorded timing and RSS remain diagnostic. Allocation bytes
 are traffic, not retained memory or a leak measurement. Compare source/destination
 sharing and lifetime against the [resource bounds](architecture/EXECUTION.md#resource-and-lifetime-bounds).
