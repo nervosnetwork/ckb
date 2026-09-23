@@ -160,15 +160,7 @@ pub(crate) async fn process(pool: Arc<Pool>, message: Message) -> Result<(), Err
             reply(responder, pool.input_snapshot().await, "get_input_snapshot")
         }
         Message::SavePool(Request { responder, .. }) => {
-            if let Err(error) = pool.save().await {
-                if let Some(Error::Fault(reason)) = error.downcast_ref::<Error>() {
-                    drop(responder);
-                    return Err(Error::Fault(reason));
-                }
-                ckb_logger::error!("explicit tx-pool save failed: {error}");
-            }
-            respond(responder, (), "save_pool");
-            Ok(())
+            reply_external(responder, pool.save().await, "save_pool")
         }
         Message::EstimateFeeRate(Request {
             responder,

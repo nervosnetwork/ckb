@@ -445,7 +445,7 @@ impl TxPoolController {
     pub fn save_pool(&self) -> Result<(), AnyError> {
         reject_callback_mutation!("save_pool");
         info!("Please be patient, tx-pool are saving data into disk ...");
-        send_message!(self, SavePool, ())
+        send_message!(self, SavePool, ()).and_then(std::convert::identity)
     }
 
     /// Updates IBD state.

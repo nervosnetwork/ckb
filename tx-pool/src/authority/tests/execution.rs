@@ -2094,6 +2094,45 @@ async fn saved_replacement_history_reenters_through_verified_recovery() {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn explicit_save_reports_a_disk_write_failure() {
+    let directory = tempfile::tempdir().unwrap();
+    let configuration = TxPoolConfig {
+        persisted_data: directory.path().join("pool"),
+        ..config()
+    };
+    std::fs::create_dir(configuration.persisted_data.with_extension("v2")).unwrap();
+    let handle = Handle::new(tokio::runtime::Handle::current(), None);
+    let store = store_with_pipeline_limit(chain_snapshot(), &configuration, 64_000_000);
+    let (pool, _, _) = Pool::with_store(
+        configuration,
+        store,
+        &handle,
+        Arc::new(RwLock::new(init_cache())),
+        None,
+        None,
+        FeeEstimator::new_dummy(),
+    )
+    .unwrap();
+    let (responder, response) = ckb_channel::oneshot::channel();
+    assert!(
+        crate::service::process(
+            pool,
+            crate::service::Message::SavePool(Request::call((), responder)),
+        )
+        .await
+        .is_ok()
+    );
+    assert!(
+        response
+            .recv()
+            .unwrap()
+            .unwrap_err()
+            .to_string()
+            .contains("Failed to rename temp file")
+    );
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn optional_history_pressure_preserves_local_and_owned_job_admission() {
     for (local, stop) in [(false, false), (true, false), (false, true), (true, true)] {
         let handle = Handle::new(tokio::runtime::Handle::current(), None);

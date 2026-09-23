@@ -64,6 +64,27 @@ async fn live_cell_controller_returns_the_service_error() {
     ));
 }
 
+#[tokio::test]
+async fn save_controller_returns_the_service_error() {
+    let (sender, mut receiver) = mpsc::channel(1);
+    let controller = controller(sender);
+    let request = tokio::task::spawn_blocking(move || controller.save_pool());
+    let Message::SavePool(save) = receiver.recv().await.unwrap() else {
+        panic!("save request reached the service channel")
+    };
+    save.responder
+        .send(Err(crate::authority::service::Error::Closed.into()))
+        .unwrap();
+    assert!(matches!(
+        request
+            .await
+            .unwrap()
+            .unwrap_err()
+            .downcast_ref::<crate::authority::service::Error>(),
+        Some(crate::authority::service::Error::Closed)
+    ));
+}
+
 fn full_controller() -> (TxPoolController, mpsc::Receiver<Message>) {
     let (sender, receiver) = mpsc::channel(1);
     assert!(

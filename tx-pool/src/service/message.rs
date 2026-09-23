@@ -33,6 +33,7 @@ pub(crate) type RemoveLocalTxResult = Result<bool, AnyError>;
 
 pub(crate) type GetTxStatusResult = Result<(TxStatus, Option<Cycle>), AnyError>;
 pub(crate) type GetLiveCellResult = Result<CellStatus, AnyError>;
+pub(crate) type SavePoolResult = Result<(), AnyError>;
 pub(crate) type GetTransactionWithStatusResult = Result<TransactionWithStatus, AnyError>;
 pub(crate) type FetchTxsWithCyclesResult = crate::authority::query::AcceptedTransactionsWithCycles;
 
@@ -438,7 +439,7 @@ pub(crate) enum Message {
     GetAllEntryInfo(SyncRequest<(), TxPoolEntryInfo>),
     GetAllIds(SyncRequest<(), TxPoolIds>),
     GetInputSnapshot(SyncRequest<(), super::TxPoolInputSnapshot>),
-    SavePool(SyncRequest<(), ()>),
+    SavePool(SyncRequest<(), SavePoolResult>),
     GetPoolTxDetails(SyncRequest<Byte32, PoolTxDetailInfo>),
     GetTotalRecentRejectNum(SyncRequest<(), Option<u64>>),
 
