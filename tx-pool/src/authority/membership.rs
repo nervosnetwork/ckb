@@ -511,14 +511,14 @@ pub(super) fn admission(
     }
 }
 
-/// One checked successor population and its admission/removal classification.
+/// The observed successor population and its admission/removal classification.
 /// The plan emitter consumes it without rerunning policy over a changed graph.
 struct AdmissionDecision {
     admitted: Arc<Entry>,
     replaced: BTreeSet<Byte32>,
     removed: BTreeSet<Byte32>,
     late: BTreeSet<Byte32>,
-    virtual_entries: Members,
+    observed_successors: Members,
 }
 
 impl AdmissionDecision {
@@ -571,11 +571,11 @@ impl AdmissionDecision {
             forced_status: verified.forced_status(),
         };
         let admitted = candidate.with_phase(Phase::Accepted(value));
-        let mut virtual_entries = apply_virtual(graph.entries(), &admitted, &late, &removed)?;
+        let mut observed_successors = apply_virtual(graph.observed(), &admitted, &late, &removed)?;
         let mut affected = late_descendants.clone();
         affected.insert(candidate.hash());
         for hash in &affected {
-            ancestor_hashes(&virtual_entries, hash, config.max_ancestors_count)?;
+            ancestor_hashes(&observed_successors, hash, config.max_ancestors_count)?;
         }
         let mut released = Amount::default();
         for hash in &removed {
@@ -588,7 +588,7 @@ impl AdmissionDecision {
         // owner differences in the same reservation as candidate and all victims.
         for hash in &late {
             let old = owner_amount(graph.require(hash)?.as_ref())?;
-            let new = owner_amount(virtual_entries.get(hash).ok_or(Error::Stale)?)?;
+            let new = owner_amount(observed_successors.get(hash).ok_or(Error::Stale)?)?;
             released = released.checked_add(old).ok_or_else(overflow)?;
             added = added.checked_add(new).ok_or_else(overflow)?;
         }
@@ -599,11 +599,11 @@ impl AdmissionDecision {
         if optimistic.is_none_or(|usage| !usage.fits(graph.limits().accepted)) {
             // This speculative map will be rebuilt from the full cut below.
             // Release it before the full capture and replacement map overlap.
-            drop(virtual_entries);
+            drop(observed_successors);
             graph.capture_accepted()?;
-            virtual_entries = apply_virtual(graph.entries(), &admitted, &late, &removed)?;
+            observed_successors = apply_virtual(graph.observed(), &admitted, &late, &removed)?;
             trim_virtual(
-                &mut virtual_entries,
+                &mut observed_successors,
                 snapshot,
                 config,
                 &mut removed,
@@ -618,7 +618,7 @@ impl AdmissionDecision {
             replaced,
             removed,
             late,
-            virtual_entries,
+            observed_successors,
         })
     }
 
@@ -635,9 +635,9 @@ impl AdmissionDecision {
             replaced,
             removed,
             late,
-            virtual_entries,
+            observed_successors,
         } = self;
-        let order = removal_order(graph.entries(), &removed)?;
+        let order = removal_order(graph.observed(), &removed)?;
         let removed_totals = if order.len() > 1 {
             Some(graph.removal_totals(&order, config.max_ancestors_count)?)
         } else {
@@ -670,11 +670,11 @@ impl AdmissionDecision {
         }
         for hash in late.difference(&removed) {
             let old = graph.require(hash)?;
-            let after = virtual_entries.get(hash).cloned().ok_or(Error::Stale)?;
+            let after = observed_successors.get(hash).cloned().ok_or(Error::Stale)?;
             graph.plan.edit(Some(old), Some(after), None)?;
         }
         let ancestors = ancestor_hashes(
-            &virtual_entries,
+            &observed_successors,
             &admitted.hash(),
             config.max_ancestors_count,
         )?;
@@ -682,15 +682,15 @@ impl AdmissionDecision {
             Aggregate::one(accepted(&admitted)?)
         } else {
             let descendants = descendant_hashes(
-                &children(&virtual_entries),
+                &children(&observed_successors),
                 [admitted.hash()],
                 graph.limits().accepted.items,
             )?;
-            aggregate(&virtual_entries, &descendants)?
+            aggregate(&observed_successors, &descendants)?
         };
         let accepted_snapshot = self::snapshot(
             &admitted,
-            aggregate(&virtual_entries, &ancestors)?,
+            aggregate(&observed_successors, &ancestors)?,
             descendants,
         )?;
         let effect = Effect::accepted(
@@ -921,7 +921,7 @@ pub(super) fn removal(
         } else {
             MAX_POOL_MUTATION_CANDIDATES
         };
-        let mut order = removal_order(graph.entries(), &removed)?;
+        let mut order = removal_order(graph.observed(), &removed)?;
         order.truncate(limit);
         let removed_totals = if reason.is_some() && order.len() > 1 {
             Some(graph.removal_totals(&order, config.max_ancestors_count)?)

@@ -9,19 +9,20 @@ use crate::authority::{
 
 pub(in crate::authority) struct Graph<'a> {
     store: &'a Store,
-    entries: Members,
+    observed: Members,
     pub(super) plan: &'a mut Plan,
 }
 impl<'a> Graph<'a> {
     pub(in crate::authority) fn new(store: &'a Store, plan: &'a mut Plan) -> Self {
         Self {
             store,
-            entries: Members::new(),
+            observed: Members::new(),
             plan,
         }
     }
-    pub(super) fn entries(&self) -> &Members {
-        &self.entries
+    /// Entries reached by this decision; only a capacity trim captures all accepted entries.
+    pub(super) fn observed(&self) -> &Members {
+        &self.observed
     }
     pub(super) fn limits(&self) -> &Limits {
         &self.store.budget.limits
@@ -42,7 +43,7 @@ impl<'a> Graph<'a> {
         )
     }
     pub(super) fn capture_accepted(&mut self) -> Result<(), Error> {
-        self.entries = self
+        self.observed = self
             .plan
             .capture_accepted(self.store)?
             .into_iter()
@@ -51,7 +52,7 @@ impl<'a> Graph<'a> {
         Ok(())
     }
     pub(in crate::authority) fn get(&mut self, hash: &Byte32) -> Result<Option<Arc<Entry>>, Error> {
-        if let Some(entry) = self.entries.get(hash) {
+        if let Some(entry) = self.observed.get(hash) {
             return Ok(Some(Arc::clone(entry)));
         }
         let entry = self
@@ -59,7 +60,8 @@ impl<'a> Graph<'a> {
             .original(self.store, hash)?
             .filter(|entry| entry.accepted().is_some());
         if let Some(entry) = &entry {
-            self.entries.insert(compact_packed(hash), Arc::clone(entry));
+            self.observed
+                .insert(compact_packed(hash), Arc::clone(entry));
         }
         Ok(entry)
     }
@@ -121,7 +123,7 @@ impl<'a> Graph<'a> {
             let ancestors = self.ancestors([hash.clone()], &BTreeSet::new(), max_ancestors)?;
             totals.insert(
                 compact_packed(hash),
-                (aggregate(&self.entries, &ancestors)?, Aggregate::default()),
+                (aggregate(&self.observed, &ancestors)?, Aggregate::default()),
             );
         }
         let descendants = self.descendants(
@@ -131,7 +133,7 @@ impl<'a> Graph<'a> {
         )?;
         for hash in &descendants {
             let own = Aggregate::one(accepted(
-                self.entries
+                self.observed
                     .get(hash)
                     .ok_or(Error::Fault("captured descendant"))?,
             )?);
@@ -145,7 +147,7 @@ impl<'a> Graph<'a> {
                     *total = total.add(own)?;
                 }
                 let entry = self
-                    .entries
+                    .observed
                     .get(&parent)
                     .ok_or(Error::Fault("captured ancestor"))?;
                 stack.extend(accepted(entry)?.parents.iter().cloned());
@@ -167,8 +169,8 @@ impl<'a> Graph<'a> {
         )?;
         snapshot(
             &entry,
-            aggregate(&self.entries, &ancestors)?,
-            aggregate(&self.entries, &descendants)?,
+            aggregate(&self.observed, &ancestors)?,
+            aggregate(&self.observed, &descendants)?,
         )
     }
 }
