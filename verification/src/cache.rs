@@ -2,7 +2,7 @@
 
 use ckb_chain_spec::consensus::Consensus;
 use ckb_hash::new_blake2b;
-use ckb_script::{TxVerifyEnv, header_visible_origin};
+use ckb_script::{ScriptVersion, TxVerifyEnv, header_visible_origin};
 use ckb_types::{
     core::{Capacity, Cycle, cell::ResolvedTransaction},
     prelude::{Entity, Unpack},
@@ -14,6 +14,8 @@ use std::collections::HashSet;
 /// The witness hash identifies transaction content, but script selection also
 /// changes at hard-fork boundaries. This generation is therefore part of the
 /// cache key rather than metadata that each caller must remember to inspect.
+/// Node chain specifications activate VM1 no later than VM2, so their highest
+/// active version identifies the script-selection generation.
 #[derive(Clone, Copy, Debug, Hash, Eq, PartialEq)]
 pub enum ScriptVerificationRules {
     /// CKB VM version 0 and its syscall surface.
@@ -25,23 +27,13 @@ pub enum ScriptVerificationRules {
 }
 
 impl ScriptVerificationRules {
-    /// Derive the complete script-selection generation from the same
-    /// transaction environment passed to the script verifier.
+    /// Derive the generation for the node's ordered VM activations from the
+    /// same transaction environment passed to the script verifier.
     pub fn from_env(consensus: &Consensus, tx_env: &TxVerifyEnv) -> Self {
-        let epoch = tx_env.epoch_number_without_proposal_window();
-        let hardforks = consensus.hardfork_switch();
-        if hardforks
-            .ckb2023
-            .is_vm_version_2_and_syscalls_3_enabled(epoch)
-        {
-            Self::V2
-        } else if hardforks
-            .ckb2021
-            .is_vm_version_1_and_syscalls_2_enabled(epoch)
-        {
-            Self::V1
-        } else {
-            Self::V0
+        match ScriptVersion::latest_active(consensus, tx_env) {
+            ScriptVersion::V0 => Self::V0,
+            ScriptVersion::V1 => Self::V1,
+            ScriptVersion::V2 => Self::V2,
         }
     }
 }

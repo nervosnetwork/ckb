@@ -2,15 +2,20 @@ use crate::{
     TxVerifyEnv,
     cache::{ScriptVerificationRules, TxVerificationCacheKey},
 };
-use ckb_chain_spec::consensus::ConsensusBuilder;
+use ckb_chain_spec::consensus::{Consensus, ConsensusBuilder};
+use ckb_script::{ScriptError, ScriptVersion, TxData};
+use ckb_traits::CellDataProvider;
 use ckb_types::{
     bytes::Bytes,
     core::{
-        EpochNumberWithFraction, HeaderBuilder, TransactionBuilder, cell::ResolvedTransaction,
-        hardfork::HardForks,
+        EpochNumberWithFraction, HeaderBuilder, ScriptHashType, TransactionBuilder,
+        cell::ResolvedTransaction,
+        hardfork::{CKB2021, CKB2023, HardForks},
     },
-    prelude::{Pack, Unpack},
+    packed::{Byte32, OutPoint, Script},
+    prelude::{Builder, Entity, Pack, Unpack},
 };
+use std::sync::Arc;
 
 #[test]
 fn cache_key_binds_witness_identity_to_script_rules() {
@@ -145,4 +150,123 @@ fn verification_rules_follow_the_tx_environment_hardfork_boundary() {
     );
     assert_eq!(rules_at(v1_epoch), ScriptVerificationRules::V1);
     assert_eq!(rules_at(v2_epoch), ScriptVerificationRules::V2);
+}
+
+struct EmptyCells;
+
+impl CellDataProvider for EmptyCells {
+    fn get_cell_data(&self, _: &OutPoint) -> Option<Bytes> {
+        None
+    }
+
+    fn get_cell_data_hash(&self, _: &OutPoint) -> Option<Byte32> {
+        None
+    }
+}
+
+fn script_context(
+    v1_epoch: u64,
+    v2_epoch: u64,
+    environment: TxVerifyEnv,
+) -> (ScriptVerificationRules, TxData<EmptyCells>) {
+    let consensus: Arc<Consensus> = Arc::new(
+        ConsensusBuilder::default()
+            .hardfork_switch(HardForks {
+                ckb2021: CKB2021::new_dev_default()
+                    .as_builder()
+                    .rfc_0032(v1_epoch)
+                    .build()
+                    .unwrap(),
+                ckb2023: CKB2023::new_with_specified(v2_epoch),
+            })
+            .build(),
+    );
+    let rules = ScriptVerificationRules::from_env(&consensus, &environment);
+    let context = TxData::new(
+        Arc::new(ResolvedTransaction::dummy_resolve(
+            TransactionBuilder::default().build(),
+        )),
+        EmptyCells,
+        consensus,
+        Arc::new(environment),
+    );
+    (rules, context)
+}
+
+#[test]
+fn data_script_gates_remain_independent_of_the_latest_active_vm() {
+    use ScriptVerificationRules::{V0, V1, V2};
+    let header = HeaderBuilder::default()
+        .epoch(EpochNumberWithFraction::new(0, 0, 10))
+        .build();
+    // ConsensusBuilder can express independently enabled gates, even though
+    // node configurations activate VM1 no later than VM2.
+    for (v1, v2, expected_rules, expected_type) in [
+        (false, false, V0, ScriptVersion::V0),
+        (true, false, V1, ScriptVersion::V1),
+        (false, true, V2, ScriptVersion::V2),
+        (true, true, V2, ScriptVersion::V2),
+    ] {
+        let activation = |enabled| if enabled { 0 } else { u64::MAX };
+        let (rules, context) = script_context(
+            activation(v1),
+            activation(v2),
+            TxVerifyEnv::new_commit(&header),
+        );
+        let select =
+            |hash_type| context.select_version(&Script::new_builder().hash_type(hash_type).build());
+        assert_eq!(rules, expected_rules);
+        assert_eq!(select(ScriptHashType::Data), Ok(ScriptVersion::V0));
+        assert_eq!(select(ScriptHashType::Type), Ok(expected_type));
+        assert_eq!(
+            select(ScriptHashType::Data1),
+            if v1 {
+                Ok(ScriptVersion::V1)
+            } else {
+                Err(ScriptError::InvalidVmVersion(1))
+            }
+        );
+        assert_eq!(
+            select(ScriptHashType::Data2),
+            if v2 {
+                Ok(ScriptVersion::V2)
+            } else {
+                Err(ScriptError::InvalidVmVersion(2))
+            }
+        );
+    }
+}
+
+#[test]
+fn cached_rules_and_execution_do_not_activate_vms_through_the_proposal_window() {
+    use ScriptVerificationRules::{V0, V1, V2};
+    for (epoch, index, committed, inflight) in [
+        (4, 8, (V0, ScriptVersion::V0), (V0, ScriptVersion::V0)),
+        (4, 9, (V0, ScriptVersion::V0), (V1, ScriptVersion::V1)),
+        (5, 0, (V1, ScriptVersion::V1), (V1, ScriptVersion::V1)),
+        (9, 8, (V1, ScriptVersion::V1), (V1, ScriptVersion::V1)),
+        (9, 9, (V1, ScriptVersion::V1), (V2, ScriptVersion::V2)),
+        (10, 0, (V2, ScriptVersion::V2), (V2, ScriptVersion::V2)),
+    ] {
+        let header = HeaderBuilder::default()
+            .number(epoch * 10 + index)
+            .epoch(EpochNumberWithFraction::new(epoch, index, 10))
+            .build();
+        for (environment, expected) in [
+            (TxVerifyEnv::new_commit(&header), committed),
+            (TxVerifyEnv::new_submit(&header), inflight),
+            (TxVerifyEnv::new_proposed(&header, 0), inflight),
+            (TxVerifyEnv::new_proposed(&header, 1), inflight),
+        ] {
+            let (rules, context) = script_context(5, 10, environment);
+            let selected = context
+                .select_version(
+                    &Script::new_builder()
+                        .hash_type(ScriptHashType::Type)
+                        .build(),
+                )
+                .unwrap();
+            assert_eq!((rules, selected), expected, "epoch {epoch}, index {index}");
+        }
+    }
 }

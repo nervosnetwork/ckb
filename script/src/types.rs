@@ -73,6 +73,34 @@ impl ScriptVersion {
         Self::V2
     }
 
+    /// Returns the highest active version, used by Type scripts.
+    /// Data1 and Data2 still require their own activation gates.
+    pub fn latest_active(consensus: &Consensus, tx_env: &TxVerifyEnv) -> Self {
+        if Self::V2.is_enabled(consensus, tx_env) {
+            Self::V2
+        } else if Self::V1.is_enabled(consensus, tx_env) {
+            Self::V1
+        } else {
+            Self::V0
+        }
+    }
+
+    fn is_enabled(self, consensus: &Consensus, tx_env: &TxVerifyEnv) -> bool {
+        // The proposal window must not activate a VM before its fork. Only the
+        // actual execution epoch (or next block for inflight work) governs it.
+        let epoch = tx_env.epoch_number_without_proposal_window();
+        let hardforks = consensus.hardfork_switch();
+        match self {
+            Self::V0 => true,
+            Self::V1 => hardforks
+                .ckb2021
+                .is_vm_version_1_and_syscalls_2_enabled(epoch),
+            Self::V2 => hardforks
+                .ckb2023
+                .is_vm_version_2_and_syscalls_3_enabled(epoch),
+        }
+    }
+
     /// Returns the ISA set of CKB VM in current script version.
     pub fn vm_isa(self) -> VmIsa {
         match self {
@@ -794,61 +822,27 @@ impl<DL> TxInfo<DL> {
         }
     }
 
-    fn is_vm_version_1_and_syscalls_2_enabled(&self) -> bool {
-        // If the proposal window is allowed to prejudge on the vm version,
-        // it will cause proposal tx to start a new vm in the blocks before hardfork,
-        // destroying the assumption that the transaction execution only uses the old vm
-        // before hardfork, leading to unexpected network splits.
-        let epoch_number = self.tx_env.epoch_number_without_proposal_window();
-        let hardfork_switch = self.consensus.hardfork_switch();
-        hardfork_switch
-            .ckb2021
-            .is_vm_version_1_and_syscalls_2_enabled(epoch_number)
-    }
-
-    fn is_vm_version_2_and_syscalls_3_enabled(&self) -> bool {
-        // If the proposal window is allowed to prejudge on the vm version,
-        // it will cause proposal tx to start a new vm in the blocks before hardfork,
-        // destroying the assumption that the transaction execution only uses the old vm
-        // before hardfork, leading to unexpected network splits.
-        let epoch_number = self.tx_env.epoch_number_without_proposal_window();
-        let hardfork_switch = self.consensus.hardfork_switch();
-        hardfork_switch
-            .ckb2023
-            .is_vm_version_2_and_syscalls_3_enabled(epoch_number)
-    }
-
     /// Returns the version of the machine based on the script and the consensus rules.
     pub fn select_version(&self, script: &Script) -> Result<ScriptVersion, ScriptError> {
-        let is_vm_version_2_and_syscalls_3_enabled = self.is_vm_version_2_and_syscalls_3_enabled();
-        let is_vm_version_1_and_syscalls_2_enabled = self.is_vm_version_1_and_syscalls_2_enabled();
         let script_hash_type = ScriptHashType::try_from(script.hash_type())
             .map_err(|err| ScriptError::InvalidScriptHashType(err.to_string()))?;
         match script_hash_type {
             ScriptHashType::Data => Ok(ScriptVersion::V0),
             ScriptHashType::Data1 => {
-                if is_vm_version_1_and_syscalls_2_enabled {
+                if ScriptVersion::V1.is_enabled(&self.consensus, &self.tx_env) {
                     Ok(ScriptVersion::V1)
                 } else {
                     Err(ScriptError::InvalidVmVersion(1))
                 }
             }
             ScriptHashType::Data2 => {
-                if is_vm_version_2_and_syscalls_3_enabled {
+                if ScriptVersion::V2.is_enabled(&self.consensus, &self.tx_env) {
                     Ok(ScriptVersion::V2)
                 } else {
                     Err(ScriptError::InvalidVmVersion(2))
                 }
             }
-            ScriptHashType::Type => {
-                if is_vm_version_2_and_syscalls_3_enabled {
-                    Ok(ScriptVersion::V2)
-                } else if is_vm_version_1_and_syscalls_2_enabled {
-                    Ok(ScriptVersion::V1)
-                } else {
-                    Ok(ScriptVersion::V0)
-                }
-            }
+            ScriptHashType::Type => Ok(ScriptVersion::latest_active(&self.consensus, &self.tx_env)),
             hash_type => {
                 return Err(ScriptError::InvalidScriptHashType(format!(
                     "The ScriptHashType/{:?} has not been activated, and is not permitted for use.",
