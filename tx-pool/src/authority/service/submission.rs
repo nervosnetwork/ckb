@@ -418,9 +418,7 @@ impl Pool {
                 );
                 let candidate = Arc::new(Entry {
                     transaction: Arc::clone(&transaction),
-                    arrival: before
-                        .as_ref()
-                        .map_or_else(|| self.store.next_arrival(), |entry| Ok(entry.arrival))?,
+                    arrival: self.store.next_arrival()?,
                     source: Source::Local,
                     phase: Phase::Resolve,
                 });
@@ -429,7 +427,7 @@ impl Pool {
                         let (mut plan, reject) = membership::admission(
                             &self.store,
                             &candidate,
-                            before.clone(),
+                            None,
                             &verified,
                             &self.config,
                             false,
