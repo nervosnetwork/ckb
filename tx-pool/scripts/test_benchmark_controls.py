@@ -108,6 +108,22 @@ class ControlEvidenceTests(unittest.TestCase):
         self.assertEqual(summary["aa_controls"]["baseline"]["status"], "corpus_mismatch")
         self.assertFalse(summary["metric_quality"]["throughput_tps"]["ranking_permitted"])
 
+    def test_early_exit_does_not_misreport_control_corpus_mismatch(self):
+        control = self.summary()
+        evidence = {side: {self.key: control} for side in ("baseline", "candidate")}
+        summaries = [dict(status=status, ranking_permitted=False)
+                     for status in ("short_target_window", "calibrated")]
+        summaries += [benchmark.failure_summary(reason, []) for reason in
+                      ("pilot_failure", "pilot_corpus_mismatch", "measurement_failure")]
+        for summary in summaries:
+            with self.subTest(summary=summary):
+                original = copy.deepcopy(summary)
+                benchmark.qualify_ranking(summary, evidence, self.scenario, "disabled")
+                self.assertEqual(summary["status"], original["status"])
+                self.assertEqual(summary.get("reason"), original.get("reason"))
+                self.assertFalse(summary["production_ranking_permitted"])
+                self.assertEqual(summary["aa_controls"], {})
+
     def test_favorable_summary_cannot_hide_raw_rss_or_corpus_failure(self):
         for attempt in self.control["attempts"]:
             if attempt["side"] == "candidate":

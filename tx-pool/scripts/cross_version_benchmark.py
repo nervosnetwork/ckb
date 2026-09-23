@@ -1219,8 +1219,10 @@ def qualify_ranking(summary: dict[str, object], evidence: dict[str, object],
                 and interval is not None
                 and interval["relative_width_percent"] <= summary["uncertainty_rule"]["maximum_relative_interval_width_percent"])
         return
-    controls = {side: evidence.get(side, {}).get(scenario_key(scenario)) for side in ("baseline", "candidate")}
     summary["aa_controls"] = {}
+    if "corpus" not in summary:
+        return
+    controls = {side: evidence.get(side, {}).get(scenario_key(scenario)) for side in ("baseline", "candidate")}
     for side, row in controls.items():
         status = ("missing" if row is None else "non_comparable" if "reason" in row
                   else "corpus_mismatch" if row.get("corpus") != summary.get("corpus") else row["status"])
