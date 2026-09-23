@@ -194,6 +194,8 @@ them to the ancestor budget.
 RBF counts shared descendants once, checks full input/dependency backing, and
 commits candidate plus victims atomically. Its original victim set also identifies
 replacement notices; additional capacity victims receive the full-pool reason.
+Replacement victims, late-producer descendants and capacity victims share one
+100-entry admission limit, counting their union and excluding the new candidate.
 Complete relation observations prevent an interposed reader from escaping the
 plan. Self-eviction does not evict incumbents
 for a rejected candidate. Wide fee totals preserve exact descendant accounting;

@@ -50,9 +50,10 @@ pub(crate) const BLOCK_TEMPLATE_TIMEOUT: std::time::Duration = std::time::Durati
 /// never be published by the other.
 pub(crate) const MAX_TX_POOL_REJECT_DESCRIPTION_BYTES: usize = 1024;
 
-/// Maximum number of entries one indexed conflict, capacity, or ancestor
-/// displacement sub-transition may visit or remove. Reorg reconciliation and
-/// configured pool-size trimming have separate, formula-bounded cohorts.
+/// Maximum combined population of one admission's replacement victims,
+/// late-producer descendants and capacity victims. Overlaps count once;
+/// the new candidate is not counted.
+/// Expiry also uses this page size; reorg and explicit removal use residency bounds.
 pub(crate) const MAX_POOL_MUTATION_CANDIDATES: usize = 100;
 
 /// Grace period for draining handlers/workers, then the notice publisher.

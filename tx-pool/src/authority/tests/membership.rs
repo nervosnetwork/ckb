@@ -346,6 +346,90 @@ fn capacity_skips_a_low_rank_family_too_large_for_one_mutation() {
 }
 
 #[test]
+fn admission_shares_one_mutation_budget_and_counts_overlapping_families_once() {
+    use ckb_types::{bytes::Bytes, prelude::*};
+
+    // One RBF victim, these late readers and a two-entry capacity family use
+    // exactly 100 entries, exceed it by one, or overlap at the exact boundary.
+    for (reader_count, family_is_late, fits) in
+        [(97, false, true), (98, false, false), (97, true, true)]
+    {
+        let input = point(205);
+        let victim = spend(90_300, std::slice::from_ref(&input), &[]);
+        let candidate = spend(90_301, &[input], &[]);
+        let candidate_output = OutPoint::new(candidate.hash(), 0);
+        let capacity_parent = if family_is_late {
+            spend(90_302, &[], std::slice::from_ref(&candidate_output))
+        } else {
+            output_tx(90_302)
+        };
+        let capacity_child = spend(90_303, &[], &[OutPoint::new(capacity_parent.hash(), 0)]);
+        let candidate = candidate
+            .as_advanced_builder()
+            .witness(Bytes::from(vec![0; capacity_child.data().serialized_size_in_block()]).pack())
+            .build();
+        let readers: Vec<_> = (0..reader_count)
+            .map(|index| spend(90_304 + index, &[], std::slice::from_ref(&candidate_output)))
+            .collect();
+        let configuration = TxPoolConfig {
+            max_tx_pool_size: victim.data().serialized_size_in_block()
+                + capacity_parent.data().serialized_size_in_block()
+                + capacity_child.data().serialized_size_in_block()
+                + readers
+                    .iter()
+                    .map(|reader| reader.data().serialized_size_in_block())
+                    .sum::<usize>(),
+            ..rbf()
+        };
+        // Neither RBF alone nor removing only the capacity child makes room.
+        // The complete two-entry family is sufficient.
+        let growth =
+            candidate.data().serialized_size_in_block() - victim.data().serialized_size_in_block();
+        assert!(growth > capacity_child.data().serialized_size_in_block());
+        assert!(
+            growth
+                <= capacity_parent.data().serialized_size_in_block()
+                    + capacity_child.data().serialized_size_in_block()
+        );
+        let store = Store::new(crate::test_support::genesis_snapshot(), &configuration).unwrap();
+        accept(&store, victim, 1, 1, Status::Pending);
+        accept(&store, capacity_parent, 0, 1, Status::Pending);
+        accept(&store, capacity_child, 1, 1, Status::Pending);
+        let readers: BTreeSet<_> = readers
+            .into_iter()
+            .map(|reader| accept(&store, reader, 10_000_000, 1, Status::Pending))
+            .collect();
+        let before = hashes(&store);
+        let charged = store.budget.accepted_usage();
+        let candidate = entry(&store, candidate, Source::Local);
+        let (plan, reject) = admission(
+            &store,
+            &candidate,
+            1_000_000,
+            1,
+            Status::Pending,
+            &configuration,
+        )
+        .unwrap();
+        assert_eq!(hashes(&store), before);
+        if fits {
+            assert!(reject.is_none(), "unexpected rejection: {reject:?}");
+            store.apply(plan).unwrap();
+            let mut expected = readers;
+            expected.insert(candidate.hash());
+            assert_eq!(hashes(&store), expected);
+            assert_parents_match_transactions(&store);
+        } else {
+            assert!(matches!(reject, Some(Reject::Full(_))));
+            store.apply(plan).unwrap();
+            assert_eq!(hashes(&store), before);
+            assert_eq!(store.budget.accepted_usage(), charged);
+            assert_parents_match_transactions(&store);
+        }
+    }
+}
+
+#[test]
 fn replacement_and_capacity_eviction_keep_distinct_rejection_reasons() {
     let input = point(202);
     let victim = spend(90_005, std::slice::from_ref(&input), &[]);
