@@ -2,7 +2,7 @@
 //! lock release stay in one path; retired payloads outlive every authority guard.
 use super::{
     ACCEPTED_ROLES, CHILD, CommitLocks, DEP, Edit, Guard, INPUT, Peer, Plan, Relation,
-    RelationMember, SHARDS, Shard, Store, WAIT, Wake, WakePage, acquire, compact_dependency,
+    RelationMember, SHARDS, Shard, Store, View, WAIT, Wake, WakePage, acquire, compact_dependency,
     compact_relation, proposal_key,
 };
 use crate::authority::{
@@ -14,7 +14,7 @@ use crate::authority::{
 use crate::util::compact_packed;
 use ckb_network::PeerIndex;
 use ckb_snapshot::Snapshot;
-use ckb_types::packed::Byte32;
+use ckb_types::packed::{Byte32, ProposalShortId};
 use ckb_util::parking_lot::Mutex;
 use std::{
     collections::{BTreeMap, BTreeSet},
@@ -25,6 +25,20 @@ use std::{
 
 // Unique owner hashes in order, each paired with its old and new membership.
 type MemberChanges<T> = Vec<(Byte32, (T, T))>;
+
+/// Payload displaced by a committed cut. Keep it alive until all authority
+/// guards are released; dropping an owner can run caller-owned destructors.
+#[derive(Default)]
+struct Retired {
+    owners: Vec<Arc<Entry>>,
+    shards: Vec<Shard>,
+    relations: Vec<BTreeMap<RelationKey, Arc<Mutex<Relation>>>>,
+    peers: Option<BTreeMap<PeerIndex, Arc<Mutex<Peer>>>>,
+    dirty: Option<BTreeSet<DependencyKey>>,
+    queues: Option<Queues>,
+    snapshot: Option<Arc<Snapshot>>,
+    _committed: Option<lru::LruCache<ProposalShortId, Byte32>>,
+}
 
 /// Derive each owner transition's routed edits, projection changes and wake keys
 /// together. Original read observations add their guards at the Apply boundary.
@@ -381,6 +395,184 @@ impl Shard {
 }
 
 impl Store {
+    /// Validate the captured view and original reads before examining any new
+    /// policy projection. The test observer marks this exact boundary.
+    fn validate_original_cut(
+        &self,
+        plan: &Plan,
+        view: &Guard<'_, View>,
+        owners: &[(usize, Guard<'_, Shard>)],
+    ) -> Result<(), Error> {
+        let lifecycle_write = plan.lifecycle.is_some();
+        if view.get().revision != plan.view {
+            return Err(Error::Stale);
+        }
+        if lifecycle_write && view.get().revision == u64::MAX {
+            return Err(Error::Fault("view counter"));
+        }
+        if self.chain_pending.load(Ordering::Acquire) && !lifecycle_write && !plan.edits.is_empty()
+        {
+            return Err(Error::Full(FullReason::ChainTransition));
+        }
+        if plan
+            .lifecycle
+            .as_ref()
+            .is_some_and(|write| write.replace_generation)
+            && (plan.reads.all.is_none()
+                || plan.edits.values().any(|edit| edit.after.is_some())
+                || plan.edits.len()
+                    != owners
+                        .iter()
+                        .map(|(_, guard)| guard.get().owners.len())
+                        .sum::<usize>())
+        {
+            return Err(Error::Fault("incomplete generation replacement"));
+        }
+        self.validate_reads(&plan.reads, owners)
+    }
+
+    /// Check policy fences and every derived row against the same guarded cut.
+    /// The returned instant is also used by the committed ban-fence update.
+    fn validate_proposed_cut(
+        &self,
+        plan: &Plan,
+        changes: &OwnerChanges<'_>,
+        owners: &[(usize, Guard<'_, Shard>)],
+    ) -> Result<Instant, Error> {
+        let now = Instant::now();
+        if let Some((peer, expected)) = plan.peer_access
+            && self
+                .bans
+                .lock()
+                .get(&peer)
+                .is_some_and(|until| *until > now)
+                != expected
+        {
+            return Err(Error::Stale);
+        }
+        for edit in plan.edits.values() {
+            if let Some(entry) = edit.after.as_deref()
+                && let Some(peer) = peer(entry)
+                && self
+                    .bans
+                    .lock()
+                    .get(&peer)
+                    .is_some_and(|deadline| *deadline > now)
+            {
+                return Err(Error::Full("peer is banned".into()));
+            }
+        }
+        if let Some(page) = &plan.wake_advance {
+            let row = self
+                .relation(&RelationKey::Dependency(page.key.clone()))
+                .ok_or(Error::Stale)?;
+            if !page.row.ptr_eq(&Arc::downgrade(&row))
+                || row
+                    .lock()
+                    .wake
+                    .as_ref()
+                    .is_none_or(|wake| wake.pass != page.pass)
+            {
+                return Err(Error::Stale);
+            }
+        }
+        changes.validate_projections(self, plan, owners)?;
+        Ok(now)
+    }
+
+    /// Replace every projection while the lifecycle writer owns all shards.
+    /// Return the displaced generation for destruction after guard release.
+    fn retire_generation(&self, owners: &mut [(usize, Guard<'_, Shard>)]) -> Retired {
+        let mut retired = Retired {
+            _committed: Some(std::mem::replace(
+                &mut *self.committed.lock(),
+                lru::LruCache::new(100_000),
+            )),
+            ..Retired::default()
+        };
+        retired.shards.reserve_exact(SHARDS);
+        retired.relations.reserve_exact(SHARDS);
+        for (_, guard) in owners {
+            if let Some(shard) = guard.get_mut() {
+                retired.shards.push(std::mem::take(shard));
+            }
+        }
+        for relations in &self.relations {
+            retired
+                .relations
+                .push(std::mem::take(&mut *relations.lock()));
+        }
+        retired.peers = Some(std::mem::take(&mut *self.peers.lock()));
+        retired.dirty = Some(std::mem::take(&mut *self.dirty.lock()));
+        retired.queues = Some(self.queues.take());
+        retired
+    }
+
+    /// Apply all owner-local indexes in shard order using the validated edits.
+    fn apply_owner_changes(
+        &self,
+        owners: &mut [(usize, Guard<'_, Shard>)],
+        edits: &[(usize, &Byte32, &Edit)],
+        snapshot: &Snapshot,
+        retired: &mut Vec<Arc<Entry>>,
+    ) {
+        let mut remaining_edits = edits;
+        for (index, guard) in owners {
+            let Some(shard) = guard.get_mut() else {
+                continue;
+            };
+            let (edits, remaining) = remaining_edits.split_at(
+                remaining_edits.partition_point(|(edit_index, _, _)| edit_index == index),
+            );
+            remaining_edits = remaining;
+            for (_, hash, edit) in edits.iter().copied() {
+                shard.apply_edit(hash, edit, snapshot, &self.queues, retired);
+            }
+        }
+    }
+
+    /// Maintain peer membership and its observation marker as one projection.
+    fn apply_peer_changes(&self, changes: BTreeMap<PeerIndex, MemberChanges<bool>>) {
+        for (peer, changes) in changes {
+            let mut peers = self.peers.lock();
+            let row = peers
+                .entry(peer)
+                .or_insert_with(|| Arc::new(Mutex::new(Peer::default())));
+            let mut row = row.lock();
+            for (hash, (_, new)) in changes {
+                if new {
+                    row.members.insert(hash);
+                } else {
+                    row.members.remove(&hash);
+                }
+            }
+            row.version = Arc::new(());
+            let empty = row.members.is_empty();
+            drop(row);
+            if empty {
+                peers.remove(&peer);
+            }
+        }
+    }
+
+    /// Extend the bounded peer-ban fence after owner and peer projections settle.
+    fn apply_ban(&self, peer: PeerIndex, deadline: Instant, now: Instant) {
+        let mut bans = self.bans.lock();
+        bans.retain(|_, deadline| *deadline > now);
+        if bans.len() >= crate::constants::PEER_BAN_FENCE_CAPACITY
+            && !bans.contains_key(&peer)
+            && let Some(oldest) = bans
+                .iter()
+                .min_by_key(|(_, deadline)| **deadline)
+                .map(|(peer, _)| *peer)
+        {
+            bans.remove(&oldest);
+        }
+        bans.entry(peer)
+            .and_modify(|current| *current = (*current).max(deadline))
+            .or_insert(deadline);
+    }
+
     pub(in crate::authority) fn apply(&self, mut plan: Plan) -> Result<Option<Arc<Batch>>, Error> {
         let mut notice = None;
         self.apply_plan(&mut plan, &mut notice)
@@ -489,70 +681,12 @@ impl Store {
         let mut owners = acquire(&self.shards, &changes.locks.owners);
         #[cfg(feature = "profiling")]
         drop(acquire_span);
-        if view.get().revision != plan.view {
-            return Err(Error::Stale);
-        }
-        if lifecycle_write && view.get().revision == u64::MAX {
-            return Err(Error::Fault("view counter"));
-        }
-        if self.chain_pending.load(Ordering::Acquire) && !lifecycle_write && !plan.edits.is_empty()
-        {
-            return Err(Error::Full(FullReason::ChainTransition));
-        }
-        if replace_generation
-            && (plan.reads.all.is_none()
-                || plan.edits.values().any(|edit| edit.after.is_some())
-                || plan.edits.len()
-                    != owners
-                        .iter()
-                        .map(|(_, guard)| guard.get().owners.len())
-                        .sum::<usize>())
-        {
-            return Err(Error::Fault("incomplete generation replacement"));
-        }
-        self.validate_reads(&plan.reads, &owners)?;
+        self.validate_original_cut(plan, &view, &owners)?;
         #[cfg(test)]
         if let Some(observer) = &observer {
             observer(plan, true);
         }
-        let now = Instant::now();
-        if let Some((peer, expected)) = plan.peer_access
-            && self
-                .bans
-                .lock()
-                .get(&peer)
-                .is_some_and(|until| *until > now)
-                != expected
-        {
-            return Err(Error::Stale);
-        }
-        for edit in plan.edits.values() {
-            if let Some(entry) = edit.after.as_deref()
-                && let Some(peer) = peer(entry)
-                && self
-                    .bans
-                    .lock()
-                    .get(&peer)
-                    .is_some_and(|deadline| *deadline > now)
-            {
-                return Err(Error::Full("peer is banned".into()));
-            }
-        }
-        if let Some(page) = &plan.wake_advance {
-            let row = self
-                .relation(&RelationKey::Dependency(page.key.clone()))
-                .ok_or(Error::Stale)?;
-            if !page.row.ptr_eq(&Arc::downgrade(&row))
-                || row
-                    .lock()
-                    .wake
-                    .as_ref()
-                    .is_none_or(|wake| wake.pass != page.pass)
-            {
-                return Err(Error::Stale);
-            }
-        }
-        changes.validate_projections(self, plan, &owners)?;
+        let now = self.validate_proposed_cut(plan, &changes, &owners)?;
         // Scalar capacity is reserved only after every owner observation is
         // validated. This reservation commits or drops before these guards open.
         // A sparse admission may lose room to a disjoint commit; replan its fee
@@ -580,91 +714,27 @@ impl Store {
         commit_infallibly(|| {
             // All recoverable checks are complete. Collection and version-marker
             // allocation use Rust's abort-on-OOM platform contract.
-            let mut retired = Vec::with_capacity(plan.edits.len());
-            let mut retired_shards = Vec::new();
-            let mut retired_relations = Vec::new();
-            let mut retired_peers = None;
-            let mut retired_dirty = None;
-            let mut retired_queues = None;
-            let mut retired_snapshot = None;
-            let mut retired_committed = None;
-            if replace_generation {
-                retired_committed = Some(std::mem::replace(
-                    &mut *self.committed.lock(),
-                    lru::LruCache::new(100_000),
-                ));
-                retired_shards.reserve_exact(SHARDS);
-                retired_relations.reserve_exact(SHARDS);
-                for (_, guard) in &mut owners {
-                    if let Some(shard) = guard.get_mut() {
-                        retired_shards.push(std::mem::take(shard));
-                    }
-                }
-                for relations in &self.relations {
-                    retired_relations.push(std::mem::take(&mut *relations.lock()));
-                }
-                retired_peers = Some(std::mem::take(&mut *self.peers.lock()));
-                retired_dirty = Some(std::mem::take(&mut *self.dirty.lock()));
-                retired_queues = Some(self.queues.take());
+            let mut retired = if replace_generation {
+                self.retire_generation(&mut owners)
             } else {
-                let mut remaining_edits = owner_edits.as_slice();
-                for (index, guard) in &mut owners {
-                    let Some(shard) = guard.get_mut() else {
-                        continue;
-                    };
-                    let (edits, remaining) = remaining_edits.split_at(
-                        remaining_edits.partition_point(|(edit_index, _, _)| edit_index == index),
-                    );
-                    remaining_edits = remaining;
-                    for (_, hash, edit) in edits.iter().copied() {
-                        shard.apply_edit(
-                            hash,
-                            edit,
-                            &view.get().snapshot,
-                            &self.queues,
-                            &mut retired,
-                        );
-                    }
-                }
-            }
+                let mut retired = Retired {
+                    owners: Vec::with_capacity(plan.edits.len()),
+                    ..Retired::default()
+                };
+                self.apply_owner_changes(
+                    &mut owners,
+                    &owner_edits,
+                    &view.get().snapshot,
+                    &mut retired.owners,
+                );
+                retired
+            };
             for (key, changes) in relation_changes {
                 self.apply_relation(key, changes, &plan.edits, &plan.wake);
             }
-            for (peer, changes) in peer_changes {
-                let mut peers = self.peers.lock();
-                let row = peers
-                    .entry(peer)
-                    .or_insert_with(|| Arc::new(Mutex::new(Peer::default())));
-                let mut row = row.lock();
-                for (hash, (_, new)) in changes {
-                    if new {
-                        row.members.insert(hash);
-                    } else {
-                        row.members.remove(&hash);
-                    }
-                }
-                row.version = Arc::new(());
-                let empty = row.members.is_empty();
-                drop(row);
-                if empty {
-                    peers.remove(&peer);
-                }
-            }
+            self.apply_peer_changes(peer_changes);
             if let Some((peer, deadline)) = plan.ban {
-                let mut bans = self.bans.lock();
-                bans.retain(|_, deadline| *deadline > now);
-                if bans.len() >= crate::constants::PEER_BAN_FENCE_CAPACITY
-                    && !bans.contains_key(&peer)
-                    && let Some(oldest) = bans
-                        .iter()
-                        .min_by_key(|(_, deadline)| **deadline)
-                        .map(|(peer, _)| *peer)
-                {
-                    bans.remove(&oldest);
-                }
-                bans.entry(peer)
-                    .and_modify(|current| *current = (*current).max(deadline))
-                    .or_insert(deadline);
+                self.apply_ban(peer, deadline, now);
             }
             for key in &plan.wake {
                 self.start_wake(key);
@@ -681,7 +751,7 @@ impl Store {
             }
             if let Some(view) = view.get_mut() {
                 if let Some(lifecycle) = plan.lifecycle.take() {
-                    retired_snapshot =
+                    retired.snapshot =
                         Some(std::mem::replace(&mut view.snapshot, lifecycle.snapshot));
                 }
                 view.revision += 1;
@@ -715,16 +785,7 @@ impl Store {
             if work_changed {
                 self.work.notify_waiters();
             }
-            drop((
-                retired,
-                retired_shards,
-                retired_relations,
-                retired_peers,
-                retired_dirty,
-                retired_queues,
-                retired_snapshot,
-                retired_committed,
-            ));
+            drop(retired);
         });
         if self.is_faulted() {
             return Err(Error::Fault("committed projection"));
