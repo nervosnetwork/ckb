@@ -237,7 +237,6 @@ fn uncle_size_matches_the_canonical_block_size_basis() {
     let expected = ckb_types::core::UncleBlockView::serialized_size_in_block();
 
     for uncle in [bare, with_proposals] {
-        assert_eq!(super::BlockAssembler::uncle_size(&uncle), expected);
         let with_uncle = super::BlockAssembler::basic_block_size(
             cellbase.clone(),
             &[uncle],
@@ -397,7 +396,7 @@ fn optional_content_uses_one_budget_and_filters_only_published_conflicts() {
         .build()
         .as_uncle();
     let base = 1_000;
-    let expected_uncle_size = super::BlockAssembler::uncle_size(&independent);
+    let expected_uncle_size = ckb_types::core::UncleBlockView::serialized_size_in_block();
     let max = base + ProposalShortId::serialized_size() + expected_uncle_size;
 
     let fitted = super::BlockAssembler::fit_optional_content(
@@ -428,19 +427,67 @@ fn optional_content_uses_one_budget_and_filters_only_published_conflicts() {
 }
 
 #[test]
-fn proposal_update_keeps_highest_scored_fitting_prefix() {
-    use ckb_types::packed::ProposalShortId;
+fn optional_prefixes_follow_canonical_byte_boundaries() {
+    use ckb_types::{core::UncleBlockView, packed::ProposalShortId};
 
-    let mut proposals: Vec<ProposalShortId> = (0..3u8)
+    let snapshot = genesis_snapshot();
+    let genesis = snapshot.consensus().genesis_block();
+    let cellbase = genesis.transactions()[0].data();
+    let proposals: Vec<_> = (0..3)
         .map(|byte| ProposalShortId::from_tx_hash(&Byte32::new([byte; 32])))
         .collect();
-    let id_size = ProposalShortId::serialized_size();
-    let base = 1_000;
-    let (proposal_bytes, total) =
-        super::BlockAssembler::fit_proposal_prefix(&mut proposals, base, base + 2 * id_size)
-            .expect("base template fits");
-
-    assert_eq!(proposals.len(), 2);
-    assert_eq!(proposal_bytes, 2 * id_size);
-    assert_eq!(total, base + 2 * id_size);
+    let parent = BlockBuilder::default()
+        .number(1)
+        .epoch(snapshot.epoch_ext().number_with_fraction(1))
+        .parent_hash(genesis.hash())
+        .build()
+        .as_uncle();
+    let child = BlockBuilder::default()
+        .number(2)
+        .epoch(snapshot.epoch_ext().number_with_fraction(2))
+        .parent_hash(parent.hash())
+        .proposals((64..96).map(|byte| ProposalShortId::from_tx_hash(&Byte32::new([byte; 32]))))
+        .build()
+        .as_uncle();
+    let uncles = [parent, child];
+    let base =
+        super::BlockAssembler::basic_block_size(cellbase.clone(), &[], std::iter::empty(), None);
+    let proposal_bytes = ProposalShortId::serialized_size();
+    let uncle_bytes = UncleBlockView::serialized_size_in_block();
+    let all_proposals = 3 * proposal_bytes;
+    for (available, proposal_count, uncle_count) in [
+        (0, 0, 0),
+        (proposal_bytes - 1, 0, 0),
+        (proposal_bytes, 1, 0),
+        (2 * proposal_bytes - 1, 1, 0),
+        (2 * proposal_bytes, 2, 0),
+        (all_proposals, 3, 0),
+        (all_proposals + uncle_bytes - 1, 3, 0),
+        (all_proposals + uncle_bytes, 3, 1),
+        (all_proposals + 2 * uncle_bytes - 1, 3, 1),
+        (all_proposals + 2 * uncle_bytes, 3, 2),
+    ] {
+        let fitted = super::BlockAssembler::fit_optional_content(
+            &snapshot,
+            proposals.clone(),
+            &uncles,
+            base,
+            base + available,
+        )
+        .unwrap();
+        assert_eq!(fitted.proposals, proposals[..proposal_count]);
+        assert_eq!(fitted.uncles, uncles[..uncle_count]);
+        let canonical = super::BlockAssembler::basic_block_size(
+            cellbase.clone(),
+            &fitted.uncles,
+            fitted.proposals.iter(),
+            None,
+        );
+        assert_eq!(fitted.total_size, canonical);
+        assert!(canonical <= base + available);
+    }
+    assert!(
+        super::BlockAssembler::fit_optional_content(&snapshot, proposals, &uncles, base, base - 1,)
+            .is_none()
+    );
 }

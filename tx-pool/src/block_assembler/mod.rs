@@ -191,16 +191,26 @@ impl BlockAssembler {
         base_total_size: usize,
         max_block_bytes: usize,
     ) -> Option<FittedOptionalContent> {
-        let (_proposals_size, proposals_total) =
-            Self::fit_proposal_prefix(&mut proposals, base_total_size, max_block_bytes)?;
+        let proposals_total = Self::fit_fixed_size_prefix(
+            &mut proposals,
+            ProposalShortId::serialized_size(),
+            base_total_size,
+            max_block_bytes,
+        )?;
         let proposal_set = proposals.iter().cloned().collect::<HashSet<_>>();
         let mut uncles = Self::filter_uncles_conflicting_with_proposals(
             snapshot,
             prepared_uncles,
             &proposal_set,
         );
-        let (_uncles_size, total_size) =
-            Self::fit_uncle_prefix_after_base(&mut uncles, proposals_total, max_block_bytes)?;
+        // Canonical block size excludes uncle proposal payloads, so every
+        // uncle contributes the same fixed size regardless of its contents.
+        let total_size = Self::fit_fixed_size_prefix(
+            &mut uncles,
+            UncleBlockView::serialized_size_in_block(),
+            proposals_total,
+            max_block_bytes,
+        )?;
         Some(FittedOptionalContent {
             proposals,
             uncles,
@@ -208,40 +218,17 @@ impl BlockAssembler {
         })
     }
 
-    /// Keep the highest-scored proposal prefix that fits the remaining block
-    /// bytes. Returning `None` means the non-proposal template already exceeds
-    /// the limit. Exact fits are valid.
-    pub(crate) fn fit_proposal_prefix(
-        proposals: &mut Vec<ProposalShortId>,
-        base_total_size: usize,
-        max_block_bytes: usize,
-    ) -> Option<(usize, usize)> {
-        let available = max_block_bytes.checked_sub(base_total_size)?;
-        let id_size = ProposalShortId::serialized_size();
-        let fit_count = available.checked_div(id_size)?.min(proposals.len());
-        proposals.truncate(fit_count);
-        let proposals_size = fit_count.checked_mul(id_size)?;
-        Some((proposals_size, base_total_size.checked_add(proposals_size)?))
-    }
-
-    fn fit_uncle_prefix_after_base(
-        uncles: &mut Vec<UncleBlockView>,
-        base_total_size: usize,
-        max_block_bytes: usize,
-    ) -> Option<(usize, usize)> {
-        let available = max_block_bytes.checked_sub(base_total_size)?;
-        let mut fit_count = 0usize;
-        let mut uncles_size = 0usize;
-        for uncle in uncles.iter() {
-            let next_size = uncles_size.checked_add(Self::uncle_size(uncle))?;
-            if next_size > available {
-                break;
-            }
-            uncles_size = next_size;
-            fit_count = fit_count.checked_add(1)?;
-        }
-        uncles.truncate(fit_count);
-        Some((uncles_size, base_total_size.checked_add(uncles_size)?))
+    /// Retain the ordered prefix of fixed-size items that fits and return the
+    /// new total. Exact fits are valid; a base above the limit is rejected.
+    fn fit_fixed_size_prefix<T>(
+        items: &mut Vec<T>,
+        item_bytes: usize,
+        used_bytes: usize,
+        max_bytes: usize,
+    ) -> Option<usize> {
+        let available = max_bytes.checked_sub(used_bytes)?;
+        items.truncate(available.checked_div(item_bytes)?);
+        used_bytes.checked_add(items.len().checked_mul(item_bytes)?)
     }
 
     pub(crate) fn get_current(&self) -> JsonBlockTemplate {
@@ -393,14 +380,6 @@ impl BlockAssembler {
         }
 
         compatible
-    }
-
-    /// The canonical byte contribution of one uncle on the
-    /// `serialized_size_without_uncle_proposals` basis. The packed helper
-    /// already excludes the uncle's proposal payload; subtracting those ids
-    /// again would underflow for proposal-heavy uncles.
-    fn uncle_size(_uncle: &UncleBlockView) -> usize {
-        UncleBlockView::serialized_size_in_block()
     }
 
     pub(crate) fn basic_block_size<'a>(
