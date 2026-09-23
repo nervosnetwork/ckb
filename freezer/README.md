@@ -114,3 +114,14 @@ LLVM, configure its build and runtime library paths before the upgrade check:
 export LIBCLANG_PATH="$(brew --prefix llvm)/lib"
 export DYLD_FALLBACK_LIBRARY_PATH="$LIBCLANG_PATH"
 ```
+
+## Reproducible read profiling
+
+Run `sh devtools/freezer/profile.sh /tmp/freezer-profile` from the workspace
+root. The benchmark uses 256 committed 64 KiB records with half repeated and
+half pseudorandom bytes, then compares warm-cache full-record reads with LZ4
+RocksDB `get` calls. It also measures one transaction read from a 16-transaction
+archived block. The script saves benchmark results, the build revision, and a
+CPU sample of that selective read. macOS `sample` needs permission to inspect
+the benchmark process; Linux `perf` needs access to performance counters.
+Results are machine and cache-state specific, not end-to-end CKB latency.
