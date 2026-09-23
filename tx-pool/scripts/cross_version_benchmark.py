@@ -21,7 +21,7 @@ from pathlib import Path
 
 import rejection_diagnostics
 from benchmark_build import (binary_record, build_binary, effective_features,
-                             git_record, host_identity, load_build, sha256)
+                             git_record, host_identity, load_build, sha256, validate_build)
 from measurement_process import run_process
 from measurement_window import parse_measurement_window, parse_readiness, wall_alignment
 
@@ -431,6 +431,111 @@ def unique_match(pattern: re.Pattern[str], output: str, label: str) -> dict[str,
     return matches[0].groupdict()
 
 
+def parse_attempt(output: str, spans: object, scenario: dict[str, object],
+                  allocation_observation: str) -> dict[str, object]:
+    rejection_diagnostics.validate_success(output)
+    result = unique_match(RESULT, output, "BENCH_RESULT")
+    resources = unique_match(RESOURCE_RESULT, output, "RESOURCE_RESULT")
+    corpus = parse_json_record(output, CORPUS_PREFIX)
+    terminals = parse_json_record(output, TERMINALS_PREFIX)
+    build, error = timing_build_observation(output, spans, allocation_observation)
+    if error is not None or build is None:
+        raise ValueError(error)
+    observed = {
+        "name": result["scenario"],
+        "target": int(result["target"]),
+        "warm": int(result["warm"]),
+        "workers": int(result["workers"]),
+        "peers": int(result["peers"]),
+    }
+    if observed != scenario:
+        raise ValueError(f"scenario drift: {observed} != {scenario}")
+    counts = {
+        name: int(result[name])
+        for name in (
+            "accepted",
+            "callback_duplicates",
+            "relay_ok",
+            "relay_duplicate_ok",
+            "relay_rejects",
+            "relay_unknown_parents",
+            "relay_generation_resets",
+        )
+    }
+    expected_accepted = int(scenario["target"]) + int(scenario["warm"])
+    expected_rejects = (
+        int(scenario["warm"])
+        if scenario["name"] in {"rbf_pairs", "rbf_pairs_windowed"} and build["adapter"] == "bounded_remote_batch"
+        else 0
+    )
+    error = terminal_observation_error(
+        scenario_name=str(scenario["name"]),
+        expected_accepted=expected_accepted,
+        expected_relay_rejects=expected_rejects,
+        **counts,
+    ) or corpus_observation_error(corpus, expected_accepted)
+    if error is None:
+        error = terminal_record_error(terminals, **{key: counts[key] for key in (
+            "callback_duplicates",
+            "relay_ok",
+            "relay_duplicate_ok",
+            "relay_rejects",
+            "relay_unknown_parents",
+            "relay_generation_resets",
+        )})
+    if error is not None:
+        raise ValueError(error)
+    elapsed_ns = int(result["elapsed_ns"])
+    window = parse_measurement_window(output, str(scenario["name"]), elapsed_ns)
+    readiness = parse_readiness(output, str(scenario["name"]), int(scenario["target"]), elapsed_ns)
+    metrics = {
+        "elapsed_ns": elapsed_ns,
+        "throughput_tps": float(result["throughput"]),
+        "target_cpu_ns": int(result["target_cpu_ns"]),
+        "p99_latency_ns": int(result["p99_latency_ns"]),
+        "allocation_calls": int(result["allocation_calls"]),
+        "allocated_bytes": int(result["allocated_bytes"]),
+        "peak_rss_bytes": int(resources["max_rss_bytes"]),
+        "voluntary_context_switches": int(resources["voluntary_context_switches"]),
+        "involuntary_context_switches": int(resources["involuntary_context_switches"]),
+        "reorg_latency_ns": int(result["reorg_latency_ns"]),
+        "reorg_overlap_callbacks": int(result["reorg_overlap_callbacks"]),
+        "shutdown_latency_ns": int(result["shutdown_latency_ns"]),
+    }
+    positive = (
+        "elapsed_ns",
+        "throughput_tps",
+        "target_cpu_ns",
+        "p99_latency_ns",
+        "peak_rss_bytes",
+        "reorg_latency_ns",
+        "shutdown_latency_ns",
+    )
+    if any(not math.isfinite(metrics[name]) or metrics[name] <= 0 for name in positive):
+        raise ValueError("benchmark emitted a non-positive required metric")
+    throughput = int(scenario["target"]) * 1e9 / elapsed_ns
+    if not math.isclose(metrics["throughput_tps"], throughput, rel_tol=1e-12, abs_tol=0.00051):
+        raise ValueError("throughput differs from target count and elapsed time")
+    metrics["throughput_tps"] = throughput
+    allocations = metrics["allocation_calls"], metrics["allocated_bytes"]
+    if allocation_observation == "enabled" and min(allocations) <= 0:
+        raise ValueError("enabled allocation observation is empty")
+    if allocation_observation == "disabled" and any(allocations):
+        raise ValueError("timing binary emitted allocation counts")
+    if (scenario["name"] == "reorg_in_flight") != (metrics["reorg_overlap_callbacks"] > 0):
+        raise ValueError("reorg overlap differs from its scenario")
+    return {
+        "build": build,
+        "window": window,
+        "wall_alignment": wall_alignment(window),
+        "readiness": readiness,
+        "corpus": corpus,
+        "terminals": terminals,
+        "relay_unknown_parents": counts["relay_unknown_parents"],
+        "metrics": metrics,
+    }
+
+
 def run_attempt(
     binary: dict[str, object],
     root: Path,
@@ -493,97 +598,7 @@ def run_attempt(
             completed.stdout,
         )
     try:
-        rejection_diagnostics.validate_success(completed.stdout)
-        result = unique_match(RESULT, completed.stdout, "BENCH_RESULT")
-        resources = unique_match(RESOURCE_RESULT, completed.stdout, "RESOURCE_RESULT")
-        corpus = parse_json_record(completed.stdout, CORPUS_PREFIX)
-        terminals = parse_json_record(completed.stdout, TERMINALS_PREFIX)
-        build, error = timing_build_observation(completed.stdout, spans, allocation_observation)
-        if error is not None or build is None:
-            raise ValueError(error)
-        observed = {
-            "name": result["scenario"],
-            "target": int(result["target"]),
-            "warm": int(result["warm"]),
-            "workers": int(result["workers"]),
-            "peers": int(result["peers"]),
-        }
-        if observed != scenario:
-            raise ValueError(f"scenario drift: {observed} != {scenario}")
-        counts = {
-            name: int(result[name])
-            for name in (
-                "accepted",
-                "callback_duplicates",
-                "relay_ok",
-                "relay_duplicate_ok",
-                "relay_rejects",
-                "relay_unknown_parents",
-                "relay_generation_resets",
-            )
-        }
-        expected_accepted = int(scenario["target"]) + int(scenario["warm"])
-        expected_rejects = (
-            int(scenario["warm"])
-            if scenario["name"] in {"rbf_pairs", "rbf_pairs_windowed"} and build["adapter"] == "bounded_remote_batch"
-            else 0
-        )
-        error = terminal_observation_error(
-            scenario_name=str(scenario["name"]),
-            expected_accepted=expected_accepted,
-            expected_relay_rejects=expected_rejects,
-            **counts,
-        ) or corpus_observation_error(corpus, expected_accepted)
-        if error is None:
-            error = terminal_record_error(terminals, **{key: counts[key] for key in (
-                "callback_duplicates",
-                "relay_ok",
-                "relay_duplicate_ok",
-                "relay_rejects",
-                "relay_unknown_parents",
-                "relay_generation_resets",
-            )})
-        if error is not None:
-            raise ValueError(error)
-        elapsed_ns = int(result["elapsed_ns"])
-        window = parse_measurement_window(completed.stdout, str(scenario["name"]), elapsed_ns)
-        readiness = parse_readiness(completed.stdout, str(scenario["name"]), int(scenario["target"]), elapsed_ns)
-        metrics = {
-            "elapsed_ns": elapsed_ns,
-            "throughput_tps": float(result["throughput"]),
-            "target_cpu_ns": int(result["target_cpu_ns"]),
-            "p99_latency_ns": int(result["p99_latency_ns"]),
-            "allocation_calls": int(result["allocation_calls"]),
-            "allocated_bytes": int(result["allocated_bytes"]),
-            "peak_rss_bytes": int(resources["max_rss_bytes"]),
-            "voluntary_context_switches": int(resources["voluntary_context_switches"]),
-            "involuntary_context_switches": int(resources["involuntary_context_switches"]),
-            "reorg_latency_ns": int(result["reorg_latency_ns"]),
-            "reorg_overlap_callbacks": int(result["reorg_overlap_callbacks"]),
-            "shutdown_latency_ns": int(result["shutdown_latency_ns"]),
-        }
-        positive = (
-            "elapsed_ns",
-            "throughput_tps",
-            "target_cpu_ns",
-            "p99_latency_ns",
-            "peak_rss_bytes",
-            "reorg_latency_ns",
-            "shutdown_latency_ns",
-        )
-        if any(not math.isfinite(metrics[name]) or metrics[name] <= 0 for name in positive):
-            raise ValueError("benchmark emitted a non-positive required metric")
-        throughput = int(scenario["target"]) * 1e9 / elapsed_ns
-        if not math.isclose(metrics["throughput_tps"], throughput, rel_tol=1e-12, abs_tol=0.00051):
-            raise ValueError("throughput differs from target count and elapsed time")
-        metrics["throughput_tps"] = throughput
-        allocations = metrics["allocation_calls"], metrics["allocated_bytes"]
-        if allocation_observation == "enabled" and min(allocations) <= 0:
-            raise ValueError("enabled allocation observation is empty")
-        if allocation_observation == "disabled" and any(allocations):
-            raise ValueError("timing binary emitted allocation counts")
-        if (scenario["name"] == "reorg_in_flight") != (metrics["reorg_overlap_callbacks"] > 0):
-            raise ValueError("reorg overlap differs from its scenario")
+        observation = parse_attempt(completed.stdout, spans, scenario, allocation_observation)
     except (KeyError, TypeError, ValueError, json.JSONDecodeError) as error:
         return failure_attempt(
             attempt_id,
@@ -602,14 +617,7 @@ def run_attempt(
         "started_unix_ns": started,
         "ended_unix_ns": time.time_ns(),
         "scenario": scenario,
-        "build": build,
-        "window": window,
-        "wall_alignment": wall_alignment(window),
-        "readiness": readiness,
-        "corpus": corpus,
-        "terminals": terminals,
-        "relay_unknown_parents": counts["relay_unknown_parents"],
-        "metrics": metrics,
+        **observation,
         "output": completed.stdout,
     }
 
@@ -815,6 +823,7 @@ def arguments() -> argparse.Namespace:
         parser.add_argument(f"--{side}-root", type=Path, required=True)
         parser.add_argument(f"--{side}-binary", type=Path)
         parser.add_argument(f"--{side}-build-receipt", type=Path)
+        parser.add_argument(f"--{side}-aa-result", type=Path)
         parser.add_argument(f"--{side}-target-dir", type=Path)
         parser.add_argument(f"--{side}-build-features", default="")
     parser.add_argument("--output", type=Path, required=True)
@@ -868,6 +877,9 @@ def arguments() -> argparse.Namespace:
             parser.error(f"--{side}-binary requires --{side}-build-receipt")
         if receipt is not None and getattr(args, f"{side}_target_dir") is not None:
             parser.error(f"--{side}-target-dir cannot accompany a build receipt")
+        if getattr(args, f"{side}_aa_result") is not None and (
+                args.comparison != "ab" or args.allocation_observation != "disabled" or args.calibration_only):
+            parser.error("A/A evidence applies only to uninstrumented A/B measurements")
         try:
             setattr(args, f"{side}_build_features", effective_features(
                 getattr(args, f"{side}_build_features"), args.allocation_observation == "enabled", "profile_one_shot"))
@@ -900,6 +912,8 @@ def configuration(args: argparse.Namespace, scenarios: list[dict[str, object]]) 
         "allocation_observation": args.allocation_observation,
         "build_receipts": {side: binary_record(path) if (path := getattr(args, f"{side}_build_receipt")) else None
                            for side in ("baseline", "candidate")},
+        "aa_evidence": {side: binary_record(path) if (path := getattr(args, f"{side}_aa_result")) else None
+                        for side in ("baseline", "candidate")},
     }
 
 
@@ -1093,6 +1107,136 @@ def run_scenario(
     write_checkpoint(output, record)
 
 
+def replay_aa_row(record: dict[str, object], scenario: dict[str, object]) -> dict[str, object]:
+    """Rebuild paired samples from raw scheduled attempts, never a saved summary."""
+    config, key = record["configuration"], scenario_key(scenario)
+    indexed = attempt_index(record)
+    corpus = None
+
+    def observation(side, attempt_id):
+        nonlocal corpus
+        attempt = indexed.get(attempt_id)
+        if attempt is None or attempt.get("outcome") != "success":
+            raise ValueError(f"A/A attempt is missing or failed: {attempt_id}")
+        if attempt.get("side") != side or attempt.get("scenario") != scenario:
+            raise ValueError(f"A/A attempt identity differs: {attempt_id}")
+        parsed = parse_attempt(attempt["output"], None, scenario, "disabled")
+        if corpus is not None and parsed["corpus"] != corpus:
+            raise ValueError("A/A corpus changed between attempts")
+        corpus = parsed["corpus"]
+        return dict(parsed, id=attempt_id)
+
+    try:
+        pilots = [observation(side, f"{key}/pilot/{side}") for side in ("candidate", "baseline")]
+        if min(pilot["metrics"]["elapsed_ns"] for pilot in pilots) < config["min_target_seconds"] * 1e9:
+            raise ValueError("A/A pilot target window is short")
+        schedule = balanced_schedule(config["runs"], config["replicates_per_sample"], config["order_seed"], key)
+        if config["schedule"].get(key) != schedule:
+            raise ValueError("A/A schedule differs from its frozen configuration")
+        samples = []
+        expected_ids = [pilot["id"] for pilot in pilots]
+        for pair, block in enumerate(schedule, 1):
+            paired = {"baseline": [], "candidate": []}
+            for replicate, order in enumerate(block, 1):
+                for side in order:
+                    attempt_id = f"{key}/pair-{pair}/replicate-{replicate}/{side}"
+                    expected_ids.append(attempt_id)
+                    paired[side].append(observation(side, attempt_id))
+            samples.append({side: aggregate_side(attempts, scenario["target"])
+                            for side, attempts in paired.items()})
+        actual_ids = [attempt["id"] for attempt in record["attempts"] if attempt.get("scenario") == scenario]
+        if actual_ids != expected_ids:
+            raise ValueError("A/A attempt membership or execution order differs")
+        summary = summarize_pairs(samples, corpus, "disabled", config["max_paired_mad_percent"],
+                                  config["confidence_level"], config["max_ratio_interval_width_percent"],
+                                  config["min_target_seconds"])
+        classify_aa_equivalence(summary, config["aa_equivalence_margin_percent"])
+        return summary
+    except (KeyError, TypeError, ValueError) as error:
+        return {"status": "non_comparable", "reason": str(error), "production_ranking_permitted": False}
+
+
+def load_aa_evidence(record: dict[str, object]) -> dict[str, object]:
+    """Bind each control to its measured arm; different production arms stay independent."""
+    evidence = {}
+    config = record["configuration"]
+    for side, identity in config["aa_evidence"].items():
+        if identity is None:
+            continue
+        path = Path(identity["path"])
+        if binary_record(path) != identity:
+            raise RuntimeError(f"{side} A/A evidence changed")
+        control = read_checkpoint(path)
+        aa_config = control.get("configuration", {})
+        if (control.get("schema") != SCHEMA_VERSION or control.get("complete") is not True
+                or aa_config.get("comparison") != "aa" or aa_config.get("calibration_only") is not False
+                or aa_config.get("allocation_observation") != "disabled"):
+            raise RuntimeError(f"{side} A/A evidence is incomplete or not a timing control")
+        for field in ("runner_sha256", "build_runner_sha256", "process_runner_sha256",
+                      "harness_sha256", "measurement_window_sha256", "rejection_diagnostics_sha256",
+                      "host", "metric_scopes"):
+            if control.get(field) != record[field]:
+                raise RuntimeError(f"{side} A/A {field} differs")
+        for field in ("replicates_per_sample", "initial_cooldown_seconds", "cooldown_seconds",
+                      "max_paired_mad_percent", "confidence_level", "max_ratio_interval_width_percent",
+                      "min_target_seconds", "timeout_seconds"):
+            if aa_config.get(field) != config[field]:
+                raise RuntimeError(f"{side} A/A estimator or execution setting differs: {field}")
+        margin = aa_config.get("aa_equivalence_margin_percent")
+        if not isinstance(margin, (float, int)) or not math.isfinite(margin) or not 0 < margin < 100:
+            raise RuntimeError(f"{side} A/A equivalence margin is invalid")
+        measured = record["sides"][side]
+        # Checkout locations are not source inputs; executable bytes are checked separately.
+        source_inputs = {name: value for name, value in measured["source"].items() if name != "root"}
+        for arm in ("baseline", "candidate"):
+            control_arm = control.get("sides", {}).get(arm, {})
+            control_source = control_arm.get("source", {})
+            if ({name: value for name, value in control_source.items() if name != "root"} != source_inputs
+                    or control_arm.get("consensus") != measured["consensus"]):
+                raise RuntimeError(f"{side} A/A source or consensus differs")
+            validate_build(control_arm["build"], control_source, "profile_one_shot",
+                           measured["build"]["features"], control_arm["binary"])
+            if any(control_arm.get("build", {}).get(field) != measured["build"].get(field)
+                   for field in ("bench", "features", "profile", "toolchain")):
+                raise RuntimeError(f"{side} A/A build contract differs")
+            if any(control_arm.get("binary", {}).get(field) != measured["binary"][field]
+                   for field in ("sha256", "size")):
+                raise RuntimeError(f"{side} A/A binary differs")
+        evidence[side] = {scenario_key(scenario): replay_aa_row(control, scenario)
+                          for scenario in config["scenarios"] if scenario in aa_config.get("scenarios", [])}
+    return evidence
+
+
+def qualify_ranking(summary: dict[str, object], evidence: dict[str, object],
+                    scenario: dict[str, object], allocation: str) -> None:
+    """Quality is observable without a control; timing ranking needs both applicable controls."""
+    summary["production_ranking_permitted"] = False
+    if allocation == "enabled":
+        for name, quality in summary.get("metric_quality", {}).items():
+            quality["aa_disposition"] = "not_applicable"
+            interval = summary["metrics"][name]["median_ratio_interval"]
+            quality["ranking_permitted"] = (name in ("allocation_calls", "allocated_bytes")
+                and interval is not None
+                and interval["relative_width_percent"] <= summary["uncertainty_rule"]["maximum_relative_interval_width_percent"])
+        return
+    controls = {side: evidence.get(side, {}).get(scenario_key(scenario)) for side in ("baseline", "candidate")}
+    summary["aa_controls"] = {}
+    for side, row in controls.items():
+        status = ("missing" if row is None else "non_comparable" if "reason" in row
+                  else "corpus_mismatch" if row.get("corpus") != summary.get("corpus") else row["status"])
+        summary["aa_controls"][side] = {"status": status}
+        if row is not None and "reason" in row:
+            summary["aa_controls"][side]["reason"] = row["reason"]
+    for name, quality in summary.get("metric_quality", {}).items():
+        equivalent = all(row is not None and row.get("corpus") == summary["corpus"]
+            and row.get("metric_quality", {}).get(name, {}).get("aa_disposition") == "equivalent"
+            for row in controls.values())
+        quality["aa_disposition"] = "equivalent" if equivalent else "not_evaluated" if not evidence else "unresolved"
+        quality["ranking_permitted"] = quality["status"] == "comparable" and equivalent
+    summary["production_ranking_permitted"] = (summary["status"] == "comparable"
+        and all(summary["metric_quality"][name]["ranking_permitted"] for name in PRECISION_METRICS))
+
+
 def validate_frozen(
     record: dict[str, object],
     contexts: dict[str, dict[str, object]],
@@ -1100,9 +1244,10 @@ def validate_frozen(
     host: dict[str, object],
     supplied: dict[str, Path | None],
 ) -> None:
-    for identity in record.get("configuration", {}).get("build_receipts", {}).values():
-        if identity is not None and binary_record(Path(identity["path"])) != identity:
-            raise RuntimeError("frozen build receipt input changed")
+    for name in ("build_receipts", "aa_evidence"):
+        for identity in record.get("configuration", {}).get(name, {}).values():
+            if identity is not None and binary_record(Path(identity["path"])) != identity:
+                raise RuntimeError(f"frozen {name} input changed")
     if record.get("metric_scopes") != METRIC_SCOPES:
         raise RuntimeError("measurement metric scopes changed")
     if record.get("build_runner_sha256") != sha256(Path(__file__).with_name("benchmark_build.py")):
@@ -1204,12 +1349,17 @@ def main() -> None:
         }
     if args.comparison == "aa" and contexts["baseline"]["binary"]["sha256"] != contexts["candidate"]["binary"]["sha256"]:
         raise RuntimeError("A/A binary hashes differ")
+    aa_evidence = load_aa_evidence(record)
     record["environment"]["starts"].append(environment_snapshot())
     write_checkpoint(args.output, record)
     cool(args.initial_cooldown_seconds)
     indexed = attempt_index(record)
     for scenario in scenarios:
         run_scenario(record, indexed, args.output, contexts, scenario, args)
+        if args.comparison == "ab" and not args.calibration_only:
+            qualify_ranking(record["summary"][scenario_key(scenario)], aa_evidence, scenario,
+                            args.allocation_observation)
+            write_checkpoint(args.output, record)
     validate_frozen(record, contexts, harness_hash, host, supplied)
     record["environment"]["end"] = environment_snapshot()
     record["complete"] = True

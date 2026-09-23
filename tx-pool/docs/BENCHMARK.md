@@ -69,6 +69,35 @@ python3 tx-pool/scripts/cross_version_benchmark.py \
 
 Choose and freeze the workload and margins using the
 [quality rules](#quality-and-decision-rules) before A/A and A/B.
+Repeat for the baseline, including its adapter features in both the build and
+A/A commands. A/B then uses the two build receipts and their controls:
+
+```sh
+python3 tx-pool/scripts/cross_version_benchmark.py \
+  --baseline-root /absolute/path/to/prepared-baseline \
+  --candidate-root /absolute/path/to/prepared-candidate \
+  --baseline-build-receipt /tmp/baseline-build.json \
+  --candidate-build-receipt /tmp/candidate-build.json \
+  --baseline-aa-result /tmp/baseline-aa.json --candidate-aa-result /tmp/txpool-aa.json \
+  --output /tmp/txpool-ab.json --runs 24 --replicates-per-sample 4 \
+  --initial-cooldown-seconds 30 --cooldown-seconds 5 \
+  --scenario always_success,16000,1000,8,4
+```
+
+Keep the corresponding `--baseline-build-features` / `--candidate-build-features`
+when an arm needs an adapter. The control must match its own arm's source,
+binary, build contract, host, corpus, observation contract, replicate count,
+cooldowns, timeout and quality thresholds. A/A and A/B may use different sample
+counts and order seeds. A/B production sources may differ. Each control is frozen
+by file hash before A/B, and its scheduled raw attempt outputs are reparsed and
+its statistics recomputed; its saved summary is not the authority.
+Checkout paths may differ when the source inputs and executable bytes are identical.
+
+Without both applicable controls, A/B still saves diagnostic observations and
+operational quality results, but does not authorize timing rankings. Missing
+scenario rows or unresolved controls remain visible. An incompatible supplied
+control is rejected before collection.
+
 ## Execution and output
 
 The runner records source/build/host identities, commands and binary hashes.
@@ -160,7 +189,7 @@ studies omit the timing-duration gate; calibration always checks it.
 | Decision | Meaning |
 |---|---|
 | `comparable` | The operational quality bounds passed |
-| Interval excludes 1 | Supports that metric's pointwise direction, subject to A/A eligibility |
+| Interval excludes 1 | Supports that metric's pointwise direction only when its `metric_quality.ranking_permitted` is true |
 | Interval includes 1 | Direction unresolved; does not establish equivalence |
 | `aa_equivalent` | All quality gates pass and all three complete primary intervals fit the declared A/A margin |
 | `aa_equivalence_unresolved` | The margin is not established; not proof of inequivalence |
@@ -176,10 +205,17 @@ The three primary metrics are throughput, target process CPU and mean peak RSS.
 Overall qualification remains conjunctive. `metric_quality` also preserves each
 metric's precision and A/A disposition, so an unresolved RSS interval does not
 erase the measured throughput evidence or become an overall pass.
+For A/B, `production_ranking_permitted` requires operational quality and both
+applicable A/A controls for all three primary metrics. Allocation studies have
+no timing ranking permission; only allocation metrics with a sufficiently narrow
+interval can receive their own ranking permission.
 
 Exit 2 means at least one row did not pass. `--allow-noncomparable` changes only
 the exit status, never the recorded decision. Keep all attempts; do not select
 favorable reruns, change populations on resume or widen thresholds after inspection.
+For diagnostic A/B without A/A, a zero exit status certifies the operational
+quality gates only; inspect the separate ranking permissions before drawing a
+directional conclusion.
 
 ## Workload integrity
 

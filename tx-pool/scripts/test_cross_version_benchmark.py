@@ -460,9 +460,11 @@ class BuildProfileContractTest(unittest.TestCase):
                 args = BENCHMARK.arguments()
             self.assertEqual(args.baseline_build_features, "ckb-tx-pool/allocation-observation")
             self.assertEqual(args.candidate_build_features, args.baseline_build_features)
-            with mock.patch.object(sys, "argv", command + ["--baseline-build-features", "allocation-observation"]), mock.patch.object(sys, "stderr", io.StringIO()):
-                with self.assertRaises(SystemExit):
-                    BENCHMARK.arguments()
+            for extra in (["--baseline-build-features", "allocation-observation"],
+                          ["--allocation-observation", "enabled", "--candidate-aa-result", str(root / "aa.json")]):
+                with mock.patch.object(sys, "argv", command + extra), mock.patch.object(sys, "stderr", io.StringIO()):
+                    with self.assertRaises(SystemExit):
+                        BENCHMARK.arguments()
 
     def test_aa_main_persists_its_decision_and_rejects_margin_change_on_resume(self) -> None:
         # Exercise orchestration and durable decisions with controlled observations;
