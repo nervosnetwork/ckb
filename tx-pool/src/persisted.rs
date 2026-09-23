@@ -20,7 +20,8 @@ const PERSISTENCE_READ_ALLOWANCE: usize = 1024 * 1024;
 
 #[derive(Clone, Debug, Default)]
 pub(crate) struct PersistenceSnapshot {
-    /// Accepted replay prefix; raw bodies cannot reconstruct all ordering constraints.
+    /// Accepted replay prefix produced by `Selection::replay_transactions`.
+    /// Preserve that order: raw bodies cannot reconstruct expanded cell-dep constraints.
     pub(crate) accepted: Vec<TransactionView>,
     pub(crate) recovery: Vec<TransactionView>,
 }
