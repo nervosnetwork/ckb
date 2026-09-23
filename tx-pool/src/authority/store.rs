@@ -352,6 +352,9 @@ impl CommitLocks {
     }
 }
 
+/// Acquire each requested shard exactly once in ascending order; writes dominate
+/// reads. Both guarded lookup and Apply's shard-major edit passes rely on this
+/// order, which also prevents cycles within a lock family.
 #[expect(
     clippy::indexing_slicing,
     reason = "LockFootprint indices come only from keyed routing modulo SHARDS or the complete 0..SHARDS range."
@@ -362,6 +365,7 @@ fn acquire<'a, T>(
 ) -> Vec<(usize, Guard<'a, T>)> {
     let mut guards = Vec::with_capacity(footprint.len());
     for (index, write) in footprint.iter() {
+        debug_assert!(guards.last().is_none_or(|(previous, _)| *previous < index));
         guards.push((
             index,
             if write {

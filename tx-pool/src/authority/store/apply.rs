@@ -197,6 +197,10 @@ impl<'a> OwnerChanges<'a> {
                 }
             }
         }
+        debug_assert!(
+            remaining_edits.is_empty(),
+            "every edited shard has a write guard"
+        );
         // Point readers may update different members under compatible
         // dependency gates; check the affected rows before any mutation.
         for (key, changes) in &self.relation_changes {
@@ -809,6 +813,10 @@ impl Store {
                 shard.apply_edit(hash, edit, snapshot, &self.queues, retired);
             }
         }
+        debug_assert!(
+            remaining_edits.is_empty(),
+            "preflight covered every owner edit"
+        );
     }
 
     /// Maintain peer membership and its observation marker as one projection.
