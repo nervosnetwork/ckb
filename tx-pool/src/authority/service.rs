@@ -687,7 +687,7 @@ impl Pool {
             .read(|| {
                 Ok(self
                     .estimator
-                    .estimate_fee_rate(mode, || query::fee_samples(&self.store)))
+                    .estimate_fee_rate_with_samples(mode, || query::fee_samples(&self.store)))
             })
             .await?;
         match estimated {
