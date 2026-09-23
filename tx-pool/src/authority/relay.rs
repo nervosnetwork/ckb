@@ -361,7 +361,10 @@ impl RelayDrain {
             }
             return Some(result);
         }
-        let store = self.store.upgrade()?;
+        let Some(store) = self.store.upgrade() else {
+            *self.cursor.lock() = None;
+            return None;
+        };
         let mut cursor = self.cursor.lock();
         let current = cursor.as_mut()?;
         let (result, complete) = store.next_missing(current, REBUILD_PAGE_SIZE);
@@ -403,6 +406,9 @@ impl RelayDrain {
         drained
     }
     pub(crate) async fn wait_for_drain(&self) {
+        if self.cursor.lock().is_some() {
+            return;
+        }
         self.receiver.wait_for_drain().await;
     }
 }

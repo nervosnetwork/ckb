@@ -9,6 +9,7 @@ use crate::{
 use ckb_types::packed::OutPoint;
 use ckb_util::Mutex;
 use ckb_verification::cache::init_cache;
+use futures_util::FutureExt;
 use std::collections::BTreeSet;
 use std::future::Future;
 
@@ -2786,14 +2787,17 @@ async fn relay_batch_rebuild_has_a_fixed_page_budget_and_resumes_next_call() {
         .collect();
     sink.publish(TxVerificationResult::GenerationReset);
     let receiver = crate::service::TxVerificationResultReceiver::from_authority(drain);
+    within(receiver.wait_for_drain()).await;
     let first = receiver.drain(usize::MAX);
     assert_eq!(first.len(), 5);
     assert!(matches!(
         first.first(),
         Some(TxVerificationResult::GenerationReset)
     ));
+    assert!(receiver.wait_for_drain().now_or_never().is_some());
     let second = receiver.drain(usize::MAX);
     assert_eq!(second.len(), 4);
+    assert!(receiver.wait_for_drain().now_or_never().is_some());
     let third = receiver.drain(usize::MAX);
     assert_eq!(third.len(), 1);
     let rebuilt: BTreeSet<_> = first

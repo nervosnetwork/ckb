@@ -153,7 +153,7 @@ impl TxVerificationResultReceiver {
     ///
     /// The signal carries no transaction data and coalesces while a drain is
     /// already pending. The periodic relayer tick remains the sparse-flow
-    /// liveness fallback.
+    /// liveness fallback. An unfinished reset rebuild is immediately ready.
     pub async fn wait_for_drain(&self) {
         self.0.wait_for_drain().await;
     }
