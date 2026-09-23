@@ -503,6 +503,7 @@ async fn suspended_transaction_handlers_leave_chain_completion_independent() {
             .await
             .unwrap()
             .unwrap()
+            .unwrap()
             .unwrap();
     }
     controller.stop();

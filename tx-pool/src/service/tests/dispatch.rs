@@ -8,7 +8,7 @@ async fn public_operational_failure_returns_error_without_faulting_the_service()
         Error::Closed,
     ] {
         let (sender, receiver) = tokio::sync::oneshot::channel::<Result<(), AnyError>>();
-        assert!(reply_result(sender, Err(error.clone()), "fixture").is_ok());
+        assert!(reply(sender, Err(error.clone()), "fixture").is_ok());
         let returned = receiver.await.unwrap().unwrap_err();
         assert_eq!(
             returned.downcast_ref::<Error>().unwrap().to_string(),
@@ -17,7 +17,7 @@ async fn public_operational_failure_returns_error_without_faulting_the_service()
     }
     let (sender, receiver) = tokio::sync::oneshot::channel::<Result<(), AnyError>>();
     assert!(matches!(
-        reply_result(sender, Err(Error::Fault("fixture integrity")), "fixture"),
+        reply(sender, Err(Error::Fault("fixture integrity")), "fixture"),
         Err(Error::Fault(_))
     ));
     assert!(matches!(
@@ -26,13 +26,24 @@ async fn public_operational_failure_returns_error_without_faulting_the_service()
     ));
 }
 
+#[test]
+fn a_cancelled_response_cannot_suppress_a_generation_fault() {
+    let (sender, receiver) = tokio::sync::oneshot::channel::<Result<(), AnyError>>();
+    drop(receiver);
+    let error: AnyError = Error::Fault("fixture integrity").into();
+    assert!(matches!(
+        reply(sender, Err(error), "cancelled caller"),
+        Err(Error::Fault("fixture integrity"))
+    ));
+}
+
 #[tokio::test]
 async fn local_competing_progress_keeps_the_public_typed_error_discriminator() {
     let (sender, receiver) = tokio::sync::oneshot::channel::<Result<(), AnyError>>();
     assert!(
-        reply_external(
+        reply(
             sender,
-            Err(crate::service::LocalRemovalCompetingProgress.into()),
+            Err(crate::service::LocalRemovalCompetingProgress),
             "remove_local_tx"
         )
         .is_ok()

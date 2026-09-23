@@ -14,11 +14,11 @@ pub(crate) async fn process(pool: Arc<Pool>, message: Message) -> Result<(), Err
         Message::GetLiveCell(Request {
             responder,
             arguments: (point, data),
-        }) => reply_external(responder, pool.live_cell(&point, data), "get_live_cell"),
+        }) => reply(responder, pool.live_cell(&point, data), "get_live_cell"),
         Message::BlockTemplate(Request {
             responder,
             arguments,
-        }) => reply_result(
+        }) => reply(
             responder,
             pool.block_template(arguments).await,
             "block_template",
@@ -56,14 +56,9 @@ pub(crate) async fn process(pool: Arc<Pool>, message: Message) -> Result<(), Err
             let result = pool
                 .remove_local(&arguments)
                 .await
-                .map(|result| result.map_err(AnyError::from));
-            match result {
-                Ok(result) => {
-                    respond(responder, result, "remove_local_tx");
-                    Ok(())
-                }
-                Err(error) => reply_result(responder, Err(error), "remove_local_tx"),
-            }
+                .map_err(AnyError::from)
+                .and_then(|result| result.map_err(AnyError::from));
+            reply(responder, result, "remove_local_tx")
         }
         Message::SubmitRemoteTx(Request {
             responder,
@@ -125,7 +120,7 @@ pub(crate) async fn process(pool: Arc<Pool>, message: Message) -> Result<(), Err
         Message::GetTxStatus(Request {
             responder,
             arguments,
-        }) => reply_external(
+        }) => reply(
             responder,
             pool.transaction_status(&arguments),
             "get_tx_status",
@@ -133,7 +128,7 @@ pub(crate) async fn process(pool: Arc<Pool>, message: Message) -> Result<(), Err
         Message::GetTransactionWithStatus(Request {
             responder,
             arguments,
-        }) => reply_external(
+        }) => reply(
             responder,
             pool.transaction(&arguments).await,
             "get_transaction_with_status",
@@ -160,12 +155,12 @@ pub(crate) async fn process(pool: Arc<Pool>, message: Message) -> Result<(), Err
             reply(responder, pool.input_snapshot().await, "get_input_snapshot")
         }
         Message::SavePool(Request { responder, .. }) => {
-            reply_external(responder, pool.save().await, "save_pool")
+            reply(responder, pool.save().await, "save_pool")
         }
         Message::EstimateFeeRate(Request {
             responder,
             arguments: (mode, fallback),
-        }) => reply_external(
+        }) => reply(
             responder,
             pool.estimate_fee(mode, fallback).await,
             "estimate_fee_rate",
@@ -182,7 +177,7 @@ pub(crate) async fn process(pool: Arc<Pool>, message: Message) -> Result<(), Err
         Message::PlugEntry(Request {
             responder,
             arguments: (entries, target),
-        }) => reply_result(responder, pool.plug(entries, target).await, "plug_entry"),
+        }) => reply(responder, pool.plug(entries, target).await, "plug_entry"),
         #[cfg(feature = "internal")]
         Message::PackageTxs(Request {
             responder,
@@ -202,43 +197,12 @@ fn settle(error: Error) -> Result<(), Error> {
         Ok(())
     }
 }
-fn reply<R: std::fmt::Debug>(
-    responder: impl OneshotSender<R>,
-    result: Result<R, Error>,
-    name: &'static str,
-) -> Result<(), Error> {
-    match result {
-        Ok(value) => {
-            respond(responder, value, name);
-            Ok(())
-        }
-        Err(error) => {
-            drop(responder);
-            settle(error)
-        }
-    }
-}
-fn reply_result<R: std::fmt::Debug>(
+fn reply<R: std::fmt::Debug, E: Into<AnyError>>(
     responder: impl OneshotSender<Result<R, AnyError>>,
-    result: Result<R, Error>,
+    result: Result<R, E>,
     name: &'static str,
 ) -> Result<(), Error> {
-    match result {
-        Ok(value) => {
-            respond(responder, Ok(value), name);
-            Ok(())
-        }
-        Err(error) => {
-            respond(responder, Err(error.clone().into()), name);
-            settle(error)
-        }
-    }
-}
-fn reply_external<R: std::fmt::Debug>(
-    responder: impl OneshotSender<Result<R, AnyError>>,
-    result: Result<R, AnyError>,
-    name: &'static str,
-) -> Result<(), Error> {
+    let result: Result<R, AnyError> = result.map_err(Into::into);
     let fault = result
         .as_ref()
         .err()

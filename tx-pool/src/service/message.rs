@@ -421,26 +421,33 @@ impl RemoteTxSubmission {
 
 pub(crate) enum Message {
     BlockTemplate(SyncRequest<tokio::time::Instant, BlockTemplateResult>),
-    SubmitLocalTx(SyncRequest<BoundedTransaction, SubmitTxResult>),
-    SubmitLocalTestTx(SyncRequest<BoundedTransaction, SubmitTxResult>),
+    SubmitLocalTx(SyncRequest<BoundedTransaction, Result<SubmitTxResult, AnyError>>),
+    SubmitLocalTestTx(SyncRequest<BoundedTransaction, Result<SubmitTxResult, AnyError>>),
     RemoveLocalTx(SyncRequest<Byte32, RemoveLocalTxResult>),
-    TestAcceptTx(SyncRequest<BoundedTransaction, TestAcceptTxResult>),
-    SubmitRemoteTx(AsyncRequest<RemoteTxSubmission, ()>),
+    TestAcceptTx(SyncRequest<BoundedTransaction, Result<TestAcceptTxResult, AnyError>>),
+    SubmitRemoteTx(AsyncRequest<RemoteTxSubmission, Result<(), AnyError>>),
     SubmitRemoteTxBatch(AsyncRequest<RemoteTxSubmissionBatch, RemoteTxBatchOutcome>),
     NotifyTxs(NotifyTxBatch),
-    FreshProposalsFilter(AsyncRequest<BoundedProposalIds, Vec<ProposalShortId>>),
-    FetchTxs(AsyncRequest<BoundedProposalIds, HashMap<ProposalShortId, TransactionView>>),
-    FetchTxsWithCycles(AsyncRequest<BoundedTransactionHashes, FetchTxsWithCyclesResult>),
-    GetTxPoolInfo(SyncRequest<(), TxPoolInfo>),
+    FreshProposalsFilter(AsyncRequest<BoundedProposalIds, Result<Vec<ProposalShortId>, AnyError>>),
+    FetchTxs(
+        AsyncRequest<
+            BoundedProposalIds,
+            Result<HashMap<ProposalShortId, TransactionView>, AnyError>,
+        >,
+    ),
+    FetchTxsWithCycles(
+        AsyncRequest<BoundedTransactionHashes, Result<FetchTxsWithCyclesResult, AnyError>>,
+    ),
+    GetTxPoolInfo(SyncRequest<(), Result<TxPoolInfo, AnyError>>),
     GetLiveCell(SyncRequest<(OutPoint, bool), GetLiveCellResult>),
     GetTxStatus(SyncRequest<Byte32, GetTxStatusResult>),
     GetTransactionWithStatus(SyncRequest<Byte32, GetTransactionWithStatusResult>),
     NewUncle(BoundedCandidateUncle),
-    GetAllEntryInfo(SyncRequest<(), TxPoolEntryInfo>),
-    GetAllIds(SyncRequest<(), TxPoolIds>),
-    GetInputSnapshot(SyncRequest<(), super::TxPoolInputSnapshot>),
+    GetAllEntryInfo(SyncRequest<(), Result<TxPoolEntryInfo, AnyError>>),
+    GetAllIds(SyncRequest<(), Result<TxPoolIds, AnyError>>),
+    GetInputSnapshot(SyncRequest<(), Result<super::TxPoolInputSnapshot, AnyError>>),
     SavePool(SyncRequest<(), SavePoolResult>),
-    GetPoolTxDetails(SyncRequest<Byte32, PoolTxDetailInfo>),
+    GetPoolTxDetails(SyncRequest<Byte32, Result<PoolTxDetailInfo, AnyError>>),
     GetTotalRecentRejectNum(SyncRequest<(), Option<u64>>),
 
     EstimateFeeRate(SyncRequest<(EstimateMode, bool), FeeEstimatesResult>),
@@ -449,7 +456,7 @@ pub(crate) enum Message {
     #[cfg(feature = "internal")]
     PlugEntry(SyncRequest<(Vec<TxEntry>, PlugTarget), Result<(), AnyError>>),
     #[cfg(feature = "internal")]
-    PackageTxs(SyncRequest<Option<u64>, Vec<TxEntry>>),
+    PackageTxs(SyncRequest<Option<u64>, Result<Vec<TxEntry>, AnyError>>),
 }
 
 impl Message {

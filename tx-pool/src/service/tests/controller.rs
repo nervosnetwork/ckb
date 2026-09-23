@@ -85,6 +85,72 @@ async fn save_controller_returns_the_service_error() {
     ));
 }
 
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn dispatched_failures_reach_sync_and_async_callers_without_closing_the_response() {
+    use crate::authority::service::{Error, Pool};
+    use ckb_types::core::TransactionBuilder;
+
+    let handle = Handle::new(tokio::runtime::Handle::current(), None);
+    let (pool, _sink, _relay) = Pool::new(
+        TxPoolConfig {
+            max_tx_verify_workers: 0,
+            ..TxPoolConfig::default()
+        },
+        genesis_snapshot(),
+        &handle,
+        Arc::new(tokio::sync::RwLock::new(
+            ckb_verification::cache::init_cache(),
+        )),
+        None,
+        None,
+        ckb_fee_estimator::FeeEstimator::new_dummy(),
+    )
+    .unwrap();
+    pool.stop();
+    let (sender, mut receiver) = mpsc::channel(1);
+    let controller = controller(sender);
+    let client = controller.clone();
+    let query = tokio::task::spawn_blocking(move || client.get_tx_pool_info());
+    crate::service::dispatch::process(Arc::clone(&pool), receiver.recv().await.unwrap())
+        .await
+        .unwrap();
+    assert!(matches!(
+        query.await.unwrap().unwrap_err().downcast_ref::<Error>(),
+        Some(Error::Closed)
+    ));
+
+    let client = controller.clone();
+    let submission = tokio::spawn(async move {
+        client
+            .submit_remote_tx(TransactionBuilder::default().build(), 0, 1.into())
+            .await
+    });
+    crate::service::dispatch::process(Arc::clone(&pool), receiver.recv().await.unwrap())
+        .await
+        .unwrap();
+    assert!(matches!(
+        submission
+            .await
+            .unwrap()
+            .unwrap_err()
+            .downcast_ref::<Error>(),
+        Some(Error::Closed)
+    ));
+    assert!(!pool.is_faulted());
+
+    // Actual response loss still follows the transport error route.
+    let query = tokio::task::spawn_blocking(move || controller.get_tx_pool_info());
+    drop(receiver.recv().await.unwrap());
+    assert!(
+        query
+            .await
+            .unwrap()
+            .unwrap_err()
+            .downcast_ref::<Error>()
+            .is_none()
+    );
+}
+
 fn full_controller() -> (TxPoolController, mpsc::Receiver<Message>) {
     let (sender, receiver) = mpsc::channel(1);
     assert!(
@@ -225,10 +291,10 @@ async fn ordinary_compute_and_template_waits_preserve_reserved_read_routes() {
     };
     request
         .responder
-        .send(crate::TxPoolInputSnapshot {
+        .send(Ok(crate::TxPoolInputSnapshot {
             tip_hash: Byte32::default(),
             inputs: Arc::new(HashSet::new()),
-        })
+        }))
         .unwrap();
     assert!(snapshot.await.unwrap().unwrap().inputs.is_empty());
 
@@ -246,7 +312,7 @@ async fn ordinary_compute_and_template_waits_preserve_reserved_read_routes() {
         else {
             panic!("callback packaging keeps the reserved read route");
         };
-        request.responder.send(Vec::new()).unwrap();
+        request.responder.send(Ok(Vec::new())).unwrap();
         assert!(packaging.await.unwrap().unwrap().is_empty());
     }
 
@@ -265,7 +331,7 @@ async fn ordinary_compute_and_template_waits_preserve_reserved_read_routes() {
     };
     request
         .responder
-        .send(Err(Reject::Full("fixture".into())))
+        .send(Ok(Err(Reject::Full("fixture".into()))))
         .unwrap();
     assert!(callback.await.unwrap().unwrap().is_err());
     template_request
@@ -276,7 +342,7 @@ async fn ordinary_compute_and_template_waits_preserve_reserved_read_routes() {
     for request in held {
         request
             .responder
-            .send(Err(Reject::Full("fixture".into())))
+            .send(Ok(Err(Reject::Full("fixture".into()))))
             .unwrap();
     }
     for caller in callers {
@@ -656,7 +722,9 @@ fn remote_submit_waits_without_blocking_a_current_thread_runtime() {
             };
             let RemoteTxSubmission { transaction, .. } = arguments;
             assert_eq!(transaction.into_transaction().as_ref(), &expected);
-            responder.send(()).expect("test receiver remains present");
+            responder
+                .send(Ok(()))
+                .expect("test receiver remains present");
         });
 
         controller
@@ -766,7 +834,9 @@ fn remote_submit_transports_an_unchecked_cycle_declaration() {
                 panic!("remote submission message missing")
             };
             assert_eq!(arguments.declared_cycles, u64::MAX);
-            responder.send(()).expect("test receiver remains present");
+            responder
+                .send(Ok(()))
+                .expect("test receiver remains present");
         });
 
         controller

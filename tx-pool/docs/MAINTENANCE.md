@@ -190,6 +190,12 @@ callbacks no longer receive mutable pool access. See [builder](../src/service/bu
 snapshot; remove the old detached-proposal-ID argument from callers. Proposal
 projection comes from the paired snapshots.
 
+Controller replies keep operation failures distinct from transaction rejections.
+Local submission still returns an inner `Reject` for admission policy, while
+service failures use the outer `AnyError`; they do not become channel receive
+errors. Replying to a caller, including one that has cancelled, does not suppress
+a structural fault's escalation to the service supervisor.
+
 Released node configurations retain the units and conversion rules listed
 [above](#configuration-and-capacity). Obsolete `max_mem_size`, `max_cycles` and
 three cache-size fields remain accepted and ignored. Missing verification

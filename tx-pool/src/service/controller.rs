@@ -64,7 +64,7 @@ macro_rules! send_message {
         $self.enqueue(message)?;
         block_in_place(|| response.recv())
             .map_err(handle_recv_error)
-            .map_err(Into::into)
+            .map_err(AnyError::from)
     }};
 }
 
@@ -234,7 +234,7 @@ impl TxPoolController {
             Ok(tx) => tx,
             Err(reason) => return Ok(Err(reason)),
         };
-        send_message!(self, SubmitLocalTx, tx)
+        send_message!(self, SubmitLocalTx, tx)?
     }
 
     /// Check admission without inserting the transaction or relaying it.
@@ -243,7 +243,7 @@ impl TxPoolController {
             Ok(tx) => tx,
             Err(reason) => return Ok(Err(reason)),
         };
-        send_message!(self, TestAcceptTx, tx)
+        send_message!(self, TestAcceptTx, tx)?
     }
 
     /// Remove tx from tx-pool
@@ -276,7 +276,7 @@ impl TxPoolController {
         self.sender
             .try_send(Message::SubmitRemoteTx(request))
             .map_err(handle_try_send_error)?;
-        response.await.map_err(Into::into)
+        response.await.map_err(AnyError::from)?
     }
 
     /// Submit one already-bounded network relay batch through one controller
@@ -337,7 +337,7 @@ impl TxPoolController {
 
     /// Return tx-pool information
     pub fn get_tx_pool_info(&self) -> Result<TxPoolInfo, AnyError> {
-        send_message!(self, GetTxPoolInfo, ())
+        send_message!(self, GetTxPoolInfo, ())?
     }
 
     /// Return cell status from the pool and chain snapshot.
@@ -359,7 +359,7 @@ impl TxPoolController {
         self.query_sender
             .try_send(Message::FreshProposalsFilter(request))
             .map_err(handle_try_send_error)?;
-        response.await.map_err(Into::into)
+        response.await.map_err(AnyError::from)?
     }
 
     /// Return tx_status for rpc (get_transaction verbosity = 1)
@@ -386,7 +386,7 @@ impl TxPoolController {
         self.query_sender
             .try_send(Message::FetchTxs(request))
             .map_err(handle_try_send_error)?;
-        response.await.map_err(Into::into)
+        response.await.map_err(AnyError::from)?
     }
 
     /// Return accepted transactions with cycles by complete raw transaction
@@ -403,7 +403,7 @@ impl TxPoolController {
         self.query_sender
             .try_send(Message::FetchTxsWithCycles(request))
             .map_err(handle_try_send_error)?;
-        response.await.map_err(Into::into)
+        response.await.map_err(AnyError::from)?
     }
 
     /// Clears the tx-pool, removing all txs, update snapshot.
@@ -422,30 +422,30 @@ impl TxPoolController {
 
     /// Returns information about all transactions in the pool.
     pub fn get_all_entry_info(&self) -> Result<TxPoolEntryInfo, AnyError> {
-        send_message!(self, GetAllEntryInfo, ())
+        send_message!(self, GetAllEntryInfo, ())?
     }
 
     /// Returns the IDs of all transactions in the pool.
     pub fn get_all_ids(&self) -> Result<TxPoolIds, AnyError> {
-        send_message!(self, GetAllIds, ())
+        send_message!(self, GetAllIds, ())?
     }
 
     /// Capture accepted inputs and their chain tip for a rebuildable read view.
     /// Unchanged membership reuses the same immutable snapshot.
     pub fn input_snapshot(&self) -> Result<crate::TxPoolInputSnapshot, AnyError> {
-        send_message!(self, GetInputSnapshot, ())
+        send_message!(self, GetInputSnapshot, ())?
     }
 
     /// query the details of a transaction in the pool
     pub fn get_tx_detail(&self, tx_hash: Byte32) -> Result<PoolTxDetailInfo, AnyError> {
-        send_message!(self, GetPoolTxDetails, tx_hash)
+        send_message!(self, GetPoolTxDetails, tx_hash)?
     }
 
     /// Saves tx pool into disk.
     pub fn save_pool(&self) -> Result<(), AnyError> {
         reject_callback_mutation!("save_pool");
         info!("Please be patient, tx-pool are saving data into disk ...");
-        send_message!(self, SavePool, ()).and_then(std::convert::identity)
+        send_message!(self, SavePool, ())?
     }
 
     /// Updates IBD state.
@@ -492,7 +492,7 @@ impl TxPoolController {
     /// Package txs with specified bytes_limit. for test
     #[cfg(feature = "internal")]
     pub fn package_txs(&self, bytes_limit: Option<u64>) -> Result<Vec<TxEntry>, AnyError> {
-        send_message!(self, PackageTxs, bytes_limit)
+        send_message!(self, PackageTxs, bytes_limit)?
     }
 
     /// Resolve a transaction through the integration-test RPC and enqueue its
@@ -503,7 +503,7 @@ impl TxPoolController {
             Ok(tx) => tx,
             Err(reason) => return Ok(Err(reason)),
         };
-        send_message!(self, SubmitLocalTestTx, tx)
+        send_message!(self, SubmitLocalTestTx, tx)?
     }
 
     /// get total recent reject num
