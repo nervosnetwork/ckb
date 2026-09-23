@@ -208,6 +208,13 @@ internals remain separate costs. Pool budgets are not a process-RSS cap. The loc
 VM-time budget does not establish consensus invalidity or justify peer banning;
 an exhausted attempt may be retried.
 
+Controller ingress is a separate bounded population: the ordinary channel has
+512 slots, and each transaction batch carries at most 1 MiB of serialized payload.
+Batch payload alone can therefore occupy 512 MiB, before container overhead and
+messages already owned by handlers. The network relay additionally limits its
+outstanding batch submissions to 128. Accepted and pipeline byte charges start
+inside the authority; they do not include these controller envelopes.
+
 ## Waiting, chain and recovery
 
 Waiting records current missing cell keys. Invalid headers are rejected by canonical
