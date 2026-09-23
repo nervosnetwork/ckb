@@ -736,32 +736,45 @@ fn trim_virtual(
     )?
     .fee;
     while !charge.fits(limit) {
-        let root = ranks.first().ok_or_else(overflow)?.clone();
-        let closure = descendant_hashes(&child_index, [root.hash], MAX_POOL_MUTATION_CANDIDATES)?;
-        let closure: BTreeSet<_> = closure
-            .into_iter()
-            .filter(|hash| entries.contains_key(hash))
-            .collect();
-        if !closure.is_disjoint(&protected) {
-            return Err(Reject::Full(format!(
-                "the fee_rate for this transaction is: {candidate_rate}"
-            ))
-            .into());
-        }
-        let touched = removed
-            .union(late)
-            .cloned()
-            .chain(closure.iter().cloned())
-            .collect::<BTreeSet<_>>();
-        if touched.len() > MAX_POOL_MUTATION_CANDIDATES {
-            return Err(component_limit());
-        }
+        // A root that cannot fit this mutation remains unaffordable: removed
+        // descendants move into `removed`, and the touched union never shrinks.
+        let closure = loop {
+            let root = ranks.pop_first().ok_or_else(component_limit)?;
+            // The protected set is the candidate's ancestor closure. Do not
+            // pass its rank to evict a more valuable independent owner.
+            if protected.contains(&root.hash) {
+                return Err(Reject::Full(format!(
+                    "the fee_rate for this transaction is: {candidate_rate}"
+                ))
+                .into());
+            }
+            // Previously removed descendants still appear in child_index;
+            // this bound covers them without rebuilding the index.
+            if root.descendants > MAX_POOL_MUTATION_CANDIDATES.saturating_sub(removed.len()) {
+                continue;
+            }
+            let closure =
+                descendant_hashes(&child_index, [root.hash], MAX_POOL_MUTATION_CANDIDATES)?
+                    .into_iter()
+                    .filter(|hash| entries.contains_key(hash))
+                    .collect::<BTreeSet<_>>();
+            let touched = removed
+                .union(late)
+                .cloned()
+                .chain(closure.iter().cloned())
+                .collect::<BTreeSet<_>>();
+            if touched.len() <= MAX_POOL_MUTATION_CANDIDATES {
+                break closure;
+            }
+        };
         let mut update_rank = |ancestor: &Byte32, reduction: Aggregate| -> Result<(), Error> {
             let parent = entries.get(ancestor).ok_or(Error::Stale)?;
             let total = descendants.get_mut(ancestor).ok_or(Error::Stale)?;
-            ranks.remove(&EvictionRank::new(parent, *total, snapshot)?);
+            let eligible = ranks.remove(&EvictionRank::new(parent, *total, snapshot)?);
             *total = total.sub(reduction)?;
-            ranks.insert(EvictionRank::new(parent, *total, snapshot)?);
+            if eligible {
+                ranks.insert(EvictionRank::new(parent, *total, snapshot)?);
+            }
             Ok(())
         };
         let mut reductions: BTreeMap<Byte32, Aggregate> = BTreeMap::new();

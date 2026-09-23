@@ -8,7 +8,7 @@ use super::common::*;
 use crate::{callback::CallbackEvent, error::Reject};
 use ckb_app_config::TxPoolConfig;
 use ckb_types::{
-    core::FeeRate,
+    core::{Capacity, FeeRate, tx_pool::get_transaction_weight},
     packed::{Byte32, OutPoint},
 };
 use std::collections::BTreeSet;
@@ -277,6 +277,72 @@ fn capacity_replacement_is_one_atomic_candidate_and_victim_change() {
     store.apply(plan).unwrap();
     assert_eq!(hashes(&store), BTreeSet::from([candidate.hash()]));
     assert_eq!(store.budget.accepted_usage().items, 1);
+}
+
+#[test]
+fn capacity_skips_a_low_rank_family_too_large_for_one_mutation() {
+    let parent = output_tx(90_100);
+    let parent_point = OutPoint::new(parent.hash(), 0);
+    let children: Vec<_> = (0..101)
+        .map(|index| {
+            spend(
+                90_101 + index,
+                &[point(u8::try_from(index).unwrap())],
+                std::slice::from_ref(&parent_point),
+            )
+        })
+        .collect();
+    let victim = spend(90_202, &[point(201)], &[point(202)]);
+    let candidate = spend(90_203, &[point(203)], &[point(204)]);
+    let configuration = TxPoolConfig {
+        max_tx_pool_size: parent.data().serialized_size_in_block()
+            + children
+                .iter()
+                .map(|child| child.data().serialized_size_in_block())
+                .sum::<usize>()
+            + victim.data().serialized_size_in_block(),
+        ..config()
+    };
+    let store = Store::new(crate::test_support::genesis_snapshot(), &configuration).unwrap();
+    let parent_hash = accept(&store, parent.clone(), 1, 1, Status::Pending);
+    let child_fee = 1_000_000;
+    let child_hashes: BTreeSet<_> = children
+        .iter()
+        .cloned()
+        .map(|child| accept(&store, child, child_fee, 1, Status::Pending))
+        .collect();
+    let family_weight = get_transaction_weight(parent.data().serialized_size_in_block(), 1)
+        + children
+            .iter()
+            .map(|child| get_transaction_weight(child.data().serialized_size_in_block(), 1))
+            .sum::<u64>();
+    let family_rate = FeeRate::calculate(Capacity::shannons(1 + child_fee * 101), family_weight);
+    let victim_weight = get_transaction_weight(victim.data().serialized_size_in_block(), 1);
+    let victim_fee = family_rate.fee(victim_weight).as_u64() + victim_weight.div_ceil(1000) + 1;
+    let victim_rate = FeeRate::calculate(Capacity::shannons(victim_fee), victim_weight);
+    assert!(victim_rate > family_rate);
+    let child_weight = get_transaction_weight(children[0].data().serialized_size_in_block(), 1);
+    assert!(victim_rate < FeeRate::calculate(Capacity::shannons(child_fee), child_weight));
+    let victim_hash = accept(&store, victim, victim_fee, 1, Status::Pending);
+
+    let candidate = entry(&store, candidate, Source::Local);
+    let (plan, reject) = admission(
+        &store,
+        &candidate,
+        child_fee * 2,
+        1,
+        Status::Pending,
+        &configuration,
+    )
+    .unwrap();
+    assert!(reject.is_none());
+    assert_eq!(plan.edits().len(), 2);
+    store.apply(plan).unwrap();
+    let accepted = hashes(&store);
+    assert!(accepted.contains(&parent_hash));
+    assert!(child_hashes.is_subset(&accepted));
+    assert!(!accepted.contains(&victim_hash));
+    assert!(accepted.contains(&candidate.hash()));
 }
 
 #[test]
