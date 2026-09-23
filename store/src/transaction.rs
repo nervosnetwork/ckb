@@ -6,11 +6,11 @@ use ckb_db::{
     iter::{DBIter, DBIterator, IteratorMode},
 };
 use ckb_db_schema::{
-    COLUMN_BLOCK_BODY, COLUMN_BLOCK_EPOCH, COLUMN_BLOCK_EXT, COLUMN_BLOCK_EXTENSION,
-    COLUMN_BLOCK_FILTER, COLUMN_BLOCK_FILTER_HASH, COLUMN_BLOCK_HEADER, COLUMN_BLOCK_PROPOSAL_IDS,
-    COLUMN_BLOCK_UNCLE, COLUMN_CELL, COLUMN_CELL_DATA, COLUMN_CELL_DATA_HASH,
-    COLUMN_CHAIN_ROOT_MMR, COLUMN_EPOCH, COLUMN_INDEX, COLUMN_META, COLUMN_NUMBER_HASH,
-    COLUMN_TRANSACTION_INFO, COLUMN_UNCLES, Col, META_CURRENT_EPOCH_KEY,
+    COLUMN_BLOCK_ARCHIVE, COLUMN_BLOCK_BODY, COLUMN_BLOCK_EPOCH, COLUMN_BLOCK_EXT,
+    COLUMN_BLOCK_EXTENSION, COLUMN_BLOCK_FILTER, COLUMN_BLOCK_FILTER_HASH, COLUMN_BLOCK_HEADER,
+    COLUMN_BLOCK_PROPOSAL_IDS, COLUMN_BLOCK_UNCLE, COLUMN_CELL, COLUMN_CELL_DATA,
+    COLUMN_CELL_DATA_HASH, COLUMN_CHAIN_ROOT_MMR, COLUMN_EPOCH, COLUMN_INDEX, COLUMN_META,
+    COLUMN_NUMBER_HASH, COLUMN_TRANSACTION_INFO, COLUMN_UNCLES, Col, META_CURRENT_EPOCH_KEY,
     META_LATEST_BUILT_FILTER_DATA_KEY, META_TIP_HEADER_KEY,
 };
 use ckb_error::Error;
@@ -25,18 +25,18 @@ use ckb_types::{
     prelude::*,
     utilities::calc_filter_hash,
 };
-use std::sync::Arc;
 
 /// A Transaction DB
 pub struct StoreTransaction {
     pub(crate) inner: RocksDBTransaction,
     pub(crate) freezer: Option<Freezer>,
-    pub(crate) cache: Arc<StoreCache>,
+    pub(crate) archive_commit: std::sync::Arc<ckb_util::Mutex<()>>,
 }
 
 impl ChainStore for StoreTransaction {
     fn cache(&self) -> Option<&StoreCache> {
-        Some(&self.cache)
+        // Shared caches must not override this transaction's uncommitted view.
+        None
     }
 
     fn freezer(&self) -> Option<&Freezer> {
@@ -102,12 +102,11 @@ impl CellChecker for StoreTransaction {
 pub struct StoreTransactionSnapshot<'a> {
     pub(crate) inner: RocksDBTransactionSnapshot<'a>,
     pub(crate) freezer: Option<Freezer>,
-    pub(crate) cache: Arc<StoreCache>,
 }
 
 impl<'a> ChainStore for StoreTransactionSnapshot<'a> {
     fn cache(&self) -> Option<&StoreCache> {
-        Some(&self.cache)
+        None
     }
 
     fn freezer(&self) -> Option<&Freezer> {
@@ -130,16 +129,33 @@ impl<'a> ChainStore for StoreTransactionSnapshot<'a> {
 impl StoreTransaction {
     /// Inserts a raw key-value pair into the specified column.
     pub fn insert_raw(&self, col: Col, key: &[u8], value: &[u8]) -> Result<(), Error> {
+        self.restore_archived_payload(col, key)?;
         self.inner.put(col, key, value)
     }
 
     /// Deletes a key from the specified column.
     pub fn delete(&self, col: Col, key: &[u8]) -> Result<(), Error> {
+        self.restore_archived_payload(col, key)?;
         self.inner.delete(col, key)
+    }
+
+    fn restore_archived_payload(&self, col: Col, key: &[u8]) -> Result<(), Error> {
+        if self.freezer.is_some()
+            && let Some(hash) = crate::archive::block_hash(col, key)
+            && let Some(block) = self.get_archived_block_view(&packed::Byte32::from(*hash))
+        {
+            crate::archive::restore_payload(&block, |col, key, value| {
+                self.inner.put(col, key, value)
+            })?;
+            self.inner
+                .put(COLUMN_BLOCK_ARCHIVE, hash.as_slice(), &0u64.to_le_bytes())?;
+        }
+        Ok(())
     }
 
     /// Commits the transaction, writing all changes to the database.
     pub fn commit(&self) -> Result<(), Error> {
+        let _commit = self.archive_commit.lock();
         self.inner.commit()
     }
 
@@ -148,7 +164,6 @@ impl StoreTransaction {
         StoreTransactionSnapshot {
             inner: self.inner.get_snapshot(),
             freezer: self.freezer.clone(),
-            cache: Arc::clone(&self.cache),
         }
     }
 

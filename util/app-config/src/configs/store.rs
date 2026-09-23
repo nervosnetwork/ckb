@@ -16,6 +16,8 @@ pub struct Config {
     pub block_uncles_cache_size: usize,
     /// The maximum number of blocks which extension section is cached.
     pub block_extensions_cache_size: usize,
-    /// whether enable freezer
+    /// Enable historical block archiving. Once enabled for a database, this must
+    /// remain true; disabling it is rejected even before the first block is archived.
+    /// The current epoch and the preceding 100 complete epochs remain hot.
     pub freezer_enable: bool,
 }

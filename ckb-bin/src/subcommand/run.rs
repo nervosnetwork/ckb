@@ -58,7 +58,9 @@ pub fn run(
 
     ckb_memory_tracker::track_current_process(
         launcher.args.config.memory_tracker.interval,
-        Some(shared.store().db().inner()),
+        Some(std::sync::Arc::new(
+            ckb_memory_tracker::RocksDBMemoryTracker(shared.store().db().clone()),
+        )),
     );
 
     let chain_controller =

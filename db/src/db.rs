@@ -1,22 +1,30 @@
 //! RocksDB wrapper base on OptimisticTransactionDB
+use crate::generation::{
+    GENERATION_KEY, Generation, PAYLOAD_COLUMNS, Routing, WriterGate, checkpoint_retirement,
+    logical_name, physical_name,
+};
+use crate::iter::DBIterator;
 use crate::snapshot::RocksDBSnapshot;
 use crate::transaction::RocksDBTransaction;
 use crate::write_batch::RocksDBWriteBatch;
-use crate::{Result, internal_error};
+use crate::{DBPinnableSlice, Result, internal_error};
 use ckb_app_config::DBConfig;
-use ckb_db_schema::Col;
+use ckb_db_schema::{
+    COLUMN_BLOCK_ARCHIVE, COLUMN_BLOCK_BODY, COLUMN_META, Col, META_ARCHIVE_NEXT_RECORD,
+};
 use ckb_logger::info;
 use rocksdb::ops::{
-    CompactRangeCF, CreateCF, DropCF, GetColumnFamilys, GetPinned, GetPinnedCF, GetPropertyCF,
-    IterateCF, OpenCF, Put, SetOptions, WriteOps,
+    CompactRangeCF, GetColumnFamilys, GetPinned, GetPinnedCF, GetPropertyCF, OpenCF, Put,
+    SetOptions, WriteOps,
 };
 use rocksdb::{
-    BlockBasedIndexType, BlockBasedOptions, Cache, ColumnFamily, ColumnFamilyDescriptor,
-    DBPinnableSlice, FullOptions, IteratorMode, OptimisticTransactionDB,
-    OptimisticTransactionOptions, Options, SliceTransform, WriteBatch, WriteOptions, ffi,
+    BlockBasedIndexType, BlockBasedOptions, Cache, ColumnFamilyDescriptor, FullOptions,
+    IteratorMode, OptimisticTransactionDB, OptimisticTransactionOptions, Options, ReadOptions,
+    SliceTransform, WriteBatch, WriteOptions, ffi,
 };
+use std::collections::BTreeMap;
 use std::path::Path;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex, RwLock};
 
 const PROPERTY_NUM_KEYS: &str = "rocksdb.estimate-num-keys";
 
@@ -26,6 +34,7 @@ const PROPERTY_NUM_KEYS: &str = "rocksdb.estimate-num-keys";
 #[derive(Clone)]
 pub struct RocksDB {
     pub(crate) inner: Arc<OptimisticTransactionDB>,
+    pub(crate) routing: Arc<Routing>,
 }
 
 const DEFAULT_CACHE_SIZE: usize = 256 << 20;
@@ -37,14 +46,10 @@ impl RocksDB {
         let mut cache = None;
 
         let (mut opts, mut cf_descriptors) = if let Some(ref file) = config.options_file {
-            cache = match config.cache_size {
-                Some(0) => None,
-                Some(size) => Some(Cache::new_hyper_clock_cache(
+            cache = match config.cache_size.unwrap_or(DEFAULT_CACHE_SIZE) {
+                0 => None,
+                size => Some(Cache::new_hyper_clock_cache(
                     size,
-                    DEFAULT_CACHE_ENTRY_CHARGE_SIZE,
-                )),
-                None => Some(Cache::new_hyper_clock_cache(
-                    DEFAULT_CACHE_SIZE,
                     DEFAULT_CACHE_ENTRY_CHARGE_SIZE,
                 )),
             };
@@ -86,8 +91,7 @@ impl RocksDB {
                 }
                 None => block_opts.disable_cache(),
             }
-            // only COLUMN_BLOCK_BODY column family use prefix seek
-            if cf.name() == "2" {
+            if cf.name() == COLUMN_BLOCK_BODY {
                 block_opts.set_whole_key_filtering(false);
                 cf.options
                     .set_prefix_extractor(SliceTransform::create_fixed_prefix(32));
@@ -99,6 +103,36 @@ impl RocksDB {
         opts.create_missing_column_families(true);
         opts.enable_statistics();
 
+        let payload_options = cf_descriptors
+            .iter()
+            .filter_map(|cf| logical_name(cf.name()).map(|col| (col, cf.options.clone())))
+            .collect();
+        let archive_options = cf_descriptors
+            .iter()
+            .find(|cf| cf.name() == COLUMN_BLOCK_ARCHIVE)
+            .map(|cf| cf.options.clone());
+        // Open exactly the existing physical families. A missing published family
+        // must be reported, never recreated as an empty replacement.
+        if config
+            .path
+            .join("CURRENT")
+            .try_exists()
+            .map_err(internal_error)?
+        {
+            let existing = rocksdb::DB::list_cf(&opts, &config.path).map_err(internal_error)?;
+            let templates: BTreeMap<_, _> = cf_descriptors
+                .into_iter()
+                .map(|cf| (cf.name().to_owned(), cf.options))
+                .collect();
+            cf_descriptors = existing
+                .into_iter()
+                .map(|name| {
+                    let logical = logical_name(&name).unwrap_or(&name);
+                    let options = templates.get(logical).cloned().unwrap_or_default();
+                    ColumnFamilyDescriptor::new(name, options)
+                })
+                .collect();
+        }
         let db = OptimisticTransactionDB::open_cf_descriptors(&opts, &config.path, cf_descriptors)
             .map_err(|err| internal_error(format!("failed to open database: {err}")))?;
 
@@ -112,8 +146,107 @@ impl RocksDB {
                 .map_err(|_| internal_error("failed to set database option"))?;
         }
 
-        Ok(RocksDB {
-            inner: Arc::new(db),
+        Self::from_native(
+            db,
+            payload_options,
+            archive_options,
+            config.options_file.is_none(),
+        )
+    }
+
+    fn from_native(
+        db: OptimisticTransactionDB,
+        options: BTreeMap<Col, Options>,
+        archive_options: Option<Options>,
+        batch_default_payload_cfs: bool,
+    ) -> Result<Self> {
+        let id = db
+            .get_pinned(GENERATION_KEY)
+            .map_err(internal_error)?
+            .map(|value| {
+                let bytes: [u8; 8] = value
+                    .as_ref()
+                    .try_into()
+                    .map_err(|_| internal_error("invalid freezer CF generation marker"))?;
+                Ok::<_, ckb_error::Error>(u64::from_le_bytes(bytes))
+            })
+            .transpose()?
+            .unwrap_or(0);
+        let missing_archive = archive_options
+            .as_ref()
+            .filter(|_| db.cf_handle(COLUMN_BLOCK_ARCHIVE).is_none());
+        if missing_archive.is_some() {
+            let meta = db
+                .cf_handle(COLUMN_META)
+                .ok_or_else(|| internal_error("missing metadata column"))?;
+            if id != 0
+                || db
+                    .get_pinned_cf(meta, META_ARCHIVE_NEXT_RECORD)
+                    .map_err(internal_error)?
+                    .is_some()
+            {
+                return Err(internal_error(
+                    "database is missing its published archive index column",
+                ));
+            }
+        }
+        // Validate the whole generation before transferring or retiring any handle.
+        for col in options.keys() {
+            if db.cf_handle(&physical_name(id, col)).is_none() {
+                return Err(internal_error(format!(
+                    "published freezer generation {id} is missing column {col}"
+                )));
+            }
+        }
+        let (inner, mut owned_columns) = db.into_shared_columns();
+        if let Some(options) = missing_archive {
+            // A node that has never archived needs only a new empty index CF.
+            // Published archive layouts were rejected above if this CF was lost.
+            let column = inner
+                .create_owned_cf(COLUMN_BLOCK_ARCHIVE, options)
+                .map_err(internal_error)?;
+            owned_columns.insert(COLUMN_BLOCK_ARCHIVE.to_owned(), column);
+        }
+        let mut columns = BTreeMap::new();
+        let mut retired = false;
+        for (name, owned) in owned_columns {
+            let Some(col) = logical_name(&name) else {
+                if name.starts_with("freezer.") {
+                    return Err(internal_error(format!(
+                        "invalid freezer column family name {name}"
+                    )));
+                }
+                columns.insert(name, owned);
+                continue;
+            };
+            if name == physical_name(id, col) {
+                columns.insert(col.to_owned(), owned);
+            } else {
+                // An unpublished copy or a partially retired generation from an
+                // interrupted collection has no readers after reopening.
+                fail::fail_point!("freezer-gc-recovery-before-drop", |_| Err(internal_error(
+                    "injected recovery failure before CF drop"
+                )));
+                owned.drop_from_database().map_err(internal_error)?;
+                retired = true;
+                fail::fail_point!("freezer-gc-recovery-after-drop", |_| Err(internal_error(
+                    "injected recovery failure after CF drop"
+                )));
+            }
+        }
+        if retired {
+            checkpoint_retirement(&inner)?;
+        }
+        Ok(Self {
+            inner,
+            routing: Arc::new(Routing {
+                current: RwLock::new(Arc::new(Generation { id, columns })),
+                options,
+                batch_default_payload_cfs,
+                gate: Arc::new(WriterGate::default()),
+                collector: Mutex::new(()),
+                retired: Mutex::new(Vec::new()),
+            }),
         })
     }
 
@@ -141,8 +274,13 @@ impl RocksDB {
         opts.create_missing_column_families(true);
         opts.set_prepare_for_bulk_load();
 
-        let cfnames: Vec<_> = (0..columns).map(|c| c.to_string()).collect();
-        let cf_options: Vec<&str> = cfnames.iter().map(|n| n as &str).collect();
+        let path = path.as_ref();
+        let cfnames: Vec<_> = if path.join("CURRENT").try_exists().map_err(internal_error)? {
+            rocksdb::DB::list_cf(&opts, path).map_err(internal_error)?
+        } else {
+            (0..columns).map(|c| c.to_string()).collect()
+        };
+        let cf_options: Vec<&str> = cfnames.iter().map(|n| n.as_str()).collect();
 
         OptimisticTransactionDB::open_cf(&opts, path, cf_options).map_or_else(
             |err| {
@@ -161,18 +299,56 @@ impl RocksDB {
                 }
             },
             |db| {
-                Ok(Some(RocksDB {
-                    inner: Arc::new(db),
-                }))
+                let options = PAYLOAD_COLUMNS
+                    .into_iter()
+                    .filter(|col| col.parse::<u32>().expect("numeric payload column") < columns)
+                    .map(|col| (col, Options::default()))
+                    .collect();
+                let archive_options = (COLUMN_BLOCK_ARCHIVE
+                    .parse::<u32>()
+                    .expect("numeric archive column")
+                    < columns)
+                    .then(Options::default);
+                Self::from_native(db, options, archive_options, false).map(Some)
             },
         )
+    }
+
+    /// Report whether an uncertain native publication requires reopening.
+    pub fn check_writable(&self) -> Result<()> {
+        self.routing.gate.check()
+    }
+
+    /// Retired physical generations still held by readers, iterators or values.
+    pub fn pinned_retired_generations(&self) -> usize {
+        self.collection_status().pinned_retired_generations
+    }
+
+    /// Sample collection resource occupancy without traversing stored records.
+    pub fn collection_status(&self) -> crate::CollectionStatus {
+        let (active_writers, writers_paused, dirty_bytes) = self.routing.gate.status();
+        let mut retired = self
+            .routing
+            .retired
+            .lock()
+            .expect("retired generations poisoned");
+        retired.retain(|(_, columns)| columns.iter().any(|column| column.strong_count() != 0));
+        crate::CollectionStatus {
+            active_writers,
+            writers_paused,
+            dirty_bytes,
+            pinned_retired_generations: retired.len(),
+            oldest_retired_age: retired
+                .first()
+                .map_or(std::time::Duration::ZERO, |(time, _)| time.elapsed()),
+        }
     }
 
     /// Return the value associated with a key using RocksDB's PinnableSlice from the given column
     /// so as to avoid unnecessary memory copy.
     pub fn get_pinned(&self, col: Col, key: &[u8]) -> Result<Option<DBPinnableSlice<'_>>> {
-        let cf = cf_handle(&self.inner, col)?;
-        self.inner.get_pinned_cf(cf, key).map_err(internal_error)
+        self.generation()
+            .get_pinned(col, key, &ReadOptions::default())
     }
 
     /// Return the value associated with a key using RocksDB's PinnableSlice from the default column
@@ -187,6 +363,8 @@ impl RocksDB {
         K: AsRef<[u8]>,
         V: AsRef<[u8]>,
     {
+        let permit = self.routing.gate.enter();
+        permit.check()?;
         self.inner.put(key, value).map_err(internal_error)
     }
 
@@ -195,11 +373,9 @@ impl RocksDB {
     where
         F: FnMut(&[u8], &[u8]) -> Result<()>,
     {
-        let cf = cf_handle(&self.inner, col)?;
-        let iter = self
-            .inner
-            .full_iterator_cf(cf, IteratorMode::Start)
-            .map_err(internal_error)?;
+        let mut options = ReadOptions::default();
+        options.set_total_order_seek(true);
+        let iter = self.iter_opt(col, IteratorMode::Start, &options)?;
         for (key, val) in iter {
             callback(&key, &val)?;
         }
@@ -219,11 +395,9 @@ impl RocksDB {
     {
         let mut count: usize = 0;
         let mut next_key: Vec<u8> = vec![];
-        let cf = cf_handle(&self.inner, col)?;
-        let iter = self
-            .inner
-            .full_iterator_cf(cf, mode)
-            .map_err(internal_error)?;
+        let mut options = ReadOptions::default();
+        options.set_total_order_seek(true);
+        let iter = self.iter_opt(col, mode, &options)?;
         for (key, val) in iter {
             if count > limit {
                 next_key = key.to_vec();
@@ -242,22 +416,59 @@ impl RocksDB {
         let mut transaction_options = OptimisticTransactionOptions::new();
         transaction_options.set_snapshot(true);
 
+        let permit = self.routing.gate.enter();
         RocksDBTransaction {
-            db: Arc::clone(&self.inner),
+            generation: self.generation(),
+            permit,
             inner: self.inner.transaction(&write_options, &transaction_options),
         }
     }
 
     /// Construct `RocksDBWriteBatch` with default option.
     pub fn new_write_batch(&self) -> RocksDBWriteBatch {
+        let permit = self.routing.gate.enter();
         RocksDBWriteBatch {
+            generation: self.generation(),
+            permit: Arc::new(permit),
             db: Arc::clone(&self.inner),
             inner: WriteBatch::default(),
         }
     }
 
+    /// Prepare and synchronize metadata against a view with all ordinary writers
+    /// drained. Returns false when the writer wait budget expires or `prepare`
+    /// defers the operation. The callback must use the supplied batch and must
+    /// not start another writer; returning false discards the prepared batch.
+    pub fn write_when_idle(
+        &self,
+        timeout: std::time::Duration,
+        prepare: impl FnOnce(&RocksDBSnapshot, &mut RocksDBWriteBatch) -> Result<bool>,
+    ) -> Result<bool> {
+        let _exclusive = self
+            .routing
+            .collector
+            .lock()
+            .expect("collector lock poisoned");
+        self.routing.gate.check()?;
+        let Ok(_pause) = self.routing.gate.pause(timeout) else {
+            return Ok(false);
+        };
+        let mut batch = RocksDBWriteBatch {
+            generation: self.generation(),
+            permit: Arc::new(self.routing.gate.enter_paused()),
+            db: Arc::clone(&self.inner),
+            inner: WriteBatch::default(),
+        };
+        if !prepare(&self.get_snapshot(), &mut batch)? {
+            return Ok(false);
+        }
+        self.write_sync(&batch)?;
+        Ok(true)
+    }
+
     /// Write batch into transaction db.
     pub fn write(&self, batch: &RocksDBWriteBatch) -> Result<()> {
+        self.check_batch(batch)?;
         self.inner.write(&batch.inner).map_err(internal_error)
     }
 
@@ -279,6 +490,7 @@ impl RocksDB {
     ///
     /// Default: false
     pub fn write_sync(&self, batch: &RocksDBWriteBatch) -> Result<()> {
+        self.check_batch(batch)?;
         let mut wo = WriteOptions::new();
         wo.set_sync(true);
         self.inner
@@ -299,17 +511,42 @@ impl RocksDB {
     ///
     /// CompactRange waits while compaction is performed on the background threads and thus is a blocking call.
     pub fn compact_range(&self, col: Col, start: Option<&[u8]>, end: Option<&[u8]>) -> Result<()> {
-        let cf = cf_handle(&self.inner, col)?;
+        let generation = self.generation();
+        let cf = generation.cf(col)?;
         self.inner.compact_range_cf(cf, start, end);
         Ok(())
     }
 
     /// Return `RocksDBSnapshot`.
     pub fn get_snapshot(&self) -> RocksDBSnapshot {
+        // Keep the route lock until the sequence number is captured. Publication
+        // cannot pair a new generation with an older database snapshot.
+        let generation = self
+            .routing
+            .current
+            .read()
+            .expect("generation lock poisoned");
         unsafe {
             let snapshot = ffi::rocksdb_create_snapshot(self.inner.base_db_ptr());
-            RocksDBSnapshot::new(&self.inner, snapshot)
+            RocksDBSnapshot::new(&self.inner, Arc::clone(&generation), snapshot)
         }
+    }
+
+    pub(crate) fn generation(&self) -> Arc<Generation> {
+        Arc::clone(
+            &self
+                .routing
+                .current
+                .read()
+                .expect("generation lock poisoned"),
+        )
+    }
+
+    fn check_batch(&self, batch: &RocksDBWriteBatch) -> Result<()> {
+        if !Arc::ptr_eq(&self.inner, &batch.db) {
+            return Err(internal_error("write batch belongs to another database"));
+        }
+        batch.permit.check()
     }
 
     /// Return rocksdb `OptimisticTransactionDB`.
@@ -317,33 +554,74 @@ impl RocksDB {
         Arc::clone(&self.inner)
     }
 
-    /// Create a new column family for the database.
+    /// Create a non-payload column family with exclusive access (used by migrations).
     pub fn create_cf(&mut self, col: Col) -> Result<()> {
-        let inner = Arc::get_mut(&mut self.inner)
-            .ok_or_else(|| internal_error("create_cf get_mut failed"))?;
-        let opts = Options::default();
-        inner.create_cf(col, &opts).map_err(internal_error)
+        if PAYLOAD_COLUMNS.contains(&col) {
+            return Err(internal_error(
+                "payload columns are managed by freezer generations",
+            ));
+        }
+        let routing = Arc::get_mut(&mut self.routing)
+            .ok_or_else(|| internal_error("create_cf requires an exclusive database"))?;
+        let generation = routing.current.get_mut().expect("generation lock poisoned");
+        let generation = Arc::get_mut(generation)
+            .ok_or_else(|| internal_error("create_cf requires released read views and writers"))?;
+        if generation.columns.contains_key(col) {
+            return Err(internal_error(format!("column {col} already exists")));
+        }
+        let column = self
+            .inner
+            .create_owned_cf(col, &Options::default())
+            .map_err(internal_error)?;
+        generation.columns.insert(col.to_owned(), column);
+        Ok(())
     }
 
-    /// Delete column family.
+    /// Drop a non-payload column family with exclusive access (used by migrations).
     pub fn drop_cf(&mut self, col: Col) -> Result<()> {
-        let inner = Arc::get_mut(&mut self.inner)
-            .ok_or_else(|| internal_error("drop_cf get_mut failed"))?;
-        inner.drop_cf(col).map_err(internal_error)
+        if PAYLOAD_COLUMNS.contains(&col) {
+            return Err(internal_error(
+                "payload columns are managed by freezer generations",
+            ));
+        }
+        let routing = Arc::get_mut(&mut self.routing)
+            .ok_or_else(|| internal_error("drop_cf requires an exclusive database"))?;
+        let generation = routing.current.get_mut().expect("generation lock poisoned");
+        let generation = Arc::get_mut(generation)
+            .ok_or_else(|| internal_error("drop_cf requires released read views and writers"))?;
+        let column = generation
+            .columns
+            .get(col)
+            .ok_or_else(|| internal_error(format!("column {col} not found")))?;
+        column.drop_from_database().map_err(internal_error)?;
+        generation.columns.remove(col);
+        checkpoint_retirement(&self.inner).inspect_err(|_| routing.gate.fail())
     }
 
     /// "rocksdb.estimate-num-keys" - returns estimated number of total keys in
     /// the active and unflushed immutable memtables and storage.
     pub fn estimate_num_keys_cf(&self, col: Col) -> Result<Option<u64>> {
-        let cf = cf_handle(&self.inner, col)?;
+        let generation = self.generation();
+        let cf = generation.cf(col)?;
         self.inner
             .property_int_value_cf(cf, PROPERTY_NUM_KEYS)
             .map_err(internal_error)
     }
-}
 
-#[inline]
-pub(crate) fn cf_handle(db: &OptimisticTransactionDB, col: Col) -> Result<&ColumnFamily> {
-    db.cf_handle(col)
-        .ok_or_else(|| internal_error(format!("column {col} not found")))
+    /// Read a property from each currently routed logical column family.
+    /// Logical labels remain stable when physical payload generations change.
+    pub fn property_int_values(&self, property: &str) -> Vec<(String, Result<Option<u64>>)> {
+        self.generation()
+            .columns
+            .iter()
+            .map(|(logical, column)| {
+                (
+                    logical.clone(),
+                    self.inner
+                        .property_int_value_cf(column, property)
+                        .map_err(internal_error),
+                )
+            })
+            .collect()
+    }
 }

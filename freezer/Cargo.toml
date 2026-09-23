@@ -4,7 +4,7 @@ version = "1.1.1"
 license = "MIT"
 authors = ["Nervos Core Dev <dev@nervos.org>"]
 edition = "2024"
-description = "Freezer is an memory mapped append-only database to store immutable chain data into flat files"
+description = "An append-only, checksummed LZ4 archive for immutable chain data"
 homepage = "https://github.com/nervosnetwork/ckb"
 repository = "https://github.com/nervosnetwork/ckb"
 rust-version = "1.95.0"
@@ -16,13 +16,22 @@ ckb-error.workspace = true
 ckb-logger.workspace = true
 ckb-util.workspace = true
 ckb-metrics.workspace = true
+sha2.workspace = true
 fs2.workspace = true
 fail.workspace = true
-snap.workspace = true
+lz4_flex.workspace = true
 lru.workspace = true
+tokio = { workspace = true, features = ["rt-multi-thread", "sync", "macros"] }
 
 [dev-dependencies]
 tempfile.workspace = true
+
+[target.'cfg(target_arch = "aarch64")'.dependencies]
+# Runtime feature detection retains a software fallback on older CPUs.
+sha2 = { workspace = true, features = ["asm"] }
+
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.61.2", features = ["Win32_Storage_FileSystem"] }
 
 [[test]]
 name = "failpoints"

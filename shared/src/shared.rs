@@ -5,16 +5,14 @@ use crate::{HeaderMap, Snapshot, SnapshotMgr};
 use arc_swap::{ArcSwap, Guard};
 use ckb_async_runtime::Handle;
 use ckb_chain_spec::consensus::Consensus;
-use ckb_constant::store::TX_INDEX_UPPER_BOUND;
 use ckb_constant::sync::MAX_TIP_AGE;
-use ckb_db::{Direction, IteratorMode};
-use ckb_db_schema::{COLUMN_BLOCK_BODY, COLUMN_NUMBER_HASH};
-use ckb_error::{AnyError, Error};
+use ckb_db_schema::{COLUMN_BLOCK_ARCHIVE, COLUMN_META, META_ARCHIVE_TIP};
+use ckb_error::{AnyError, Error, InternalErrorKind};
 use ckb_logger::debug;
 use ckb_notify::NotifyController;
 use ckb_proposal_table::ProposalView;
-use ckb_stop_handler::{new_crossbeam_exit_rx, register_thread};
-use ckb_store::{ChainDB, ChainStore};
+use ckb_stop_handler::{has_received_stop_signal, new_crossbeam_exit_rx, register_thread};
+use ckb_store::{ChainDB, ChainStore, FreezerController, FreezerServiceConfig};
 use ckb_systemtime::unix_time_as_millis;
 use ckb_tx_pool::{BlockTemplate, TokioRwLock, TxPoolController};
 use ckb_types::{
@@ -26,15 +24,14 @@ use ckb_types::{
 use ckb_util::{Mutex, MutexGuard, shrink_to_fit};
 use ckb_verification::cache::TxVerificationCache;
 use dashmap::DashMap;
-use std::cmp;
-use std::collections::BTreeMap;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::thread;
 use std::time::Duration;
 
 const FREEZER_INTERVAL: Duration = Duration::from_secs(60);
-const THRESHOLD_EPOCH: EpochNumber = 2;
+// Retain the current epoch and the preceding 100 complete epochs in the hot store.
+const THRESHOLD_EPOCH: EpochNumber = 100;
 const MAX_FREEZE_LIMIT: BlockNumber = 30_000;
 
 pub const SHRINK_THRESHOLD: usize = 300;
@@ -42,11 +39,15 @@ pub const SHRINK_THRESHOLD: usize = 300;
 /// An owned permission to close on a freezer thread
 pub struct FreezerClose {
     stopped: Arc<AtomicBool>,
+    stop: ckb_channel::Sender<()>,
+    finished: ckb_channel::Receiver<()>,
 }
 
 impl Drop for FreezerClose {
     fn drop(&mut self) {
         self.stopped.store(true, Ordering::SeqCst);
+        let _ = self.stop.try_send(());
+        let _ = self.finished.recv();
     }
 }
 
@@ -116,187 +117,284 @@ impl Shared {
             unverified_tip,
         }
     }
-    /// Spawn freeze background thread that periodically checks and moves ancient data from the kv database into the freezer.
+    /// Start the archiver; the close guard waits for accepted I/O and final sync.
     pub fn spawn_freeze(&self) -> Option<FreezerClose> {
-        if let Some(freezer) = self.store.freezer() {
-            ckb_logger::info!("Freezer enabled");
-            let signal_receiver = new_crossbeam_exit_rx();
-            let shared = self.clone();
-            let freeze_jh = thread::Builder::new()
-                .spawn(move || {
-                    loop {
-                        match signal_receiver.recv_timeout(FREEZER_INTERVAL) {
-                            Err(_) => {
-                                if let Err(e) = shared.freeze() {
-                                    ckb_logger::error!("Freezer error {}", e);
-                                    break;
-                                }
-                            }
-                            Ok(_) => {
-                                ckb_logger::info!("Freezer closing");
+        let freezer = self.store.freezer()?;
+        let controller = FreezerController::start(
+            freezer.clone(),
+            self.async_handle.clone().into_inner(),
+            FreezerServiceConfig::default(),
+        )
+        .expect("valid freezer service configuration");
+        let signal_receiver = new_crossbeam_exit_rx();
+        let (stop, stopping) = ckb_channel::bounded(1);
+        let (finished, done) = ckb_channel::bounded(1);
+        let shared = self.clone();
+        let stopped = Arc::clone(&freezer.stopped);
+        if let Some(metrics) = ckb_metrics::handle() {
+            metrics.ckb_freezer_state.set(1);
+            if let Some(raw) = self.store.get(COLUMN_META, META_ARCHIVE_TIP) {
+                let tip = packed::NumberHashReader::from_slice_should_be_ok(&raw);
+                let number: u64 = tip.number().into();
+                metrics
+                    .ckb_freezer_number
+                    .set(number.min(i64::MAX as u64) as i64);
+            }
+        }
+        let handle = thread::Builder::new()
+            .name("Freezer".to_owned())
+            .spawn(move || {
+                let mut failed = false;
+                loop {
+                    ckb_channel::select! {
+                        recv(signal_receiver) -> _ => break,
+                        recv(stopping) -> _ => break,
+                        default(FREEZER_INTERVAL) => {
+                            if let Err(error) = shared.freeze(&controller) {
+                                ckb_logger::error!("Freezer stopped after error: {error}");
+                                failed = true;
                                 break;
                             }
                         }
                     }
-                })
-                .expect("Start FreezerService failed");
-
-            register_thread("freeze", freeze_jh);
-
-            return Some(FreezerClose {
-                stopped: Arc::clone(&freezer.stopped),
-            });
-        }
-        None
+                }
+                if let Err(error) = shared.async_handle.block_on(controller.shutdown()) {
+                    ckb_logger::error!("Freezer shutdown failed: {error}");
+                    failed = true;
+                }
+                if let Some(metrics) = ckb_metrics::handle() {
+                    metrics.ckb_freezer_state.set(if failed { 4 } else { 0 });
+                }
+                let _ = finished.send(());
+            })
+            .expect("start freezer service");
+        register_thread("freeze", handle);
+        Some(FreezerClose {
+            stopped,
+            stop,
+            finished: done,
+        })
     }
 
-    fn freeze(&self) -> Result<(), Error> {
-        let freezer = self.store.freezer().expect("freezer inited");
+    fn freeze(&self, controller: &FreezerController) -> Result<(), Error> {
+        if let Some(metrics) = ckb_metrics::handle() {
+            metrics.ckb_freezer_state.set(2);
+        }
+        let indexed = self
+            .store
+            .recover_archive_with_cancel(|| self.freezer_stopping())?;
+        if indexed != self.store.freezer().expect("archive open").number()
+            || self.freezer_stopping()
+        {
+            self.report_freezer_idle();
+            return Ok(());
+        }
         let snapshot = self.snapshot();
         let current_epoch = snapshot.epoch_ext().number();
-
-        if self.is_initial_block_download() {
-            ckb_logger::trace!("is_initial_block_download freeze skip");
+        if self.is_initial_block_download() || current_epoch <= THRESHOLD_EPOCH {
+            if let Some(metrics) = ckb_metrics::handle() {
+                metrics.ckb_freezer_backlog.set(0);
+            }
+            self.report_freezer_idle();
             return Ok(());
         }
-
-        if current_epoch <= THRESHOLD_EPOCH {
-            ckb_logger::trace!("Freezer idles");
-            return Ok(());
-        }
-
-        let limit_block_hash = snapshot
-            .get_epoch_index(current_epoch + 1 - THRESHOLD_EPOCH)
+        let limit_hash = snapshot
+            .get_epoch_index(current_epoch - THRESHOLD_EPOCH)
             .and_then(|index| snapshot.get_epoch_ext(&index))
-            .expect("get_epoch_ext")
+            .expect("epoch exists")
             .last_block_hash_in_previous_epoch();
-
-        let frozen_number = freezer.number();
-
-        let threshold = cmp::min(
-            snapshot
-                .get_block_number(&limit_block_hash)
-                .expect("get_block_number"),
-            frozen_number + MAX_FREEZE_LIMIT,
+        let limit = snapshot
+            .get_block_number(&limit_hash)
+            .expect("epoch boundary exists");
+        self.archive_through(controller, &snapshot, limit)?;
+        drop(snapshot);
+        ckb_logger::debug!(
+            "Freezer I/O {:?}; collection {:?}",
+            controller.status(),
+            self.store.db().collection_status()
         );
-
-        ckb_logger::trace!(
-            "Freezer current_epoch {} number {} threshold {}",
-            current_epoch,
-            frozen_number,
-            threshold
-        );
-
-        let store = self.store();
-        let get_unfrozen_block = |number: BlockNumber| {
-            store
-                .get_block_hash(number)
-                .and_then(|hash| store.get_unfrozen_block(&hash))
-        };
-
-        let ret = freezer.freeze(threshold, get_unfrozen_block)?;
-
-        let stopped = freezer.stopped.load(Ordering::SeqCst);
-
-        // Wipe out frozen data
-        self.wipe_out_frozen_data(&snapshot, ret, stopped)?;
-
-        ckb_logger::trace!("Freezer completed");
-
-        Ok(())
-    }
-
-    fn wipe_out_frozen_data(
-        &self,
-        snapshot: &Snapshot,
-        frozen: BTreeMap<packed::Byte32, (BlockNumber, u32)>,
-        stopped: bool,
-    ) -> Result<(), Error> {
-        let mut side = BTreeMap::new();
-        let mut batch = self.store.new_write_batch();
-
-        ckb_logger::trace!("freezer wipe_out_frozen_data {} ", frozen.len());
-
-        if !frozen.is_empty() {
-            // remain header
-            for (hash, (number, txs)) in &frozen {
-                batch.delete_block_body(*number, hash, *txs).map_err(|e| {
-                    ckb_logger::error!("Freezer delete_block_body failed {}", e);
-                    e
-                })?;
-
-                let pack_number: packed::Uint64 = number.into();
-                let prefix = pack_number.as_slice();
-                for (key, value) in snapshot
-                    .get_iter(
-                        COLUMN_NUMBER_HASH,
-                        IteratorMode::From(prefix, Direction::Forward),
-                    )
-                    .take_while(|(key, _)| key.starts_with(prefix))
-                {
-                    let reader = packed::NumberHashReader::from_slice_should_be_ok(key.as_ref());
-                    let block_hash = reader.block_hash().to_entity();
-                    if &block_hash != hash {
-                        let txs =
-                            packed::Uint32Reader::from_slice_should_be_ok(value.as_ref()).into();
-                        side.insert(block_hash, (reader.number().to_entity(), txs));
+        if !self.freezer_stopping() && self.store.archive_collection_due()? {
+            if let Some(metrics) = ckb_metrics::handle() {
+                metrics.ckb_freezer_state.set(3);
+            }
+            match self.store.collect_archive_with_cancel(
+                &Default::default(),
+                || self.freezer_stopping(),
+                || self.refresh_snapshot(),
+            ) {
+                Ok(stats) => {
+                    if let Some(metrics) = ckb_metrics::handle() {
+                        metrics
+                            .ckb_freezer_collection_total
+                            .with_label_values(&["success"])
+                            .inc();
                     }
+                    ckb_logger::info!(
+                        "Freezer collection {:?}; retention {:?}",
+                        stats,
+                        self.store.db().collection_status()
+                    );
+                }
+                Err(error) => {
+                    use ckb_db::CollectionAbort;
+                    let outcome = match CollectionAbort::from_error(&error) {
+                        Some(CollectionAbort::Cancelled) => "cancelled",
+                        Some(CollectionAbort::RetainedReaders) => "retained_readers",
+                        Some(CollectionAbort::WriterWait) => "writer_wait",
+                        Some(CollectionAbort::DirtyKeys) => "dirty_keys",
+                        Some(CollectionAbort::Reconciliation) => "reconciliation",
+                        _ => "error",
+                    };
+                    if let Some(metrics) = ckb_metrics::handle() {
+                        metrics
+                            .ckb_freezer_collection_total
+                            .with_label_values(&[outcome])
+                            .inc();
+                    }
+                    ckb_logger::warn!(
+                        "Freezer collection deferred: {error}; {:?}",
+                        self.store.db().collection_status()
+                    );
+                    self.store.db().check_writable()?;
                 }
             }
-            self.store.write_sync(&batch).map_err(|e| {
-                ckb_logger::error!("Freezer write_batch delete failed {}", e);
-                e
-            })?;
-            batch.clear()?;
-
-            if !stopped {
-                let start = frozen.keys().min().expect("frozen empty checked");
-                let end = frozen.keys().max().expect("frozen empty checked");
-                self.compact_block_body(start, end);
-            }
         }
-
-        if !side.is_empty() {
-            // Wipe out side chain
-            for (hash, (number, txs)) in &side {
-                batch.delete_block(number.into(), hash, *txs).map_err(|e| {
-                    ckb_logger::error!("Freezer delete_block_body failed {}", e);
-                    e
-                })?;
-            }
-
-            self.store.write(&batch).map_err(|e| {
-                ckb_logger::error!("Freezer write_batch delete failed {}", e);
-                e
-            })?;
-
-            if !stopped {
-                let start = side.keys().min().expect("side empty checked");
-                let end = side.keys().max().expect("side empty checked");
-                self.compact_block_body(start, end);
-            }
-        }
+        self.report_freezer_idle();
         Ok(())
     }
 
-    fn compact_block_body(&self, start: &packed::Byte32, end: &packed::Byte32) {
-        let start_t = packed::TransactionKey::new_builder()
-            .block_hash(start.clone())
-            .index(0u32)
-            .build();
-
-        let end_t = packed::TransactionKey::new_builder()
-            .block_hash(end.clone())
-            .index(TX_INDEX_UPPER_BOUND)
-            .build();
-
-        if let Err(e) = self.store.compact_range(
-            COLUMN_BLOCK_BODY,
-            Some(start_t.as_slice()),
-            Some(end_t.as_slice()),
-        ) {
-            ckb_logger::error!("Freezer compact_range {}-{} error {}", start, end, e);
+    fn report_freezer_idle(&self) {
+        if let Some(metrics) = ckb_metrics::handle() {
+            let status = self.store.db().collection_status();
+            metrics.ckb_freezer_state.set(1);
+            metrics
+                .ckb_freezer_retired_generations
+                .set(status.pinned_retired_generations as i64);
+            metrics
+                .ckb_freezer_oldest_retired_seconds
+                .set(status.oldest_retired_age.as_secs().min(i64::MAX as u64) as i64);
         }
+    }
+
+    fn freezer_stopping(&self) -> bool {
+        has_received_stop_signal()
+            || self
+                .store
+                .freezer()
+                .expect("archive open")
+                .stopped
+                .load(Ordering::SeqCst)
+    }
+
+    fn archive_through(
+        &self,
+        controller: &FreezerController,
+        snapshot: &Snapshot,
+        limit: BlockNumber,
+    ) -> Result<(), Error> {
+        let cursor = self.store.get(COLUMN_META, META_ARCHIVE_TIP).map(|raw| {
+            packed::NumberHashReader::from_slice_should_be_ok(&raw)
+                .block_hash()
+                .to_entity()
+        });
+        let mut previous = cursor.and_then(|hash| snapshot.get_block_header(&hash));
+        // Hash-addressed records remain valid on an old branch. Walk its headers
+        // to the canonical fork and continue; no archive file is truncated.
+        while let Some(header) = &previous {
+            if self.freezer_stopping() {
+                return Ok(());
+            }
+            if snapshot.get_block_hash(header.number()).as_ref() == Some(&header.hash()) {
+                break;
+            }
+            previous = snapshot.get_block_header(&header.parent_hash());
+        }
+        let start = previous.map_or(1, |header| header.number().saturating_add(1));
+        if let Some(metrics) = ckb_metrics::handle() {
+            metrics.ckb_freezer_backlog.set(
+                limit
+                    .saturating_sub(start.saturating_sub(1))
+                    .min(i64::MAX as u64) as i64,
+            );
+        }
+        let end = limit.min(start.saturating_add(MAX_FREEZE_LIMIT - 1));
+        let mut pending = Vec::new();
+        let mut bytes = 0;
+        let mut progress = None;
+        for number in start..=end {
+            if self.freezer_stopping() {
+                break;
+            }
+            let hash = snapshot.get_block_hash(number).ok_or_else(|| {
+                InternalErrorKind::DataCorrupted.other("canonical archive block is missing")
+            })?;
+            if snapshot
+                .get_block_ext(&hash)
+                .is_none_or(|ext| ext.verified != Some(true))
+            {
+                break;
+            }
+            if snapshot
+                .get(COLUMN_BLOCK_ARCHIVE, hash.as_slice())
+                .is_none()
+            {
+                let block = snapshot.get_block(&hash).ok_or_else(|| {
+                    InternalErrorKind::DataCorrupted.other("verified archive body is missing")
+                })?;
+                let data = block.data();
+                if !pending.is_empty()
+                    && (pending.len() == 512 || bytes + data.as_slice().len() > 16 << 20)
+                {
+                    if !self.commit_archive_batch(
+                        controller,
+                        std::mem::take(&mut pending),
+                        progress.take(),
+                        limit,
+                    )? {
+                        return Ok(());
+                    }
+                    bytes = 0;
+                }
+                bytes += data.as_slice().len();
+                pending.push(data);
+            }
+            progress = Some((number, hash));
+        }
+        self.commit_archive_batch(controller, pending, progress, limit)?;
+        Ok(())
+    }
+
+    fn commit_archive_batch(
+        &self,
+        controller: &FreezerController,
+        blocks: Vec<packed::Block>,
+        progress: Option<(u64, packed::Byte32)>,
+        limit: BlockNumber,
+    ) -> Result<bool, Error> {
+        if !blocks.is_empty() {
+            self.async_handle.block_on(controller.append(blocks))?;
+            let indexed = self
+                .store
+                .recover_archive_with_cancel(|| self.freezer_stopping())?;
+            if indexed != controller.number() {
+                return Ok(false);
+            }
+        }
+        if let Some((number, hash)) = progress {
+            self.store.set_archive_tip(number, hash)?;
+            if let Some(metrics) = ckb_metrics::handle() {
+                metrics
+                    .ckb_freezer_number
+                    .set(number.min(i64::MAX as u64) as i64);
+                metrics
+                    .ckb_freezer_backlog
+                    .set(limit.saturating_sub(number).min(i64::MAX as u64) as i64);
+                metrics
+                    .ckb_freezer_last_progress_timestamp
+                    .set((unix_time_as_millis() / 1000).min(i64::MAX as u64) as i64);
+            }
+        }
+        Ok(true)
     }
 
     /// Returns a reference to the transaction pool controller.
@@ -475,3 +573,6 @@ impl Shared {
         Arc::clone(&self.assume_valid_target_specified)
     }
 }
+
+#[cfg(test)]
+mod freezer_tests;

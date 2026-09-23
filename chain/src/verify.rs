@@ -316,8 +316,9 @@ impl ConsumeUnverifiedBlockProcessor {
         let epoch = next_block_epoch.epoch();
 
         let db_txn = Arc::new(self.shared.store().begin_transaction());
-        let txn_snapshot = db_txn.get_snapshot();
-        let _snapshot_tip_hash = db_txn.get_update_for_tip_hash(&txn_snapshot);
+        // Register the tip read at the transaction's snapshot sequence, then
+        // release that view before later rollback or commit can invalidate it.
+        db_txn.get_update_for_tip_hash(&db_txn.get_snapshot());
 
         db_txn.insert_block_epoch_index(
             &block.header().hash(),

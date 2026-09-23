@@ -120,6 +120,32 @@ fn snapshot_isolation() {
 }
 
 #[test]
+fn transaction_snapshot_requires_the_same_database() {
+    let first = tempfile::tempdir().unwrap();
+    let second = tempfile::tempdir().unwrap();
+    let db = RocksDB::open_in(first.path(), 2);
+    let other = RocksDB::open_in(second.path(), 2);
+    let txn = db.transaction();
+    let other_txn = other.transaction();
+    let foreign = other_txn.get_snapshot();
+    assert!(txn.get_for_update("0", b"key", &foreign).is_err());
+
+    let same_db_txn = db.transaction();
+    let snapshot = same_db_txn.get_snapshot();
+    assert!(
+        txn.get_for_update("0", b"key", &snapshot)
+            .unwrap()
+            .is_none()
+    );
+    txn.put("0", b"key", b"value").unwrap();
+    txn.commit().unwrap();
+    assert_eq!(
+        db.get_pinned("0", b"key").unwrap().unwrap().as_ref(),
+        b"value"
+    );
+}
+
+#[test]
 fn write_and_partial_read() {
     let db = setup_db("write_and_partial_read", 2);
 

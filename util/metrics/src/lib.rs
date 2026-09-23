@@ -92,6 +92,18 @@ pub struct Metrics {
     pub ckb_freezer_read: IntCounter,
     /// Gauge for tracking the number of ckb_freezer
     pub ckb_freezer_number: IntGauge,
+    /// 0 stopped/disabled, 1 idle, 2 archiving, 3 collecting, 4 failed.
+    pub ckb_freezer_state: IntGauge,
+    /// Eligible canonical heights remaining in the last archival pass.
+    pub ckb_freezer_backlog: IntGauge,
+    /// Unix seconds at the last successful archive cursor advancement.
+    pub ckb_freezer_last_progress_timestamp: IntGauge,
+    /// Collection outcomes with a fixed, bounded set of reason labels.
+    pub ckb_freezer_collection_total: IntCounterVec,
+    /// Retired generations still held by readers at the last status update.
+    pub ckb_freezer_retired_generations: IntGauge,
+    /// Age in seconds of the oldest retained generation at the last update.
+    pub ckb_freezer_oldest_retired_seconds: IntGauge,
     /// Counter for relay transaction short id collide
     pub ckb_relay_transaction_short_id_collide: IntCounter,
     /// Gauge for pending transaction verification results waiting for relay
@@ -219,9 +231,15 @@ static METRICS: std::sync::LazyLock<Metrics> = std::sync::LazyLock::new(|| {
         )
                 .unwrap()
         ),
-    ckb_freezer_size: register_int_gauge!("ckb_freezer_size", "The CKB freezer size").unwrap(),
+    ckb_freezer_size: register_int_gauge!("ckb_freezer_size", "Committed archive data and index bytes, excluding pending appends and filesystem overhead").unwrap(),
     ckb_freezer_read: register_int_counter!("ckb_freezer_read", "The CKB freezer read").unwrap(),
     ckb_freezer_number: register_int_gauge!("ckb_freezer_number", "The CKB freezer number").unwrap(),
+    ckb_freezer_state: register_int_gauge!("ckb_freezer_state", "Freezer state: 0 stopped or disabled, 1 idle, 2 archiving, 3 collecting, 4 failed").unwrap(),
+    ckb_freezer_backlog: register_int_gauge!("ckb_freezer_backlog", "Eligible canonical heights remaining in the last archive pass").unwrap(),
+    ckb_freezer_last_progress_timestamp: register_int_gauge!("ckb_freezer_last_progress_timestamp", "Unix seconds of the last successful archive cursor advancement in this process").unwrap(),
+    ckb_freezer_collection_total: register_int_counter_vec!("ckb_freezer_collection_total", "Collection attempts by outcome", &["outcome"]).unwrap(),
+    ckb_freezer_retired_generations: register_int_gauge!("ckb_freezer_retired_generations", "Retired generations pinned at the last Freezer status update").unwrap(),
+    ckb_freezer_oldest_retired_seconds: register_int_gauge!("ckb_freezer_oldest_retired_seconds", "Age of the oldest pinned generation at the last Freezer status update").unwrap(),
     ckb_relay_transaction_short_id_collide: register_int_counter!(
         "ckb_relay_transaction_short_id_collide",
         "The CKB relay transaction short id collide"

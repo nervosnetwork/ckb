@@ -302,6 +302,20 @@ impl TransactionView {
     define_cache_getter!(hash, Byte32);
     define_cache_getter!(witness_hash, Byte32);
 
+    /// Construct a view with previously verified hashes, without hashing again.
+    /// The caller must ensure both hashes correspond to `data`.
+    pub fn new_unchecked(
+        data: packed::Transaction,
+        hash: packed::Byte32,
+        witness_hash: packed::Byte32,
+    ) -> Self {
+        Self {
+            data,
+            hash,
+            witness_hash,
+        }
+    }
+
     /// Gets `raw.version`.
     pub fn version(&self) -> Version {
         self.data().raw().version().into()
@@ -580,6 +594,18 @@ impl UncleBlockVecView {
         let data = self.data().get(index).should_be_ok();
         let hash = self.hashes().get(index).should_be_ok();
         UncleBlockView { data, hash }
+    }
+}
+
+impl From<packed::UncleBlockVec> for UncleBlockVecView {
+    fn from(data: packed::UncleBlockVec) -> Self {
+        let hashes = data
+            .as_reader()
+            .iter()
+            .map(|uncle| uncle.calc_header_hash())
+            .collect::<Vec<_>>()
+            .into();
+        Self { data, hashes }
     }
 }
 

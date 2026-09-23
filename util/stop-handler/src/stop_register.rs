@@ -10,8 +10,8 @@ struct CkbServiceHandles {
 
 /// Wait all ckb services exit
 pub fn wait_all_ckb_services_exit() {
-    info!("Waiting exit signal...");
     let exit_signal = new_crossbeam_exit_rx();
+    info!("Waiting exit signal...");
     let _ = exit_signal.recv();
     let mut handles = CKB_HANDLES.lock();
     debug!("wait_all_ckb_services_exit waiting all threads to exit");

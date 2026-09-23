@@ -3,6 +3,7 @@
 //! This Library contains the `ChainStore` traits
 //! which provides chain data store interface
 
+mod archive;
 mod cache;
 mod cell;
 pub mod data_loader_wrapper;
@@ -23,4 +24,4 @@ pub use store::ChainStore;
 pub use transaction::StoreTransaction;
 pub use write_batch::StoreWriteBatch;
 
-pub use ckb_freezer::Freezer;
+pub use ckb_freezer::{Freezer, FreezerController, FreezerServiceConfig};

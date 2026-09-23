@@ -282,7 +282,7 @@ rayon = "1.0"
 regex = "1.1.6"
 reqwest = { version = "0.12", features = ["blocking", "json"] }
 rhai = "1.16.0"
-rocksdb = { version = "=0.21.1", package = "ckb-rocksdb", default-features = false }
+rocksdb = { git = "https://github.com/nervosnetwork/ckb-rocksdb.git", rev = "f7cb93c81e5e9abbdb630db3df0f4cdf4d7d0412", version = "=1.0.0", package = "ckb-rocksdb", default-features = false, features = ["snappy", "lz4"] }
 rustc-hash = "1.1"
 secio = { version = "0.6.8", package = "tentacle-secio" }
 secp256k1 = "0.30"
@@ -294,6 +294,7 @@ serde_plain = "0.3.0"
 slab = "0.4"
 sled = "0.34.7"
 snap = "1"
+lz4_flex = { version = "0.13.1", default-features = false, features = ["std", "safe-encode", "safe-decode", "checked-decode"] }
 sql-builder = "3.1"
 sqlx = "0.8.2"
 subtle = "2.6"

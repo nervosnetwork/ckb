@@ -19,6 +19,9 @@ fn test_basic() {
             .unwrap();
     }
 
+    drop(recent_reject);
+    let mut recent_reject = RecentReject::build(tmp_dir.path(), shard_num, limit, ttl).unwrap();
+
     for i in 0..80u64 {
         let key = Byte32::new(blake2b_256(i.to_le_bytes()));
         let reject: ckb_jsonrpc_types::PoolTransactionReject =

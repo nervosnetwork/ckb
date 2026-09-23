@@ -21,10 +21,18 @@ ckb-app-config.workspace = true
 ckb-db-schema.workspace = true
 ckb-freezer.workspace = true
 ckb-merkle-mountain-range.workspace = true
+fail.workspace = true
 
 [dev-dependencies]
+tokio = { workspace = true, features = ["rt-multi-thread", "sync"] }
 tempfile.workspace = true
 
 [features]
+legacy-db-test = []
 portable = ["ckb-db/portable"]
 march-native = ["ckb-db/march-native"]
+
+[[test]]
+name = "archive_failpoints"
+path = "tests/archive_failpoints.rs"
+required-features = ["fail/failpoints"]

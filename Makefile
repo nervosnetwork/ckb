@@ -32,6 +32,12 @@ cli-test: prod # Run ckb command line usage bats test
 test: ## Run all tests, including some tests can be time-consuming to execute (tagged with [ignore])
 	cargo nextest run ${VERBOSE} --features ${CKB_FEATURES} --workspace --no-fail-fast --hide-progress-bar --success-output immediate-final --failure-output immediate-final --run-ignored all
 	$(MAKE) doc-test
+	$(MAKE) test-freezer-recovery
+
+.PHONY: test-freezer-recovery
+test-freezer-recovery: ## Run Freezer interruption and process-kill recovery tests
+	cargo test --locked -p ckb-db -p ckb-freezer -p ckb-store --features fail/failpoints \
+		--test collect_failpoints --test failpoints --test archive_failpoints
 
 .PHONY: quick-test
 quick-test: ## Run all tests, excluding some tests can be time-consuming to execute (tagged with [ignore])

@@ -216,6 +216,10 @@ max_tx_verify_cycles = 70_000_000
 max_ancestors_count = 25
 
 [store]
+# Enable historical block archiving. Once enabled for this database, it cannot be disabled.
+# Keep this set to true on every subsequent start, even before any blocks are archived.
+# The current epoch and the preceding 100 complete epochs remain in the hot database.
+# freezer_enable = false
 header_cache_size          = 4096
 cell_data_cache_size       = 128
 block_proposals_cache_size = 30

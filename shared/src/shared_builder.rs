@@ -373,19 +373,8 @@ impl SharedBuilder {
         let sync_config = sync_config.unwrap_or_default();
         let consensus = Arc::new(consensus);
 
-        let header_map_memory_limit = sync_config.header_map.memory_limit.as_u64() as usize;
-
-        let ibd_finished = Arc::new(AtomicBool::new(false));
-
-        let header_map = Arc::new(HeaderMap::new(
-            header_map_tmp_dir,
-            header_map_memory_limit,
-            &async_handle,
-            Arc::clone(&ibd_finished),
-        ));
-
-        let notify_controller = start_notify_service(notify_config, async_handle.clone());
-
+        // Validate and recover storage before spawning services that wait for a
+        // process exit signal, which is not installed on a failed startup.
         let store = build_store(db, store_config, ancient_path).map_err(|e| {
             eprintln!("build_store {e}");
             ExitCode::Failure
@@ -400,6 +389,16 @@ impl SharedBuilder {
             })?;
         let snapshot = Arc::new(snapshot);
         let snapshot_mgr = Arc::new(SnapshotMgr::new(Arc::clone(&snapshot)));
+
+        let header_map_memory_limit = sync_config.header_map.memory_limit.as_u64() as usize;
+        let ibd_finished = Arc::new(AtomicBool::new(false));
+        let header_map = Arc::new(HeaderMap::new(
+            header_map_tmp_dir,
+            header_map_memory_limit,
+            &async_handle,
+            Arc::clone(&ibd_finished),
+        ));
+        let notify_controller = start_notify_service(notify_config, async_handle.clone());
 
         let (sender, receiver) = ckb_channel::unbounded();
 
@@ -530,14 +529,43 @@ fn build_store(
     store_config: StoreConfig,
     ancient_path: Option<PathBuf>,
 ) -> Result<ChainDB, Error> {
-    let store = if let (true, Some(ancient_path)) = (store_config.freezer_enable, ancient_path) {
-        let freezer = Freezer::open(ancient_path)?;
-        ChainDB::new_with_freezer(db, freezer, store_config)
-    } else {
-        ChainDB::new(db, store_config)
+    use ckb_db_schema::{COLUMN_META, META_ARCHIVE_NEXT_RECORD};
+    let requires_archive = db
+        .get_pinned(COLUMN_META, META_ARCHIVE_NEXT_RECORD)?
+        .is_some();
+    let archive_file_exists = |name: &str| {
+        ancient_path
+            .as_ref()
+            .map_or(Ok(false), |path| path.join(name).try_exists())
+            .map_err(|error| InternalErrorKind::System.other(error))
     };
+    let archive_exists = archive_file_exists("COMMIT")?;
+    if !store_config.freezer_enable {
+        // The file commit also covers activation interrupted before the database
+        // cursor was written, and empty archives opened by an earlier version.
+        let archive_started = archive_exists || archive_file_exists("INDEX")?;
+        if requires_archive || archive_started {
+            return Err(InternalErrorKind::Config
+                .other("Freezer cannot be disabled once enabled; set store.freezer_enable = true")
+                .into());
+        }
+        return Ok(ChainDB::new(db, store_config));
+    }
+    let ancient_path = ancient_path
+        .ok_or_else(|| InternalErrorKind::Config.other("Freezer requires an archive directory"))?;
+    if requires_archive && !archive_exists {
+        return Err(InternalErrorKind::DataCorrupted
+            .other("database requires its committed archive directory")
+            .into());
+    }
+    let freezer = Freezer::open(ancient_path)?;
+    let store = ChainDB::new_with_freezer(db, freezer, store_config);
+    store.recover_archive()?;
     Ok(store)
 }
+
+#[cfg(test)]
+mod freezer_startup_tests;
 
 fn register_tx_pool_callback(
     tx_pool_builder: &mut TxPoolServiceBuilder,

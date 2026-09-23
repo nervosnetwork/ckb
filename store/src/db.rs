@@ -27,9 +27,58 @@ pub struct ChainDB {
     db: RocksDB,
     freezer: Option<Freezer>,
     cache: Arc<StoreCache>,
+    pub(crate) archive_writer: Arc<ckb_util::Mutex<()>>,
+    pub(crate) archive_commit: Arc<ckb_util::Mutex<()>>,
 }
 
 impl ChainStore for ChainDB {
+    // Multi-key reads need one sequence and one CF generation. Capturing a short
+    // store snapshot also covers an archive publication between lookup and body.
+    fn get_block(&self, hash: &packed::Byte32) -> Option<ckb_types::core::BlockView> {
+        self.get_snapshot().get_block(hash)
+    }
+
+    fn get_block_body(&self, hash: &packed::Byte32) -> Vec<TransactionView> {
+        self.get_snapshot().get_block_body(hash)
+    }
+
+    fn get_block_txs_hashes(&self, hash: &packed::Byte32) -> Vec<packed::Byte32> {
+        self.get_snapshot().get_block_txs_hashes(hash)
+    }
+
+    fn get_block_uncles(
+        &self,
+        hash: &packed::Byte32,
+    ) -> Option<ckb_types::core::UncleBlockVecView> {
+        self.get_snapshot().get_block_uncles(hash)
+    }
+
+    fn get_block_proposal_txs_ids(
+        &self,
+        hash: &packed::Byte32,
+    ) -> Option<packed::ProposalShortIdVec> {
+        self.get_snapshot().get_block_proposal_txs_ids(hash)
+    }
+
+    fn get_block_extension(&self, hash: &packed::Byte32) -> Option<packed::Bytes> {
+        self.get_snapshot().get_block_extension(hash)
+    }
+
+    fn get_cellbase(&self, hash: &packed::Byte32) -> Option<TransactionView> {
+        self.get_snapshot().get_cellbase(hash)
+    }
+
+    fn get_transaction_with_info(
+        &self,
+        hash: &packed::Byte32,
+    ) -> Option<(TransactionView, ckb_types::core::TransactionInfo)> {
+        self.get_snapshot().get_transaction_with_info(hash)
+    }
+
+    fn get_packed_block(&self, hash: &packed::Byte32) -> Option<packed::Block> {
+        self.get_snapshot().get_packed_block(hash)
+    }
+
     fn cache(&self) -> Option<&StoreCache> {
         Some(&self.cache)
     }
@@ -75,6 +124,8 @@ impl ChainDB {
             db,
             freezer: None,
             cache: Arc::new(cache),
+            archive_writer: Arc::new(ckb_util::Mutex::new(())),
+            archive_commit: Arc::new(ckb_util::Mutex::new(())),
         }
     }
 
@@ -85,6 +136,8 @@ impl ChainDB {
             db,
             freezer: Some(freezer),
             cache: Arc::new(cache),
+            archive_writer: Arc::new(ckb_util::Mutex::new(())),
+            archive_commit: Arc::new(ckb_util::Mutex::new(())),
         }
     }
 
@@ -123,7 +176,7 @@ impl ChainDB {
         StoreTransaction {
             inner: self.db.transaction(),
             freezer: self.freezer.clone(),
-            cache: Arc::clone(&self.cache),
+            archive_commit: Arc::clone(&self.archive_commit),
         }
     }
 
@@ -140,19 +193,21 @@ impl ChainDB {
     pub fn new_write_batch(&self) -> StoreWriteBatch {
         StoreWriteBatch {
             inner: self.db.new_write_batch(),
+            store: self.clone(),
+            payload: Vec::new(),
         }
     }
 
     /// Write batch into chain db.
     pub fn write(&self, write_batch: &StoreWriteBatch) -> Result<(), Error> {
-        self.db.write(&write_batch.inner)
+        write_batch.commit(&self.db, false)
     }
 
     /// write options set_sync = true
     ///
     /// see [`RocksDB::write_sync`](ckb_db::RocksDB::write_sync).
     pub fn write_sync(&self, write_batch: &StoreWriteBatch) -> Result<(), Error> {
-        self.db.write_sync(&write_batch.inner)
+        write_batch.commit(&self.db, true)
     }
 
     /// Force the data to go through the compaction in order to consolidate it
