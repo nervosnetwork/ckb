@@ -11,12 +11,7 @@ use std::{
     fs::OpenOptions,
     io::{BufWriter, Read as _, Write as _},
     path::{Path, PathBuf},
-    sync::{
-        Arc,
-        atomic::{AtomicBool, Ordering},
-    },
 };
-use tokio::sync::Notify;
 
 pub(crate) const VERSION: u32 = 2;
 const LEGACY_VERSION: u32 = 1;
@@ -28,57 +23,6 @@ pub(crate) struct PersistenceSnapshot {
     /// Accepted replay prefix; raw bodies cannot reconstruct all ordering constraints.
     pub(crate) accepted: Vec<TransactionView>,
     pub(crate) recovery: Vec<TransactionView>,
-}
-
-/// Serializes immutable snapshot ownership without an async lock guard.
-///
-/// Acquisition itself may wait, but the returned lease is moved into the
-/// blocking writer before the async caller awaits its join handle. At most one
-/// request can therefore copy and retain a full pool snapshot at a time,
-/// preserving the original memory/backpressure bound without holding a state
-/// lock across `.await`.
-#[derive(Default)]
-pub(crate) struct PersistenceWriter {
-    active: AtomicBool,
-    available: Notify,
-}
-
-impl PersistenceWriter {
-    pub(crate) async fn acquire(self: &Arc<Self>) -> PersistenceLease {
-        loop {
-            let available = self.available.notified();
-            tokio::pin!(available);
-            available.as_mut().enable();
-            if self
-                .active
-                .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
-                .is_ok()
-            {
-                return PersistenceLease {
-                    writer: Arc::clone(self),
-                };
-            }
-            available.await;
-        }
-    }
-}
-
-/// Unique right to materialize and write one persistence snapshot.
-pub(crate) struct PersistenceLease {
-    writer: Arc<PersistenceWriter>,
-}
-
-impl PersistenceLease {
-    pub(crate) fn write(self, base: &Path, snapshot: PersistenceSnapshot) -> Result<(), AnyError> {
-        write_snapshot(base, snapshot)
-    }
-}
-
-impl Drop for PersistenceLease {
-    fn drop(&mut self) {
-        self.writer.active.store(false, Ordering::Release);
-        self.writer.available.notify_one();
-    }
 }
 
 impl PersistenceSnapshot {

@@ -23,7 +23,7 @@ use crate::{
     block_assembler::{BlockAssembler, BoundedCandidateUncle},
     component::recent_reject::RecentReject,
     error::Reject,
-    persisted::{PersistenceSnapshot, PersistenceWriter},
+    persisted::{PersistenceSnapshot, write_snapshot},
     service::{
         BoundedTransaction, ChainControl, ChainReorgArgs, LocalRemovalCompetingProgress, Request,
         TxVerificationResult, respond,
@@ -54,7 +54,7 @@ use std::{
     time::{Duration, Instant},
 };
 use tokio::{
-    sync::{OwnedSemaphorePermit, RwLock, Semaphore, mpsc, watch},
+    sync::{Mutex as AsyncMutex, OwnedSemaphorePermit, RwLock, Semaphore, mpsc, watch},
     task::{JoinHandle, JoinSet},
 };
 use tokio_util::sync::CancellationToken;
@@ -121,7 +121,8 @@ pub(crate) struct Pool {
     template: Option<Arc<Driver>>,
     recent: Option<Arc<RecentReject>>,
     estimator: FeeEstimator,
-    writer: Arc<PersistenceWriter>,
+    // Held from before snapshot capture through the blocking disk write.
+    save_gate: Arc<AsyncMutex<()>>,
     stopped: CancellationToken,
 }
 impl Pool {
@@ -187,7 +188,7 @@ impl Pool {
                 template,
                 recent,
                 estimator,
-                writer: Arc::new(PersistenceWriter::default()),
+                save_gate: Arc::new(AsyncMutex::new(())),
                 stopped: CancellationToken::new(),
             }),
             relay,
@@ -692,7 +693,7 @@ impl Pool {
         }
     }
     pub(crate) async fn save(&self) -> Result<(), AnyError> {
-        let lease = self.writer.acquire().await;
+        let save_guard = Arc::clone(&self.save_gate).lock_owned().await;
         if self.store.is_faulted() {
             return Err(Error::Fault("persistence generation").into());
         }
@@ -718,7 +719,12 @@ impl Pool {
             Ok(PersistenceSnapshot { accepted, recovery })
         })?;
         let base = self.config.persisted_data.clone();
-        tokio::task::spawn_blocking(move || lease.write(&base, saved)).await??;
+        tokio::task::spawn_blocking(move || {
+            // Caller cancellation must not permit another full capture while writing.
+            let _save_guard = save_guard;
+            write_snapshot(&base, saved)
+        })
+        .await??;
         Ok(())
     }
     #[expect(

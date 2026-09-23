@@ -704,15 +704,11 @@ async fn fatal_generation_keeps_previous_persistence_file_unchanged_on_shutdown(
     let mut configuration = config();
     configuration.persisted_data = directory.path().join("pool");
     configuration.recent_reject = Default::default();
-    let writer = Arc::new(PersistenceWriter::default());
-    writer
-        .acquire()
-        .await
-        .write(
-            &configuration.persisted_data,
-            PersistenceSnapshot::default(),
-        )
-        .unwrap();
+    crate::persisted::write_snapshot(
+        &configuration.persisted_data,
+        PersistenceSnapshot::default(),
+    )
+    .unwrap();
     let persisted = configuration.persisted_data.with_extension("v2");
     let before = std::fs::read(&persisted).unwrap();
     let handle = Handle::new(tokio::runtime::Handle::current(), None);
@@ -1164,17 +1160,14 @@ async fn persistence_replay_serves_a_callback_query_before_startup_can_complete(
     .unwrap();
     let pool = builder.pool_for_test();
     let transaction = fund(&pool, 9014);
-    Arc::new(PersistenceWriter::default())
-        .acquire()
-        .await
-        .write(
-            &configuration.persisted_data,
-            PersistenceSnapshot {
-                accepted: vec![transaction.clone()],
-                recovery: Vec::new(),
-            },
-        )
-        .unwrap();
+    crate::persisted::write_snapshot(
+        &configuration.persisted_data,
+        PersistenceSnapshot {
+            accepted: vec![transaction.clone()],
+            recovery: Vec::new(),
+        },
+    )
+    .unwrap();
     let target = transaction.hash();
     let query = controller.clone();
     let (sent, mut received) = mpsc::unbounded_channel();
