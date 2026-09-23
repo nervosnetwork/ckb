@@ -523,10 +523,6 @@ pub(super) fn reconcile(
                 Reject::Resolve(OutPointError::Dead(point.clone())),
                 callback,
             )?)
-        } else if !after.contains_key(hash) && old.source.residency_peer().is_some() {
-            Some(Effect::relay(TxVerificationResult::Reject {
-                tx_hash: hash.clone(),
-            }))
         } else {
             None
         };
