@@ -3,7 +3,7 @@
 use super::{
     budget::{Amount, owner_amount},
     ingress,
-    jobs::{Verified, context_sensitive},
+    jobs::Verified,
     model::{Accepted, DependencyKey, Entry, Error, Phase, Source, Status},
     notice::Effect,
     residency,
@@ -19,6 +19,7 @@ use ckb_types::{
     core::{Capacity, FeeRate, error::OutPointError, tx_pool::get_transaction_weight},
     packed::{Byte32, OutPoint},
 };
+use ckb_verification::transaction_depends_on_time;
 use std::{
     collections::{BTreeMap, BTreeSet},
     sync::Arc,
@@ -566,7 +567,7 @@ impl AdmissionDecision {
             size: verified.serialized_size(),
             timestamp: verified.timestamp(),
             parents,
-            context_sensitive: context_sensitive(&verified.resolved().transaction),
+            context_sensitive: transaction_depends_on_time(&verified.resolved().transaction),
             #[cfg(any(test, feature = "internal"))]
             forced_status: verified.forced_status(),
         };

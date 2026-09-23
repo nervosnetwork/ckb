@@ -20,8 +20,8 @@ use ckb_types::{
     core::{
         DepType, TransactionView,
         cell::{
-            CellMeta, CellProvider, CellStatus, HeaderChecker, ResolvedDep, ResolvedTransaction,
-            SYSTEM_CELL, resolve_transaction,
+            CellMeta, CellProvider, CellStatus, HeaderChecker, ResolvedDep, SYSTEM_CELL,
+            resolve_transaction,
         },
         error::OutPointError,
     },
@@ -458,22 +458,6 @@ pub(super) fn environment(status: Status, snapshot: &Snapshot) -> TxVerifyEnv {
                 .saturating_sub(1),
         ),
     }
-}
-pub(super) fn context_sensitive(resolved: &ResolvedTransaction) -> bool {
-    resolved
-        .transaction
-        .inputs()
-        .into_iter()
-        .any(|input| Into::<u64>::into(input.since()) != 0)
-        || resolved
-            .resolved_inputs
-            .iter()
-            .chain(&resolved.resolved_cell_deps)
-            .any(|cell| {
-                cell.transaction_info
-                    .as_ref()
-                    .is_some_and(|info| info.block_number > 0 && info.is_cellbase())
-            })
 }
 #[cfg_attr(
     feature = "profiling",

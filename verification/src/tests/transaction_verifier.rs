@@ -8,7 +8,10 @@ use crate::cache::{
 };
 use crate::error::TransactionErrorSource;
 use crate::transaction_verifier::ScriptHashTypeVerifier;
-use crate::{ContextualTransactionVerifier, ScriptError, TransactionError, TxVerifyEnv};
+use crate::{
+    ContextualTransactionVerifier, ScriptError, TimeRelativeTransactionVerifier, TransactionError,
+    TxVerifyEnv, transaction_depends_on_time,
+};
 use ckb_chain_spec::{
     OUTPUT_INDEX_DAO, build_genesis_type_id_script,
     consensus::{Consensus, ConsensusBuilder},
@@ -34,6 +37,165 @@ use ckb_types::{
     prelude::*,
 };
 use std::{cell::Cell, sync::Arc};
+
+fn time_fixture(since: u64) -> ResolvedTransaction {
+    ResolvedTransaction::dummy_resolve(
+        TransactionBuilder::default()
+            .input(CellInput::new(
+                OutPoint::new(Byte32::new([80; 32]), 0),
+                since,
+            ))
+            .cell_dep(
+                CellDep::new_builder()
+                    .out_point(OutPoint::new(Byte32::new([81; 32]), 0))
+                    .build(),
+            )
+            .cell_dep(
+                CellDep::new_builder()
+                    .out_point(OutPoint::new(Byte32::new([82; 32]), 0))
+                    .dep_type(ckb_types::core::DepType::DepGroup)
+                    .build(),
+            )
+            .build(),
+    )
+}
+
+fn verify_time_at(
+    resolved: Arc<ResolvedTransaction>,
+    data_loader: &MockMedianTime,
+    block_number: u64,
+    epoch_number: u64,
+) -> Result<(), Error> {
+    let consensus = Arc::new(
+        ConsensusBuilder::default()
+            .median_time_block_count(11)
+            .cellbase_maturity(EpochNumberWithFraction::new(2, 0, 1))
+            .build(),
+    );
+    let header = HeaderView::new_advanced_builder()
+        .number(block_number)
+        .epoch(EpochNumberWithFraction::new(epoch_number, 0, 1))
+        .parent_hash(data_loader.get_block_hash(block_number - 1))
+        .build();
+    TimeRelativeTransactionVerifier::new(
+        resolved,
+        consensus,
+        data_loader.clone(),
+        Arc::new(TxVerifyEnv::new_commit(&header)),
+    )
+    .verify()
+}
+
+#[test]
+fn time_dependency_matches_canonical_cellbase_applicability() {
+    let data_loader = MockMedianTime::new(vec![0; 11]);
+    for role in ["input", "cell-dep", "dep-group"] {
+        for (location, needs_maturity) in [
+            (None, false),
+            (Some((0, 0)), false), // Genesis cellbase is exempt.
+            (Some((1, 1)), false), // Ordinary transactions are exempt.
+            (Some((1, 0)), true),
+        ] {
+            let mut resolved = time_fixture(0);
+            let cells = match role {
+                "input" => &mut resolved.resolved_inputs,
+                "cell-dep" => &mut resolved.resolved_cell_deps,
+                "dep-group" => &mut resolved.resolved_dep_groups,
+                _ => unreachable!(),
+            };
+            cells[0].transaction_info = location.map(|(block, index)| {
+                data_loader.get_transaction_info(
+                    block,
+                    EpochNumberWithFraction::new(1, 0, 1),
+                    index,
+                )
+            });
+            // Direct code deps and expanded group members share the cell-dep
+            // role. A group container has no canonical maturity condition.
+            let expected = needs_maturity && role != "dep-group";
+            assert_eq!(transaction_depends_on_time(&resolved), expected, "{role}");
+            let resolved = Arc::new(resolved);
+            assert_eq!(
+                verify_time_at(Arc::clone(&resolved), &data_loader, 5, 2).is_err(),
+                expected,
+                "{role} before the maturity boundary"
+            );
+            assert!(verify_time_at(resolved, &data_loader, 5, 3).is_ok());
+        }
+    }
+}
+
+#[test]
+fn time_dependency_matches_all_since_metrics_and_forms() {
+    let data_loader = MockMedianTime::new(vec![
+        0, 0, 0, 0, 5_000, 5_000, 5_000, 5_000, 5_000, 5_000, 5_000,
+    ]);
+    for since in [
+        11,                    // Absolute block number.
+        0x8000_0000_0000_000a, // Relative block number: 1 + 10.
+        0x2000_0100_0000_0003, // Absolute epoch 3.
+        0xa000_0100_0000_0002, // Relative epoch: 1 + 2.
+        0x4000_0000_0000_0005, // Absolute median time: 5 seconds.
+        0xc000_0000_0000_0005, // Relative median time: 0 + 5 seconds.
+    ] {
+        let mut resolved = time_fixture(since);
+        resolved.resolved_inputs[0].transaction_info =
+            Some(data_loader.get_transaction_info(1, EpochNumberWithFraction::new(1, 0, 1), 1));
+        assert!(transaction_depends_on_time(&resolved), "since {since:#x}");
+        let resolved = Arc::new(resolved);
+        assert_error_eq!(
+            verify_time_at(Arc::clone(&resolved), &data_loader, 4, 2).unwrap_err(),
+            TransactionError::Immature { index: 0 }
+        );
+        assert!(verify_time_at(resolved, &data_loader, 11, 3).is_ok());
+    }
+}
+
+#[test]
+fn time_candidates_preserve_error_order_source_and_original_index() {
+    let data_loader = MockMedianTime::new(vec![0; 11]);
+    let mut resolved = time_fixture(0);
+    let mut immature = resolved.resolved_inputs[0].clone();
+    immature.transaction_info =
+        Some(data_loader.get_transaction_info(1, EpochNumberWithFraction::new(1, 0, 1), 0));
+    resolved
+        .resolved_inputs
+        .extend([immature.clone(), immature.clone()]);
+    resolved.resolved_cell_deps.push(immature);
+    resolved.transaction = resolved
+        .transaction
+        .as_advanced_builder()
+        .input(CellInput::new(OutPoint::new(Byte32::new([84; 32]), 0), 0))
+        .input(CellInput::new(
+            OutPoint::new(Byte32::new([85; 32]), 0),
+            0x0100_0000_0000_0001,
+        ))
+        .build();
+
+    for index in [1, 2] {
+        assert_error_eq!(
+            verify_time_at(Arc::new(resolved.clone()), &data_loader, 5, 2).unwrap_err(),
+            TransactionError::CellbaseImmaturity {
+                inner: TransactionErrorSource::Inputs,
+                index
+            }
+        );
+        resolved.resolved_inputs[index].transaction_info = None;
+    }
+    assert_error_eq!(
+        verify_time_at(Arc::new(resolved.clone()), &data_loader, 5, 2).unwrap_err(),
+        TransactionError::CellbaseImmaturity {
+            inner: TransactionErrorSource::CellDeps,
+            index: 1
+        }
+    );
+    resolved.resolved_cell_deps[1].transaction_info = None;
+    assert!(transaction_depends_on_time(&resolved));
+    assert_error_eq!(
+        verify_time_at(Arc::new(resolved), &data_loader, 5, 2).unwrap_err(),
+        TransactionError::InvalidSince { index: 2 }
+    );
+}
 
 #[test]
 pub fn test_empty() {

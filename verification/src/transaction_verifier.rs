@@ -20,7 +20,8 @@ use ckb_traits::{
 };
 use ckb_types::{
     core::{
-        Capacity, Cycle, EpochNumberWithFraction, ScriptHashType, TransactionView, Version,
+        Capacity, Cycle, EpochNumberWithFraction, ScriptHashType, TransactionInfo, TransactionView,
+        Version,
         cell::{CellMeta, ResolvedTransaction},
     },
     packed::{Byte32, CellOutput},
@@ -62,6 +63,16 @@ impl<DL: HeaderFieldsProvider> TimeRelativeTransactionVerifier<DL> {
         self.since.verify()?;
         Ok(())
     }
+}
+
+/// Whether canonical time verification has a chain-dependent condition to check.
+///
+/// Uses the same candidate selection as maturity and since verification. A true
+/// result does not imply invalidity: a previously verified transaction may need
+/// these checks again after a chain detachment. Resolved dep-group containers do
+/// not participate in maturity verification; their expanded cell deps do.
+pub fn transaction_depends_on_time(rtx: &ResolvedTransaction) -> bool {
+    since_inputs(rtx).next().is_some() || cellbase_maturity_cells(rtx).next().is_some()
 }
 
 /// Context-independent verification checks for transaction
@@ -370,6 +381,22 @@ pub struct MaturityVerifier {
     cellbase_maturity: EpochNumberWithFraction,
 }
 
+fn cellbase_maturity_cells(
+    rtx: &ResolvedTransaction,
+) -> impl Iterator<Item = (TransactionErrorSource, usize, &TransactionInfo)> {
+    [
+        (TransactionErrorSource::Inputs, &rtx.resolved_inputs),
+        (TransactionErrorSource::CellDeps, &rtx.resolved_cell_deps),
+    ]
+    .into_iter()
+    .flat_map(|(source, cells)| {
+        cells.iter().enumerate().filter_map(move |(index, cell)| {
+            let info = cell.transaction_info.as_ref()?;
+            (info.block_number > 0 && info.is_cellbase()).then_some((source.clone(), index, info))
+        })
+    })
+}
+
 impl MaturityVerifier {
     pub fn new(
         transaction: Arc<ResolvedTransaction>,
@@ -384,46 +411,12 @@ impl MaturityVerifier {
     }
 
     pub fn verify(&self) -> Result<(), Error> {
-        let cellbase_immature = |meta: &CellMeta| -> bool {
-            meta.transaction_info
-                .as_ref()
-                .map(|info| {
-                    info.block_number > 0 && info.is_cellbase() && {
-                        let threshold =
-                            self.cellbase_maturity.to_rational() + info.block_epoch.to_rational();
-                        let current = self.epoch.to_rational();
-                        current < threshold
-                    }
-                })
-                .unwrap_or(false)
-        };
-
-        if let Some(index) = self
-            .transaction
-            .resolved_inputs
-            .iter()
-            .position(cellbase_immature)
-        {
-            return Err(TransactionError::CellbaseImmaturity {
-                inner: TransactionErrorSource::Inputs,
-                index,
+        for (inner, index, info) in cellbase_maturity_cells(&self.transaction) {
+            let threshold = self.cellbase_maturity.to_rational() + info.block_epoch.to_rational();
+            if self.epoch.to_rational() < threshold {
+                return Err(TransactionError::CellbaseImmaturity { inner, index }.into());
             }
-            .into());
         }
-
-        if let Some(index) = self
-            .transaction
-            .resolved_cell_deps
-            .iter()
-            .position(cellbase_immature)
-        {
-            return Err(TransactionError::CellbaseImmaturity {
-                inner: TransactionErrorSource::CellDeps,
-                index,
-            }
-            .into());
-        }
-
         Ok(())
     }
 }
@@ -603,6 +596,17 @@ pub struct SinceVerifier<DL> {
     tx_env: Arc<TxVerifyEnv>,
 }
 
+fn since_inputs(rtx: &ResolvedTransaction) -> impl Iterator<Item = (usize, &CellMeta, Since)> {
+    rtx.resolved_inputs
+        .iter()
+        .zip(rtx.transaction.inputs())
+        .enumerate()
+        .filter_map(|(index, (cell, input))| {
+            let since = u64::from(input.since());
+            (since != 0).then_some((index, cell, Since(since)))
+        })
+}
+
 impl<DL: HeaderFieldsProvider> SinceVerifier<DL> {
     pub fn new(
         rtx: Arc<ResolvedTransaction>,
@@ -736,19 +740,7 @@ impl<DL: HeaderFieldsProvider> SinceVerifier<DL> {
     }
 
     pub fn verify(&self) -> Result<(), Error> {
-        for (index, (cell_meta, input)) in self
-            .rtx
-            .resolved_inputs
-            .iter()
-            .zip(self.rtx.transaction.inputs())
-            .enumerate()
-        {
-            // ignore empty since
-            let since: u64 = input.since().into();
-            if since == 0 {
-                continue;
-            }
-            let since = Since(since);
+        for (index, cell_meta, since) in since_inputs(&self.rtx) {
             // check remain flags
             if !since.flags_is_valid() {
                 return Err((TransactionError::InvalidSince { index }).into());

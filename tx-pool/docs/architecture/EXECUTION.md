@@ -242,6 +242,14 @@ the pool has no block-location metadata even after its producer commits. Its
 outpoint still identifies that producer, so its readers and their descendants
 leave accepted membership in the reorg commit, before recovery workers run.
 
+[Canonical time verification](../../../verification/src/transaction_verifier.rs)
+owns which resolved cells and inputs require maturity or `since` checks. Its
+`transaction_depends_on_time` query and the checks use the same candidate selection.
+Admission retains the query result with the accepted resolution; a detachment
+moves those owners and their descendants to recovery. The pool does not maintain
+another list of time-rule applicability conditions. In particular, expanded
+dep-group members participate in maturity checks, while group containers do not.
+
 Optional replacement history may be omitted under pressure and can occupy quota
 until relevant availability or clear. It has no ordinary remote TTL or accepted
 timestamp. Recovery returns its body to verification; replay restores neither

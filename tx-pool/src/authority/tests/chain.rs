@@ -6,7 +6,7 @@ use ckb_test_chain_utils::MockStore;
 use ckb_types::{
     bytes::Bytes,
     core::{BlockBuilder, BlockView},
-    packed::{Byte32, OutPoint, ProposalShortId},
+    packed::{Byte32, CellInput, OutPoint, ProposalShortId},
     prelude::*,
 };
 use std::collections::{HashSet, VecDeque};
@@ -480,17 +480,44 @@ fn detached_witness_wins_raw_hash_and_recovers_parent_before_child() {
 #[test]
 fn reorg_moves_context_sensitive_accepted_closure_to_recovery() {
     let store = store();
-    let root = accept(&store, output_tx(5017), 1, 1, Status::Pending);
-    let owner = store.point(&root).1.unwrap();
-    let mut value = owner.accepted().unwrap().clone();
-    value.context_sensitive = true;
-    replace(&store, owner, Phase::Accepted(value));
+    let time_locked = output_tx(5017)
+        .as_advanced_builder()
+        .input(CellInput::new(OutPoint::new(tx(7017).hash(), 0), 1))
+        .build();
+    let root = accept(&store, time_locked, 1, 1, Status::Pending);
+    assert!(
+        store
+            .point(&root)
+            .1
+            .unwrap()
+            .accepted()
+            .unwrap()
+            .context_sensitive
+    );
     let child = accept(
         &store,
         spend(5018, &[OutPoint::new(root.clone(), 0)], &[]),
         1,
         1,
         Status::Pending,
+    );
+    let unrelated = accept(&store, output_tx(5019), 1, 1, Status::Pending);
+    for hash in [&child, &unrelated] {
+        assert!(
+            !store
+                .point(hash)
+                .1
+                .unwrap()
+                .accepted()
+                .unwrap()
+                .context_sensitive
+        );
+    }
+    apply(&store, &command(&store, Vec::new()));
+    assert_eq!(
+        accepted_hashes(&store),
+        [root.clone(), child.clone(), unrelated.clone()].into(),
+        "ordinary attachment retains a satisfied time condition"
     );
     apply(
         &store,
@@ -505,7 +532,7 @@ fn reorg_moves_context_sensitive_accepted_closure_to_recovery() {
         assert!(matches!(owner.source, Source::Recovery));
         assert!(matches!(owner.phase, Phase::Resolve));
     }
-    assert!(accepted_hashes(&store).is_empty());
+    assert_eq!(accepted_hashes(&store), [unrelated].into());
 }
 
 #[test]
