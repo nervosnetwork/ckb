@@ -126,6 +126,12 @@ struct RelationMember {
     // event. A policy-only history cannot wake itself on its own removal.
     wait_after_pass: u64,
 }
+
+impl RelationMember {
+    fn can_wake(&self, pass: u64) -> bool {
+        self.roles & WAIT != 0 && pass > self.wait_after_pass
+    }
+}
 #[derive(Debug, Default)]
 struct Relation {
     // INPUT is held only by spender; this map stores DEP, WAIT and CHILD.
@@ -138,6 +144,13 @@ struct Relation {
     next_pass: u64,
 }
 impl Relation {
+    /// The eligible suffix shared by page capture and completion.
+    fn wake_candidates(&self, pass: u64, after: Option<&Byte32>) -> impl Iterator<Item = &Byte32> {
+        self.members
+            .range((after.map_or(Unbounded, Excluded), Unbounded))
+            .filter_map(move |(hash, member)| member.can_wake(pass).then_some(hash))
+    }
+
     fn roles(&self, hash: &Byte32) -> u8 {
         self.members.get(hash).map_or(0, |member| member.roles)
             | if self.spender.as_ref() == Some(hash) {
@@ -997,11 +1010,9 @@ impl Store {
         let relation = row.lock();
         let wake = relation.wake.as_ref()?;
         let hashes = relation
-            .members
-            .range((wake.after.as_ref().map_or(Unbounded, Excluded), Unbounded))
-            .filter(|(_, flags)| flags.roles & WAIT != 0 && wake.pass > flags.wait_after_pass)
+            .wake_candidates(wake.pass, wake.after.as_ref())
             .take(WAKE_PAGE)
-            .map(|(hash, _)| hash.clone())
+            .cloned()
             .collect::<Vec<_>>();
         let after = hashes.last().cloned().or_else(|| wake.after.clone());
         Some(WakePage {

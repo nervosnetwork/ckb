@@ -19,7 +19,6 @@ use ckb_types::packed::{Byte32, ProposalShortId};
 use ckb_util::parking_lot::Mutex;
 use std::{
     collections::{BTreeMap, BTreeSet},
-    ops::Bound::{Excluded, Unbounded},
     sync::{Arc, atomic::Ordering},
     time::Instant,
 };
@@ -954,8 +953,7 @@ impl Store {
             return;
         };
         if let Some(pass) = row.next_pass.checked_add(1) {
-            let eligible =
-                pass > first.wait_after_pass || waiters.any(|member| pass > member.wait_after_pass);
+            let eligible = first.can_wake(pass) || waiters.any(|member| member.can_wake(pass));
             // Consume even a deferred event so the next event is eligible.
             row.next_pass = pass;
             if !eligible {
@@ -989,9 +987,9 @@ impl Store {
             return;
         }
         let more = row
-            .members
-            .range((page.after.as_ref().map_or(Unbounded, Excluded), Unbounded))
-            .any(|(_, flags)| flags.roles & WAIT != 0 && page.pass > flags.wait_after_pass);
+            .wake_candidates(page.pass, page.after.as_ref())
+            .next()
+            .is_some();
         if more {
             row.wake = Some(Wake {
                 pass: page.pass,
