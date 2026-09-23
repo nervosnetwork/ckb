@@ -84,15 +84,15 @@ pub(crate) async fn process(pool: Arc<Pool>, message: Message) -> Result<(), Err
         }) => {
             let (peer, submissions) = arguments.into_parts();
             let offered = submissions.len();
-            let (completed, error) = pool.submit_remote_batch(peer, submissions).await;
-            let outcome = match &error {
-                None => RemoteTxBatchOutcome::complete(offered),
-                Some(error) => {
-                    RemoteTxBatchOutcome::failed(offered, completed, error.clone().into())
+            let result = pool.submit_remote_batch(peer, submissions).await;
+            let outcome = match &result {
+                Ok(()) => RemoteTxBatchOutcome::complete(offered),
+                Err((completed, error)) => {
+                    RemoteTxBatchOutcome::failed(offered, *completed, error.clone().into())
                 }
             };
             respond(responder, outcome, "submit_remote_txs");
-            error.map_or(Ok(()), settle)
+            result.map_err(|(_, error)| error).or_else(settle)
         }
         Message::NotifyTxs(arguments) => pool
             .submit_proposal_batch(arguments.into_transactions())

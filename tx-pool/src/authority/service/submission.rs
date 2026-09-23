@@ -121,25 +121,19 @@ impl Pool {
         )
         .await
     }
-    #[expect(
-        clippy::arithmetic_side_effects,
-        reason = "Completed count advances once per transaction in one protocol-bounded batch."
-    )]
     pub(crate) async fn submit_remote_batch(
         &self,
         peer: PeerIndex,
         submissions: Vec<(BoundedTransaction, Cycle)>,
-    ) -> (usize, Option<Error>) {
-        let mut completed = 0;
-        for (transaction, cycles) in submissions {
+    ) -> Result<(), (usize, Error)> {
+        for (completed, (transaction, cycles)) in submissions.into_iter().enumerate() {
             if let Err(error) = self.submit_remote(transaction, cycles, peer).await {
-                return (completed, Some(error));
+                return Err((completed, error));
             }
-            completed += 1;
             // Fresh ingress can commit without polling any Tokio resource.
             tokio::task::coop::consume_budget().await;
         }
-        (completed, None)
+        Ok(())
     }
     pub(crate) async fn submit_proposal_batch(
         &self,
