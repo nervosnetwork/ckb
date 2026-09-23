@@ -420,6 +420,14 @@ that service generation, including if the block consumer later requests Resume.
 `service_started() == false` precedes complete joins.
 
 Chain updates remain reliable during normal startup, before public readiness.
+The unstarted builder owns the capacity-one receiver: chain callers wait for
+the builder to start or be dropped. Calling `stop()` signals cancellation but
+does not release a receiver still held by an unstarted builder; its owner must
+start or drop it. During shutdown, an admitted command can complete or fail
+because the receiver closes. A successful response still establishes that its
+required publication completed. These ownership boundaries are exercised by
+the [builder lifecycle tests](../../src/service/tests/lifecycle.rs).
+
 Offline import and replay consume [SharedPackage](../../../shared/src/shared_builder.rs)
 through `into_chain_services_builder()` to release unused pool receivers before
 processing blocks. Replay owns a [ChainServiceScope](../../../chain/src/init.rs)
