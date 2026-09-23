@@ -353,17 +353,18 @@ pub(super) fn owner_amount(entry: &Entry) -> Result<Amount, Error> {
 fn owner_accounts(entry: &Entry) -> Result<[Option<(Account, Amount)>; 3], Error> {
     let amount = owner_amount(entry)?;
     let charge = |account| Some((account, amount));
-    if entry.accepted().is_some() {
-        return Ok([charge(Account::Accepted), None, None]);
+    if let Some(peer) = entry.preaccepted_peer() {
+        return Ok([
+            charge(Account::Pipeline),
+            charge(Account::Remote),
+            charge(Account::Peer(peer)),
+        ]);
     }
-    let (shared, peer) = if matches!(entry.phase, Phase::Replaced { .. }) {
-        (charge(Account::History), None)
-    } else if let Some(peer) = entry.source.residency_peer() {
-        (charge(Account::Remote), charge(Account::Peer(peer)))
-    } else {
-        (None, None)
-    };
-    Ok([charge(Account::Pipeline), shared, peer])
+    Ok(match &entry.phase {
+        Phase::Accepted(_) => [charge(Account::Accepted), None, None],
+        Phase::Replaced { .. } => [charge(Account::Pipeline), charge(Account::History), None],
+        _ => [charge(Account::Pipeline), None, None],
+    })
 }
 
 /// Exact owner charges prepared without holding authority guards or capacity.

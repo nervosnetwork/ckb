@@ -202,7 +202,7 @@ pub(super) fn rejection(
         let hashes = plan.peer_members(store, peer)?;
         for hash in hashes {
             let entry = plan.get(store, &hash)?.ok_or(Error::Stale)?;
-            if !entry.preaccepted() || entry.source.residency_peer() != Some(peer) {
+            if entry.preaccepted_peer() != Some(peer) {
                 return Err(Error::Stale);
             }
             plan.edit(Some(entry), None, None)?;

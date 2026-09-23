@@ -284,6 +284,12 @@ impl Entry {
     pub(super) fn preaccepted(&self) -> bool {
         !matches!(self.phase, Phase::Accepted(_) | Phase::Replaced { .. })
     }
+    /// The retained peer cohort excludes accepted owners and replacement history.
+    pub(super) fn preaccepted_peer(&self) -> Option<PeerIndex> {
+        self.preaccepted()
+            .then(|| self.source.residency_peer())
+            .flatten()
+    }
     pub(super) fn with_phase(&self, phase: Phase) -> Arc<Self> {
         Arc::new(Self {
             transaction: Arc::clone(&self.transaction),

@@ -192,6 +192,60 @@ fn committed_parent_leaves_child_backed_by_chain_and_updates_compact_lookup() {
 }
 
 #[test]
+fn committed_network_work_settles_its_origin_without_repeating_accepted_relay() {
+    let store = store();
+    let source = remote(81, 1);
+    let queued = entry(&store, output_tx(5010), source);
+    let proposal = entry(&store, output_tx(5011), source.promote_remote());
+    let local = entry(&store, output_tx(5012), Source::Local);
+    for owner in [&queued, &proposal, &local] {
+        insert(&store, Arc::clone(owner));
+    }
+    let accepted = entry(&store, output_tx(5013), source);
+    let (accepted_plan, reject) =
+        admission(&store, &accepted, 1, 1, Status::Pending, &config()).unwrap();
+    assert!(reject.is_none());
+    assert!(accepted_plan.effects().iter().any(|effect| matches!(
+        effect.relay_result(),
+        Some(TxVerificationResult::Ok { original_peer: Some(peer), tx_hash })
+            if *peer == 81.into() && *tx_hash == accepted.hash()
+    )));
+    store.apply(accepted_plan).unwrap();
+
+    let attached = command(
+        &store,
+        [&queued, &proposal, &local, &accepted]
+            .into_iter()
+            .map(|owner| owner.transaction.as_ref().clone())
+            .collect(),
+    );
+    let plan = reconcile(&store, &attached, &config()).unwrap();
+    let mut relayed = plan
+        .effects()
+        .iter()
+        .filter_map(Effect::relay_result)
+        .map(|result| match result {
+            TxVerificationResult::Ok {
+                original_peer,
+                tx_hash,
+            } => (tx_hash.clone(), *original_peer),
+            unexpected => panic!("unexpected relay outcome: {unexpected:?}"),
+        })
+        .collect::<Vec<_>>();
+    relayed.sort_unstable();
+    let mut expected = vec![
+        (queued.hash(), Some(81.into())),
+        (proposal.hash(), Some(81.into())),
+    ];
+    expected.sort_unstable();
+    assert_eq!(relayed, expected);
+    store.apply(plan).unwrap();
+    for owner in [&queued, &proposal, &local, &accepted] {
+        assert!(store.point(&owner.hash()).1.is_none());
+    }
+}
+
+#[test]
 fn detached_committed_producer_invalidates_its_pool_resolved_readers_before_recovery() {
     for dependency in [false, true] {
         let store = store();

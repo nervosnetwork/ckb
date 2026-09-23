@@ -492,16 +492,12 @@ pub(super) fn reconcile(
     for (hash, old) in &old {
         let next = after.get(hash);
         let effect = if facts.attached.contains(hash) {
-            if old.preaccepted()
-                && let Some(peer) = old.source.residency_peer()
-            {
-                Some(Effect::relay(TxVerificationResult::Ok {
+            old.preaccepted_peer().map(|peer| {
+                Effect::relay(TxVerificationResult::Ok {
                     original_peer: Some(peer),
                     tx_hash: hash.clone(),
-                }))
-            } else {
-                None
-            }
+                })
+            })
         } else if let Some(point) = affected.conflicts.get(hash) {
             let callback = if old.accepted().is_some() {
                 if old_totals.is_none() {

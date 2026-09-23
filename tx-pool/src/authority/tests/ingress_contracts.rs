@@ -208,6 +208,11 @@ fn malformed_peer_revocation_is_atomic_and_preserves_other_peers_and_accepted_tr
         insert(&store, Arc::clone(owner));
     }
     let accepted = accept(&store, output_tx(8103), 1, 1, Status::Pending);
+    let accepted_remote = entry(&store, output_tx(8104), source);
+    let (accepted_plan, reject) =
+        admission(&store, &accepted_remote, 1, 1, Status::Pending, &config()).unwrap();
+    assert!(reject.is_none());
+    store.apply(accepted_plan).unwrap();
     let plan = ingress::rejection(
         &store,
         Plan::new(
@@ -228,6 +233,9 @@ fn malformed_peer_revocation_is_atomic_and_preserves_other_peers_and_accepted_tr
     assert!(store.point(&sibling.hash()).1.is_none());
     assert!(store.point(&other.hash()).1.is_some());
     assert!(store.point(&accepted).1.unwrap().accepted().is_some());
+    let accepted_remote = store.point(&accepted_remote.hash()).1.unwrap();
+    assert!(accepted_remote.accepted().is_some());
+    assert_eq!(accepted_remote.source, source);
 }
 
 #[test]

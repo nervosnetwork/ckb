@@ -94,8 +94,8 @@ impl<'a> OwnerChanges<'a> {
                     .dependencies
                     .insert(store.route(&key), (old | new) & INPUT != 0);
             });
-            let old_peer = edit.before.as_deref().and_then(peer);
-            let new_peer = edit.after.as_deref().and_then(peer);
+            let old_peer = edit.before.as_deref().and_then(Entry::preaccepted_peer);
+            let new_peer = edit.after.as_deref().and_then(Entry::preaccepted_peer);
             if edit.after.is_none()
                 && let Some(before) = edit.before.as_ref().filter(|entry| entry.preaccepted())
             {
@@ -329,12 +329,6 @@ fn visit_role_changes(edit: &Edit, mut add: impl FnMut(RelationKey, u8, u8)) {
         }
         (None, None) => {}
     }
-}
-fn peer(entry: &Entry) -> Option<PeerIndex> {
-    entry
-        .preaccepted()
-        .then(|| entry.source.residency_peer())
-        .flatten()
 }
 fn deadline(entry: &Entry) -> Option<Instant> {
     entry
@@ -736,7 +730,7 @@ impl Store {
         }
         for edit in plan.edits.values() {
             if let Some(entry) = edit.after.as_deref()
-                && let Some(peer) = peer(entry)
+                && let Some(peer) = entry.preaccepted_peer()
                 && self
                     .bans
                     .lock()
