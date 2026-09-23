@@ -81,6 +81,47 @@ fn block_template_preserves_consensus_uncle_limit_above_u8() {
 }
 
 #[test]
+fn block_template_time_follows_the_parent_and_rejects_overflow() {
+    let snapshot = |timestamp| {
+        let consensus = ConsensusBuilder::default().build();
+        let genesis = consensus
+            .genesis_block()
+            .as_advanced_builder()
+            .timestamp(timestamp)
+            .build();
+        snapshot_with_consensus(Arc::new(
+            ConsensusBuilder::default().genesis_block(genesis).build(),
+        ))
+    };
+    let ordinary = snapshot(42);
+    for (now, expected) in [(0, 43), (42, 43), (43, 43), (100, 100)] {
+        let template = BlockTemplate::new(
+            &ordinary,
+            ordinary.consensus().genesis_epoch_ext(),
+            ordinary.consensus().genesis_block().transactions()[0].clone(),
+            0,
+            Byte32::zero(),
+            now,
+        )
+        .unwrap();
+        assert_eq!(template.current_time, expected);
+    }
+
+    let terminal = snapshot(u64::MAX);
+    assert!(matches!(
+        BlockTemplate::new(
+            &terminal,
+            terminal.consensus().genesis_epoch_ext(),
+            terminal.consensus().genesis_block().transactions()[0].clone(),
+            0,
+            Byte32::zero(),
+            u64::MAX,
+        ),
+        Err(crate::error::BlockAssemblerError::Overflow)
+    ));
+}
+
+#[test]
 fn candidate_uncle_scratch_is_bounded_by_the_candidate_population() {
     let mut consensus = ConsensusBuilder::default().build();
     consensus.max_uncles_num = usize::MAX;

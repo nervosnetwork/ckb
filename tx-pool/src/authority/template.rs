@@ -245,13 +245,7 @@ impl Driver {
             cellbase,
             BlockAssembler::take_counter(&self.assembler.work_id, "work id")?,
             dao,
-            unix_time_as_millis().max(
-                snapshot
-                    .tip_header()
-                    .timestamp()
-                    .checked_add(1)
-                    .ok_or(BlockAssemblerError::Overflow)?,
-            ),
+            unix_time_as_millis(),
         )?;
         template.extension = extension;
         template.transactions = transactions;

@@ -36,6 +36,8 @@ pub(crate) struct BlockTemplate {
 }
 
 impl BlockTemplate {
+    /// Construct mining work whose timestamp is strictly after its parent,
+    /// using the caller's current time when it is later.
     pub(crate) fn new(
         snapshot: &Snapshot,
         current_epoch: &EpochExt,
@@ -44,6 +46,13 @@ impl BlockTemplate {
         dao: Byte32,
         current_time: u64,
     ) -> Result<Self, BlockAssemblerError> {
+        let current_time = current_time.max(
+            snapshot
+                .tip_header()
+                .timestamp()
+                .checked_add(1)
+                .ok_or(BlockAssemblerError::Overflow)?,
+        );
         let consensus = snapshot.consensus();
         let candidate_number = snapshot
             .tip_header()

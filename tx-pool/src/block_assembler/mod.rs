@@ -39,11 +39,11 @@ use ckb_util::{Mutex, RwLock};
 use http_body_util::Full;
 use hyper_util::client::legacy::{Client, connect::HttpConnector};
 use std::collections::HashSet;
+use std::iter;
 use std::sync::{
     Arc,
     atomic::{AtomicU64, Ordering},
 };
-use std::{cmp, iter};
 
 pub(crate) use template::{BlockTemplate, CurrentTemplate};
 
@@ -133,8 +133,6 @@ impl BlockAssembler {
         current_epoch: &EpochExt,
         memo: &Mutex<CellLivenessMemo>,
     ) -> Result<CurrentTemplate, AnyError> {
-        let tip_header = snapshot.tip_header();
-
         let cellbase = Self::build_cellbase(config, &snapshot)?;
         let extension = Self::build_extension(&snapshot)?;
         let fixed_size =
@@ -152,13 +150,7 @@ impl BlockAssembler {
             cellbase,
             Self::take_counter(work_id, "work id")?,
             dao,
-            cmp::max(
-                unix_time_as_millis(),
-                tip_header
-                    .timestamp()
-                    .checked_add(1)
-                    .ok_or(BlockAssemblerError::Overflow)?,
-            ),
+            unix_time_as_millis(),
         )?;
         template.extension = extension;
 
