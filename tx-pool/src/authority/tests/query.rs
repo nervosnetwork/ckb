@@ -300,6 +300,13 @@ fn live_overlay_compact_payloads_and_raw_hash_cycle_lookup_keep_their_boundaries
     };
     assert_eq!(without_data.cell_output, cell.cell_output);
     assert_eq!(without_data.data_bytes, cell.data_bytes);
+    assert_eq!(without_data.out_point, cell.out_point);
+    assert_eq!(cell.out_point, OutPoint::new(hash.clone(), 1));
+    assert_eq!(cell.data_bytes, 4);
+    assert_eq!(
+        cell.mem_cell_data_hash,
+        Some(CellOutput::calc_data_hash(b"live"))
+    );
     assert!(without_data.mem_cell_data.is_none());
     assert!(without_data.mem_cell_data_hash.is_none());
     assert_eq!(cell.mem_cell_data.unwrap().as_ref(), b"live");

@@ -116,7 +116,7 @@ impl RpcClient {
 
     pub fn get_live_cell(&self, out_point: OutPoint, with_data: bool) -> CellWithStatus {
         self.inner
-            .get_live_cell(out_point, with_data)
+            .get_live_cell(out_point, with_data, None)
             .expect("rpc call get_live_cell")
     }
 
@@ -347,7 +347,7 @@ jsonrpc!(
     pub fn get_transaction(&self, _hash: H256, verbosity: Option<Uint32>, only_commited: Option<bool>) -> TransactionWithStatusResponse;
     pub fn get_block_hash(&self, _number: BlockNumber) -> Option<H256>;
     pub fn get_tip_header(&self) -> HeaderView;
-    pub fn get_live_cell(&self, _out_point: OutPoint, _with_data: bool) -> CellWithStatus;
+    pub fn get_live_cell(&self, _out_point: OutPoint, _with_data: bool, _include_tx_pool: Option<bool>) -> CellWithStatus;
     pub fn get_tip_block_number(&self) -> BlockNumber;
     pub fn get_current_epoch(&self) -> EpochView;
     pub fn get_epoch_by_number(&self, number: EpochNumber) -> Option<EpochView>;
