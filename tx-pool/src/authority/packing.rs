@@ -8,7 +8,10 @@ use super::{
     membership::{Aggregate, EvictionRank},
     model::{self, Accepted, Error, Status},
 };
-use crate::component::{entry::TxEntry, sort_key::AncestorsScoreSortKey};
+use crate::component::{
+    entry::TxEntry,
+    sort_key::{AncestorsScoreSortKey, TransactionPriority},
+};
 use ckb_snapshot::Snapshot;
 use ckb_types::{
     core::{Capacity, Cycle, tx_pool::get_transaction_weight},
@@ -19,7 +22,7 @@ use graph::{Graph, Links};
 use ordering::Precedence;
 use std::{
     borrow::Cow,
-    cmp::Ordering,
+    cmp::Reverse,
     collections::{BTreeSet, BinaryHeap},
     sync::{Arc, Weak},
 };
@@ -207,7 +210,7 @@ impl<'a> Selection<'a> {
                 .enumerate()
                 .filter(|(_, candidate)| status.is_none_or(|status| candidate.status == status))
                 .map(|(index, candidate)| {
-                    PackageOrderKey::new(index, candidate, self.graph.ancestors[index])
+                    package_order_key(index, candidate, self.graph.ancestors[index])
                 })
                 .collect::<Vec<_>>(),
         )
@@ -219,7 +222,11 @@ impl<'a> Selection<'a> {
     )]
     pub(super) fn candidates_by_score(&self) -> impl Iterator<Item = &Candidate<'a>> {
         let mut priority = self.priority(None);
-        std::iter::from_fn(move || priority.pop().map(|key| &self.candidates[key.index]))
+        std::iter::from_fn(move || {
+            priority
+                .pop()
+                .map(|(_, Reverse(index))| &self.candidates[index])
+        })
     }
 
     #[expect(
@@ -230,7 +237,7 @@ impl<'a> Selection<'a> {
         let mut priority = self.priority(Some(Status::Pending));
         std::iter::from_fn(|| priority.pop())
             .take(usize::try_from(limit).unwrap_or(usize::MAX))
-            .map(|key| self.candidates[key.index].proposal.to_entity())
+            .map(|(_, Reverse(index))| self.candidates[index].proposal.to_entity())
             .collect()
     }
 
@@ -302,16 +309,15 @@ impl PackageAggregate {
     }
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
-struct PackageOrderKey<'a> {
-    score: AncestorsScoreSortKey,
-    arrival: u64,
-    hash: &'a Byte32,
+type PackageOrderKey<'a> = (TransactionPriority<'a>, Reverse<usize>);
+
+fn package_order_key<'a>(
     index: usize,
-}
-impl<'a> PackageOrderKey<'a> {
-    fn new(index: usize, candidate: &'a Candidate<'_>, aggregate: PackageAggregate) -> Self {
-        Self {
+    candidate: &'a Candidate<'_>,
+    aggregate: PackageAggregate,
+) -> PackageOrderKey<'a> {
+    (
+        TransactionPriority {
             score: AncestorsScoreSortKey {
                 fee: candidate.accepted.fee,
                 weight: get_transaction_weight(candidate.accepted.size, candidate.accepted.cycles),
@@ -323,23 +329,9 @@ impl<'a> PackageOrderKey<'a> {
             },
             arrival: candidate.arrival,
             hash: candidate.hash(),
-            index,
-        }
-    }
-}
-impl Ord for PackageOrderKey<'_> {
-    fn cmp(&self, other: &Self) -> Ordering {
-        self.score
-            .cmp(&other.score)
-            .then_with(|| other.arrival.cmp(&self.arrival))
-            .then_with(|| other.hash.cmp(self.hash))
-            .then_with(|| other.index.cmp(&self.index))
-    }
-}
-impl PartialOrd for PackageOrderKey<'_> {
-    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
-        Some(self.cmp(other))
-    }
+        },
+        Reverse(index),
+    )
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -448,7 +440,7 @@ impl<'selection, 'owner> PackingRun<'selection, 'owner> {
             if aggregates[index].fits(limits) {
                 minimum_bytes = minimum_bytes.min(selection.candidates[index].accepted.size);
                 states[index] = CandidatePackingState::Original;
-                original.push(PackageOrderKey::new(
+                original.push(package_order_key(
                     index,
                     &selection.candidates[index],
                     aggregates[index],
@@ -530,11 +522,9 @@ impl<'selection, 'owner> PackingRun<'selection, 'owner> {
     /// Take and validate the highest live score from the original or updated
     /// queue. Its state becomes Examining until the package settles.
     fn next_candidate(&mut self) -> Result<Option<(usize, PackageAggregate)>, PackingError> {
-        while self
-            .original
-            .peek()
-            .is_some_and(|key| self.states[key.index] != CandidatePackingState::Original)
-        {
+        while self.original.peek().is_some_and(|(_, Reverse(index))| {
+            self.states[*index] != CandidatePackingState::Original
+        }) {
             self.original.pop();
         }
         let key = match (self.original.peek(), self.modified.last()) {
@@ -544,10 +534,10 @@ impl<'selection, 'owner> PackingRun<'selection, 'owner> {
             _ => self.original.pop(),
         }
         .ok_or(PackingError::Projection)?;
-        let index = key.index;
+        let (_, Reverse(index)) = key;
         let aggregate = self.aggregates[index];
         if !self.states[index].queued()
-            || key != PackageOrderKey::new(index, &self.selection.candidates[index], aggregate)
+            || key != package_order_key(index, &self.selection.candidates[index], aggregate)
         {
             return Err(PackingError::Projection);
         }
@@ -608,7 +598,7 @@ impl<'selection, 'owner> PackingRun<'selection, 'owner> {
         for &member in self.package.iter().rev() {
             let previous = self.states[member];
             if previous == CandidatePackingState::Modified
-                && !self.modified.remove(&PackageOrderKey::new(
+                && !self.modified.remove(&package_order_key(
                     member,
                     &self.selection.candidates[member],
                     self.aggregates[member],
@@ -672,7 +662,7 @@ impl<'selection, 'owner> PackingRun<'selection, 'owner> {
         for descendant in self.changed.drain(..) {
             let previous = self.aggregates[descendant];
             if self.states[descendant] == CandidatePackingState::Modified
-                && !self.modified.remove(&PackageOrderKey::new(
+                && !self.modified.remove(&package_order_key(
                     descendant,
                     &self.selection.candidates[descendant],
                     previous,
@@ -686,7 +676,7 @@ impl<'selection, 'owner> PackingRun<'selection, 'owner> {
             self.adjustments[descendant] = PackageAggregate::default();
             self.aggregates.to_mut()[descendant] = remaining;
             self.states[descendant] = CandidatePackingState::Modified;
-            if !self.modified.insert(PackageOrderKey::new(
+            if !self.modified.insert(package_order_key(
                 descendant,
                 &self.selection.candidates[descendant],
                 remaining,

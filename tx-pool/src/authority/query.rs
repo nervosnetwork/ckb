@@ -6,7 +6,7 @@ use super::{
     packing::Selection,
     store::{Captured, ReadSet, Store},
 };
-use crate::component::sort_key::AncestorsScoreSortKey;
+use crate::component::sort_key::{AncestorsScoreSortKey, TransactionPriority};
 use ckb_app_config::TxPoolConfig;
 use ckb_fee_estimator::FeeSample;
 use ckb_snapshot::Snapshot;
@@ -267,7 +267,11 @@ pub(super) fn detail(
     let value = entry.accepted().ok_or(Error::Stale)?;
     let totals = membership::aggregates(&members, config.max_ancestors_count)?;
     let (ancestors, descendants) = totals.get(hash).ok_or(Error::Stale)?;
-    let target_score = score(value, *ancestors)?;
+    let target = TransactionPriority {
+        score: score(value, *ancestors)?,
+        arrival: entry.arrival,
+        hash,
+    };
     let proposed = value.status(&snapshot) == Status::Proposed;
     let mut pending_count = 0usize;
     let mut proposed_count = 0usize;
@@ -280,14 +284,12 @@ pub(super) fn detail(
         }
         pending_count += 1;
         let (candidate_ancestors, _) = totals.get(candidate_hash).ok_or(Error::Stale)?;
-        let candidate_score = score(candidate_value, *candidate_ancestors)?;
-        if !proposed
-            && target_score
-                .cmp(&candidate_score)
-                .then_with(|| candidate.arrival.cmp(&entry.arrival))
-                .then_with(|| candidate_hash.cmp(hash))
-                .is_lt()
-        {
+        let candidate = TransactionPriority {
+            score: score(candidate_value, *candidate_ancestors)?,
+            arrival: candidate.arrival,
+            hash: candidate_hash,
+        };
+        if !proposed && candidate > target {
             rank_in_pending += 1;
         }
     }
@@ -304,7 +306,7 @@ pub(super) fn detail(
         proposed_count,
         descendants_count: descendants.count.checked_sub(1).ok_or(Error::Stale)?,
         ancestors_count: ancestors.count.checked_sub(1).ok_or(Error::Stale)?,
-        score_sortkey: target_score.into(),
+        score_sortkey: target.score.into(),
     })
 }
 fn score(

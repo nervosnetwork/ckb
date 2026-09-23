@@ -10,7 +10,7 @@ use ckb_types::{
     packed::{CellDep, CellInput, CellOutput, OutPoint},
     prelude::*,
 };
-use std::collections::BTreeMap;
+use std::{cmp::Ordering, collections::BTreeMap};
 
 fn fixture(
     parents: &[Vec<usize>],

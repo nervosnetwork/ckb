@@ -1,8 +1,8 @@
 //! Complete read-before-spend prerequisites for block selection and replay.
 
 use super::{
-    CandidatePackingState, EvictionRank, Links, PackageAggregate, PackageOrderKey, PackingError,
-    Selection, Status, TemplatePackingLimits, Traversal,
+    CandidatePackingState, EvictionRank, Links, PackageAggregate, PackingError, Selection, Status,
+    TemplatePackingLimits, Traversal, package_order_key,
 };
 use ckb_types::{core::TransactionView, prelude::*};
 use std::{
@@ -110,7 +110,7 @@ impl Selection<'_> {
         let mut eviction = None;
         loop {
             let ordered = topological_active_order(&active, &graph, |index| {
-                PackageOrderKey::new(index, &self.candidates[index], self.graph.ancestors[index])
+                package_order_key(index, &self.candidates[index], self.graph.ancestors[index])
             })?;
             if ordered.len() == active.iter().filter(|is_active| **is_active).count() {
                 let parents = graph.reversed(&active)?;
