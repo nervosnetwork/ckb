@@ -49,8 +49,13 @@ impl SchedulerRunner<Scheduler<DataLoaderWrapper<Snapshot>, DebugPrinter, Machin
         mut scheduler: Scheduler<DataLoaderWrapper<Snapshot>, DebugPrinter, Machine>,
         max_cycles: Cycle,
     ) -> Result<Option<TerminatedResult>, Error> {
-        self.run_vm(move |pause| scheduler.run(RunMode::Pause(pause, max_cycles)))
-            .await
+        self.run_vm(move |pause| {
+            let remaining = max_cycles
+                .checked_sub(scheduler.consumed_cycles())
+                .ok_or(Error::CyclesExceeded)?;
+            scheduler.run(RunMode::Pause(pause, remaining))
+        })
+        .await
     }
 }
 

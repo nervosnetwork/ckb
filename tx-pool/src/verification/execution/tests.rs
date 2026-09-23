@@ -446,3 +446,45 @@ async fn scheduler_state_and_cycles_survive_joined_pauses() {
         assert_eq!(actual.consumed_cycles, expected.consumed_cycles);
     }
 }
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 1)]
+async fn scheduler_resume_cannot_regrant_consumed_cycles() {
+    use super::super::tests::{program_transaction, snapshot};
+    use ckb_chain_spec::consensus::ConsensusBuilder;
+    use ckb_script::{ScriptVersion, TransactionScriptsVerifier};
+    use ckb_store::data_loader_wrapper::AsDataLoader;
+    use ckb_types::core::hardfork::HardForks;
+    use ckb_verification::TxVerifyEnv;
+    use std::sync::Arc;
+
+    let snapshot = snapshot(Arc::new(
+        ConsensusBuilder::default()
+            .hardfork_switch(HardForks::new_dev())
+            .build(),
+    ));
+    let env = Arc::new(TxVerifyEnv::new_submit(snapshot.tip_header()));
+    let verifier = TransactionScriptsVerifier::new(
+        program_transaction(
+            ScriptVersion::V0,
+            &[include_bytes!("../../../../script/testdata/debugger")],
+        ),
+        snapshot.as_data_loader(),
+        snapshot.cloned_consensus(),
+        env,
+    );
+    let (_, group) = verifier.groups().next().unwrap();
+    let mut scheduler = verifier.create_scheduler(group).unwrap();
+    scheduler.iterate().unwrap();
+    let consumed = scheduler.consumed_cycles();
+    assert!(consumed > 0);
+    let (_commands, mut receiver) = watch::channel(ChunkCommand::Resume);
+    let mut runner = VmRunner {
+        command: &mut receiver,
+        remaining: TEST_TIMEOUT,
+        mode: ComputeMode::YieldRuntimeWorker,
+    };
+    assert!(matches!(
+        runner.run(scheduler, consumed - 1).await,
+        Err(Error::CyclesExceeded)
+    ));
+}
