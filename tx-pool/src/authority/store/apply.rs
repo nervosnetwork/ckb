@@ -10,7 +10,7 @@ use crate::authority::{
     budget::OwnerDelta,
     model::{DependencyKey, Entry, Error, FullReason, Phase, RelationKey, Status},
     notice::{self, Batch},
-    queue::Queues,
+    queue::{Queues, WorkStage},
 };
 use crate::util::compact_packed;
 use ckb_network::PeerIndex;
@@ -388,9 +388,7 @@ impl Shard {
             if let Some(accepted) = before.accepted() {
                 accepted_times.remove(&(accepted.timestamp, hash.clone()));
             }
-            if matches!(before.phase, Phase::Resolve | Phase::Verify(_)) {
-                queues.remove(before);
-            }
+            queues.remove(before);
         }
         if let Some(after) = &edit.after {
             *waiting += usize::from(matches!(after.phase, Phase::Waiting(_)));
@@ -412,9 +410,7 @@ impl Shard {
                 accepted_times.insert((accepted.timestamp, hash.clone()));
             }
             retired.extend(owners.insert(hash.clone(), Arc::clone(after)));
-            if matches!(after.phase, Phase::Resolve | Phase::Verify(_)) {
-                queues.insert(after);
-            }
+            queues.insert(after);
         } else {
             retired.extend(owners.remove(hash));
         }
@@ -665,7 +661,7 @@ impl Store {
             || plan.edits.values().any(|edit| {
                 edit.after
                     .as_ref()
-                    .is_some_and(|entry| matches!(entry.phase, Phase::Resolve | Phase::Verify(_)))
+                    .is_some_and(|entry| WorkStage::for_phase(&entry.phase).is_some())
             })
         {
             self.work.notify_waiters();

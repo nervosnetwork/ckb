@@ -21,6 +21,16 @@ pub(super) enum WorkStage {
     Verify,
 }
 
+impl WorkStage {
+    pub(super) fn for_phase(phase: &Phase) -> Option<Self> {
+        match phase {
+            Phase::Resolve => Some(Self::Resolve),
+            Phase::Verify(_) => Some(Self::Verify),
+            Phase::Waiting(_) | Phase::Accepted(_) | Phase::Replaced { .. } => None,
+        }
+    }
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
 enum WorkOwner {
     Trusted,
@@ -141,19 +151,13 @@ impl Queues {
         }
     }
     fn key(&self, entry: &Entry) -> Option<(WorkStage, bool, WorkOwner, Key)> {
-        let (stage, fee_and_size) = match &entry.phase {
-            Phase::Resolve => (WorkStage::Resolve, None),
-            Phase::Verify(resolved) => (
-                WorkStage::Verify,
-                match self.order {
-                    VerifyOrdering::ArrivalTime => None,
-                    VerifyOrdering::FeeRate => Some((
-                        resolved.fee.as_u64(),
-                        u64::try_from(entry.transaction.data().serialized_size_in_block()).ok()?,
-                    )),
-                },
-            ),
-            _ => return None,
+        let stage = WorkStage::for_phase(&entry.phase)?;
+        let fee_and_size = match (&entry.phase, self.order) {
+            (Phase::Verify(resolved), VerifyOrdering::FeeRate) => Some((
+                resolved.fee.as_u64(),
+                u64::try_from(entry.transaction.data().serialized_size_in_block()).ok()?,
+            )),
+            _ => None,
         };
         let large = entry
             .source
