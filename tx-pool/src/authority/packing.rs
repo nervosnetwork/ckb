@@ -16,6 +16,7 @@ use ckb_types::{
     prelude::Reader,
 };
 use graph::{Graph, Links};
+use ordering::Precedence;
 use std::{
     borrow::Cow,
     cmp::Ordering,
@@ -391,226 +392,317 @@ impl Selection<'_> {
         self.pack_transactions_with_failure_bound(limits, MAX_CONSECUTIVE_PACKING_FAILURES)
     }
 
-    #[expect(
-        clippy::indexing_slicing,
-        reason = "The compiled graph defines every candidate, edge and overlay index; all queues are populated from those indices."
-    )]
     fn pack_transactions_with_failure_bound(
         &self,
         limits: TemplatePackingLimits,
         max_consecutive_failures: usize,
     ) -> Result<Vec<TxEntry>, PackingError> {
-        let len = self.candidates.len();
-        let precedence = self.precedence()?;
-        let eligible = &precedence.eligible;
-        if eligible.is_empty() {
+        let Some(run) = PackingRun::new(self, limits)? else {
             return Ok(Vec::new());
+        };
+        run.pack(max_consecutive_failures)
+    }
+}
+
+/// All mutable state for one block selection. Queue membership, selected
+/// ancestors and descendant scores advance together after each package.
+struct PackingRun<'selection, 'owner> {
+    selection: &'selection Selection<'owner>,
+    precedence: Precedence,
+    limits: TemplatePackingLimits,
+    aggregates: Cow<'selection, [PackageAggregate]>,
+    states: Vec<CandidatePackingState>,
+    original: BinaryHeap<PackageOrderKey<'selection>>,
+    modified: BTreeSet<PackageOrderKey<'selection>>,
+    live_children: Vec<usize>,
+    selected: Vec<usize>,
+    selected_bytes: usize,
+    selected_cycles: Cycle,
+    consecutive_failures: usize,
+    minimum_bytes: usize,
+    traversal: Traversal,
+    package: Vec<usize>,
+    adjustments: Vec<PackageAggregate>,
+    changed: Vec<usize>,
+}
+
+#[expect(
+    clippy::indexing_slicing,
+    reason = "The compiled graph defines every candidate, edge and overlay index; all queues are populated from those indices."
+)]
+impl<'selection, 'owner> PackingRun<'selection, 'owner> {
+    fn new(
+        selection: &'selection Selection<'owner>,
+        limits: TemplatePackingLimits,
+    ) -> Result<Option<Self>, PackingError> {
+        let len = selection.candidates.len();
+        let precedence = selection.precedence()?;
+        if precedence.eligible.is_empty() {
+            return Ok(None);
         }
-        let mut aggregates = Cow::Borrowed(self.graph.ancestors.as_slice());
+        let aggregates = Cow::Borrowed(selection.graph.ancestors.as_slice());
         let mut states = vec![CandidatePackingState::Ineligible; len];
-        let mut original = Vec::with_capacity(eligible.len());
+        let mut original = Vec::with_capacity(precedence.eligible.len());
         let mut minimum_bytes = usize::MAX;
-        for &index in eligible {
+        for &index in &precedence.eligible {
             if aggregates[index].fits(limits) {
-                minimum_bytes = minimum_bytes.min(self.candidates[index].accepted.size);
+                minimum_bytes = minimum_bytes.min(selection.candidates[index].accepted.size);
                 states[index] = CandidatePackingState::Original;
                 original.push(PackageOrderKey::new(
                     index,
-                    &self.candidates[index],
+                    &selection.candidates[index],
                     aggregates[index],
                 ));
             }
         }
         if original.is_empty() {
-            return Ok(Vec::new());
+            return Ok(None);
         }
-        let mut original = BinaryHeap::from(original);
-        let mut modified = BTreeSet::<PackageOrderKey<'_>>::new();
         let mut live_children = vec![0usize; len];
-        for &index in self.graph.topological.iter().rev() {
+        for &index in selection.graph.topological.iter().rev() {
             if states[index].needed() || live_children[index] != 0 {
-                for &parent in &self.graph.parents[index] {
+                for &parent in &selection.graph.parents[index] {
                     live_children[parent] = live_children[parent]
                         .checked_add(1)
                         .ok_or(PackingError::Arithmetic)?;
                 }
             }
         }
+        let eligible_count = precedence.eligible.len();
+        Ok(Some(Self {
+            selection,
+            precedence,
+            limits,
+            aggregates,
+            states,
+            original: BinaryHeap::from(original),
+            modified: BTreeSet::new(),
+            live_children,
+            selected: Vec::with_capacity(eligible_count),
+            selected_bytes: 0,
+            selected_cycles: 0,
+            consecutive_failures: 0,
+            minimum_bytes,
+            traversal: Traversal::new(len),
+            package: Vec::new(),
+            adjustments: vec![PackageAggregate::default(); len],
+            changed: Vec::new(),
+        }))
+    }
 
-        let mut selected = Vec::with_capacity(eligible.len());
-        let mut selected_bytes = 0usize;
-        let mut selected_cycles = 0u64;
-        let mut consecutive_failures = 0usize;
-        let mut traversal = Traversal::new(len);
-        let mut package = Vec::new();
-        let mut adjustments = vec![PackageAggregate::default(); len];
-        let mut changed = Vec::new();
-
-        loop {
-            while original
-                .peek()
-                .is_some_and(|key| states[key.index] != CandidatePackingState::Original)
-            {
-                original.pop();
-            }
-            let key = match (original.peek(), modified.last()) {
-                (None, None) => break,
-                (Some(initial), Some(updated)) if updated > initial => modified.pop_last(),
-                (None, Some(_)) => modified.pop_last(),
-                _ => original.pop(),
-            }
-            .ok_or(PackingError::Projection)?;
-            let index = key.index;
-            let aggregate = aggregates[index];
-            if !states[index].queued()
-                || key != PackageOrderKey::new(index, &self.candidates[index], aggregate)
-            {
-                return Err(PackingError::Projection);
-            }
-            states[index] = CandidatePackingState::Examining;
-            let remaining = TemplatePackingLimits::new(
-                limits
-                    .serialized_bytes
-                    .checked_sub(selected_bytes)
-                    .ok_or(PackingError::Projection)?,
-                limits
-                    .cycles
-                    .checked_sub(selected_cycles)
-                    .ok_or(PackingError::Projection)?,
-            );
-            // Preserve checked projected totals even for synthetic integer limits.
-            selected_bytes
-                .checked_add(aggregate.serialized_bytes)
-                .ok_or(PackingError::Arithmetic)?;
-            selected_cycles
-                .checked_add(aggregate.cycles)
-                .ok_or(PackingError::Arithmetic)?;
-            let Some(actual) = precedence.collect_package(
-                self,
-                index,
-                &states,
-                remaining,
-                &mut traversal,
-                &mut package,
-            )?
-            else {
-                states[index] = CandidatePackingState::Failed;
-                retire_candidate(
-                    index,
-                    &states,
-                    &mut live_children,
-                    &self.graph.parents,
-                    &mut traversal.stack,
-                )?;
-                consecutive_failures = consecutive_failures
-                    .checked_add(1)
-                    .ok_or(PackingError::Arithmetic)?;
+    fn pack(mut self, max_consecutive_failures: usize) -> Result<Vec<TxEntry>, PackingError> {
+        while let Some((index, aggregate)) = self.next_candidate()? {
+            let Some(actual) = self.collect_package(index, aggregate)? else {
+                self.reject_package(index)?;
                 // Unfitting spend packages must not prevent their independently
                 // fitting readers from making the first progress in this block.
-                if consecutive_failures > max_consecutive_failures && !selected.is_empty() {
+                if self.consecutive_failures > max_consecutive_failures && !self.selected.is_empty()
+                {
                     break;
                 }
                 continue;
             };
-
-            // Complete the package before finding remaining consumers. Reverse
-            // order lets each candidate retire its own queue use exactly once.
-            for &member in package.iter().rev() {
-                let previous = states[member];
-                if previous == CandidatePackingState::Modified
-                    && !modified.remove(&PackageOrderKey::new(
-                        member,
-                        &self.candidates[member],
-                        aggregates[member],
-                    ))
-                {
-                    return Err(PackingError::Projection);
-                }
-                states[member] = CandidatePackingState::Selected;
-                if previous.needed() {
-                    retire_candidate(
-                        member,
-                        &states,
-                        &mut live_children,
-                        &self.graph.parents,
-                        &mut traversal.stack,
-                    )?;
-                }
-            }
-            selected.extend_from_slice(&package);
-            selected_bytes = selected_bytes
-                .checked_add(actual.serialized_bytes)
-                .ok_or(PackingError::Arithmetic)?;
-            selected_cycles = selected_cycles
-                .checked_add(actual.cycles)
-                .ok_or(PackingError::Arithmetic)?;
-            consecutive_failures = 0;
+            self.select_package(actual)?;
             // Every remaining package contains a queued candidate's own bytes,
             // even after selected ancestors are subtracted. Keep checked-add
             // errors observable when synthetic limits approach integer bounds.
-            if limits.serialized_bytes.saturating_sub(selected_bytes) < minimum_bytes
-                && selected_bytes
-                    .checked_add(limits.serialized_bytes)
+            if self
+                .limits
+                .serialized_bytes
+                .saturating_sub(self.selected_bytes)
+                < self.minimum_bytes
+                && self
+                    .selected_bytes
+                    .checked_add(self.limits.serialized_bytes)
                     .is_some()
-                && selected_cycles.checked_add(limits.cycles).is_some()
+                && self
+                    .selected_cycles
+                    .checked_add(self.limits.cycles)
+                    .is_some()
             {
                 break;
             }
+            self.reprice_descendants()?;
+        }
+        self.into_entries()
+    }
 
-            for &member in &package {
-                let delta = PackageAggregate::one(&self.candidates[member]);
-                traversal.begin()?;
-                traversal.stack.extend(&self.graph.children[member]);
-                while let Some(descendant) = traversal.stack.pop() {
-                    if (!states[descendant].needed() && live_children[descendant] == 0)
-                        || traversal.marks[descendant] == traversal.generation
-                    {
-                        continue;
-                    }
-                    traversal.marks[descendant] = traversal.generation;
-                    traversal.stack.extend(&self.graph.children[descendant]);
-                    if states[descendant].queued() {
-                        if adjustments[descendant].entries == 0 {
-                            changed.push(descendant);
-                        }
-                        adjustments[descendant] = adjustments[descendant]
-                            .checked_add(delta)
-                            .ok_or(PackingError::Arithmetic)?;
-                    }
-                }
+    /// Take and validate the highest live score from the original or updated
+    /// queue. Its state becomes Examining until the package settles.
+    fn next_candidate(&mut self) -> Result<Option<(usize, PackageAggregate)>, PackingError> {
+        while self
+            .original
+            .peek()
+            .is_some_and(|key| self.states[key.index] != CandidatePackingState::Original)
+        {
+            self.original.pop();
+        }
+        let key = match (self.original.peek(), self.modified.last()) {
+            (None, None) => return Ok(None),
+            (Some(initial), Some(updated)) if updated > initial => self.modified.pop_last(),
+            (None, Some(_)) => self.modified.pop_last(),
+            _ => self.original.pop(),
+        }
+        .ok_or(PackingError::Projection)?;
+        let index = key.index;
+        let aggregate = self.aggregates[index];
+        if !self.states[index].queued()
+            || key != PackageOrderKey::new(index, &self.selection.candidates[index], aggregate)
+        {
+            return Err(PackingError::Projection);
+        }
+        self.states[index] = CandidatePackingState::Examining;
+        Ok(Some((index, aggregate)))
+    }
+
+    fn collect_package(
+        &mut self,
+        index: usize,
+        aggregate: PackageAggregate,
+    ) -> Result<Option<PackageAggregate>, PackingError> {
+        let remaining = TemplatePackingLimits::new(
+            self.limits
+                .serialized_bytes
+                .checked_sub(self.selected_bytes)
+                .ok_or(PackingError::Projection)?,
+            self.limits
+                .cycles
+                .checked_sub(self.selected_cycles)
+                .ok_or(PackingError::Projection)?,
+        );
+        // Preserve checked projected totals even for synthetic integer limits.
+        self.selected_bytes
+            .checked_add(aggregate.serialized_bytes)
+            .ok_or(PackingError::Arithmetic)?;
+        self.selected_cycles
+            .checked_add(aggregate.cycles)
+            .ok_or(PackingError::Arithmetic)?;
+        self.precedence.collect_package(
+            self.selection,
+            index,
+            &self.states,
+            remaining,
+            &mut self.traversal,
+            &mut self.package,
+        )
+    }
+
+    fn reject_package(&mut self, index: usize) -> Result<(), PackingError> {
+        self.states[index] = CandidatePackingState::Failed;
+        retire_candidate(
+            index,
+            &self.states,
+            &mut self.live_children,
+            &self.selection.graph.parents,
+            &mut self.traversal.stack,
+        )?;
+        self.consecutive_failures = self
+            .consecutive_failures
+            .checked_add(1)
+            .ok_or(PackingError::Arithmetic)?;
+        Ok(())
+    }
+
+    /// Finish the entire package before visiting its remaining consumers.
+    fn select_package(&mut self, actual: PackageAggregate) -> Result<(), PackingError> {
+        for &member in self.package.iter().rev() {
+            let previous = self.states[member];
+            if previous == CandidatePackingState::Modified
+                && !self.modified.remove(&PackageOrderKey::new(
+                    member,
+                    &self.selection.candidates[member],
+                    self.aggregates[member],
+                ))
+            {
+                return Err(PackingError::Projection);
             }
-            for descendant in changed.drain(..) {
-                let previous = aggregates[descendant];
-                if states[descendant] == CandidatePackingState::Modified
-                    && !modified.remove(&PackageOrderKey::new(
-                        descendant,
-                        &self.candidates[descendant],
-                        previous,
-                    ))
+            self.states[member] = CandidatePackingState::Selected;
+            if previous.needed() {
+                retire_candidate(
+                    member,
+                    &self.states,
+                    &mut self.live_children,
+                    &self.selection.graph.parents,
+                    &mut self.traversal.stack,
+                )?;
+            }
+        }
+        self.selected.extend_from_slice(&self.package);
+        self.selected_bytes = self
+            .selected_bytes
+            .checked_add(actual.serialized_bytes)
+            .ok_or(PackingError::Arithmetic)?;
+        self.selected_cycles = self
+            .selected_cycles
+            .checked_add(actual.cycles)
+            .ok_or(PackingError::Arithmetic)?;
+        self.consecutive_failures = 0;
+        Ok(())
+    }
+
+    /// Subtract selected members once per live descendant, then replace each
+    /// affected queue score after all package members have been counted.
+    fn reprice_descendants(&mut self) -> Result<(), PackingError> {
+        for &member in &self.package {
+            let delta = PackageAggregate::one(&self.selection.candidates[member]);
+            self.traversal.begin()?;
+            self.traversal
+                .stack
+                .extend(&self.selection.graph.children[member]);
+            while let Some(descendant) = self.traversal.stack.pop() {
+                if (!self.states[descendant].needed() && self.live_children[descendant] == 0)
+                    || self.traversal.marks[descendant] == self.traversal.generation
                 {
-                    return Err(PackingError::Projection);
+                    continue;
                 }
-                let remaining = previous
-                    .checked_sub(adjustments[descendant])
-                    .ok_or(PackingError::Projection)?;
-                adjustments[descendant] = PackageAggregate::default();
-                aggregates.to_mut()[descendant] = remaining;
-                states[descendant] = CandidatePackingState::Modified;
-                if !modified.insert(PackageOrderKey::new(
-                    descendant,
-                    &self.candidates[descendant],
-                    remaining,
-                )) {
-                    return Err(PackingError::Projection);
+                self.traversal.marks[descendant] = self.traversal.generation;
+                self.traversal
+                    .stack
+                    .extend(&self.selection.graph.children[descendant]);
+                if self.states[descendant].queued() {
+                    if self.adjustments[descendant].entries == 0 {
+                        self.changed.push(descendant);
+                    }
+                    self.adjustments[descendant] = self.adjustments[descendant]
+                        .checked_add(delta)
+                        .ok_or(PackingError::Arithmetic)?;
                 }
             }
         }
+        for descendant in self.changed.drain(..) {
+            let previous = self.aggregates[descendant];
+            if self.states[descendant] == CandidatePackingState::Modified
+                && !self.modified.remove(&PackageOrderKey::new(
+                    descendant,
+                    &self.selection.candidates[descendant],
+                    previous,
+                ))
+            {
+                return Err(PackingError::Projection);
+            }
+            let remaining = previous
+                .checked_sub(self.adjustments[descendant])
+                .ok_or(PackingError::Projection)?;
+            self.adjustments[descendant] = PackageAggregate::default();
+            self.aggregates.to_mut()[descendant] = remaining;
+            self.states[descendant] = CandidatePackingState::Modified;
+            if !self.modified.insert(PackageOrderKey::new(
+                descendant,
+                &self.selection.candidates[descendant],
+                remaining,
+            )) {
+                return Err(PackingError::Projection);
+            }
+        }
+        Ok(())
+    }
 
-        let mut entries = Vec::with_capacity(selected.len());
+    fn into_entries(self) -> Result<Vec<TxEntry>, PackingError> {
+        let mut entries = Vec::with_capacity(self.selected.len());
         let mut final_bytes = 0usize;
         let mut final_cycles = 0u64;
-        for index in selected {
-            let candidate = &self.candidates[index];
+        for index in self.selected {
+            let candidate = &self.selection.candidates[index];
             final_bytes = final_bytes
                 .checked_add(candidate.accepted.size)
                 .ok_or(PackingError::Arithmetic)?;
@@ -619,7 +711,7 @@ impl Selection<'_> {
                 .ok_or(PackingError::Arithmetic)?;
             entries.push(candidate.accepted.projection());
         }
-        if final_bytes > limits.serialized_bytes || final_cycles > limits.cycles {
+        if final_bytes > self.limits.serialized_bytes || final_cycles > self.limits.cycles {
             return Err(PackingError::Projection);
         }
         Ok(entries)
