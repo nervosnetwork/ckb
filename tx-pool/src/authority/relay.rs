@@ -70,6 +70,12 @@ struct RelayMailboxState {
 
 impl RelayMailboxState {
     fn replace_with_reset(&mut self) {
+        if let Some(metrics) = ckb_metrics::handle() {
+            metrics
+                .ckb_relay_tx_verify_result_queue_resets
+                .capacity
+                .inc();
+        }
         self.queue.clear();
         self.bytes = size_of::<TxVerificationResult>();
         self.queue.push_back(RelayEnvelope {
@@ -96,6 +102,12 @@ impl RelayMailboxState {
         // remaining detail and force an authoritative relay rebuild. The
         // empty/zero equivalence detects both undercount and overcount without
         // scanning the queue; never hide either mismatch with saturation.
+        if let Some(metrics) = ckb_metrics::handle() {
+            metrics
+                .ckb_relay_tx_verify_result_queue_resets
+                .accounting
+                .inc();
+        }
         self.queue.clear();
         self.bytes = 0;
         TxVerificationResult::GenerationReset
@@ -210,14 +222,14 @@ impl AuthorityRelaySink {
         if !self.inner.receiver_alive.load(Ordering::Acquire) {
             return RelayMailboxDisposition::Disconnected;
         }
-        let Some(result_bytes) = relay_result_bytes(&result) else {
-            return self.reconcile_without_current(result);
-        };
+        let result_bytes = relay_result_bytes(&result);
         let mut state = self.inner.state.lock();
         if !self.inner.receiver_alive.load(Ordering::Acquire) {
             return RelayMailboxDisposition::Disconnected;
         }
-        if let Some(bytes) = mailbox_bytes_after(&state, result_bytes, &self.inner) {
+        if let Some(result_bytes) = result_bytes
+            && let Some(bytes) = mailbox_bytes_after(&state, result_bytes, &self.inner)
+        {
             let prompt = matches!(
                 result,
                 TxVerificationResult::GenerationReset | TxVerificationResult::UnknownParents { .. }
@@ -240,7 +252,9 @@ impl AuthorityRelaySink {
 
         let disposition = if matches!(result, TxVerificationResult::GenerationReset) {
             RelayMailboxDisposition::Reconciled
-        } else if let Some(bytes) = mailbox_bytes_after(&state, result_bytes, &self.inner) {
+        } else if let Some(result_bytes) = result_bytes
+            && let Some(bytes) = mailbox_bytes_after(&state, result_bytes, &self.inner)
+        {
             state.bytes = bytes;
             state.queue.push_back(RelayEnvelope {
                 result,
@@ -252,23 +266,6 @@ impl AuthorityRelaySink {
         } else {
             // Reset conservatively clears known/pending relay state for an
             // ordinary Ok/Reject result that cannot itself fit.
-            RelayMailboxDisposition::Reconciled
-        };
-        crate::metrics::relay_queue(state.queue.len(), self.inner.max_items);
-        drop(state);
-        self.inner.drain_signal.notify_one();
-        disposition
-    }
-
-    fn reconcile_without_current(&self, result: TxVerificationResult) -> RelayMailboxDisposition {
-        let mut state = self.inner.state.lock();
-        if !self.inner.receiver_alive.load(Ordering::Acquire) {
-            return RelayMailboxDisposition::Disconnected;
-        }
-        state.replace_with_reset();
-        let disposition = if matches!(result, TxVerificationResult::UnknownParents { .. }) {
-            RelayMailboxDisposition::Unavailable
-        } else {
             RelayMailboxDisposition::Reconciled
         };
         crate::metrics::relay_queue(state.queue.len(), self.inner.max_items);

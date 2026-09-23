@@ -1464,7 +1464,19 @@ impl SyncState {
         self.mark_as_known_tx(hash.clone());
         self.inflight_proposals
             .remove(&packed::ProposalShortId::from_tx_hash(&hash));
-        self.pending_relay_txs.lock().put(hash, original_peer);
+        let evicted = {
+            let mut pending = self.pending_relay_txs.lock();
+            let was_full = pending.len() == pending.cap();
+            let replaced = pending.put(hash, original_peer).is_some();
+            // Updating an existing announcement preserves it, even at capacity.
+            was_full && !replaced
+        };
+        if evicted && let Some(metrics) = ckb_metrics::handle() {
+            metrics
+                .ckb_relay_pending_transactions_discarded
+                .capacity
+                .inc();
+        }
     }
 
     pub fn reject_pending_relay_tx(&self, hash: &Byte32) {
@@ -1474,7 +1486,18 @@ impl SyncState {
 
     pub fn reset_tx_pool_relay_projection(&self) {
         self.reset_known_txs();
-        self.pending_relay_txs.lock().clear();
+        let discarded = {
+            let mut pending = self.pending_relay_txs.lock();
+            let discarded = pending.len();
+            pending.clear();
+            discarded
+        };
+        if let Some(metrics) = ckb_metrics::handle() {
+            metrics
+                .ckb_relay_pending_transactions_discarded
+                .reset
+                .inc_by(discarded as u64);
+        }
     }
 
     pub fn take_pending_relay_txs(&self, limit: usize) -> Vec<(Byte32, Option<PeerIndex>)> {

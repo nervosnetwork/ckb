@@ -16,6 +16,14 @@ pub fn gather() -> Vec<prometheus::proto::MetricFamily> {
 }
 
 make_static_metric! {
+    struct CkbRelayQueueResets: IntCounter {
+        "reason" => { capacity, accounting },
+    }
+
+    struct CkbRelayPendingDiscarded: IntCounter {
+        "reason" => { capacity, reset },
+    }
+
     // Struct for the CKB sys mem process statistics type label
     struct CkbSysMemProcessStatistics: IntGauge{
         "type" => {
@@ -141,6 +149,10 @@ pub struct Metrics {
     pub ckb_relay_tx_verify_result_queue_size: IntGauge,
     /// Item capacity of the bounded relay mailbox.
     pub ckb_relay_tx_verify_result_queue_capacity: IntGauge,
+    /// Mailbox reconstructions caused by capacity or inconsistent byte accounting.
+    pub ckb_relay_tx_verify_result_queue_resets: CkbRelayQueueResets,
+    /// Pending transaction announcements discarded before a broadcast attempt.
+    pub ckb_relay_pending_transactions_discarded: CkbRelayPendingDiscarded,
     /// Histogram for relay compact block verify duration
     pub ckb_relay_cb_verify_duration: Histogram,
     /// Histogram for block process duration
@@ -293,6 +305,20 @@ static METRICS: std::sync::LazyLock<Metrics> = std::sync::LazyLock::new(|| {
         "ckb_relay_tx_verify_result_queue_capacity",
         "Maximum pending transaction verification results in the relay mailbox"
     ).unwrap(),
+    ckb_relay_tx_verify_result_queue_resets: CkbRelayQueueResets::from(
+        &register_int_counter_vec!(
+            "ckb_relay_tx_verify_result_queue_resets",
+            "Relay mailbox reconstructions, excluding ordinary authority generation resets",
+            &["reason"]
+        ).unwrap()
+    ),
+    ckb_relay_pending_transactions_discarded: CkbRelayPendingDiscarded::from(
+        &register_int_counter_vec!(
+            "ckb_relay_pending_transactions_discarded",
+            "Pending transaction announcements discarded by cache capacity or projection reset",
+            &["reason"]
+        ).unwrap()
+    ),
     ckb_relay_cb_verify_duration: register_histogram!(
         "ckb_relay_cb_verify_duration",
         "The CKB relay compact block verify duration"

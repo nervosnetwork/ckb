@@ -226,6 +226,9 @@ fn relay_batch_drain_preserves_overflow_and_accounting_resets() {
 fn relay_metrics_follow_bounded_backlog_reset_and_drain() {
     ckb_metrics::METRICS_SERVICE_ENABLED.set(true).unwrap();
     let metrics = ckb_metrics::handle().unwrap();
+    let resets = &metrics.ckb_relay_tx_verify_result_queue_resets;
+    assert_eq!(resets.capacity.get(), 0);
+    assert_eq!(resets.accounting.get(), 0);
     let (sink, receiver) = authority_relay_mailbox(4, TEST_BYTES, TEST_MAX_PARENTS).unwrap();
     assert_eq!(metrics.ckb_relay_tx_verify_result_queue_capacity.get(), 4);
     assert_eq!(metrics.ckb_relay_tx_verify_result_queue_size.get(), 0);
@@ -238,6 +241,7 @@ fn relay_metrics_follow_bounded_backlog_reset_and_drain() {
         assert_eq!(observed, receiver.observation().0 as i64);
     }
     // Overflow replaced earlier detail with a reset before the later results.
+    assert_eq!(resets.capacity.get(), 1);
     assert!(matches!(
         receiver.try_recv(),
         Some(TxVerificationResult::GenerationReset)
@@ -246,6 +250,7 @@ fn relay_metrics_follow_bounded_backlog_reset_and_drain() {
     assert_eq!(receiver.drain(4).len(), 2);
     assert_eq!(metrics.ckb_relay_tx_verify_result_queue_size.get(), 0);
     sink.publish(TxVerificationResult::GenerationReset);
+    assert_eq!(resets.capacity.get(), 1, "ordinary reset is not pressure");
     drop(receiver);
     assert_eq!(metrics.ckb_relay_tx_verify_result_queue_size.get(), 0);
     assert_eq!(
@@ -253,4 +258,34 @@ fn relay_metrics_follow_bounded_backlog_reset_and_drain() {
         RelayMailboxDisposition::Disconnected
     );
     assert_eq!(metrics.ckb_relay_tx_verify_result_queue_size.get(), 0);
+    assert_eq!(resets.capacity.get(), 1, "closed receiver is not pressure");
+
+    let (sink, receiver) = authority_relay_mailbox(2, 256, 0).unwrap();
+    assert_eq!(
+        sink.publish(TxVerificationResult::UnknownParents {
+            peer: 9.into(),
+            parents: (0u8..32).map(|byte| Byte32::new([byte; 32])).collect(),
+        }),
+        RelayMailboxDisposition::Unavailable
+    );
+    assert_eq!(resets.capacity.get(), 2);
+    assert!(matches!(
+        receiver.try_recv(),
+        Some(TxVerificationResult::GenerationReset)
+    ));
+    assert!(receiver.try_recv().is_none());
+
+    for (count, corrupted_bytes) in [(1, 0), (2, usize::MAX)] {
+        sink.publish(TxVerificationResult::Reject {
+            tx_hash: Byte32::new([7; 32]),
+        });
+        receiver.corrupt_bytes_for_test(corrupted_bytes);
+        assert!(matches!(
+            receiver.try_recv(),
+            Some(TxVerificationResult::GenerationReset)
+        ));
+        assert_eq!(receiver.observation(), (0, 0));
+        assert_eq!(resets.accounting.get(), count);
+        assert_eq!(resets.capacity.get(), 2);
+    }
 }

@@ -522,3 +522,44 @@ fn test_sync_relay_collaboration2() {
         )
     }
 }
+
+#[test]
+fn pending_announcement_metrics_distinguish_updates_eviction_and_reset() {
+    use ckb_constant::sync::MAX_UNKNOWN_TX_HASHES_SIZE;
+
+    ckb_metrics::METRICS_SERVICE_ENABLED.set(true).unwrap();
+    let metrics = ckb_metrics::handle().unwrap();
+    let discarded = &metrics.ckb_relay_pending_transactions_discarded;
+    let (shared, _chain) = build_chain(0);
+    let state = shared.state();
+    let hash = |index: usize| {
+        let mut bytes = [0; 32];
+        bytes[..8].copy_from_slice(&(index as u64).to_le_bytes());
+        Byte32::new(bytes)
+    };
+    for index in 0..MAX_UNKNOWN_TX_HASHES_SIZE {
+        state.record_accepted_tx(hash(index), None);
+    }
+    assert_eq!(discarded.capacity.get(), 0);
+    // Refreshing a pending entry changes its LRU position and origin, not the
+    // number of announcements lost. The following new entry evicts hash(1).
+    state.record_accepted_tx(hash(0), Some(7.into()));
+    assert_eq!(discarded.capacity.get(), 0);
+    state.record_accepted_tx(hash(MAX_UNKNOWN_TX_HASHES_SIZE), None);
+    assert_eq!(discarded.capacity.get(), 1);
+    assert_eq!(state.take_pending_relay_txs(1), vec![(hash(2), None)]);
+
+    state.reject_pending_relay_tx(&hash(3));
+    state.reset_tx_pool_relay_projection();
+    assert_eq!(discarded.capacity.get(), 1);
+    assert_eq!(
+        discarded.reset.get(),
+        (MAX_UNKNOWN_TX_HASHES_SIZE - 2) as u64
+    );
+    assert!(state.take_pending_relay_txs(1).is_empty());
+    state.reset_tx_pool_relay_projection();
+    assert_eq!(
+        discarded.reset.get(),
+        (MAX_UNKNOWN_TX_HASHES_SIZE - 2) as u64
+    );
+}
