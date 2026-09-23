@@ -311,11 +311,43 @@ fn chain_commit_preserves_supplied_order_for_colliding_compact_ids() {
     let mut plan = reconcile(&store, &command, &config()).unwrap();
     // Inject a compact collision at the same checked boundary that receives
     // ordered block transaction facts; constructing a hash collision is unnecessary.
-    plan.committed_for_test(vec![(id.clone(), first), (id.clone(), second.clone())]);
+    assert!(plan.committed_for_test(vec![(id.clone(), first), (id.clone(), second.clone())]));
     store.apply(plan).unwrap();
     let (_, live, committed) = store.compact_lookup(std::slice::from_ref(&id));
     assert!(live.is_empty());
     assert_eq!(committed, vec![(id, second)]);
+}
+
+#[test]
+fn bounded_recovery_committed_lookup_survives_partial_clear_only() {
+    let store = store();
+    let base = store.snapshot().1;
+    let committed_tx = output_tx(5600);
+    let attached = BlockBuilder::default()
+        .transactions([tx(0), committed_tx.clone()])
+        .build();
+    let command = ChainReorgArgs::Detailed {
+        detached_blocks: VecDeque::new(),
+        snapshot: snapshot(&base, &attached, HashSet::new(), HashSet::new()),
+        attached_blocks: [attached].into(),
+    };
+    let pause = store.begin_chain().unwrap();
+    store
+        .apply(recover_bounded(&store, &command).unwrap())
+        .unwrap();
+    drop(pause);
+
+    let id = committed_tx.proposal_short_id();
+    let committed = vec![(id.clone(), committed_tx.hash())];
+    assert_eq!(store.compact_lookup(std::slice::from_ref(&id)).2, committed);
+    store
+        .apply(clear(&store, None, ClearScope::Unaccepted).unwrap())
+        .unwrap();
+    assert_eq!(store.compact_lookup(std::slice::from_ref(&id)).2, committed);
+    store
+        .apply(clear(&store, None, ClearScope::All).unwrap())
+        .unwrap();
+    assert!(store.compact_lookup(std::slice::from_ref(&id)).2.is_empty());
 }
 
 #[test]

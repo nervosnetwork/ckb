@@ -199,6 +199,7 @@ fn owner_edit_groups_cover_mixed_guards_and_empty_clear_shards() {
         clear.lifecycle = Some(super::plan::LifecycleWrite {
             snapshot,
             replace_generation: true,
+            committed: Vec::new(),
         });
         for owner in owners {
             clear.edit(Some(owner), None, None).unwrap();
@@ -1949,6 +1950,7 @@ fn dirty_retirement_preserves_a_spender_and_clear_releases_all_queued_keys() {
     clear.lifecycle = Some(super::plan::LifecycleWrite {
         snapshot,
         replace_generation: true,
+        committed: Vec::new(),
     });
     for owner in owners {
         clear.edit(Some(owner), None, None).unwrap();

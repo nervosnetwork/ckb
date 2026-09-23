@@ -131,12 +131,13 @@ impl Edit {
     }
 }
 
-/// One lifecycle write always carries its successor snapshot. Whole-generation
-/// replacement is a mode of that write, never an independent Plan flag.
+/// One lifecycle write carries its successor snapshot and any block records
+/// from the same chain decision. Whole-generation replacement is a mode of it.
 #[derive(Clone)]
 pub(super) struct LifecycleWrite {
     pub(super) snapshot: Arc<Snapshot>,
     pub(super) replace_generation: bool,
+    pub(super) committed: Vec<(ProposalShortId, Byte32)>,
 }
 
 /// One decision owns its original observations, owner changes and obligations.
@@ -151,7 +152,6 @@ pub(in crate::authority) struct Plan {
     pub(super) class: Class,
     pub(super) lifecycle: Option<LifecycleWrite>,
     pub(super) dry_run: bool,
-    pub(super) committed: Vec<(ProposalShortId, Byte32)>,
     pub(super) ban: Option<(PeerIndex, Instant)>,
     pub(super) peer_access: Option<(PeerIndex, bool)>,
     pub(in crate::authority) wake: BTreeSet<DependencyKey>,
@@ -167,7 +167,6 @@ impl Plan {
             class,
             lifecycle: None,
             dry_run: false,
-            committed: Vec::new(),
             ban: None,
             peer_access: None,
             wake: BTreeSet::new(),
@@ -241,20 +240,26 @@ impl Plan {
         self.notify(effect);
         Ok(())
     }
+    /// Update the successor view while keeping any attached-block records
+    /// already collected for this lifecycle write.
+    fn lifecycle_write(&mut self, snapshot: Arc<Snapshot>) -> &mut LifecycleWrite {
+        let write = self.lifecycle.get_or_insert_with(|| LifecycleWrite {
+            snapshot: Arc::clone(&snapshot),
+            replace_generation: false,
+            committed: Vec::new(),
+        });
+        write.snapshot = snapshot;
+        write
+    }
+
     /// Advance the lifecycle and invalidate derived relay knowledge together.
     pub(in crate::authority) fn reset(&mut self, snapshot: Arc<Snapshot>) {
-        self.lifecycle = Some(LifecycleWrite {
-            snapshot,
-            replace_generation: false,
-        });
+        self.lifecycle_write(snapshot).replace_generation = false;
         self.notify(Effect::reset());
     }
     /// Retire the whole generation and its derived relay knowledge together.
     pub(in crate::authority) fn replace_generation(&mut self, snapshot: Arc<Snapshot>) {
-        self.lifecycle = Some(LifecycleWrite {
-            snapshot,
-            replace_generation: true,
-        });
+        self.lifecycle_write(snapshot).replace_generation = true;
         self.notify(Effect::reset());
     }
     /// Block observations and ordered committed-hash records come from the same
@@ -264,19 +269,11 @@ impl Plan {
         snapshot: Arc<Snapshot>,
         blocks: impl IntoIterator<Item = Arc<BlockView>>,
     ) {
-        match &mut self.lifecycle {
-            Some(lifecycle) => lifecycle.snapshot = snapshot,
-            None => {
-                self.lifecycle = Some(LifecycleWrite {
-                    snapshot,
-                    replace_generation: false,
-                });
-            }
-        }
+        let lifecycle = self.lifecycle_write(snapshot);
         let blocks: Vec<_> = blocks.into_iter().collect();
         for block in &blocks {
             for transaction in block.transactions().iter().skip(1) {
-                self.committed.push((
+                lifecycle.committed.push((
                     compact_packed(&transaction.proposal_short_id()),
                     compact_packed(&transaction.hash()),
                 ));
@@ -290,8 +287,12 @@ impl Plan {
     pub(in crate::authority) fn committed_for_test(
         &mut self,
         records: Vec<(ProposalShortId, Byte32)>,
-    ) {
-        self.committed = records;
+    ) -> bool {
+        let Some(lifecycle) = self.lifecycle.as_mut() else {
+            return false;
+        };
+        lifecycle.committed = records;
+        true
     }
     pub(in crate::authority) fn get(
         &mut self,

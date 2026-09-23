@@ -1,5 +1,6 @@
 //! Apply one prepared decision. Recoverable checks, the protected mutation and
 //! lock release stay in one path; retired payloads outlive every authority guard.
+use super::plan::LifecycleWrite;
 use super::{
     ACCEPTED_ROLES, CHILD, CommitLocks, DEP, Edit, Guard, INPUT, Peer, Plan, Relation,
     RelationMember, SHARDS, Shard, Store, View, WAIT, Wake, WakePage, acquire, compact_dependency,
@@ -38,6 +39,14 @@ struct Retired {
     queues: Option<Queues>,
     snapshot: Option<Arc<Snapshot>>,
     _committed: Option<lru::LruCache<ProposalShortId, Byte32>>,
+}
+
+/// A Plan and its reserved notices remain paired through the one possible
+/// synchronous history retry. A failed application drops the reservation first.
+struct Application<'a> {
+    store: &'a Store,
+    notice: Option<notice::Reservation>,
+    plan: Plan,
 }
 
 /// Derive each owner transition's routed edits, projection changes and wake keys
@@ -230,6 +239,42 @@ impl<'a> OwnerChanges<'a> {
         }
         Ok(())
     }
+
+    /// Install every projection derived from these validated owner changes.
+    /// Displaced owners remain alive until Apply releases all authority guards.
+    fn apply(
+        self,
+        store: &Store,
+        plan: &Plan,
+        owners: &mut [(usize, Guard<'_, Shard>)],
+        snapshot: &Snapshot,
+    ) -> Retired {
+        let Self {
+            owner_edits,
+            relation_changes,
+            peer_changes,
+            ..
+        } = self;
+        let retired = if plan
+            .lifecycle
+            .as_ref()
+            .is_some_and(|write| write.replace_generation)
+        {
+            store.retire_generation(owners)
+        } else {
+            let mut retired = Retired {
+                owners: Vec::with_capacity(plan.edits.len()),
+                ..Retired::default()
+            };
+            store.apply_owner_changes(owners, &owner_edits, snapshot, &mut retired.owners);
+            retired
+        };
+        for (key, changes) in relation_changes {
+            store.apply_relation(key, changes, &plan.edits, &plan.wake);
+        }
+        store.apply_peer_changes(peer_changes);
+        retired
+    }
 }
 
 /// Keep recoverable Result/Option propagation out of the post-preflight tail.
@@ -394,7 +439,242 @@ impl Shard {
     }
 }
 
+impl LifecycleWrite {
+    /// Refresh all proposed counts against the successor view, then install
+    /// the view and its ordered committed-hash records as one lifecycle write.
+    #[expect(
+        clippy::arithmetic_side_effects,
+        reason = "Apply checks view revision overflow before the first mutation."
+    )]
+    fn apply(
+        &self,
+        store: &Store,
+        view: &mut Guard<'_, View>,
+        owners: &mut [(usize, Guard<'_, Shard>)],
+        retired: &mut Retired,
+        committed: Vec<(ProposalShortId, Byte32)>,
+    ) {
+        for (_, guard) in owners {
+            if let Some(shard) = guard.get_mut() {
+                shard.refresh_proposed(&self.snapshot);
+            }
+        }
+        if let Some(view) = view.get_mut() {
+            retired.snapshot = Some(std::mem::replace(
+                &mut view.snapshot,
+                Arc::clone(&self.snapshot),
+            ));
+            view.revision += 1;
+        }
+        if !committed.is_empty() {
+            let mut cache = store.committed.lock();
+            for (proposal, hash) in committed {
+                cache.put(proposal, hash);
+            }
+        }
+    }
+}
+
+impl<'a> Application<'a> {
+    fn new(store: &'a Store, plan: Plan) -> Self {
+        Self {
+            store,
+            notice: None,
+            plan,
+        }
+    }
+
+    /// Optional replacement history may lose capacity to another admission.
+    /// Only those history edits change between attempts: effect payloads and
+    /// class remain paired with the original notice reservation. No failed
+    /// plan or reservation escapes to the service's asynchronous capacity wait.
+    fn admit(&mut self, retain_history: &mut bool) -> Result<Option<Arc<Batch>>, Error> {
+        match self.attempt() {
+            Err(Error::Full(FullReason::Pipeline | FullReason::History)) if *retain_history => {
+                *retain_history = false;
+                if self.store.is_stopped() {
+                    // Return to the caller's existing close/requeue handling.
+                    return Err(Error::Stale);
+                }
+                for edit in self.plan.edits.values_mut() {
+                    if edit
+                        .before
+                        .as_ref()
+                        .is_some_and(|old| old.accepted().is_some())
+                        && edit
+                            .after
+                            .as_ref()
+                            .is_some_and(|new| matches!(new.phase, Phase::Replaced { .. }))
+                    {
+                        edit.after = None;
+                    }
+                }
+                self.attempt()
+            }
+            result => result,
+        }
+    }
+
+    /// Validate one attempt and commit it under the complete authority cut.
+    /// On refusal, the same Plan and notice reservation remain available for
+    /// the one synchronous admission-history retry.
+    fn attempt(&mut self) -> Result<Option<Arc<Batch>>, Error> {
+        let store = self.store;
+        let plan = &mut self.plan;
+        let notice = &mut self.notice;
+        #[cfg(feature = "profiling")]
+        let _span = tracing::trace_span!(target: "ckb_tx_pool_profile", "tx_pool.authority.apply")
+            .entered();
+        if store.is_faulted() {
+            return Err(Error::Fault("closed generation"));
+        }
+        let owner_delta = OwnerDelta::new(
+            plan.edits
+                .values()
+                .filter_map(|edit| edit.before.as_deref()),
+            plan.edits.values().filter_map(|edit| edit.after.as_deref()),
+        )?;
+        if notice.is_none() && !plan.dry_run {
+            *notice = store
+                .outbox
+                .reserve(std::mem::take(&mut plan.effects), plan.class)?;
+        }
+        let replace_generation = plan
+            .lifecycle
+            .as_ref()
+            .is_some_and(|write| write.replace_generation);
+        let mut changes =
+            OwnerChanges::derive(store, &plan.edits, &mut plan.wake, replace_generation);
+        changes.locks.complete_for_plan(store, plan);
+
+        #[cfg(test)]
+        let observer = store.commit_observer.lock().clone();
+        #[cfg(test)]
+        if let Some(observer) = &observer {
+            observer(plan, false);
+        }
+        #[cfg(feature = "profiling")]
+        let acquire_span =
+            tracing::trace_span!(target: "ckb_tx_pool_profile", "tx_pool.authority.acquire")
+                .entered();
+        let mut view = if plan.lifecycle.is_some() {
+            Guard::Write(store.view.write())
+        } else {
+            Guard::Read(store.view.read())
+        };
+        let peer_guards = acquire(&store.peer_gates, &changes.locks.peers);
+        let dependency_guards = acquire(&store.dependency_gates, &changes.locks.dependencies);
+        let mut owners = acquire(&store.shards, &changes.locks.owners);
+        #[cfg(feature = "profiling")]
+        drop(acquire_span);
+        store.validate_original_cut(plan, &view, &owners)?;
+        #[cfg(test)]
+        if let Some(observer) = &observer {
+            observer(plan, true);
+        }
+        let now = store.validate_proposed_cut(plan, &changes, &owners)?;
+        // A disjoint commit may consume scalar capacity after planning. Sparse
+        // accepted pressure requires replanning its fee policy.
+        let budget = owner_delta
+            .reserve(&store.budget)
+            .map_err(|error| match error {
+                Error::Full(FullReason::Accepted)
+                    if plan.reads.all.is_none() && plan.reads.accepted.is_none() =>
+                {
+                    Error::Stale
+                }
+                error => error,
+            })?;
+        if plan.dry_run {
+            return Ok(None);
+        }
+        // These fresh packed values move into the cache. Cloning them here
+        // would allocate under the lifecycle and committed-cache locks.
+        let committed = plan
+            .lifecycle
+            .as_mut()
+            .map(|write| std::mem::take(&mut write.committed))
+            .unwrap_or_default();
+        let mut batch = None;
+        commit_infallibly(|| {
+            // All recoverable checks precede the first mutation. Collection and
+            // marker allocation use Rust's abort-on-OOM platform contract.
+            let mut retired = changes.apply(store, plan, &mut owners, &view.get().snapshot);
+            if let Some((peer, deadline)) = plan.ban {
+                store.apply_ban(peer, deadline, now);
+            }
+            for key in &plan.wake {
+                store.start_wake(key);
+            }
+            if let Some(page) = &plan.wake_advance {
+                store.advance_wake(page);
+            }
+            if let Some(lifecycle) = &plan.lifecycle {
+                lifecycle.apply(store, &mut view, &mut owners, &mut retired, committed);
+            }
+            batch = notice.take().map(notice::Reservation::append);
+            let capacity_returned = budget.commit();
+            drop(owners);
+            drop(dependency_guards);
+            drop(peer_guards);
+            drop(view);
+            store.publish_commit(plan, &batch, capacity_returned, retired);
+        });
+        if store.is_faulted() {
+            return Err(Error::Fault("committed projection"));
+        }
+        Ok(batch)
+    }
+}
+
 impl Store {
+    pub(in crate::authority) fn apply(&self, plan: Plan) -> Result<Option<Arc<Batch>>, Error> {
+        Application::new(self, plan).attempt()
+    }
+
+    pub(in crate::authority) fn apply_admission(
+        &self,
+        plan: Plan,
+        retain_history: &mut bool,
+    ) -> Result<Option<Arc<Batch>>, Error> {
+        Application::new(self, plan).admit(retain_history)
+    }
+
+    /// Make a committed cut visible only after its authority guards open, then
+    /// release displaced payloads whose destructors may call back into Store.
+    fn publish_commit(
+        &self,
+        plan: &Plan,
+        batch: &Option<Arc<Batch>>,
+        capacity_returned: bool,
+        retired: Retired,
+    ) {
+        if let Some(batch) = batch {
+            batch.activate(&self.outbox);
+        }
+        if capacity_returned {
+            self.budget.changed.notify_waiters();
+        }
+        if plan.lifecycle.is_some() || plan.edits.values().any(Edit::affects_accepted) {
+            self.template_changed.notify_waiters();
+        }
+        // Queue-only transitions wake workers below. Maintenance needs
+        // dependency, capacity or lifecycle progress instead.
+        if plan.lifecycle.is_some() || !plan.wake.is_empty() || capacity_returned {
+            self.changed.notify_waiters();
+        }
+        if plan.lifecycle.is_some()
+            || plan.edits.values().any(|edit| {
+                edit.after
+                    .as_ref()
+                    .is_some_and(|entry| matches!(entry.phase, Phase::Resolve | Phase::Verify(_)))
+            })
+        {
+            self.work.notify_waiters();
+        }
+        drop(retired);
+    }
+
     /// Validate the captured view and original reads before examining any new
     /// policy projection. The test observer marks this exact boundary.
     fn validate_original_cut(
@@ -571,226 +851,6 @@ impl Store {
         bans.entry(peer)
             .and_modify(|current| *current = (*current).max(deadline))
             .or_insert(deadline);
-    }
-
-    pub(in crate::authority) fn apply(&self, mut plan: Plan) -> Result<Option<Arc<Batch>>, Error> {
-        let mut notice = None;
-        self.apply_plan(&mut plan, &mut notice)
-    }
-
-    /// Optional replacement history may lose capacity to another admission.
-    /// Keep this plan's exact notices for one synchronous retry; no reservation
-    /// or failed plan escapes to the service's asynchronous capacity wait.
-    pub(in crate::authority) fn apply_admission(
-        &self,
-        mut plan: Plan,
-        retain_history: &mut bool,
-    ) -> Result<Option<Arc<Batch>>, Error> {
-        let mut notice = None;
-        match self.apply_plan(&mut plan, &mut notice) {
-            Err(Error::Full(FullReason::Pipeline | FullReason::History)) if *retain_history => {
-                *retain_history = false;
-                if self.is_stopped() {
-                    // Return to the caller's existing close/requeue handling.
-                    return Err(Error::Stale);
-                }
-                for edit in plan.edits.values_mut() {
-                    if edit
-                        .before
-                        .as_ref()
-                        .is_some_and(|old| old.accepted().is_some())
-                        && edit
-                            .after
-                            .as_ref()
-                            .is_some_and(|new| matches!(new.phase, Phase::Replaced { .. }))
-                    {
-                        edit.after = None;
-                    }
-                }
-                self.apply_plan(&mut plan, &mut notice)
-            }
-            result => result,
-        }
-    }
-
-    /// The private caller keeps a notice paired with its original plan and
-    /// never changes the effects or class between attempts. No VM, provider,
-    /// await, endpoint or payload destruction under the authority cut; all
-    /// expected failures precede the first owner/index mutation.
-    #[expect(
-        clippy::arithmetic_side_effects,
-        reason = "Revision deltas are prechecked; exact validated owner edits preserve bounded phase counts."
-    )]
-    fn apply_plan(
-        &self,
-        plan: &mut Plan,
-        notice: &mut Option<notice::Reservation>,
-    ) -> Result<Option<Arc<Batch>>, Error> {
-        #[cfg(feature = "profiling")]
-        let _span = tracing::trace_span!(target: "ckb_tx_pool_profile", "tx_pool.authority.apply")
-            .entered();
-        if self.is_faulted() {
-            return Err(Error::Fault("closed generation"));
-        }
-        let owner_delta = OwnerDelta::new(
-            plan.edits
-                .values()
-                .filter_map(|edit| edit.before.as_deref()),
-            plan.edits.values().filter_map(|edit| edit.after.as_deref()),
-        )?;
-        if notice.is_none() && !plan.dry_run {
-            *notice = self
-                .outbox
-                .reserve(std::mem::take(&mut plan.effects), plan.class)?;
-        }
-        let replace_generation = plan
-            .lifecycle
-            .as_ref()
-            .is_some_and(|write| write.replace_generation);
-        let mut changes =
-            OwnerChanges::derive(self, &plan.edits, &mut plan.wake, replace_generation);
-        changes.locks.complete_for_plan(self, plan);
-        let lifecycle_write = plan.lifecycle.is_some();
-        let work_changed = lifecycle_write
-            || plan.edits.values().any(|edit| {
-                edit.after
-                    .as_ref()
-                    .is_some_and(|entry| matches!(entry.phase, Phase::Resolve | Phase::Verify(_)))
-            });
-        let template_changed = lifecycle_write || plan.edits.values().any(Edit::affects_accepted);
-        if !plan.committed.is_empty() && !lifecycle_write {
-            return Err(Error::Fault("committed hash source"));
-        }
-        #[cfg(test)]
-        let observer = self.commit_observer.lock().clone();
-        #[cfg(test)]
-        if let Some(observer) = &observer {
-            observer(plan, false);
-        }
-        #[cfg(feature = "profiling")]
-        let acquire_span =
-            tracing::trace_span!(target: "ckb_tx_pool_profile", "tx_pool.authority.acquire")
-                .entered();
-        let mut view = if lifecycle_write {
-            Guard::Write(self.view.write())
-        } else {
-            Guard::Read(self.view.read())
-        };
-        let peer_guards = acquire(&self.peer_gates, &changes.locks.peers);
-        let dependency_guards = acquire(&self.dependency_gates, &changes.locks.dependencies);
-        let mut owners = acquire(&self.shards, &changes.locks.owners);
-        #[cfg(feature = "profiling")]
-        drop(acquire_span);
-        self.validate_original_cut(plan, &view, &owners)?;
-        #[cfg(test)]
-        if let Some(observer) = &observer {
-            observer(plan, true);
-        }
-        let now = self.validate_proposed_cut(plan, &changes, &owners)?;
-        // Scalar capacity is reserved only after every owner observation is
-        // validated. This reservation commits or drops before these guards open.
-        // A sparse admission may lose room to a disjoint commit; replan its fee
-        // policy against the now-settled population instead of rejecting it.
-        let budget = owner_delta
-            .reserve(&self.budget)
-            .map_err(|error| match error {
-                Error::Full(FullReason::Accepted)
-                    if plan.reads.all.is_none() && plan.reads.accepted.is_none() =>
-                {
-                    Error::Stale
-                }
-                error => error,
-            })?;
-        if plan.dry_run {
-            return Ok(None);
-        }
-        let OwnerChanges {
-            owner_edits,
-            relation_changes,
-            peer_changes,
-            ..
-        } = changes;
-        let mut batch = None;
-        commit_infallibly(|| {
-            // All recoverable checks are complete. Collection and version-marker
-            // allocation use Rust's abort-on-OOM platform contract.
-            let mut retired = if replace_generation {
-                self.retire_generation(&mut owners)
-            } else {
-                let mut retired = Retired {
-                    owners: Vec::with_capacity(plan.edits.len()),
-                    ..Retired::default()
-                };
-                self.apply_owner_changes(
-                    &mut owners,
-                    &owner_edits,
-                    &view.get().snapshot,
-                    &mut retired.owners,
-                );
-                retired
-            };
-            for (key, changes) in relation_changes {
-                self.apply_relation(key, changes, &plan.edits, &plan.wake);
-            }
-            self.apply_peer_changes(peer_changes);
-            if let Some((peer, deadline)) = plan.ban {
-                self.apply_ban(peer, deadline, now);
-            }
-            for key in &plan.wake {
-                self.start_wake(key);
-            }
-            if let Some(page) = &plan.wake_advance {
-                self.advance_wake(page);
-            }
-            if let Some(lifecycle) = &plan.lifecycle {
-                for (_, guard) in &mut owners {
-                    if let Some(shard) = guard.get_mut() {
-                        shard.refresh_proposed(&lifecycle.snapshot);
-                    }
-                }
-            }
-            if let Some(view) = view.get_mut() {
-                if let Some(lifecycle) = plan.lifecycle.take() {
-                    retired.snapshot =
-                        Some(std::mem::replace(&mut view.snapshot, lifecycle.snapshot));
-                }
-                view.revision += 1;
-            }
-            if !plan.committed.is_empty() {
-                let mut cache = self.committed.lock();
-                for (proposal, hash) in std::mem::take(&mut plan.committed) {
-                    cache.put(proposal, hash);
-                }
-            }
-            batch = notice.take().map(notice::Reservation::append);
-            let capacity_returned = budget.commit();
-            drop(owners);
-            drop(dependency_guards);
-            drop(peer_guards);
-            drop(view);
-            if let Some(batch) = &batch {
-                batch.activate(&self.outbox);
-            }
-            if capacity_returned {
-                self.budget.changed.notify_waiters();
-            }
-            if template_changed {
-                self.template_changed.notify_waiters();
-            }
-            // Queue-only transitions wake workers below. Maintenance needs
-            // dependency, capacity or lifecycle progress instead.
-            if lifecycle_write || !plan.wake.is_empty() || capacity_returned {
-                self.changed.notify_waiters();
-            }
-            if work_changed {
-                self.work.notify_waiters();
-            }
-            drop(retired);
-        });
-        if self.is_faulted() {
-            return Err(Error::Fault("committed projection"));
-        }
-        Ok(batch)
     }
 
     #[expect(

@@ -41,10 +41,11 @@ Metadata-only changes explicitly pass no effect. Notice-only outcomes use
 private: constructors define accepted, rejected, waiting, projection, ban, reset
 and block obligations. Candidate refusal and existing-owner removal have separate
 constructors; removal derives relay eligibility from the old owner's phase and
-origin rather than requiring callers to repeat that rule. Peer bans and their generation-reset notices share one
-Plan operation; attached-block notices and committed-hash records also share
-their source. Write support, relation changes, queues and charges derive from
-the owner edits, without a second mutable membership ledger.
+origin rather than requiring callers to repeat that rule. Peer bans and their
+generation-reset notices share one Plan operation. Attached-block records live
+inside the lifecycle write whose snapshot they accompany. Write support,
+relation changes, queues and charges derive from the owner edits, without a
+second mutable membership ledger.
 
 A policy rejection consumes the existing Plan, discards its speculative edits
 and effects, and constructs only its required rejection outcome. Original reads,
@@ -111,8 +112,10 @@ then adds owner writes and lifecycle operations for Apply. Its exhaustive
 ReadSet destructuring makes new observation kinds declare their protection in
 both paths. Under those guards, `OwnerChanges::validate_projections` checks
 counters and derived indexes before scalar capacity is reserved. The derived
-changes borrow the Plan's edits rather than copying owners. Notice reservation
-remains with the caller across the synchronous history fallback.
+changes borrow the Plan's edits rather than copying owners; the same object
+installs the owner, relation and peer projections after validation. One
+`Application` owns the Plan and its notice reservation across the synchronous
+history fallback.
 `commit_infallibly` takes a unit-returning closure, so an accidental `?` in that
 tail does not compile. This narrow guard does not prove preflight completeness,
 prevent panics or promise rollback after a committed integrity fault. Allocation
@@ -122,8 +125,9 @@ use and makes persistence ineligible.
 Within that commit, `Shard::apply_edit` updates the owner and every shard-local
 projection, including queue membership and retirement. Its exhaustive field
 destructuring forces a new Shard field to be considered at this boundary; it does
-not prove the update is correct. Clear replaces complete shards, while a snapshot
-change refreshes the proposed count against the new view.
+not prove the update is correct. Clear replaces complete shards. A lifecycle
+write refreshes proposed counts against its successor snapshot, installs the
+snapshot and applies its ordered committed-hash records under the same cut.
 
 Retired payloads and replaced collections drop outside the guarded cut. The
 outbox batch is appended with the mutation and becomes ready after guards open.
