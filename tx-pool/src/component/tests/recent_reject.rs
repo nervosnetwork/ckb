@@ -91,24 +91,35 @@ fn put_enforces_count_limit_after_successful_writes() {
     assert!(recent_reject.get(&first_key).unwrap().is_none());
 }
 
-/// Bug #54: a shard can be temporarily absent while the shrink path is
-/// recreating it. Reads during that window mean "no cached rejection", not a
-/// database failure that should escape through RPC.
+/// A failed shard recreation leaves reads as cache misses until the next
+/// write recreates the shard and records its rejection.
 #[test]
-fn get_treats_missing_shard_as_cache_miss() {
+fn missing_shard_reads_as_cache_miss_and_recovers_on_write() {
     let tmp_dir = tempfile::Builder::new().tempdir().unwrap();
     let recent_reject = RecentReject::build(tmp_dir.path(), 1, 100, -1).unwrap();
     let key = Byte32::new(blake2b_256(7u64.to_le_bytes()));
+    let rejection = Reject::Malformed("retained".to_string(), Default::default());
 
-    recent_reject
-        .put(
-            &key,
-            Reject::Malformed("before-drop".to_string(), Default::default()),
-        )
-        .unwrap();
+    recent_reject.put(&key, rejection.clone()).unwrap();
+    let recorded = recent_reject.get(&key).unwrap().unwrap();
     recent_reject.drop_hash_shard_for_test(&key);
 
     assert_eq!(recent_reject.get(&key).unwrap(), None);
+    let before_recovery = recent_reject.get_estimate_total_keys_num();
+    recent_reject.put(&key, rejection.clone()).unwrap();
+    assert_eq!(
+        recent_reject.get(&key).unwrap().as_deref(),
+        Some(recorded.as_str())
+    );
+    assert_eq!(
+        recent_reject.get_estimate_total_keys_num(),
+        before_recovery + 1
+    );
+    recent_reject.put(&key, rejection).unwrap();
+    assert_eq!(
+        recent_reject.get_estimate_total_keys_num(),
+        before_recovery + 1
+    );
 }
 
 /// Concurrent puts racing with shard drops must not make the approximate

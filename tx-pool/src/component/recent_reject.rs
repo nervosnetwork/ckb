@@ -118,40 +118,18 @@ impl RecentReject {
         // cannot drop the column family while we are writing to it.
         let written = block_offload(|| {
             let db = self.db.read().map_err(|e| OtherError::new(e.to_string()))?;
-            let existed = match db.get_pinned(&shard, hash_slice) {
-                Ok(v) => v.is_some(),
-                Err(e) => {
-                    let err = AnyError::from(e);
-                    if !is_cf_missing(&err, &shard) {
-                        return Err(err);
-                    }
-                    false
-                }
-            };
-            match db.put(&shard, hash_slice, json_bytes) {
-                Ok(()) => {
-                    if !existed {
-                        // Only count newly inserted keys; overwrites should
-                        // not inflate the approximate counter. The increment
-                        // must happen inside the same critical section as
-                        // the DB write: `shrink` holds the write guard, so
-                        // its drop-estimate and this increment are now
-                        // totally ordered. Previously the increment ran
-                        // after the guard was released and could count a key
-                        // that `shrink` had already estimated and dropped,
-                        // making the counter drift upwards monotonically.
-                        self.increment_approximate_count();
-                    }
-                    Ok(true)
-                }
-                Err(e) => {
-                    let err = AnyError::from(e);
-                    if !is_cf_missing(&err, &shard) {
-                        return Err(err);
-                    }
-                    Ok(false)
-                }
+            if !db.has_cf(&shard) {
+                return Ok(false);
             }
+            let existed = db.get_pinned(&shard, hash_slice)?.is_some();
+            db.put(&shard, hash_slice, json_bytes)?;
+            if !existed {
+                // Count newly inserted keys inside the DB critical section,
+                // ordered with `shrink`'s drop-estimate. Overwrites do not
+                // inflate the approximate counter.
+                self.increment_approximate_count();
+            }
+            Ok::<_, AnyError>(true)
         })?;
 
         if written {
@@ -161,21 +139,18 @@ impl RecentReject {
 
         // Slow path: the shard column family is missing (e.g. `shrink`
         // dropped it but failed to recreate it).  Upgrade to a write lock,
-        // create the column family on demand, and retry the write.
+        // create the column family on demand, and perform the write.
         block_offload(|| {
             let mut db = self
                 .db
                 .write()
                 .map_err(|e| OtherError::new(e.to_string()))?;
-            if let Err(e) = db.put(&shard, hash_slice, json_bytes) {
-                let err = AnyError::from(e);
-                if is_cf_missing(&err, &shard) {
-                    db.create_cf_with_ttl(&shard, self.ttl)?;
-                    db.put(&shard, hash_slice, json_bytes)?;
-                } else {
-                    return Err(err);
-                }
+            // Another writer may have recreated the shard while this call
+            // released its read guard and waited for the write guard.
+            if !db.has_cf(&shard) {
+                db.create_cf_with_ttl(&shard, self.ttl)?;
             }
+            db.put(&shard, hash_slice, json_bytes)?;
             // Reaching the slow path means the column family was missing a
             // moment ago (either dropped by `shrink` or never created), so
             // count this write as a new key. Concurrent puts of the same key
@@ -208,17 +183,10 @@ impl RecentReject {
             // A missing shard column family (e.g. dropped by `shrink` and
             // not yet recreated by the next `put`) means "no entry", not an
             // error for the caller.
-            let ret = match db.get_pinned(&shard, slice) {
-                Ok(ret) => ret,
-                Err(e) => {
-                    let err = AnyError::from(e);
-                    if is_cf_missing(&err, &shard) {
-                        return Ok(None);
-                    }
-                    return Err(err);
-                }
-            };
-            match ret {
+            if !db.has_cf(&shard) {
+                return Ok(None);
+            }
+            match db.get_pinned(&shard, slice)? {
                 Some(bytes) => {
                     let s = String::from_utf8(bytes.to_vec()).map_err(|e| {
                         OtherError::new(format!("recent reject value is not valid utf-8: {e}"))
@@ -308,11 +276,6 @@ impl RecentReject {
             .unwrap_or_default()
             .rem_euclid(self.shard_num.get())
     }
-}
-
-fn is_cf_missing(err: &AnyError, cf: &str) -> bool {
-    let msg = err.to_string();
-    msg.contains(&format!("column {cf} not found"))
 }
 
 #[cfg(test)]
