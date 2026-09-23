@@ -2,7 +2,10 @@ use super::super::transaction_verifier::{
     CapacityVerifier, DaoScriptSizeVerifier, DuplicateDepsVerifier, EmptyVerifier,
     MaturityVerifier, OutputsDataVerifier, Since, SinceVerifier, SizeVerifier, VersionVerifier,
 };
-use crate::cache::Completed;
+use crate::cache::{
+    ScriptVerificationOutcome, ScriptVerificationProof, ScriptVerificationRules,
+    TxVerificationCacheKey,
+};
 use crate::error::TransactionErrorSource;
 use crate::transaction_verifier::ScriptHashTypeVerifier;
 use crate::{ContextualTransactionVerifier, ScriptError, TransactionError, TxVerifyEnv};
@@ -30,7 +33,7 @@ use ckb_types::{
     packed::{Byte32, CellDep, CellInput, CellOutput, OutPoint, Script},
     prelude::*,
 };
-use std::sync::Arc;
+use std::{cell::Cell, sync::Arc};
 
 #[test]
 pub fn test_empty() {
@@ -393,8 +396,10 @@ pub fn test_capacity_invalid() {
     );
 }
 
-#[derive(Clone)]
-struct ContextualTestDataLoader;
+#[derive(Clone, Default)]
+struct ContextualTestDataLoader {
+    header: Option<HeaderView>,
+}
 
 impl CellDataProvider for ContextualTestDataLoader {
     fn get_cell_data(&self, _out_point: &OutPoint) -> Option<Bytes> {
@@ -407,14 +412,20 @@ impl CellDataProvider for ContextualTestDataLoader {
 }
 
 impl HeaderProvider for ContextualTestDataLoader {
-    fn get_header(&self, _hash: &Byte32) -> Option<HeaderView> {
-        None
+    fn get_header(&self, hash: &Byte32) -> Option<HeaderView> {
+        self.header
+            .as_ref()
+            .filter(|header| header.hash() == *hash)
+            .cloned()
     }
 }
 
 impl ExtensionProvider for ContextualTestDataLoader {
-    fn get_block_extension(&self, _hash: &Byte32) -> Option<ckb_types::packed::Bytes> {
-        None
+    fn get_block_extension(&self, hash: &Byte32) -> Option<ckb_types::packed::Bytes> {
+        self.header
+            .as_ref()
+            .filter(|header| header.hash() == *hash)
+            .map(|_| Bytes::from_static(b"extension").pack())
     }
 }
 
@@ -442,12 +453,17 @@ impl EpochProvider for ContextualTestDataLoader {
     }
 }
 
-fn contextual_verifier_with_cached_script_cycles(
+fn contextual_verifier_with_sealed_script_proof(
     input_capacity: Capacity,
     output_capacity: Capacity,
     cached_script_cycles: Cycle,
-) -> ContextualTransactionVerifier<ContextualTestDataLoader> {
+    since: u64,
+) -> (
+    ContextualTransactionVerifier<ContextualTestDataLoader>,
+    ScriptVerificationProof,
+) {
     let transaction = TransactionBuilder::default()
+        .input(CellInput::new(OutPoint::new(Byte32::zero(), 0), since))
         .output(CellOutput::new_builder().capacity(output_capacity).build())
         .output_data(Bytes::new())
         .build();
@@ -467,25 +483,156 @@ fn contextual_verifier_with_cached_script_cycles(
     let tx_env = Arc::new(TxVerifyEnv::new_commit(
         &HeaderView::new_advanced_builder().build(),
     ));
-    ContextualTransactionVerifier::new_with_cached_script_cycles(
-        rtx,
-        consensus,
-        ContextualTestDataLoader,
-        tx_env,
-        Some(cached_script_cycles),
+    let rules = ScriptVerificationRules::from_env(&consensus, &tx_env);
+    let key = TxVerificationCacheKey::from_resolved(&rtx, rules);
+    let proof = ScriptVerificationProof::from_vm_success(key, cached_script_cycles);
+    (
+        ContextualTransactionVerifier::new(
+            rtx,
+            consensus,
+            ContextualTestDataLoader::default(),
+            tx_env,
+        ),
+        proof,
     )
 }
 
 #[test]
-fn test_cached_script_cycles_do_not_skip_capacity_verification() {
-    let verifier = contextual_verifier_with_cached_script_cycles(
+fn canonical_verifier_reexecutes_when_a_cached_cells_visible_origin_changes() {
+    for (hash_type, syscall) in [
+        (ScriptHashType::Data, 2072u16),  // LOAD_HEADER in VM0
+        (ScriptHashType::Data2, 2104u16), // LOAD_BLOCK_EXTENSION in VM2
+    ] {
+        for source in [1u8, 3u8] {
+            // SOURCE_INPUT and SOURCE_CELL_DEP
+            check_cached_cell_origin(hash_type, syscall, source);
+        }
+    }
+}
+
+fn check_cached_cell_origin(hash_type: ScriptHashType, syscall: u16, source: u8) {
+    let program = Bytes::from_static(include_bytes!("../../../script/testdata/load_cell_origin"));
+    let script = Script::new_builder()
+        .code_hash(CellOutput::calc_data_hash(&program))
+        .hash_type(hash_type)
+        .build();
+    let origin = HeaderView::new_advanced_builder()
+        .number(1u64)
+        .epoch(EpochNumberWithFraction::new(0, 1, 10))
+        .build();
+    let transaction = TransactionBuilder::default()
+        .input(CellInput::new(OutPoint::new(h256!("0x1").into(), 0), 0))
+        .cell_dep(
+            CellDep::new_builder()
+                .out_point(OutPoint::new(h256!("0x2").into(), 0))
+                .build(),
+        )
+        .header_dep(origin.hash())
+        .output(
+            CellOutput::new_builder()
+                .capacity(capacity_bytes!(100))
+                .build(),
+        )
+        .output_data(Bytes::new())
+        .build();
+    let mut resolved = ResolvedTransaction {
+        transaction,
+        resolved_inputs: vec![
+            CellMetaBuilder::from_cell_output(
+                CellOutput::new_builder()
+                    .capacity(capacity_bytes!(200))
+                    .lock(script)
+                    .build(),
+                Bytes::new(),
+            )
+            .build(),
+        ],
+        resolved_cell_deps: vec![
+            CellMetaBuilder::from_cell_output(CellOutput::default(), program).build(),
+        ],
+        resolved_dep_groups: Vec::new(),
+    };
+    let consensus = Arc::new(
+        ConsensusBuilder::default()
+            .hardfork_switch(HardForks::new_dev())
+            .build(),
+    );
+    let env = Arc::new(TxVerifyEnv::new_commit(&origin));
+    let verifier = |rtx: &ResolvedTransaction| {
+        ContextualTransactionVerifier::new(
+            Arc::new(rtx.clone()),
+            Arc::clone(&consensus),
+            ContextualTestDataLoader {
+                header: Some(origin.clone()),
+            },
+            Arc::clone(&env),
+        )
+    };
+    let confirmed = TransactionInfo {
+        block_hash: origin.hash(),
+        block_number: 1,
+        block_epoch: origin.epoch(),
+        index: 1,
+    };
+    for starts_confirmed in [false, true] {
+        // The script requires the starting visibility. The transaction and its
+        // witness stay identical when the cell confirms or is detached below.
+        let expected_status = if starts_confirmed { 0 } else { 2 };
+        let [syscall_low, syscall_high] = syscall.to_le_bytes();
+        resolved.transaction = resolved
+            .transaction
+            .as_advanced_builder()
+            .set_witnesses(vec![
+                Bytes::from(vec![expected_status, source, syscall_low, syscall_high]).pack(),
+            ])
+            .build();
+        let cell = if source == 1 {
+            &mut resolved.resolved_inputs[0]
+        } else {
+            &mut resolved.resolved_cell_deps[0]
+        };
+        cell.transaction_info = starts_confirmed.then(|| confirmed.clone());
+        let proof = verifier(&resolved)
+            .verify_scripts(u64::MAX, None)
+            .unwrap()
+            .executed_proof()
+            .unwrap();
+        assert!(
+            verifier(&resolved)
+                .verify_scripts(u64::MAX, Some(proof))
+                .unwrap()
+                .was_reused()
+        );
+
+        let cell = if source == 1 {
+            &mut resolved.resolved_inputs[0]
+        } else {
+            &mut resolved.resolved_cell_deps[0]
+        };
+        cell.transaction_info = (!starts_confirmed).then(|| confirmed.clone());
+        let error = verifier(&resolved)
+            .verify_scripts(u64::MAX, Some(proof))
+            .unwrap_err();
+        assert_error_eq!(
+            error,
+            ScriptError::validation_failure(&resolved.resolved_inputs[0].cell_output.lock(), 42)
+                .input_lock_script(0),
+            "a proof cannot hide a changed origin syscall result after confirmation or reorg"
+        );
+    }
+}
+
+#[test]
+fn test_sealed_script_proof_does_not_skip_capacity_verification() {
+    let (verifier, proof) = contextual_verifier_with_sealed_script_proof(
         capacity_bytes!(149),
         capacity_bytes!(150),
         42,
+        0,
     );
 
     assert_error_eq!(
-        verifier.verify(u64::MAX, false).unwrap_err(),
+        verifier.verify_block(u64::MAX, Some(proof)).unwrap_err(),
         TransactionError::OutputsSumOverflow {
             inputs_sum: capacity_bytes!(149),
             outputs_sum: capacity_bytes!(150),
@@ -494,34 +641,108 @@ fn test_cached_script_cycles_do_not_skip_capacity_verification() {
 }
 
 #[test]
-fn test_cached_script_cycles_recalculate_fee() {
-    let verifier = contextual_verifier_with_cached_script_cycles(
+fn test_sealed_script_proof_recalculates_fee() {
+    let (verifier, proof) = contextual_verifier_with_sealed_script_proof(
         capacity_bytes!(200),
         capacity_bytes!(150),
         42,
+        0,
     );
 
-    assert_eq!(
-        verifier.verify(u64::MAX, false).unwrap(),
-        Completed {
-            cycles: 42,
-            fee: capacity_bytes!(50),
-        },
-    );
+    let (outcome, fee) = verifier
+        .verify_block(u64::MAX, Some(proof))
+        .expect("the exact sealed script proof remains reusable");
+    assert!(matches!(outcome, ScriptVerificationOutcome::Reused(_)));
+    assert_eq!(outcome.cycles(), 42);
+    assert_eq!(fee, capacity_bytes!(50));
 }
 
 #[test]
-fn test_cached_script_cycles_respect_max_cycles() {
-    let verifier = contextual_verifier_with_cached_script_cycles(
+fn test_sealed_script_proof_respects_max_cycles() {
+    let (verifier, proof) = contextual_verifier_with_sealed_script_proof(
         capacity_bytes!(200),
         capacity_bytes!(150),
         42,
+        0,
     );
 
     assert_error_eq!(
-        verifier.verify(41, false).unwrap_err(),
+        verifier.verify_block(41, Some(proof)).unwrap_err(),
         ScriptError::ExceededMaximumCycles(41).unknown_source(),
     );
+}
+
+#[cfg(not(target_family = "wasm"))]
+#[tokio::test]
+async fn test_contextual_entry_points_preserve_error_and_cache_priority() {
+    use ckb_script::{SchedulerRunner, types::TerminatedResult};
+
+    struct UnexpectedVm;
+
+    impl<S: Send> SchedulerRunner<S> for UnexpectedVm {
+        async fn run(
+            &mut self,
+            _scheduler: S,
+            _max_cycles: Cycle,
+        ) -> Result<Option<TerminatedResult>, ckb_vm::Error> {
+            panic!("context checks and reusable proofs must not invoke the VM");
+        }
+    }
+
+    let cases = [
+        (
+            1,
+            capacity_bytes!(149),
+            41,
+            Some(Error::from(TransactionError::Immature { index: 0 })),
+        ),
+        (
+            0,
+            capacity_bytes!(149),
+            41,
+            Some(Error::from(TransactionError::OutputsSumOverflow {
+                inputs_sum: capacity_bytes!(149),
+                outputs_sum: capacity_bytes!(150),
+            })),
+        ),
+        (
+            0,
+            capacity_bytes!(200),
+            41,
+            Some(Error::from(
+                ScriptError::ExceededMaximumCycles(41).unknown_source(),
+            )),
+        ),
+        (0, capacity_bytes!(200), 42, None),
+    ];
+    for (since, input_capacity, max_cycles, expected) in cases {
+        let (verifier, proof) = contextual_verifier_with_sealed_script_proof(
+            input_capacity,
+            capacity_bytes!(150),
+            42,
+            since,
+        );
+        // Context errors and reusable proofs must bypass the VM runner.
+        let results = [
+            verifier.verify_scripts(max_cycles, Some(proof)),
+            verifier
+                .verify_block(max_cycles, Some(proof))
+                .map(|(outcome, _)| outcome),
+            verifier
+                .verify_with_runner(max_cycles, Some(proof), &mut UnexpectedVm)
+                .await
+                .map(|outcome| outcome.expect("a reusable proof completes verification")),
+        ];
+        for result in results {
+            if let Some(error) = &expected {
+                assert_eq!(result.unwrap_err().to_string(), error.to_string());
+            } else {
+                let outcome = result.unwrap();
+                assert!(matches!(outcome, ScriptVerificationOutcome::Reused(_)));
+                assert_eq!(outcome.cycles(), 42);
+            }
+        }
+    }
 }
 
 #[test]
@@ -1038,6 +1259,35 @@ impl CellDataProvider for EmptyDataProvider {
     }
 }
 
+struct UnexpectedDataProvider;
+
+impl CellDataProvider for UnexpectedDataProvider {
+    fn get_cell_data(&self, _out_point: &OutPoint) -> Option<Bytes> {
+        panic!("non-DAO verification must not load cell data")
+    }
+
+    fn get_cell_data_hash(&self, _out_point: &OutPoint) -> Option<Byte32> {
+        panic!("non-DAO verification must not load a cell-data hash")
+    }
+}
+
+struct ObservedDataProvider<'a> {
+    reads: &'a Cell<usize>,
+    data: Option<Bytes>,
+}
+
+impl CellDataProvider for ObservedDataProvider<'_> {
+    fn get_cell_data(&self, _out_point: &OutPoint) -> Option<Bytes> {
+        self.reads.set(self.reads.get() + 1);
+        self.data.clone()
+    }
+
+    fn get_cell_data_hash(&self, _out_point: &OutPoint) -> Option<Byte32> {
+        self.reads.set(self.reads.get() + 1);
+        self.data.as_deref().map(CellOutput::calc_data_hash)
+    }
+}
+
 fn build_consensus_with_dao_limiting_block(block_number: u64) -> (Arc<Consensus>, Script) {
     let dao_script = build_genesis_type_id_script(OUTPUT_INDEX_DAO);
     let mut consensus = ConsensusBuilder::default()
@@ -1081,6 +1331,120 @@ fn build_input_cell_meta(cell_output: CellOutput, data: Bytes) -> CellMeta {
             0,
         ))
         .build()
+}
+
+#[test]
+fn dao_data_load_predicate_keeps_the_non_dao_path_provider_free() {
+    let (consensus, _) = build_consensus_with_dao_limiting_block(20000);
+    let transaction = TransactionBuilder::default()
+        .output(build_normal_cell_output())
+        .output_data(Bytes::new())
+        .build();
+    let rtx = Arc::new(ResolvedTransaction {
+        transaction,
+        resolved_cell_deps: Vec::new(),
+        resolved_inputs: vec![build_input_cell_meta(
+            build_normal_cell_output(),
+            Bytes::new(),
+        )],
+        resolved_dep_groups: Vec::new(),
+    });
+    let verifier = DaoScriptSizeVerifier::new(rtx, consensus, UnexpectedDataProvider);
+
+    assert!(!verifier.may_load_cell_data());
+    assert!(verifier.verify().is_ok());
+}
+
+#[test]
+fn dao_data_load_predicate_covers_a_same_index_dao_pair() {
+    let (consensus, dao_type_script) = build_consensus_with_dao_limiting_block(20000);
+    let transaction = TransactionBuilder::default()
+        .output(build_dao_cell_output(&dao_type_script))
+        .output_data(Bytes::from(vec![0; 8]))
+        .build();
+    let rtx = Arc::new(ResolvedTransaction {
+        transaction,
+        resolved_cell_deps: Vec::new(),
+        resolved_inputs: vec![build_input_cell_meta(
+            build_dao_cell_output(&dao_type_script),
+            Bytes::from(vec![0; 8]),
+        )],
+        resolved_dep_groups: Vec::new(),
+    });
+    let verifier = DaoScriptSizeVerifier::new(rtx, consensus, EmptyDataProvider);
+
+    assert!(verifier.may_load_cell_data());
+    assert!(verifier.verify().is_ok());
+}
+
+#[test]
+fn dao_data_load_predicate_covers_observed_provider_reads() {
+    let (consensus, dao_type_script) = build_consensus_with_dao_limiting_block(20000);
+    // All DAO/non-DAO layouts through two cells, including unequal lengths
+    // and DAO cells at different indices. The oracle observes actual I/O.
+    let layouts: &[&[bool]] = &[
+        &[],
+        &[false],
+        &[true],
+        &[false, false],
+        &[false, true],
+        &[true, false],
+        &[true, true],
+    ];
+    let output = |dao| {
+        if dao {
+            build_dao_cell_output(&dao_type_script)
+        } else {
+            build_normal_cell_output()
+        }
+    };
+    for inputs in layouts {
+        for outputs in layouts {
+            for data in [
+                None,
+                Some(Bytes::from(vec![0; 8])),
+                Some(Bytes::from(vec![1; 8])),
+            ] {
+                let transaction = TransactionBuilder::default()
+                    .outputs(outputs.iter().map(|&dao| output(dao)).collect::<Vec<_>>())
+                    .outputs_data(vec![Bytes::from(vec![1; 8]).pack(); outputs.len()])
+                    .build();
+                let resolved_inputs = inputs
+                    .iter()
+                    .map(|&dao| {
+                        let mut cell = build_input_cell_meta(output(dao), Bytes::from(vec![0; 8]));
+                        cell.mem_cell_data = None;
+                        cell.mem_cell_data_hash = None;
+                        cell
+                    })
+                    .collect();
+                let rtx = Arc::new(ResolvedTransaction {
+                    transaction,
+                    resolved_inputs,
+                    resolved_cell_deps: Vec::new(),
+                    resolved_dep_groups: Vec::new(),
+                });
+                let reads = Cell::new(0);
+                let verifier = DaoScriptSizeVerifier::new(
+                    rtx,
+                    Arc::clone(&consensus),
+                    ObservedDataProvider {
+                        reads: &reads,
+                        data,
+                    },
+                );
+                let may_load = verifier.may_load_cell_data();
+                let _ = verifier.verify();
+                // With uncached cells this matrix needs I/O exactly when the
+                // predicate says it may. Cached cells need not perform I/O.
+                assert_eq!(
+                    may_load,
+                    reads.get() > 0,
+                    "inputs={inputs:?}, outputs={outputs:?}"
+                );
+            }
+        }
+    }
 }
 
 #[test]

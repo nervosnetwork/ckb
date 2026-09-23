@@ -55,7 +55,6 @@ impl RichIndexerService {
     fn get_indexer(&self) -> RichIndexer {
         RichIndexer::new(
             self.store.clone(),
-            self.sync.pool(),
             CustomFilters::new(self.block_filter.as_deref(), self.cell_filter.as_deref()),
             self.async_handle.clone(),
             self.request_limit,
@@ -69,12 +68,6 @@ impl RichIndexerService {
             SUBSCRIBER_NAME.to_string(),
             self.get_indexer(),
         )
-    }
-
-    /// Index tx pool
-    pub fn index_tx_pool(&mut self, notify_controller: NotifyController) {
-        self.sync
-            .index_tx_pool(self.get_indexer(), notify_controller)
     }
 
     /// Returns a handle to the rich-indexer.

@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- `header_visible_origin` shares cell-origin visibility between header/extension syscalls and script verification cache keys.
+
 ## [1.2.0](https://github.com/nervosnetwork/ckb/compare/ckb-script-v1.1.1...ckb-script-v1.2.0) - 2026-07-28
 
 ### Added

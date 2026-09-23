@@ -94,7 +94,7 @@ pub struct CKBAppConfig {
     #[serde(default)]
     pub notify: NotifyConfig,
     /// Indexer config options.
-    #[serde(default)]
+    #[serde(default, rename = "indexer_v2")]
     pub indexer: IndexerConfig,
     /// Fee estimator config options.
     #[serde(default)]

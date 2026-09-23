@@ -100,6 +100,9 @@ pub trait SubscriptionRpc {
     /// ###### `new_transaction`
     ///
     /// Subscribers will get notified when a new transaction is submitted to the pool.
+    /// Transaction notifications (`new_transaction`, `proposed_transaction`, and
+    /// `rejected_transaction`) are best effort: a full notification channel
+    /// immediately omits the event for that delivery path.
     ///
     /// The type of the `params.result` in the push message is [`PoolTransactionEntry`](../../ckb_jsonrpc_types/struct.PoolTransactionEntry.html).
     ///
@@ -301,8 +304,15 @@ impl SubscriptionRpcImpl {
                             publiser_send!(ckb_jsonrpc_types::PoolTransactionEntry, tx_entry, proposed_transaction_sender);
                         },
                         Some((tx_entry, reject)) = reject_transaction_receiver.recv() => {
+                            let reject = match ckb_jsonrpc_types::PoolTransactionReject::try_from(reject) {
+                                Ok(reject) => reject,
+                                Err(reject) => {
+                                    error!("Unexpected internal tx-pool outcome in rejection subscription: {reject}");
+                                    continue;
+                                }
+                            };
                             publiser_send!((ckb_jsonrpc_types::PoolTransactionEntry, ckb_jsonrpc_types::PoolTransactionReject),
-                                            (tx_entry.into(), reject.into()),
+                                            (tx_entry.into(), reject),
                                             new_reject_transaction_sender);
                         },
                         Some(log_entry) = log_receiver.recv() => {

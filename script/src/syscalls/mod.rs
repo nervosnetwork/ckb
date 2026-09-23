@@ -56,7 +56,21 @@ pub use self::write::Write;
 #[cfg(test)]
 pub use self::pause::Pause;
 
+use ckb_types::{core::cell::CellMeta, packed::Byte32};
 use ckb_vm::Error;
+
+/// Cell origin that header and extension syscalls may expose.
+///
+/// Unconfirmed cells and origins outside header deps both yield ITEM_MISSING.
+/// The provider must still supply the requested header or extension. Callers
+/// choose membership lookup without changing this rule or allocating a new set.
+pub fn header_visible_origin(
+    cell: &CellMeta,
+    contains_header: impl FnOnce(&Byte32) -> bool,
+) -> Option<&Byte32> {
+    let hash = &cell.transaction_info.as_ref()?.block_hash;
+    contains_header(hash).then_some(hash)
+}
 
 pub const SUCCESS: u8 = 0;
 // INDEX_OUT_OF_BOUND is returned when requesting the 4th output in a transaction

@@ -45,6 +45,47 @@ make_static_metric! {
         },
     }
 
+    struct CkbTxPoolPipelineResidencyStatistics: IntGauge{
+        "resource" => {
+            total_entries,
+            total_bytes,
+            remote_entries,
+            remote_bytes,
+            conflict_entries,
+            conflict_bytes,
+            active_work,
+        },
+    }
+
+    struct CkbTxPoolPipelineRejectionStatistics: IntCounter{
+        "class" => {
+            malformed,
+            policy,
+            capacity,
+            duplicate,
+        },
+    }
+
+    struct CkbTxPoolPipelineFailureStatistics: IntCounter{
+        "boundary" => {
+            typed_fault,
+            worker_exit,
+            handler_unwind,
+            effect_publisher,
+        },
+    }
+
+    struct CkbTxPoolEffectUsageStatistics: IntGauge{
+        "region" => {
+            remote_batches,
+            remote_bytes,
+            ordinary_batches,
+            ordinary_bytes,
+            total_batches,
+            total_bytes,
+        },
+    }
+
     struct CkbHeaderMapMemoryHitMissStatistics: IntCounter{
         "type" => {
             hit,
@@ -54,6 +95,8 @@ make_static_metric! {
 }
 
 pub struct Metrics {
+    /// Transaction notifications omitted at bounded service/subscriber channels.
+    pub ckb_notify_transaction_dropped: IntCounterVec,
     /// Gauge metric for CKB chain tip header number
     pub ckb_chain_tip: IntGauge,
     /// CKB chain unverified tip header number
@@ -94,8 +137,10 @@ pub struct Metrics {
     pub ckb_freezer_number: IntGauge,
     /// Counter for relay transaction short id collide
     pub ckb_relay_transaction_short_id_collide: IntCounter,
-    /// Gauge for pending transaction verification results waiting for relay
+    /// Pending verification results in the bounded relay mailbox.
     pub ckb_relay_tx_verify_result_queue_size: IntGauge,
+    /// Item capacity of the bounded relay mailbox.
+    pub ckb_relay_tx_verify_result_queue_capacity: IntGauge,
     /// Histogram for relay compact block verify duration
     pub ckb_relay_cb_verify_duration: Histogram,
     /// Histogram for block process duration
@@ -120,6 +165,14 @@ pub struct Metrics {
     pub ckb_sys_mem_jemalloc: CkbSysMemJemallocStatistics,
     // GaugeVec for CKB tx-pool tx entry status statistics
     pub ckb_tx_pool_entry: CkbTxPoolEntryStatistics,
+    /// Gauges for bounded pre-pool ownership and active work.
+    pub ckb_tx_pool_pipeline_residency: CkbTxPoolPipelineResidencyStatistics,
+    /// Counters for terminal tx-pool rejection classes.
+    pub ckb_tx_pool_pipeline_rejections: CkbTxPoolPipelineRejectionStatistics,
+    /// Counters for typed service failure boundaries.
+    pub ckb_tx_pool_pipeline_failures: CkbTxPoolPipelineFailureStatistics,
+    /// Gauges for the effect journal's cumulative capacity lattice.
+    pub ckb_tx_pool_effect_usage: CkbTxPoolEffectUsageStatistics,
     /// Histogram for CKB network connections
     pub ckb_message_bytes: HistogramVec,
     /// Gauge for CKB rocksdb statistics
@@ -220,6 +273,11 @@ static METRICS: std::sync::LazyLock<Metrics> = std::sync::LazyLock::new(|| {
                 .unwrap()
         ),
     ckb_freezer_size: register_int_gauge!("ckb_freezer_size", "The CKB freezer size").unwrap(),
+    ckb_notify_transaction_dropped: register_int_counter_vec!(
+        "ckb_notify_transaction_dropped",
+        "Transaction notification handoffs omitted by a full or closed bounded channel",
+        &["boundary", "reason"]
+    ).unwrap(),
     ckb_freezer_read: register_int_counter!("ckb_freezer_read", "The CKB freezer read").unwrap(),
     ckb_freezer_number: register_int_gauge!("ckb_freezer_number", "The CKB freezer number").unwrap(),
     ckb_relay_transaction_short_id_collide: register_int_counter!(
@@ -229,9 +287,12 @@ static METRICS: std::sync::LazyLock<Metrics> = std::sync::LazyLock::new(|| {
             .unwrap(),
     ckb_relay_tx_verify_result_queue_size: register_int_gauge!(
         "ckb_relay_tx_verify_result_queue_size",
-        "Pending transaction verification results waiting for relay"
-    )
-            .unwrap(),
+        "Pending transaction verification results in the relay mailbox"
+    ).unwrap(),
+    ckb_relay_tx_verify_result_queue_capacity: register_int_gauge!(
+        "ckb_relay_tx_verify_result_queue_capacity",
+        "Maximum pending transaction verification results in the relay mailbox"
+    ).unwrap(),
     ckb_relay_cb_verify_duration: register_histogram!(
         "ckb_relay_cb_verify_duration",
         "The CKB relay compact block verify duration"
@@ -295,6 +356,38 @@ static METRICS: std::sync::LazyLock<Metrics> = std::sync::LazyLock::new(|| {
             "ckb_tx_pool_entry",
             "CKB tx-pool entry status statistics",
             &["type"]
+        )
+                .unwrap(),
+        ),
+    ckb_tx_pool_pipeline_residency: CkbTxPoolPipelineResidencyStatistics::from(
+            &register_int_gauge_vec!(
+            "ckb_tx_pool_pipeline_residency",
+            "Bounded tx-pool pipeline residency and active work",
+            &["resource"]
+        )
+                .unwrap(),
+        ),
+    ckb_tx_pool_pipeline_rejections: CkbTxPoolPipelineRejectionStatistics::from(
+            &register_int_counter_vec!(
+            "ckb_tx_pool_pipeline_rejections",
+            "Terminal tx-pool rejection outcomes by closed class",
+            &["class"]
+        )
+                .unwrap(),
+        ),
+    ckb_tx_pool_pipeline_failures: CkbTxPoolPipelineFailureStatistics::from(
+            &register_int_counter_vec!(
+            "ckb_tx_pool_pipeline_failures",
+            "Tx-pool service failures by existing fail-closed boundary",
+            &["boundary"]
+        )
+                .unwrap(),
+        ),
+    ckb_tx_pool_effect_usage: CkbTxPoolEffectUsageStatistics::from(
+            &register_int_gauge_vec!(
+            "ckb_tx_pool_effect_usage",
+            "Staged tx-pool effect-journal usage by cumulative region",
+            &["region"]
         )
                 .unwrap(),
         ),

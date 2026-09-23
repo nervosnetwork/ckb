@@ -57,7 +57,7 @@ jobs:
       - name: Build ckb and ckb-test binaries
         run: |
           make submodule-init
-          cargo build --locked --bin ckb --verbose --release --features "deadlock_detection"
+          cargo build --locked --bin ckb --verbose --release --features "test,deadlock_detection"
           cargo build --locked -p ckb-test --verbose --release --features "deadlock_detection"
         shell: bash
       - name: List and chunk test specs

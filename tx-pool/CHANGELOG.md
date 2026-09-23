@@ -7,6 +7,66 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Add `verify_ordering`, defaulting to `fee_rate`, with explicit `arrival_time`
+  selection also supported. Selection order does not promise completion order.
+- Add an active VM-time budget for network relay and proposal transactions,
+  with internally calibrated VM speed and startup allowance, capped at one
+  minimum target block interval (currently 8 seconds). Local RPC and recovery use synchronous verification
+  without a time budget; consensus cycle accounting is unchanged.
+
+### Changed
+
+- Existing configurations without `verify_ordering` now select by fee rate;
+  set `arrival_time` explicitly to select by arrival within each source lane.
+  `max_tx_verify_cycles` separates scheduling lanes and does not cap local VM work.
+- Direct local submissions wait at the block-priority gate before starting
+  verification. Their synchronous VM execution remains unbudgeted. Ordered chain
+  controls remain independent of waiting transaction handlers.
+- Transaction notifications now omit events immediately when a bounded service
+  or subscriber channel is full, instead of retaining a send task for up to the
+  configured timeout. `notify_tx_timeout` remains accepted and is ignored.
+  `ckb_notify_transaction_dropped{boundary,reason}` counts omitted handoffs.
+- Use immutable transaction owners and keyed coupled commits for admission,
+  replacement, chain reconciliation and administration. Independent ordinary
+  transactions can commit concurrently; required effects publish afterward.
+- Template packing derives a graph from accepted owners and reuses it while their
+  identities and the ancestor limit match. Earlier cell-dep readers must precede
+  spending, even when they commit over several blocks.
+- Intentionally change the public Rust API: fallible builder construction returns
+  the controller and sole verification-result receiver; callbacks receive
+  immutable snapshots and the old mutable TxPool export is removed.
+  `update_tx_pool_for_reorg` no longer accepts obsolete detached proposal IDs.
+  These API changes require a SemVer-major release relative to the prior
+  published crate. See the
+  [migration guide](docs/MAINTENANCE.md#integrating-callers-and-stored-data).
+- Replace the fragmented pre-pool queues with one charged transaction
+  authority and atomic Plan/Apply transitions. Only accepted owners supply public
+  transaction bodies and `pending`/`proposed` status; other queries use the existing
+  recent-rejection or `unknown` fallback.
+- Narrow `get_raw_tx_pool.conflicted` to successfully displaced accepted
+  victims retained as replacement history. Failed replacement candidates use
+  the recent-reject surface.
+- Write tx-pool persistence v2 while accepting legacy v1 files as migration
+  input. Every restored transaction re-enters validation. Node downgrade and
+  reverse persistence migration are not supported. A successful v2 write removes
+  the superseded v1 file.
+- Existing tx-pool configuration files remain accepted on node upgrades;
+  `max_tx_pool_size` keeps its serialized-byte meaning. Internal accepted and
+  pipeline memory ceilings scale with larger serialized capacities while retaining
+  execution room for small pools. Obsolete released fields remain accepted and
+  ignored. See [configuration and capacity](docs/MAINTENANCE.md#configuration-and-capacity).
+
+### Fixed
+
+- Bind shared script proofs to the resolved cell origins visible through header
+  dependencies, so confirmation or reorg cannot reuse proof from another syscall context.
+- Distinguish corruption inside coherent graph captures from retryable concurrent
+  changes; structural faults wake blocked consumers and stop the generation.
+- Skip pool publication when a chain-only import/replay has no pool consumer,
+  while retaining reliable publication during ordinary node startup.
+
 ## [1.3.0](https://github.com/nervosnetwork/ckb/compare/ckb-tx-pool-v1.2.2...ckb-tx-pool-v1.3.0) - 2026-07-28
 
 ### Added

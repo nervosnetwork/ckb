@@ -766,17 +766,13 @@ impl<DL> TxInfo<DL> {
                     Err(ScriptError::ScriptNotFound(script.code_hash()))
                 }
             }
-            ScriptHashType::Type => {
-                if let Some(ref bin) = self.binaries_by_type_hash.get(&script.code_hash()) {
-                    match bin {
-                        Binaries::Unique(_, dep_index, lazy) => Ok((lazy, dep_index)),
-                        Binaries::Duplicate(_, dep_index, lazy) => Ok((lazy, dep_index)),
-                        Binaries::Multiple => Err(ScriptError::MultipleMatches),
-                    }
-                } else {
-                    Err(ScriptError::ScriptNotFound(script.code_hash()))
-                }
-            }
+            ScriptHashType::Type => match self.binaries_by_type_hash.get(&script.code_hash()) {
+                Some(
+                    Binaries::Unique(_, dep_index, lazy) | Binaries::Duplicate(_, dep_index, lazy),
+                ) => Ok((lazy, dep_index)),
+                Some(Binaries::Multiple) => Err(ScriptError::MultipleMatches),
+                None => Err(ScriptError::ScriptNotFound(script.code_hash())),
+            },
             hash_type => {
                 return Err(ScriptError::InvalidScriptHashType(format!(
                     "The ScriptHashType/{:?} has not been activated, and is not permitted for use.",

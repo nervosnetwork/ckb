@@ -275,6 +275,15 @@ impl RpcTestSuite {
         });
     }
 
+    fn clear_tx_pool(&self) {
+        self.rpc(&RpcTestRequest {
+            id: 42,
+            jsonrpc: "2.0".to_string(),
+            method: "clear_tx_pool".to_string(),
+            params: vec![],
+        });
+    }
+
     fn wait_block_template_update(&self) {
         self.wait_block_template_array_ge("proposals", 1)
     }
@@ -433,6 +442,10 @@ fn before_rpc_example(suite: &RpcTestSuite, example: &mut RpcTestExample) -> boo
         ("generate_block_with_template", 42) => return false,
         ("process_block_without_verify", 42) => return false,
         ("notify_transaction", 42) => return false,
+        // Query examples share a resident transaction. Local-test submission
+        // rejects duplicates, so clear it before demonstrating queue admission;
+        // background verification restores the accepted fixture.
+        ("send_test_transaction", 42) => suite.clear_tx_pool(),
         ("truncate", 42) => return false,
         ("get_block_template", 42) => suite.wait_block_template_update(),
         ("sync_state", 42) => suite.wait_sync_state_unverified_tip(),
@@ -447,12 +460,7 @@ fn after_rpc_example(suite: &RpcTestSuite, example: &RpcTestExample) {
     match example.request.method.as_str() {
         "clear_tx_pool" => suite.send_example_transaction(),
         "send_transaction" => {
-            suite.rpc(&RpcTestRequest {
-                id: 42,
-                jsonrpc: "2.0".to_string(),
-                method: "clear_tx_pool".to_string(),
-                params: vec![],
-            });
+            suite.clear_tx_pool();
             suite.send_example_transaction()
         }
         "remove_transaction" => suite.send_example_transaction(),
