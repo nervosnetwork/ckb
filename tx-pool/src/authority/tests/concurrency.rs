@@ -154,6 +154,51 @@ fn shard_identities(store: &Store) -> BTreeMap<usize, Byte32> {
 }
 
 #[test]
+fn batch_lookups_preserve_key_order_and_duplicates_across_shards() {
+    let store = store();
+    let mut hashes: Vec<_> = shard_identities(&store).into_values().rev().collect();
+    let present: BTreeSet<_> = hashes.iter().step_by(2).cloned().collect();
+    let mut plan = Plan::new(store.snapshot().0, Class::Trusted, Default::default());
+    for hash in &present {
+        let owner = entry(&store, tx(7749).fake_hash(hash.clone()), Source::Recovery);
+        plan.edit(None, Some(owner), None).unwrap();
+    }
+    store.apply(plan).unwrap();
+    hashes.extend(hashes.iter().take(4).cloned().collect::<Vec<_>>());
+
+    let expected: Vec<_> = hashes
+        .iter()
+        .filter(|hash| present.contains(*hash))
+        .cloned()
+        .collect();
+    assert_eq!(
+        store
+            .points(&hashes)
+            .iter()
+            .map(|owner| owner.hash())
+            .collect::<Vec<_>>(),
+        expected
+    );
+    let ids: Vec<_> = hashes.iter().map(ProposalShortId::from_tx_hash).collect();
+    let (_, live, committed) = store.compact_lookup(&ids);
+    assert!(committed.is_empty());
+    assert_eq!(
+        live.iter()
+            .map(|(_, owner)| owner.hash())
+            .collect::<Vec<_>>(),
+        expected
+    );
+    assert_eq!(
+        store.filter_fresh_proposals(ids),
+        hashes
+            .iter()
+            .filter(|hash| !present.contains(*hash))
+            .map(ProposalShortId::from_tx_hash)
+            .collect::<Vec<_>>()
+    );
+}
+
+#[test]
 fn owner_edit_groups_cover_mixed_guards_and_empty_clear_shards() {
     let store = store();
     let owners: Vec<_> = shard_identities(&store)

@@ -373,6 +373,16 @@ fn acquire<'a, T>(
     }
     guards
 }
+
+/// `acquire` returns guards in shard order, independent of the caller's key order.
+fn guarded_shard<'a>(guards: &'a [(usize, Guard<'_, Shard>)], index: usize) -> Option<&'a Shard> {
+    guards
+        .binary_search_by_key(&index, |(index, _)| *index)
+        .ok()
+        .and_then(|position| guards.get(position))
+        .map(|(_, guard)| guard.get())
+}
+
 #[expect(
     clippy::expect_used,
     reason = "A valid Byte32 has 32 bytes, so its 10-byte proposal prefix always exists."
@@ -550,10 +560,8 @@ impl Store {
         hashes
             .iter()
             .filter_map(|hash| {
-                owners
-                    .iter()
-                    .find(|(index, _)| *index == self.owner_shard(hash))
-                    .and_then(|(_, guard)| guard.get().owners.get(hash))
+                guarded_shard(&owners, self.owner_shard(hash))
+                    .and_then(|shard| shard.owners.get(hash))
                     .cloned()
             })
             .collect()
@@ -572,10 +580,8 @@ impl Store {
         let _view = self.view.read();
         let owners = acquire(&self.shards, &footprint);
         ids.retain(|id| {
-            owners
-                .iter()
-                .find(|(index, _)| *index == self.route(id))
-                .and_then(|(_, guard)| guard.get().proposal(id))
+            guarded_shard(&owners, self.route(id))
+                .and_then(|shard| shard.proposal(id))
                 .is_none()
         });
         ids
@@ -603,10 +609,7 @@ impl Store {
         let mut committed = Vec::with_capacity(ids.len());
         let cache = self.committed.lock();
         for id in ids {
-            let shard = owners
-                .iter()
-                .find(|(index, _)| *index == self.route(id))
-                .map(|(_, guard)| guard.get());
+            let shard = guarded_shard(&owners, self.route(id));
             if let Some(entry) = shard.and_then(|shard| shard.proposal(id)) {
                 live.push((id.clone(), Arc::clone(entry)));
             } else if let Some(hash) = cache.peek(id) {
@@ -1052,12 +1055,8 @@ impl Store {
         owners: &[(usize, Guard<'_, Shard>)],
     ) -> Result<(), Error> {
         for (hash, expected) in &reads.owners {
-            let shard = owners
-                .iter()
-                .find(|(index, _)| *index == self.owner_shard(hash))
-                .ok_or(Error::Fault("owner read support"))?
-                .1
-                .get();
+            let shard = guarded_shard(owners, self.owner_shard(hash))
+                .ok_or(Error::Fault("owner read support"))?;
             if !same_weak(expected, &shard.owners.get(hash).map(Arc::downgrade)) {
                 return Err(Error::Stale);
             }
