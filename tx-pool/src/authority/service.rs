@@ -590,8 +590,11 @@ impl Pool {
         &self,
         point: &ckb_types::packed::OutPoint,
         with_data: bool,
-    ) -> ckb_types::core::cell::CellStatus {
-        block_offload(|| query::live_cell(&self.store, point, with_data))
+    ) -> Result<ckb_types::core::cell::CellStatus, AnyError> {
+        self.open()?;
+        Ok(block_offload(|| {
+            query::live_cell(&self.store, point, with_data)
+        }))
     }
     pub(crate) fn fresh_proposals(
         &self,

@@ -610,6 +610,29 @@ async fn relay_reset_rebuilds_current_missing_levels_and_ignores_retired_owners(
     assert!(!pool.is_faulted());
 }
 
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn live_cell_query_rejects_a_faulted_or_closed_generation() {
+    let point = OutPoint::new(tx(4006).hash(), 0);
+    let (pool, _, _, _) = fixture();
+    assert!(pool.live_cell(&point, false).is_ok());
+    pool.fault();
+    assert!(matches!(
+        pool.live_cell(&point, false)
+            .unwrap_err()
+            .downcast_ref::<Error>(),
+        Some(Error::Fault(_))
+    ));
+
+    let (pool, _, _, _) = fixture();
+    pool.stop();
+    assert!(matches!(
+        pool.live_cell(&point, false)
+            .unwrap_err()
+            .downcast_ref::<Error>(),
+        Some(Error::Closed)
+    ));
+}
+
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn stop_joins_a_suspended_verification_queue_and_preserves_accepted_state() {
     let (pool, sink, _, handle) = fixture();

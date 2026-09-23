@@ -14,10 +14,7 @@ pub(crate) async fn process(pool: Arc<Pool>, message: Message) -> Result<(), Err
         Message::GetLiveCell(Request {
             responder,
             arguments: (point, data),
-        }) => {
-            respond(responder, pool.live_cell(&point, data), "get_live_cell");
-            Ok(())
-        }
+        }) => reply_external(responder, pool.live_cell(&point, data), "get_live_cell"),
         Message::BlockTemplate(Request {
             responder,
             arguments,

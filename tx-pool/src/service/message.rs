@@ -32,6 +32,7 @@ pub(crate) type TestAcceptTxResult = Result<EntryCompleted, Reject>;
 pub(crate) type RemoveLocalTxResult = Result<bool, AnyError>;
 
 pub(crate) type GetTxStatusResult = Result<(TxStatus, Option<Cycle>), AnyError>;
+pub(crate) type GetLiveCellResult = Result<CellStatus, AnyError>;
 pub(crate) type GetTransactionWithStatusResult = Result<TransactionWithStatus, AnyError>;
 pub(crate) type FetchTxsWithCyclesResult = crate::authority::query::AcceptedTransactionsWithCycles;
 
@@ -430,7 +431,7 @@ pub(crate) enum Message {
     FetchTxs(AsyncRequest<BoundedProposalIds, HashMap<ProposalShortId, TransactionView>>),
     FetchTxsWithCycles(AsyncRequest<BoundedTransactionHashes, FetchTxsWithCyclesResult>),
     GetTxPoolInfo(SyncRequest<(), TxPoolInfo>),
-    GetLiveCell(SyncRequest<(OutPoint, bool), CellStatus>),
+    GetLiveCell(SyncRequest<(OutPoint, bool), GetLiveCellResult>),
     GetTxStatus(SyncRequest<Byte32, GetTxStatusResult>),
     GetTransactionWithStatus(SyncRequest<Byte32, GetTransactionWithStatusResult>),
     NewUncle(BoundedCandidateUncle),

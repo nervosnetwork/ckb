@@ -39,6 +39,31 @@ fn controller(sender: mpsc::Sender<Message>) -> TxPoolController {
     }
 }
 
+#[tokio::test]
+async fn live_cell_controller_returns_the_service_error() {
+    let (sender, mut receiver) = mpsc::channel(1);
+    let controller = controller(sender);
+    let request =
+        tokio::task::spawn_blocking(move || controller.get_live_cell(OutPoint::default(), false));
+    let Message::GetLiveCell(query) = receiver.recv().await.unwrap() else {
+        panic!("live cell request reached the query channel")
+    };
+    query
+        .responder
+        .send(Err(
+            crate::authority::service::Error::Fault("fixture").into()
+        ))
+        .unwrap();
+    assert!(matches!(
+        request
+            .await
+            .unwrap()
+            .unwrap_err()
+            .downcast_ref::<crate::authority::service::Error>(),
+        Some(crate::authority::service::Error::Fault(_))
+    ));
+}
+
 fn full_controller() -> (TxPoolController, mpsc::Receiver<Message>) {
     let (sender, receiver) = mpsc::channel(1);
     assert!(

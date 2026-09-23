@@ -346,7 +346,7 @@ impl TxPoolController {
         out_point: OutPoint,
         with_data: bool,
     ) -> Result<CellStatus, AnyError> {
-        send_message!(self, GetLiveCell, (out_point, with_data))
+        send_message!(self, GetLiveCell, (out_point, with_data)).and_then(std::convert::identity)
     }
 
     /// Return fresh proposals
