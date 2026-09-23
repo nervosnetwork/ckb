@@ -53,6 +53,7 @@ pub(super) const WAIT: u8 = 4;
 pub(super) const CHILD: u8 = 8;
 const ACCEPTED_ROLES: u8 = INPUT | DEP | CHILD;
 const WAKE_PAGE: usize = 32;
+const COMMITTED_HASH_CACHE_CAPACITY: usize = 100_000;
 
 struct View {
     snapshot: Arc<Snapshot>,
@@ -421,7 +422,7 @@ impl Store {
             peer_gates: std::array::from_fn(|_| RwLock::new(())),
             peers: Mutex::new(BTreeMap::new()),
             bans: Mutex::new(BTreeMap::new()),
-            committed: Mutex::new(lru::LruCache::new(100_000)),
+            committed: Mutex::new(lru::LruCache::new(COMMITTED_HASH_CACHE_CAPACITY)),
             dirty: Mutex::new(BTreeSet::new()),
             routing: RandomState::new(),
             arrival: AtomicU64::new(0),

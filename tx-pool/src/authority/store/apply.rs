@@ -2,9 +2,9 @@
 //! lock release stay in one path; retired payloads outlive every authority guard.
 use super::plan::LifecycleWrite;
 use super::{
-    ACCEPTED_ROLES, CHILD, CommitLocks, DEP, Edit, Guard, INPUT, Peer, Plan, Relation,
-    RelationMember, SHARDS, Shard, Store, View, WAIT, Wake, WakePage, acquire, compact_dependency,
-    compact_relation, proposal_key,
+    ACCEPTED_ROLES, CHILD, COMMITTED_HASH_CACHE_CAPACITY, CommitLocks, DEP, Edit, Guard, INPUT,
+    Peer, Plan, Relation, RelationMember, SHARDS, Shard, Store, View, WAIT, Wake, WakePage,
+    acquire, compact_dependency, compact_relation, proposal_key,
 };
 use crate::authority::{
     budget::OwnerDelta,
@@ -766,7 +766,7 @@ impl Store {
         let mut retired = Retired {
             _committed: Some(std::mem::replace(
                 &mut *self.committed.lock(),
-                lru::LruCache::new(100_000),
+                lru::LruCache::new(COMMITTED_HASH_CACHE_CAPACITY),
             )),
             ..Retired::default()
         };
