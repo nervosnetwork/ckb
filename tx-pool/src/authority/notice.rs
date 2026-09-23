@@ -665,10 +665,6 @@ impl Outbox {
                 .iter()
                 .filter_map(|effect| effect.callback.as_ref())
                 .any(|event| endpoints.callback_enabled(event));
-        // One publisher owns removal, and readiness only opens. Transfer the
-        // selected head directly; groups still release each earlier batch
-        // before running a later endpoint.
-        let mut next = Some(head);
         #[cfg(feature = "profiling")]
         let _group_span = tracing::trace_span!(
             target: "ckb_tx_pool_profile", "tx_pool.publisher.group"
@@ -696,61 +692,72 @@ impl Outbox {
                 ),
             };
         }
-        let mut publish = || {
-            for remaining in (0..count).rev() {
-                let batch = next.take().ok_or(Error::Fault("notice FIFO head"))?;
-                // No await in a batch terminal: cancellation cannot replay a prefix.
-                for effect in &batch.effects {
-                    endpoints.publish(effect);
-                }
-                let mut state = self.state.lock();
-                if !state
-                    .queue
-                    .front()
-                    .is_some_and(|head| Arc::ptr_eq(head, &batch))
-                {
-                    return Err(Error::Fault("notice FIFO head"));
-                }
-                for effect in &batch.effects {
-                    if let Some((hash, _)) = effect.recent()
-                        && state
-                            .pending
-                            .get(hash)
-                            .is_some_and(|old| old.ptr_eq(&Arc::downgrade(&batch)))
-                    {
-                        state.pending.remove(hash);
-                    }
-                }
-                let retired = state.queue.pop_front();
-                let failed = self.release(&batch, &mut state);
-                if remaining > 0 {
-                    next = state
-                        .queue
-                        .front()
-                        .filter(|batch| batch.ready.load(Ordering::Acquire))
-                        .cloned();
-                }
-                drop(state);
-                batch.published.store(true, Ordering::Release);
-                batch.completed.notify_waiters();
-                if failed {
-                    self.failed.notify_waiters();
-                }
-                self.room.notify_waiters();
-                drop(retired);
-            }
-            Ok(true)
-        };
         if offload {
             #[cfg(feature = "profiling")]
             let _offload_span = tracing::trace_span!(
                 target: "ckb_tx_pool_profile", "tx_pool.publisher.offload"
             )
             .entered();
-            block_offload(publish)
+            block_offload(|| self.publish_prefix(endpoints, head, count))?;
         } else {
-            publish()
+            self.publish_prefix(endpoints, head, count)?;
         }
+        Ok(true)
+    }
+
+    /// Settle a ready FIFO prefix without await. Complete each batch before
+    /// running the next endpoint; displaced payloads outlive the state lock.
+    fn publish_prefix(
+        &self,
+        endpoints: &mut Endpoints,
+        head: Arc<Batch>,
+        count: usize,
+    ) -> Result<(), Error> {
+        // One publisher owns removal, and readiness only opens.
+        let mut next = Some(head);
+        for remaining in (0..count).rev() {
+            let batch = next.take().ok_or(Error::Fault("notice FIFO head"))?;
+            // No await in a batch terminal: cancellation cannot replay a prefix.
+            for effect in &batch.effects {
+                endpoints.publish(effect);
+            }
+            let mut state = self.state.lock();
+            if !state
+                .queue
+                .front()
+                .is_some_and(|head| Arc::ptr_eq(head, &batch))
+            {
+                return Err(Error::Fault("notice FIFO head"));
+            }
+            for effect in &batch.effects {
+                if let Some((hash, _)) = effect.recent()
+                    && state
+                        .pending
+                        .get(hash)
+                        .is_some_and(|old| old.ptr_eq(&Arc::downgrade(&batch)))
+                {
+                    state.pending.remove(hash);
+                }
+            }
+            let retired = state.queue.pop_front();
+            let failed = self.release(&batch, &mut state);
+            if remaining > 0 {
+                next = state
+                    .queue
+                    .front()
+                    .filter(|batch| batch.ready.load(Ordering::Acquire))
+                    .cloned();
+            }
+            drop(state);
+            batch.published.store(true, Ordering::Release);
+            batch.completed.notify_waiters();
+            if failed {
+                self.failed.notify_waiters();
+            }
+            self.room.notify_waiters();
+            drop(retired);
+        }
+        Ok(())
     }
     pub(super) async fn run(self: Arc<Self>, mut endpoints: Endpoints) -> Result<(), Error> {
         struct Completion {
