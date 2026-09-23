@@ -21,8 +21,6 @@ use tokio::sync::Notify;
 pub(crate) const VERSION: u32 = 2;
 const LEGACY_VERSION: u32 = 1;
 const MAGIC: &[u8; 8] = b"CKBTPV2\0";
-const HEADER_BYTES: usize = 20;
-const RECOVERY_META_BYTES: usize = 20;
 const PERSISTENCE_READ_ALLOWANCE: usize = 1024 * 1024;
 
 #[derive(Clone, Debug, Default)]
@@ -192,99 +190,23 @@ fn decode_transactions(path: &Path, bytes: &[u8]) -> Result<Vec<TransactionView>
         .collect())
 }
 
-fn take_array<const N: usize>(
-    path: &Path,
-    bytes: &[u8],
-    cursor: &mut usize,
-    detail: &'static str,
-) -> Result<[u8; N], AnyError> {
-    let end = cursor
-        .checked_add(N)
-        .ok_or_else(|| broken(path, "persisted-data cursor overflow"))?;
-    let value = bytes
-        .get(*cursor..end)
-        .ok_or_else(|| broken(path, detail))?
-        .try_into()
-        .map_err(|_| broken(path, detail))?;
-    *cursor = end;
-    Ok(value)
-}
-
 fn decode_v2(path: &Path, bytes: &[u8]) -> Result<PersistenceSnapshot, AnyError> {
-    let mut header_cursor = 0;
-    if &take_array::<8>(path, bytes, &mut header_cursor, "invalid v2 header")? != MAGIC {
+    let (magic, bytes) = bytes
+        .split_first_chunk::<8>()
+        .ok_or_else(|| broken(path, "invalid v2 header"))?;
+    if magic != MAGIC {
         return Err(broken(path, "invalid v2 header"));
     }
-    let accepted_len = u64::from_le_bytes(take_array(
-        path,
-        bytes,
-        &mut header_cursor,
-        "missing accepted length",
-    )?);
-    let recovery_count = u32::from_le_bytes(take_array(
-        path,
-        bytes,
-        &mut header_cursor,
-        "missing recovery count",
-    )?);
-    let recovery_count = usize::try_from(recovery_count)
-        .map_err(|_| broken(path, "recovery count does not fit this platform"))?;
-    let metadata_bytes = recovery_count
-        .checked_mul(RECOVERY_META_BYTES)
-        .ok_or_else(|| broken(path, "recovery metadata length overflow"))?;
-    let accepted_len = usize::try_from(accepted_len)
+    let (accepted_len, bytes) = bytes
+        .split_first_chunk::<8>()
+        .ok_or_else(|| broken(path, "missing accepted length"))?;
+    let accepted_len = usize::try_from(u64::from_le_bytes(*accepted_len))
         .map_err(|_| broken(path, "accepted vector length does not fit this platform"))?;
-    let accepted_start = HEADER_BYTES
-        .checked_add(metadata_bytes)
-        .ok_or_else(|| broken(path, "accepted vector offset overflow"))?;
-    let recovery_start = accepted_start
-        .checked_add(accepted_len)
-        .ok_or_else(|| broken(path, "recovery vector offset overflow"))?;
-    if recovery_start > bytes.len() {
-        return Err(broken(path, "declared sections exceed file length"));
-    }
-
-    let metadata_section = bytes
-        .get(HEADER_BYTES..accepted_start)
-        .ok_or_else(|| broken(path, "invalid recovery metadata bounds"))?;
-    let mut metadata = Vec::with_capacity(recovery_count);
-    for chunk in metadata_section.chunks_exact(RECOVERY_META_BYTES) {
-        let mut cursor = 0;
-        let session = u128::from_le_bytes(take_array(
-            path,
-            chunk,
-            &mut cursor,
-            "truncated recovery session",
-        )?);
-        let ordinal = u32::from_le_bytes(take_array(
-            path,
-            chunk,
-            &mut cursor,
-            "truncated recovery ordinal",
-        )?);
-        metadata.push((session, ordinal));
-    }
-    let accepted = decode_transactions(
-        path,
-        bytes
-            .get(accepted_start..recovery_start)
-            .ok_or_else(|| broken(path, "invalid accepted transaction bounds"))?,
-    )?;
-    let recovery_txs = decode_transactions(
-        path,
-        bytes
-            .get(recovery_start..)
-            .ok_or_else(|| broken(path, "invalid recovery transaction bounds"))?,
-    )?;
-    if recovery_txs.len() != metadata.len() {
-        return Err(broken(
-            path,
-            "recovery metadata and transaction counts differ",
-        ));
-    }
-    let mut recovery = recovery_txs.into_iter().zip(metadata).collect::<Vec<_>>();
-    recovery.sort_unstable_by_key(|(_, meta)| *meta);
-    let recovery = recovery.into_iter().map(|(tx, _)| tx).collect();
+    let (accepted, recovery) = bytes
+        .split_at_checked(accepted_len)
+        .ok_or_else(|| broken(path, "declared accepted section exceeds file length"))?;
+    let accepted = decode_transactions(path, accepted)?;
+    let recovery = decode_transactions(path, recovery)?;
     Ok(PersistenceSnapshot { accepted, recovery })
 }
 
@@ -295,8 +217,6 @@ pub(crate) fn write_snapshot(base: &Path, snapshot: PersistenceSnapshot) -> Resu
     let recovery = TransactionVec::new_builder()
         .extend(snapshot.recovery.iter().map(|tx| tx.data()))
         .build();
-    let recovery_count = u32::try_from(snapshot.recovery.len())
-        .map_err(|_| OtherError::new("too many recovery items to persist".to_owned()))?;
     let accepted_len = u64::try_from(accepted.as_slice().len())
         .map_err(|_| OtherError::new("accepted persistence vector is too large".to_owned()))?;
 
@@ -316,13 +236,6 @@ pub(crate) fn write_snapshot(base: &Path, snapshot: PersistenceSnapshot) -> Resu
         let mut file = BufWriter::new(file);
         file.write_all(MAGIC)?;
         file.write_all(&accepted_len.to_le_bytes())?;
-        file.write_all(&recovery_count.to_le_bytes())?;
-        for ordinal in 0..recovery_count {
-            // v2 retains the retired session slot as zero for on-disk
-            // compatibility; ordinal preserves the captured recovery order.
-            file.write_all(&0u128.to_le_bytes())?;
-            file.write_all(&ordinal.to_le_bytes())?;
-        }
         file.write_all(accepted.as_slice())?;
         file.write_all(recovery.as_slice())?;
         file.flush()?;

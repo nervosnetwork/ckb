@@ -66,6 +66,47 @@ fn persistence_v2_roundtrip_preserves_partitions_and_recovery_order() {
 }
 
 #[test]
+fn persistence_v2_rejects_broken_partition_framing_without_loading_v1() {
+    let directory = tempfile::TempDir::new().expect("temporary persistence directory");
+    let base = directory.path().join("tx_pool");
+    let legacy = TransactionVec::new_builder()
+        .push(transaction(9).data())
+        .build();
+    std::fs::write(versioned_path(&base, LEGACY_VERSION), legacy.as_slice()).unwrap();
+    let empty = TransactionVec::new_builder().build();
+    let mut valid = MAGIC.to_vec();
+    valid.extend_from_slice(&u64::try_from(empty.as_slice().len()).unwrap().to_le_bytes());
+    valid.extend_from_slice(empty.as_slice());
+    valid.extend_from_slice(empty.as_slice());
+
+    let mut wrong_magic = valid.clone();
+    wrong_magic[0] = b'X';
+    let mut accepted_too_long = valid.clone();
+    accepted_too_long[8..16].copy_from_slice(&u64::MAX.to_le_bytes());
+    let mut invalid_accepted = MAGIC.to_vec();
+    invalid_accepted.extend_from_slice(&1u64.to_le_bytes());
+    invalid_accepted.push(0);
+    invalid_accepted.extend_from_slice(empty.as_slice());
+    let mut invalid_recovery = valid;
+    invalid_recovery.pop();
+
+    for bytes in [
+        MAGIC[..4].to_vec(),
+        MAGIC.to_vec(),
+        wrong_magic,
+        accepted_too_long,
+        invalid_accepted,
+        invalid_recovery,
+    ] {
+        std::fs::write(versioned_path(&base, VERSION), bytes).unwrap();
+        assert!(
+            load_persistence_snapshot(&config(&base)).is_err(),
+            "a malformed v2 file must not fall back to the valid v1 file"
+        );
+    }
+}
+
+#[test]
 fn persistence_v2_rejects_oversized_file_before_reading_payload() {
     let directory = tempfile::TempDir::new().expect("temporary persistence directory");
     let base = directory.path().join("tx_pool");
