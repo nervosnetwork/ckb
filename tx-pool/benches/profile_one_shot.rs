@@ -1686,110 +1686,116 @@ async fn submit_workload(
     accepted_before: usize,
 ) -> BenchResult<fanout_readiness::Readiness> {
     let mut readiness = fanout_readiness::Readiness::default();
-    if matches!(order, SubmissionOrder::WindowedRbf) {
-        let mut remaining = peer_ranges(transactions.len(), peers);
-        let mut submitted = 0;
-        while submitted < transactions.len() {
-            let window: Vec<_> = remaining
-                .iter_mut()
-                .map(|(start, end)| {
-                    let first = *start;
-                    *start += (*end - first).min(1024);
-                    submitted += *start - first;
-                    (first, *start)
-                })
-                .collect();
-            submit_only(
-                controller,
-                Arc::clone(&transactions),
-                Arc::clone(&cycles),
-                &window,
-            )
-            .await?;
-            completion.wait_for(accepted_before + submitted).await?;
+    match order {
+        SubmissionOrder::WindowedRbf => {
+            let mut remaining = peer_ranges(transactions.len(), peers);
+            let mut submitted = 0;
+            while submitted < transactions.len() {
+                let window: Vec<_> = remaining
+                    .iter_mut()
+                    .map(|(start, end)| {
+                        let first = *start;
+                        *start += (*end - first).min(1024);
+                        submitted += *start - first;
+                        (first, *start)
+                    })
+                    .collect();
+                submit_only(
+                    controller,
+                    Arc::clone(&transactions),
+                    Arc::clone(&cycles),
+                    &window,
+                )
+                .await?;
+                completion.wait_for(accepted_before + submitted).await?;
+            }
         }
-    } else if matches!(order, SubmissionOrder::ReverseFanoutCohorts) {
-        require(
-            transactions.len().is_multiple_of(FANOUT_COHORT_SIZE),
-            "incomplete fanout cohort",
-        )?;
-        for (cohort, (transactions, cycles)) in transactions
-            .chunks_exact(FANOUT_COHORT_SIZE)
-            .zip(cycles.chunks_exact(FANOUT_COHORT_SIZE))
-            .enumerate()
-        {
-            let query = || {
-                controller
-                    .get_tx_pool_info()
-                    .map(|info| info.orphan_size)
-                    .map_err(|error| error.to_string())
-            };
-            readiness.wait(0, query).await.map_err(bench_error)?;
-            let parent = FANOUT_COHORT_SIZE - 1;
-            submit_only(
+        SubmissionOrder::ReverseFanoutCohorts => {
+            require(
+                transactions.len().is_multiple_of(FANOUT_COHORT_SIZE),
+                "incomplete fanout cohort",
+            )?;
+            for (cohort, (transactions, cycles)) in transactions
+                .chunks_exact(FANOUT_COHORT_SIZE)
+                .zip(cycles.chunks_exact(FANOUT_COHORT_SIZE))
+                .enumerate()
+            {
+                let query = || {
+                    controller
+                        .get_tx_pool_info()
+                        .map(|info| info.orphan_size)
+                        .map_err(|error| error.to_string())
+                };
+                readiness.wait(0, query).await.map_err(bench_error)?;
+                let parent = FANOUT_COHORT_SIZE - 1;
+                submit_only(
+                    controller,
+                    Arc::new(transactions[..parent].to_vec()),
+                    Arc::new(cycles[..parent].to_vec()),
+                    &peer_ranges(parent, peers),
+                )
+                .await?;
+                // Only these 64 unique children have been submitted since the
+                // observed empty orphan pool. Thus size=64 proves all are stored.
+                readiness.wait(parent, query).await.map_err(bench_error)?;
+                submit_batch(
+                    controller,
+                    completion,
+                    Arc::new(transactions[parent..].to_vec()),
+                    Arc::new(cycles[parent..].to_vec()),
+                    peers,
+                    accepted_before + (cohort + 1) * FANOUT_COHORT_SIZE,
+                )
+                .await?;
+            }
+        }
+        SubmissionOrder::Forest(depth) => {
+            submit_dependency_forest(
                 controller,
-                Arc::new(transactions[..parent].to_vec()),
-                Arc::new(cycles[..parent].to_vec()),
-                &peer_ranges(parent, peers),
+                completion,
+                &transactions,
+                &cycles,
+                depth,
+                peers,
+                accepted_before,
             )
             .await?;
-            // Only these 64 unique children have been submitted since the
-            // observed empty orphan pool. Thus size=64 proves all are stored.
-            readiness.wait(parent, query).await.map_err(bench_error)?;
+        }
+        SubmissionOrder::ParentFirst if !transactions.is_empty() => {
+            // A forward fanout promises no missing-parent notices. Its ordering in
+            // the vector does not order verification across remote batches/workers.
+            // Wait for the parent's accepted callback, then admit children together.
             submit_batch(
                 controller,
                 completion,
-                Arc::new(transactions[parent..].to_vec()),
-                Arc::new(cycles[parent..].to_vec()),
+                Arc::new(transactions[..1].to_vec()),
+                Arc::new(cycles[..1].to_vec()),
                 peers,
-                accepted_before + (cohort + 1) * FANOUT_COHORT_SIZE,
+                accepted_before + 1,
+            )
+            .await?;
+            submit_batch(
+                controller,
+                completion,
+                Arc::new(transactions[1..].to_vec()),
+                Arc::new(cycles[1..].to_vec()),
+                peers,
+                accepted_before + transactions.len(),
             )
             .await?;
         }
-    } else if let SubmissionOrder::Forest(depth) = order {
-        submit_dependency_forest(
-            controller,
-            completion,
-            &transactions,
-            &cycles,
-            depth,
-            peers,
-            accepted_before,
-        )
-        .await?;
-    } else if matches!(order, SubmissionOrder::ParentFirst) && !transactions.is_empty() {
-        // A forward fanout promises no missing-parent notices. Its ordering in
-        // the vector does not order verification across remote batches/workers.
-        // Wait for the parent's accepted callback, then admit children together.
-        submit_batch(
-            controller,
-            completion,
-            Arc::new(transactions[..1].to_vec()),
-            Arc::new(cycles[..1].to_vec()),
-            peers,
-            accepted_before + 1,
-        )
-        .await?;
-        submit_batch(
-            controller,
-            completion,
-            Arc::new(transactions[1..].to_vec()),
-            Arc::new(cycles[1..].to_vec()),
-            peers,
-            accepted_before + transactions.len(),
-        )
-        .await?;
-    } else {
-        let expected = accepted_before + transactions.len();
-        submit_batch(
-            controller,
-            completion,
-            transactions,
-            cycles,
-            peers,
-            expected,
-        )
-        .await?;
+        SubmissionOrder::Concurrent | SubmissionOrder::ParentFirst => {
+            let expected = accepted_before + transactions.len();
+            submit_batch(
+                controller,
+                completion,
+                transactions,
+                cycles,
+                peers,
+                expected,
+            )
+            .await?;
+        }
     }
     Ok(readiness)
 }
@@ -1816,31 +1822,38 @@ fn expected_relay_batch(
     peers: usize,
 ) -> RelayOkSet {
     let mut expected = HashSet::with_capacity(transactions.len());
-    if matches!(order, SubmissionOrder::ReverseFanoutCohorts) {
-        for cohort in transactions.chunks_exact(FANOUT_COHORT_SIZE) {
-            let parent = FANOUT_COHORT_SIZE - 1;
-            extend_expected_relay_batch(
-                &mut expected,
-                &cohort[..parent].iter().collect::<Vec<_>>(),
-                peers,
-            );
-            extend_expected_relay_batch(&mut expected, &[&cohort[parent]], peers);
+    match order {
+        SubmissionOrder::ReverseFanoutCohorts => {
+            for cohort in transactions.chunks_exact(FANOUT_COHORT_SIZE) {
+                let parent = FANOUT_COHORT_SIZE - 1;
+                extend_expected_relay_batch(
+                    &mut expected,
+                    &cohort[..parent].iter().collect::<Vec<_>>(),
+                    peers,
+                );
+                extend_expected_relay_batch(&mut expected, &[&cohort[parent]], peers);
+            }
         }
-    } else if let SubmissionOrder::Forest(depth) = order {
-        let chain_count = transactions.len() / depth;
-        for level in 0..depth {
-            let layer = (0..chain_count)
-                .map(|chain| &transactions[chain * depth + level])
-                .collect::<Vec<_>>();
-            extend_expected_relay_batch(&mut expected, &layer, peers);
+        SubmissionOrder::Forest(depth) => {
+            let chain_count = transactions.len() / depth;
+            for level in 0..depth {
+                let layer = (0..chain_count)
+                    .map(|chain| &transactions[chain * depth + level])
+                    .collect::<Vec<_>>();
+                extend_expected_relay_batch(&mut expected, &layer, peers);
+            }
         }
-    } else if matches!(order, SubmissionOrder::ParentFirst) && !transactions.is_empty() {
-        extend_expected_relay_batch(&mut expected, &[&transactions[0]], peers);
-        let children = transactions[1..].iter().collect::<Vec<_>>();
-        extend_expected_relay_batch(&mut expected, &children, peers);
-    } else {
-        let transactions = transactions.iter().collect::<Vec<_>>();
-        extend_expected_relay_batch(&mut expected, &transactions, peers);
+        SubmissionOrder::ParentFirst if !transactions.is_empty() => {
+            extend_expected_relay_batch(&mut expected, &[&transactions[0]], peers);
+            let children = transactions[1..].iter().collect::<Vec<_>>();
+            extend_expected_relay_batch(&mut expected, &children, peers);
+        }
+        SubmissionOrder::Concurrent
+        | SubmissionOrder::WindowedRbf
+        | SubmissionOrder::ParentFirst => {
+            let transactions = transactions.iter().collect::<Vec<_>>();
+            extend_expected_relay_batch(&mut expected, &transactions, peers);
+        }
     }
     expected
 }
@@ -1878,66 +1891,190 @@ fn main() -> BenchResult<()> {
     Ok(())
 }
 
+/// Validated workload identity and counts, before constructing any pool or VM
+/// state. The measured scenario and its transaction fixture may differ.
+struct BenchmarkScenario {
+    name: String,
+    target_count: usize,
+    warm_count: usize,
+    workers: usize,
+    peers: usize,
+    callback_delay_us: Option<u64>,
+    reorg_in_flight: bool,
+}
+
+impl BenchmarkScenario {
+    fn workload(&self) -> &str {
+        if matches!(self.name.as_str(), "rbf_pressure" | "rbf_pairs_windowed") {
+            "rbf_pairs"
+        } else if self.callback_delay_us.is_some() || self.reorg_in_flight {
+            "always_success"
+        } else {
+            &self.name
+        }
+    }
+
+    fn is_reverse(&self) -> bool {
+        self.workload().ends_with("_reverse")
+    }
+
+    fn is_rbf_pairs(&self) -> bool {
+        self.workload() == "rbf_pairs"
+    }
+
+    fn submission_orders(&self) -> BenchResult<(SubmissionOrder, SubmissionOrder)> {
+        let workload = self.workload();
+        let order = workload
+            .strip_prefix("dependent_forest_")
+            .filter(|depth| !depth.ends_with("_reverse"))
+            .map(str::parse::<usize>)
+            .transpose()?
+            .map_or(SubmissionOrder::Concurrent, SubmissionOrder::Forest);
+        let order = if self.name == "rbf_pairs_windowed" {
+            SubmissionOrder::WindowedRbf
+        } else if workload == "fanout_ready_64_reverse" {
+            SubmissionOrder::ReverseFanoutCohorts
+        } else {
+            order
+        };
+        let warm = if workload == "fanout" && self.warm_count != 0 {
+            SubmissionOrder::ParentFirst
+        } else {
+            order
+        };
+        let target = if workload == "fanout" && self.warm_count == 0 {
+            SubmissionOrder::ParentFirst
+        } else {
+            order
+        };
+        Ok((warm, target))
+    }
+
+    fn parse() -> BenchResult<Self> {
+        let mut args = std::env::args().skip(1);
+        let name = args.next().unwrap_or_else(|| "always_success".to_owned());
+        let mut number = |default| match args.next() {
+            Some(value) => value.parse::<usize>().map_err(bench_error),
+            None => Ok(default),
+        };
+        let target_count = number(1_000)?;
+        let warm_count = number(100)?;
+        let workers = number(8)?;
+        let peers = number(8)?;
+        require(
+            target_count != 0 && workers != 0 && peers != 0,
+            "target, workers and peers must be non-zero",
+        )?;
+        let callback_delay_us = name
+            .strip_prefix("always_success_callback_")
+            .and_then(|value| value.strip_suffix("us"))
+            .map(str::parse::<u64>)
+            .transpose()?
+            .or_else(|| (name == "reorg_in_flight").then_some(500));
+        let reorg_in_flight = name == "reorg_in_flight";
+        require(
+            name != "rbf_pressure" || !cfg!(feature = "cross-version-legacy-bench-adapter"),
+            "RBF pressure diagnostics require the current public controller",
+        )?;
+        let scenario = Self {
+            name,
+            target_count,
+            warm_count,
+            workers,
+            peers,
+            callback_delay_us,
+            reorg_in_flight,
+        };
+        let workload = scenario.workload();
+        require(
+            !scenario.is_rbf_pairs() || warm_count == target_count,
+            "RBF workload requires equal warm and target counts",
+        )?;
+        require(
+            !scenario.is_reverse() || workload == "fanout_ready_64_reverse" || warm_count == 0,
+            "reverse dependency workloads require warm=0",
+        )?;
+        require(
+            workload != "fanout_ready_64_reverse"
+                || (target_count.is_multiple_of(FANOUT_COHORT_SIZE)
+                    && warm_count.is_multiple_of(FANOUT_COHORT_SIZE)),
+            "fanout cohort target and warm counts must each be multiples of 65",
+        )?;
+        // Do not silently run a former diagnostic under the protocol contract.
+        match std::env::var("TX_POOL_BENCH_COMPARISON_CONTRACT") {
+            Ok(value) if value == "protocol" => {}
+            Err(std::env::VarError::NotPresent) => {}
+            _ => return Err(bench_error("unsupported benchmark comparison contract")),
+        };
+        Ok(scenario)
+    }
+}
+
+/// Determine declared cycles before the target window without warming the
+/// measured script cache for secp transactions.
+fn preflight_cycles(
+    controller: &TxPoolController,
+    transactions: &[TransactionView],
+    snapshot: &Arc<Snapshot>,
+    consensus: &Arc<Consensus>,
+    workload: &str,
+) -> BenchResult<(Vec<u64>, usize)> {
+    if workload == "secp256k1" {
+        // test_accept_tx may publish a cache proof on some pool versions.
+        // Canonical verification keeps the measured target transactions cold.
+        let environment = Arc::new(TxVerifyEnv::new_submit(snapshot.tip_header()));
+        let cycles = transactions
+            .iter()
+            .map(|transaction| {
+                let resolved = resolve_transaction(
+                    transaction.clone(),
+                    &mut HashSet::<OutPoint>::new(),
+                    snapshot.as_ref(),
+                    snapshot.as_ref(),
+                )?;
+                TransactionScriptsVerifier::new(
+                    Arc::new(resolved),
+                    snapshot.as_data_loader(),
+                    Arc::clone(consensus),
+                    Arc::clone(&environment),
+                )
+                .verify(consensus.max_block_cycles())
+                .map_err(bench_error)
+            })
+            .collect::<BenchResult<Vec<_>>>()?;
+        let script_preflight_count = cycles.len();
+        Ok((cycles, script_preflight_count))
+    } else {
+        let sample = if workload.ends_with("_reverse") {
+            transactions.last()
+        } else {
+            transactions.first()
+        }
+        .ok_or_else(|| std::io::Error::other("benchmark workload must not be empty"))?;
+        let cycles = controller
+            .test_accept_tx(sample.clone())
+            .map_err(|error| std::io::Error::other(error.to_string()))?
+            .map_err(|error| std::io::Error::other(error.to_string()))?
+            .cycles;
+        Ok((vec![cycles; transactions.len()], 1))
+    }
+}
+
 fn run() -> BenchResult<()> {
     let mut resource_phases =
         resource_phases::ResourcePhases::from_environment().map_err(bench_error)?;
     resource_phases
         .capture("process_start")
         .map_err(bench_error)?;
-    let mut args = std::env::args().skip(1);
-    let scenario = args.next().unwrap_or_else(|| "always_success".to_owned());
-    let mut number = |default| match args.next() {
-        Some(value) => value.parse::<usize>().map_err(bench_error),
-        None => Ok(default),
-    };
-    let target_count = number(1_000)?;
-    let warm_count = number(100)?;
-    let workers = number(8)?;
-    let peers = number(8)?;
-    require(
-        target_count != 0 && workers != 0 && peers != 0,
-        "target, workers and peers must be non-zero",
-    )?;
-    let callback_delay_us = scenario
-        .strip_prefix("always_success_callback_")
-        .and_then(|value| value.strip_suffix("us"))
-        .map(str::parse::<u64>)
-        .transpose()?
-        .or_else(|| (scenario == "reorg_in_flight").then_some(500));
-    let reorg_in_flight = scenario == "reorg_in_flight";
-    require(
-        scenario != "rbf_pressure" || !cfg!(feature = "cross-version-legacy-bench-adapter"),
-        "RBF pressure diagnostics require the current public controller",
-    )?;
-    let workload_scenario = if matches!(scenario.as_str(), "rbf_pressure" | "rbf_pairs_windowed") {
-        "rbf_pairs"
-    } else if callback_delay_us.is_some() || reorg_in_flight {
-        "always_success"
-    } else {
-        scenario.as_str()
-    };
-    require(
-        workload_scenario != "rbf_pairs" || warm_count == target_count,
-        "RBF workload requires equal warm and target counts",
-    )?;
-    require(
-        !workload_scenario.ends_with("_reverse")
-            || workload_scenario == "fanout_ready_64_reverse"
-            || warm_count == 0,
-        "reverse dependency workloads require warm=0",
-    )?;
-    require(
-        workload_scenario != "fanout_ready_64_reverse"
-            || (target_count.is_multiple_of(FANOUT_COHORT_SIZE)
-                && warm_count.is_multiple_of(FANOUT_COHORT_SIZE)),
-        "fanout cohort target and warm counts must each be multiples of 65",
-    )?;
-    // Do not silently run a former diagnostic under the protocol contract.
-    match std::env::var("TX_POOL_BENCH_COMPARISON_CONTRACT") {
-        Ok(value) if value == "protocol" => {}
-        Err(std::env::VarError::NotPresent) => {}
-        _ => return Err(bench_error("unsupported benchmark comparison contract")),
-    };
+    let options = BenchmarkScenario::parse()?;
+    let scenario = options.name.as_str();
+    let workload_scenario = options.workload();
+    let target_count = options.target_count;
+    let warm_count = options.warm_count;
+    let workers = options.workers;
+    let peers = options.peers;
+    let callback_delay_us = options.callback_delay_us;
+    let reorg_in_flight = options.reorg_in_flight;
     let adapter = if cfg!(feature = "cross-version-legacy-bench-adapter") {
         "legacy_peer_local_sequential"
     } else {
@@ -1968,7 +2105,7 @@ fn run() -> BenchResult<()> {
     let (network_directory, network) = start_network(&consensus, &handle)?;
     let config = TxPoolConfig {
         persisted_data: network_directory.path().join("tx-pool.data"),
-        ..tx_pool_config(workers, workload_scenario == "rbf_pairs")
+        ..tx_pool_config(workers, options.is_rbf_pairs())
     };
     #[cfg(feature = "cross-version-legacy-bench-adapter")]
     let (mut builder, controller, relay_receiver) = {
@@ -2030,49 +2167,13 @@ fn run() -> BenchResult<()> {
     resource_phases
         .capture("service_ready")
         .map_err(bench_error)?;
-    let sample_cycles = |transaction: &TransactionView| {
-        controller
-            .test_accept_tx(transaction.clone())
-            .map_err(|error| std::io::Error::other(error.to_string()))?
-            .map_err(|error| std::io::Error::other(error.to_string()))
-            .map(|completed| completed.cycles)
-    };
-    let (cycles, script_preflight_count) = if workload_scenario == "secp256k1" {
-        // Cycle sampling must not prime the measured pool's script cache.
-        // test_accept_tx publishes a cache proof in some pool implementations
-        // but not others. An isolated canonical verifier gives every side the
-        // same declared cycles while leaving each target transaction cold.
-        let environment = Arc::new(TxVerifyEnv::new_submit(snapshot.tip_header()));
-        let cycles = transactions
-            .iter()
-            .map(|transaction| {
-                let resolved = resolve_transaction(
-                    transaction.clone(),
-                    &mut HashSet::<OutPoint>::new(),
-                    snapshot.as_ref(),
-                    snapshot.as_ref(),
-                )?;
-                TransactionScriptsVerifier::new(
-                    Arc::new(resolved),
-                    snapshot.as_data_loader(),
-                    Arc::clone(&consensus),
-                    Arc::clone(&environment),
-                )
-                .verify(consensus.max_block_cycles())
-                .map_err(bench_error)
-            })
-            .collect::<BenchResult<Vec<_>>>()?;
-        let script_preflight_count = cycles.len();
-        (cycles, script_preflight_count)
-    } else {
-        let sample = if workload_scenario.ends_with("_reverse") {
-            transactions.last()
-        } else {
-            transactions.first()
-        }
-        .ok_or_else(|| std::io::Error::other("benchmark workload must not be empty"))?;
-        (vec![sample_cycles(sample)?; transactions.len()], 1)
-    };
+    let (cycles, script_preflight_count) = preflight_cycles(
+        &controller,
+        &transactions,
+        &snapshot,
+        &consensus,
+        workload_scenario,
+    )?;
     let corpus = corpus_observation(&consensus, &transactions, &cycles, script_preflight_count)?;
     // Preserve the complete input identity even if submission or settlement fails.
     println!("BENCH_CORPUS {corpus}");
@@ -2085,29 +2186,7 @@ fn run() -> BenchResult<()> {
     let warm_cycles = Arc::new(cycles[..warm_count].to_vec());
     let target_cycles = Arc::new(cycles[warm_count..].to_vec());
 
-    let order = workload_scenario
-        .strip_prefix("dependent_forest_")
-        .filter(|depth| !depth.ends_with("_reverse"))
-        .map(str::parse::<usize>)
-        .transpose()?
-        .map_or(SubmissionOrder::Concurrent, SubmissionOrder::Forest);
-    let order = if scenario == "rbf_pairs_windowed" {
-        SubmissionOrder::WindowedRbf
-    } else if workload_scenario == "fanout_ready_64_reverse" {
-        SubmissionOrder::ReverseFanoutCohorts
-    } else {
-        order
-    };
-    let warm_order = if workload_scenario == "fanout" && warm_count != 0 {
-        SubmissionOrder::ParentFirst
-    } else {
-        order
-    };
-    let target_order = if workload_scenario == "fanout" && warm_count == 0 {
-        SubmissionOrder::ParentFirst
-    } else {
-        order
-    };
+    let (warm_order, target_order) = options.submission_orders()?;
     let warm_expected_relay = expected_relay_batch(&warm, warm_order, peers);
     let target_expected_relay = expected_relay_batch(&target, target_order, peers);
     let mut all_expected_relay = warm_expected_relay.clone();
@@ -2115,18 +2194,17 @@ fn run() -> BenchResult<()> {
     diagnostics.expected_relay = all_expected_relay;
     let all_expected_relay = &diagnostics.expected_relay;
     let warm_expected_rejects = RelayRejectSet::new();
-    let all_expected_rejects = if workload_scenario == "rbf_pairs"
-        && !cfg!(feature = "cross-version-legacy-bench-adapter")
-    {
-        warm.iter().map(TransactionView::hash).collect()
-    } else {
-        RelayRejectSet::new()
-    };
+    let all_expected_rejects =
+        if options.is_rbf_pairs() && !cfg!(feature = "cross-version-legacy-bench-adapter") {
+            warm.iter().map(TransactionView::hash).collect()
+        } else {
+            RelayRejectSet::new()
+        };
     let corpus_hashes = transactions
         .iter()
         .map(TransactionView::hash)
         .collect::<HashSet<_>>();
-    let (allowed_unknown, warm_allowed_unknown) = if workload_scenario.ends_with("_reverse") {
+    let (allowed_unknown, warm_allowed_unknown) = if options.is_reverse() {
         (
             expected_unknown_parents(&transactions, all_expected_relay, &corpus_hashes),
             expected_unknown_parents(
@@ -2220,9 +2298,7 @@ fn run() -> BenchResult<()> {
     relay_completion.validate(
         &warm_expected_relay,
         &warm_expected_rejects,
-        workload_scenario
-            .ends_with("_reverse")
-            .then_some(&warm_allowed_unknown),
+        options.is_reverse().then_some(&warm_allowed_unknown),
     )?;
     completion.validate(warm_count, false)?;
     resource_phases
@@ -2319,7 +2395,7 @@ fn run() -> BenchResult<()> {
         .checked_add(target_system_cpu_ns)
         .ok_or_else(|| std::io::Error::other("target-window process CPU time overflow"))?;
     let profile_window = start_anchor
-        .window(&scenario, started, ended, &end_anchor)
+        .window(scenario, started, ended, &end_anchor)
         .map_err(bench_error)?;
     #[cfg(feature = "profiling")]
     if let Some(recorder) = observability.recorder.as_mut() {
@@ -2330,9 +2406,7 @@ fn run() -> BenchResult<()> {
     relay_completion.validate(
         all_expected_relay,
         &all_expected_rejects,
-        workload_scenario
-            .ends_with("_reverse")
-            .then_some(&allowed_unknown),
+        options.is_reverse().then_some(&allowed_unknown),
     )?;
     completion.validate(transactions.len(), reorg_in_flight)?;
     let p99_latency_ns = completion.end_target();
