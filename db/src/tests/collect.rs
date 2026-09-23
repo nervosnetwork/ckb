@@ -306,7 +306,7 @@ fn old_views_survive_three_collections_and_reopening() {
                 &CollectionOptions::default(),
                 |_, _, key, _| Ok(!key.starts_with(b"cold")),
                 || {
-                    published.store(true, Ordering::Relaxed);
+                    published.store(true, Ordering::SeqCst);
                     assert_eq!(
                         db.get_snapshot()
                             .get_pinned("2", b"hot/0")
@@ -322,7 +322,7 @@ fn old_views_survive_three_collections_and_reopening() {
         assert_eq!(stats.retired_columns, 5);
         assert_eq!(stats.archived, if expected == 1 { 40 } else { 0 });
         assert_eq!(stats.copied, 40);
-        assert!(published.load(Ordering::Relaxed));
+        assert!(published.load(Ordering::SeqCst));
         for col in PAYLOAD_COLUMNS {
             assert_eq!(rows(&db, col).len(), 8);
             assert_eq!(
@@ -698,10 +698,10 @@ fn cancellation_cleans_up_targets_and_allows_a_new_collection() {
             &CollectionOptions::default(),
             |_, _, _, _| {
                 visited += 1;
-                cancelled.store(true, Ordering::Relaxed);
+                cancelled.store(true, Ordering::SeqCst);
                 Ok(true)
             },
-            || cancelled.load(Ordering::Relaxed),
+            || cancelled.load(Ordering::SeqCst),
             || panic!("cancelled copy must not publish"),
         )
         .unwrap_err();

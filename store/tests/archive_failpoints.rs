@@ -373,7 +373,7 @@ fn archive_crash_child() {
         let seen = Arc::new(AtomicUsize::new(0));
         let marker = marker.clone();
         fail::cfg_callback(&point, move || {
-            if seen.fetch_add(1, Ordering::Relaxed) + 1 == hit {
+            if seen.fetch_add(1, Ordering::SeqCst) + 1 == hit {
                 let temporary = marker.with_extension("pending");
                 fs::write(&temporary, b"hit").unwrap();
                 fs::rename(temporary, &marker).unwrap();
@@ -537,13 +537,13 @@ fn index_pause_deadline_and_cancellation_preserve_resumable_progress() {
     fail::cfg_callback("freezer-index-after-record", {
         let cancelled = Arc::clone(&cancelled);
         move || {
-            cancelled.store(true, Ordering::Relaxed);
+            cancelled.store(true, Ordering::SeqCst);
         }
     })
     .unwrap();
     assert_eq!(
         store
-            .recover_archive_with_cancel(|| cancelled.load(Ordering::Relaxed))
+            .recover_archive_with_cancel(|| cancelled.load(Ordering::SeqCst))
             .unwrap(),
         2
     );
