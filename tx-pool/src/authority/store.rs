@@ -622,10 +622,11 @@ impl Store {
     pub(super) fn live_cell(
         &self,
         point: &OutPoint,
+        with_data: bool,
     ) -> (Arc<Snapshot>, Option<ckb_types::core::cell::CellStatus>) {
         use ckb_types::{
             bytes::Bytes,
-            core::cell::{CellMetaBuilder, CellStatus},
+            core::cell::{CellMeta, CellStatus},
         };
         let view = self.view.read();
         let key = RelationKey::Dependency(DependencyKey::Cell(point.clone()));
@@ -651,14 +652,17 @@ impl Store {
         };
         let output =
             ckb_types::packed::CellOutput::new_unchecked(Bytes::copy_from_slice(output.as_slice()));
-        let data = Bytes::copy_from_slice(&data);
         (
             snapshot,
-            Some(CellStatus::Live(
-                CellMetaBuilder::from_cell_output(output, data)
-                    .out_point(compact_packed(point))
-                    .build(),
-            )),
+            Some(CellStatus::Live(CellMeta {
+                cell_output: output,
+                out_point: compact_packed(point),
+                data_bytes: data.len() as u64,
+                mem_cell_data: with_data.then(|| Bytes::copy_from_slice(&data)),
+                mem_cell_data_hash: with_data
+                    .then(|| ckb_types::packed::CellOutput::calc_data_hash(&data)),
+                transaction_info: None,
+            })),
         )
     }
 

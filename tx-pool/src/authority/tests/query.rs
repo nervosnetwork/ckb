@@ -294,6 +294,14 @@ fn live_overlay_compact_payloads_and_raw_hash_cycle_lookup_keep_their_boundaries
     let CellStatus::Live(cell) = live_cell(&store, &OutPoint::new(hash.clone(), 1), true) else {
         panic!("unspent output is live")
     };
+    let CellStatus::Live(without_data) = live_cell(&store, &OutPoint::new(hash.clone(), 1), false)
+    else {
+        panic!("unspent output is live without data")
+    };
+    assert_eq!(without_data.cell_output, cell.cell_output);
+    assert_eq!(without_data.data_bytes, cell.data_bytes);
+    assert!(without_data.mem_cell_data.is_none());
+    assert!(without_data.mem_cell_data_hash.is_none());
     assert_eq!(cell.mem_cell_data.unwrap().as_ref(), b"live");
     assert!(live_cell(&store, &OutPoint::new(pending.hash(), 0), true).is_unknown());
     let compact = compact_transactions(&store, &[parent.proposal_short_id(), pending.proposal()]);

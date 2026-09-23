@@ -321,7 +321,7 @@ fn score(
     })
 }
 pub(super) fn live_cell(store: &Store, point: &OutPoint, with_data: bool) -> CellStatus {
-    let (snapshot, overlay) = store.live_cell(point);
+    let (snapshot, overlay) = store.live_cell(point, with_data);
     if let Some(cell) = overlay {
         return cell;
     }
