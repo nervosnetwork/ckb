@@ -2,7 +2,10 @@
 
 use crate::{
     network::DummyTxPoolNetwork,
-    service::{TxPoolController, TxPoolServiceBuilder, TxVerificationResultReceiver},
+    persisted::{PersistenceSnapshot, write_snapshot},
+    service::{
+        BoundedTransaction, TxPoolController, TxPoolServiceBuilder, TxVerificationResultReceiver,
+    },
     test_support::genesis_snapshot,
 };
 use ckb_app_config::TxPoolConfig;
@@ -11,9 +14,9 @@ use ckb_error::AnyError;
 use ckb_fee_estimator::FeeEstimator;
 use ckb_snapshot::Snapshot;
 use ckb_test_chain_utils::MockStore;
-use ckb_types::core::BlockBuilder;
+use ckb_types::core::{BlockBuilder, BlockView, TransactionBuilder};
 use ckb_verification::cache::init_cache;
-use std::{future::Future, path::Path, sync::Arc, time::Duration};
+use std::{collections::VecDeque, future::Future, path::Path, sync::Arc, time::Duration};
 use tokio::{sync::RwLock, task::JoinHandle};
 
 fn service(
@@ -66,13 +69,14 @@ async fn within<T>(future: impl Future<Output = T>) -> T {
 
 async fn queue_reorg(
     controller: &TxPoolController,
+    attached_blocks: VecDeque<BlockView>,
     snapshot: Arc<Snapshot>,
 ) -> JoinHandle<Result<(), AnyError>> {
     assert!(!controller.service_started());
     assert!(controller.accepts_chain_updates());
     let client = controller.clone();
     let request = tokio::task::spawn_blocking(move || {
-        client.update_tx_pool_for_reorg(Default::default(), Default::default(), snapshot)
+        client.update_tx_pool_for_reorg(Default::default(), attached_blocks, snapshot)
     });
     // Observe the public sender owning the sole lane slot before changing
     // its receiver's lifecycle. Elapsed time does not establish admission.
@@ -95,7 +99,7 @@ async fn builder_start_completes_a_prestart_chain_transition() {
     let snapshot = next_snapshot();
     let expected_tip = snapshot.tip_hash();
     assert_ne!(pool.pool_info().await.unwrap().tip_hash, expected_tip);
-    let request = queue_reorg(&controller, snapshot).await;
+    let request = queue_reorg(&controller, Default::default(), snapshot).await;
 
     let generation = builder.start_with_handle(DummyTxPoolNetwork);
     within(request).await.unwrap().unwrap();
@@ -114,7 +118,7 @@ async fn dropping_an_unstarted_builder_releases_its_chain_request() {
     let (builder, controller, _relay) = service(directory.path());
     let snapshot = next_snapshot();
     let retained = Arc::downgrade(&snapshot);
-    let request = queue_reorg(&controller, snapshot).await;
+    let request = queue_reorg(&controller, Default::default(), snapshot).await;
     assert!(retained.upgrade().is_some());
 
     drop(builder);
@@ -131,7 +135,7 @@ async fn stopping_before_start_closes_the_chain_lane_and_prevents_resume() {
     let directory = tempfile::tempdir().unwrap();
     let (builder, controller, _relay) = service(directory.path());
     let pool = builder.pool_for_test();
-    let request = queue_reorg(&controller, next_snapshot()).await;
+    let request = queue_reorg(&controller, Default::default(), next_snapshot()).await;
 
     controller.stop();
     assert!(
@@ -148,4 +152,60 @@ async fn stopping_before_start_closes_the_chain_lane_and_prevents_resume() {
     assert!(!controller.service_started());
     assert!(!controller.accepts_chain_updates());
     assert!(controller.continue_chunk_process().is_err());
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn chain_failure_during_builder_replay_releases_request_and_preserves_persistence() {
+    let directory = tempfile::tempdir().unwrap();
+    let (builder, controller, _relay) = service(directory.path());
+    let pool = builder.pool_for_test();
+    let transaction = TransactionBuilder::default().build();
+    assert!(BoundedTransaction::try_new(transaction.clone()).is_ok());
+    write_snapshot(
+        &pool.config.persisted_data,
+        PersistenceSnapshot {
+            accepted: vec![transaction],
+            recovery: Vec::new(),
+        },
+    )
+    .unwrap();
+    let persisted = pool.config.persisted_data.with_extension("v2");
+    let before = std::fs::read(&persisted).unwrap();
+    // A nonempty bounded replay must acquire computation capacity before even
+    // checking validity. Suspension prevents successful startup, including a
+    // transient ready state that a final service_started() check would miss.
+    controller.suspend_chunk_process().unwrap();
+
+    // Deliberately violate the caller contract to exercise the real structural
+    // error gate and its cleanup; a valid chain update does not have this shape.
+    let snapshot = next_snapshot();
+    let attached = BlockBuilder::default().build();
+    assert_ne!(attached.hash(), snapshot.tip_hash());
+    assert_ne!(
+        pool.pool_info().await.unwrap().tip_hash,
+        snapshot.tip_hash()
+    );
+    let retained = Arc::downgrade(&snapshot);
+    let request = queue_reorg(&controller, VecDeque::from([attached]), snapshot).await;
+    assert!(retained.upgrade().is_some());
+
+    let generation = builder.start_with_handle(DummyTxPoolNetwork);
+    assert!(within(request).await.unwrap().is_err());
+    within(generation).await.unwrap();
+
+    assert!(pool.is_faulted());
+    assert!(pool.is_stopped());
+    assert!(!controller.service_started());
+    assert!(!controller.accepts_chain_updates());
+    assert!(controller.sender.is_closed());
+    assert!(controller.query_sender.is_closed());
+    assert!(retained.upgrade().is_none(), "rejected payload is released");
+    assert!(controller.continue_chunk_process().is_err());
+    assert!(!pool.persistence_eligible());
+    assert_eq!(std::fs::read(persisted).unwrap(), before);
+
+    let retry = tokio::task::spawn_blocking(move || {
+        controller.update_tx_pool_for_reorg(Default::default(), Default::default(), next_snapshot())
+    });
+    assert!(within(retry).await.unwrap().is_err());
 }
