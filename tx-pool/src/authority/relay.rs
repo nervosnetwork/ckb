@@ -339,6 +339,9 @@ pub(crate) struct RelayDrain {
     store: Weak<Store>,
     cursor: Mutex<Option<MissingCursor>>,
 }
+const REBUILD_PAGES_PER_RECEIVE: usize = 4;
+const REBUILD_PAGE_SIZE: usize = 64;
+
 impl RelayDrain {
     pub(super) fn new(receiver: AuthorityRelayReceiver, store: &Arc<Store>) -> Self {
         Self {
@@ -349,8 +352,9 @@ impl RelayDrain {
     }
     pub(crate) fn try_recv(&self) -> Option<TxVerificationResult> {
         // Bound reconstruction work even when a page contains no remote waiter.
-        const REBUILD_PAGES_PER_RECEIVE: usize = 4;
-        const REBUILD_PAGE_SIZE: usize = 64;
+        (0..REBUILD_PAGES_PER_RECEIVE).find_map(|_| self.try_recv_page())
+    }
+    fn try_recv_page(&self) -> Option<TxVerificationResult> {
         if let Some(result) = self.receiver.try_recv() {
             if matches!(result, TxVerificationResult::GenerationReset) {
                 self.reset_cursor();
@@ -359,17 +363,12 @@ impl RelayDrain {
         }
         let store = self.store.upgrade()?;
         let mut cursor = self.cursor.lock();
-        for _ in 0..REBUILD_PAGES_PER_RECEIVE {
-            let current = cursor.as_mut()?;
-            let (result, complete) = store.next_missing(current, REBUILD_PAGE_SIZE);
-            if complete {
-                *cursor = None;
-            }
-            if result.is_some() {
-                return result;
-            }
+        let current = cursor.as_mut()?;
+        let (result, complete) = store.next_missing(current, REBUILD_PAGE_SIZE);
+        if complete {
+            *cursor = None;
         }
-        None
+        result
     }
     fn reset_cursor(&self) {
         *self.cursor.lock() = self
@@ -387,16 +386,19 @@ impl RelayDrain {
         {
             self.reset_cursor();
         }
-        while drained.len() < limit {
+        // One batch gets one receive's page budget, regardless of `limit`.
+        for _ in 0..REBUILD_PAGES_PER_RECEIVE {
+            if drained.len() == limit {
+                break;
+            }
             // Reserve before consuming newly arrived data or a rebuild result.
             // Failure leaves every unobserved result with its current owner.
             if drained.try_reserve(1).is_err() {
                 break;
             }
-            let Some(result) = self.try_recv() else {
-                break;
-            };
-            drained.push(result);
+            if let Some(result) = self.try_recv_page() {
+                drained.push(result);
+            }
         }
         drained
     }

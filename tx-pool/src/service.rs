@@ -162,6 +162,7 @@ impl TxVerificationResultReceiver {
     ///
     /// Allocation pressure returns the successfully reserved prefix and leaves
     /// every remaining result in the bounded authority-owned channel.
+    /// Missing-parent reconstruction advances in bounded pages across calls.
     pub fn drain(&self, limit: usize) -> Vec<TxVerificationResult> {
         self.0.drain(limit)
     }

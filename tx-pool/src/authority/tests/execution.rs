@@ -2707,3 +2707,51 @@ async fn public_relay_batch_drain_keeps_raw_reset_order_before_waiter_reconstruc
         assert!(!pool.is_faulted());
     }
 }
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn relay_batch_rebuild_has_a_fixed_page_budget_and_resumes_next_call() {
+    let (pool, sink, drain, _) = fixture();
+    let peer = PeerIndex::from(62);
+    let missing: BTreeSet<_> = (0..9)
+        .map(|index| {
+            let hash = tx(8200 + index).hash();
+            let waiter = entry(&pool.store, tx(8300 + index), remote(62, 1)).with_phase(
+                Phase::Waiting([DependencyKey::Cell(OutPoint::new(hash.clone(), 0))].into()),
+            );
+            insert(&pool.store, waiter);
+            hash
+        })
+        .collect();
+    sink.publish(TxVerificationResult::GenerationReset);
+    let receiver = crate::service::TxVerificationResultReceiver::from_authority(drain);
+    let first = receiver.drain(usize::MAX);
+    assert_eq!(first.len(), 5);
+    assert!(matches!(
+        first.first(),
+        Some(TxVerificationResult::GenerationReset)
+    ));
+    let second = receiver.drain(usize::MAX);
+    assert_eq!(second.len(), 4);
+    let third = receiver.drain(usize::MAX);
+    assert_eq!(third.len(), 1);
+    let rebuilt: BTreeSet<_> = first
+        .into_iter()
+        .chain(second)
+        .chain(third)
+        .filter_map(|result| match result {
+            TxVerificationResult::UnknownParents {
+                peer: origin,
+                parents,
+            } => {
+                assert_eq!(origin, peer);
+                assert_eq!(parents.len(), 1);
+                parents.into_iter().next()
+            }
+            TxVerificationResult::GenerationReset => None,
+            other => panic!("unexpected relay result: {other:?}"),
+        })
+        .collect();
+    assert_eq!(rebuilt, missing);
+    assert!(receiver.drain(usize::MAX).is_empty());
+    assert!(!pool.is_faulted());
+}
