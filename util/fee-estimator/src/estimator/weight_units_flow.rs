@@ -57,7 +57,7 @@ use std::collections::HashMap;
 use ckb_chain_spec::consensus::MAX_BLOCK_BYTES;
 use ckb_types::core::{
     BlockNumber, BlockView, Capacity, Cycle, FeeRate,
-    tx_pool::{TxEntryInfo, get_transaction_weight},
+    tx_pool::{TxEntryInfo, TxPoolEntryInfo, get_transaction_weight},
 };
 
 use crate::{Error, constants};
@@ -170,6 +170,23 @@ impl Algorithm {
     }
 
     pub fn estimate_fee_rate(
+        &self,
+        target_blocks: BlockNumber,
+        all_entry_info: TxPoolEntryInfo,
+    ) -> Result<FeeRate, Error> {
+        if !self.is_ready {
+            return Err(Error::NotReady);
+        }
+        let current_txs = all_entry_info
+            .pending
+            .into_values()
+            .chain(all_entry_info.proposed.into_values())
+            .map(|info| FeeSample::new(info.size as usize, info.cycles, info.fee))
+            .collect();
+        self.estimate_fee_rate_with_samples(target_blocks, current_txs)
+    }
+
+    pub fn estimate_fee_rate_with_samples(
         &self,
         target_blocks: BlockNumber,
         current_txs: Vec<FeeSample>,

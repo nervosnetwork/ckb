@@ -95,14 +95,14 @@ impl FeeEstimator {
         estimate_mode: EstimateMode,
         all_entry_info: TxPoolEntryInfo,
     ) -> Result<FeeRate, Error> {
-        self.estimate_fee_rate_with_samples(estimate_mode, || {
-            all_entry_info
-                .pending
-                .into_values()
-                .chain(all_entry_info.proposed.into_values())
-                .map(|info| FeeSample::new(info.size as usize, info.cycles, info.fee))
-                .collect()
-        })
+        let target_blocks = Self::target_blocks_for_estimate_mode(estimate_mode);
+        match self {
+            Self::Dummy => Err(Error::Dummy),
+            Self::ConfirmationFraction(algo) => algo.read().estimate_fee_rate(target_blocks),
+            Self::WeightUnitsFlow(algo) => {
+                algo.read().estimate_fee_rate(target_blocks, all_entry_info)
+            }
+        }
     }
 
     /// Estimates fee rate, collecting current-pool samples only when needed.
@@ -117,7 +117,8 @@ impl FeeEstimator {
             Self::ConfirmationFraction(algo) => algo.read().estimate_fee_rate(target_blocks),
             Self::WeightUnitsFlow(algo) => {
                 let current_txs = current_txs();
-                algo.read().estimate_fee_rate(target_blocks, current_txs)
+                algo.read()
+                    .estimate_fee_rate_with_samples(target_blocks, current_txs)
             }
         }
     }
