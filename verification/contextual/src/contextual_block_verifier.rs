@@ -350,7 +350,7 @@ impl<'a, 'b, CS: ChainStore + VersionbitsIndexer + 'static> BlockTxsVerifier<'a,
         &self,
         rtxs: &'a [Arc<ResolvedTransaction>],
         rules: ScriptVerificationRules,
-    ) -> HashMap<TxVerificationCacheKey, ScriptVerificationProof> {
+    ) -> HashMap<usize, ScriptVerificationProof> {
         let txs_verify_cache = Arc::clone(self.txs_verify_cache);
         let keys: Vec<TxVerificationCacheKey> = rtxs
             .iter()
@@ -359,8 +359,10 @@ impl<'a, 'b, CS: ChainStore + VersionbitsIndexer + 'static> BlockTxsVerifier<'a,
             .collect();
         let task = self.handle.spawn(async move {
             let guard = txs_verify_cache.read().await;
-            keys.into_iter()
-                .filter_map(|key| guard.lookup(&key).map(|proof| (key, proof)))
+            // The non-cellbase keys keep their original block indices.
+            (1..)
+                .zip(keys)
+                .filter_map(|(index, key)| guard.lookup(&key).map(|proof| (index, proof)))
                 .collect()
         });
         self.handle
@@ -397,8 +399,6 @@ impl<'a, 'b, CS: ChainStore + VersionbitsIndexer + 'static> BlockTxsVerifier<'a,
             .par_iter()
             .enumerate()
             .map(|(index, tx)| {
-                let cache_key = TxVerificationCacheKey::from_resolved(tx, rules);
-
                 let verifier = ContextualTransactionVerifier::new(
                     Arc::clone(tx),
                     Arc::clone(&self.context.consensus),
@@ -413,7 +413,7 @@ impl<'a, 'b, CS: ChainStore + VersionbitsIndexer + 'static> BlockTxsVerifier<'a,
                     verifier
                         .verify_block(
                             self.context.consensus.max_block_cycles(),
-                            fetched_cache.get(&cache_key).copied(),
+                            fetched_cache.get(&index).copied(),
                         )
                         .map(|(outcome, fee)| {
                             (
@@ -688,5 +688,159 @@ impl<'a, CS: ChainStore + VersionbitsIndexer + 'static, MS: MMRStore<HeaderDiges
         )
         .verify(resolved, self.switch.disable_script())?;
         Ok(ret)
+    }
+}
+
+#[cfg(test)]
+mod cache_tests {
+    use super::*;
+    use ckb_shared::SharedBuilder;
+    use ckb_test_chain_utils::always_success_cell;
+    use ckb_types::{
+        bytes::Bytes,
+        core::{TransactionBuilder, capacity_bytes, cell::CellMetaBuilder},
+        packed::{CellDep, CellInput, OutPoint},
+    };
+    use ckb_verification::{TransactionError, cache::init_cache};
+
+    #[test]
+    fn cache_hits_keep_original_indices_across_misses_duplicates_and_cellbase() {
+        let (shared, _package) = SharedBuilder::with_temp_db().build().unwrap();
+        let context =
+            VerifyContext::new(Arc::new(shared.store().clone()), shared.cloned_consensus());
+        let parent = shared.consensus().genesis_block().header();
+        let header = parent
+            .as_advanced_builder()
+            .number(1)
+            .epoch(
+                shared
+                    .consensus()
+                    .genesis_epoch_ext()
+                    .number_with_fraction(1),
+            )
+            .build();
+        let tx_env = Arc::new(TxVerifyEnv::new_commit(&header));
+        let rules = ScriptVerificationRules::from_env(&context.consensus, &tx_env);
+        let (code_cell, code, script) = always_success_cell();
+        let code_out_point = OutPoint::new(Byte32::new([255; 32]), 0);
+        let transaction = |marker: u8, output_capacity: Capacity| {
+            let input_out_point = OutPoint::new(Byte32::new([marker; 32]), 0);
+            let transaction = TransactionBuilder::default()
+                .input(CellInput::new(input_out_point.clone(), 0))
+                .cell_dep(
+                    CellDep::new_builder()
+                        .out_point(code_out_point.clone())
+                        .build(),
+                )
+                .output(
+                    CellOutput::new_builder()
+                        .capacity(output_capacity)
+                        .lock(script.clone())
+                        .type_((marker == 2).then(|| script.clone()))
+                        .build(),
+                )
+                .output_data(Bytes::new())
+                .build();
+            Arc::new(ResolvedTransaction {
+                transaction,
+                resolved_inputs: vec![
+                    CellMetaBuilder::from_cell_output(
+                        CellOutput::new_builder()
+                            .capacity(capacity_bytes!(1_000))
+                            .lock(script.clone())
+                            .build(),
+                        Bytes::new(),
+                    )
+                    .out_point(input_out_point)
+                    .build(),
+                ],
+                resolved_cell_deps: vec![
+                    CellMetaBuilder::from_cell_output(code_cell.clone(), code.clone())
+                        .out_point(code_out_point.clone())
+                        .build(),
+                ],
+                resolved_dep_groups: Vec::new(),
+            })
+        };
+        let cellbase = Arc::new(ResolvedTransaction::dummy_resolve(
+            TransactionBuilder::default()
+                .input(CellInput::new_cellbase_input(1))
+                .witness(script.clone().into_witness())
+                .build(),
+        ));
+        assert!(cellbase.transaction.is_cellbase());
+        assert!(cellbase.resolved_inputs.is_empty());
+        let hit = transaction(1, capacity_bytes!(900));
+        let miss = transaction(2, capacity_bytes!(800));
+        let resolved = [cellbase, Arc::clone(&hit), miss, hit];
+
+        // Every seed and expected result comes from canonical execution. The
+        // miss has an extra script group and a different fee, making a shifted
+        // or omitted transaction visible in the final result as well.
+        let verified: Vec<_> = resolved[..3]
+            .iter()
+            .map(|tx| {
+                let (outcome, fee) = ContextualTransactionVerifier::new(
+                    Arc::clone(tx),
+                    Arc::clone(&context.consensus),
+                    context.store.as_data_loader(),
+                    Arc::clone(&tx_env),
+                )
+                .verify_block(context.consensus.max_block_cycles(), None)
+                .expect("the fixture must execute successfully without a cache");
+                (
+                    outcome.executed_proof().expect("a miss produces proof"),
+                    Completed {
+                        cycles: outcome.cycles(),
+                        fee,
+                    },
+                )
+            })
+            .collect();
+        assert_ne!(verified[1].1.cycles, verified[2].1.cycles);
+        assert_ne!(verified[1].1.fee, verified[2].1.fee);
+
+        let cache = Arc::new(RwLock::new(init_cache()));
+        shared.async_handle().block_on(async {
+            let mut guard = cache.write().await;
+            guard.insert(verified[0].0);
+            guard.insert(verified[1].0);
+        });
+        let verifier =
+            BlockTxsVerifier::new(context, header, shared.async_handle(), &cache, &parent);
+        // Duplicate transactions can reach the contextual API when callers
+        // bypass non-contextual checks; each occurrence still needs its proof.
+        assert_eq!(
+            verifier.fetched_cache(&resolved, rules),
+            HashMap::from([(1, verified[1].0), (3, verified[1].0)])
+        );
+        let expected = vec![verified[1].1, verified[2].1, verified[1].1];
+        assert_eq!(
+            verifier.verify(&resolved, false).unwrap(),
+            (
+                expected.iter().map(|entry| entry.cycles).sum::<Cycle>(),
+                expected,
+            )
+        );
+
+        let invalid = [
+            Arc::clone(&resolved[0]),
+            Arc::clone(&resolved[1]),
+            transaction(2, capacity_bytes!(2_000)),
+            Arc::clone(&resolved[3]),
+        ];
+        ckb_error::assert_error_eq!(
+            verifier.verify(&invalid, false).unwrap_err(),
+            BlockTransactionsError {
+                index: 2,
+                error: TransactionError::OutputsSumOverflow {
+                    inputs_sum: capacity_bytes!(1_000),
+                    outputs_sum: capacity_bytes!(2_000),
+                }
+                .into(),
+            }
+        );
+        assert!(verifier.fetched_cache(&resolved[..1], rules).is_empty());
+        assert_eq!(verifier.verify(&resolved[..1], false).unwrap(), (0, vec![]));
     }
 }
