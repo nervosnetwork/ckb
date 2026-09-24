@@ -558,12 +558,13 @@ mod administration {
 
 pub(crate) use administration::{AdministrationGate, AdmittedAdministration};
 
-/// Maximum detailed payload retained by one ordered reorg command.
+/// Maximum logical fork charge in one ordered reorg command.
 ///
-/// The derived accepted and pre-pool residency budgets are the complete
-/// transaction population that detailed reconciliation can preserve. A fork
-/// payload larger than their checked sum cannot improve that preservation and
-/// is represented by the constant-size safe generation replacement instead.
+/// The accepted and pre-pool budgets set a policy limit for serialized block
+/// bytes and BlockView slots. Larger forks request snapshot-based generation
+/// replacement. This is not a physical residency count: cached hashes and shared
+/// backing are uncharged. Production chain loaders and network decoders supply
+/// normally constructed block views; this boundary normalizes their containers.
 #[derive(Clone, Copy)]
 pub(crate) struct ChainReorgPayloadLimit(usize);
 
@@ -574,10 +575,9 @@ impl ChainReorgPayloadLimit {
     }
 }
 
-/// Sealed ordered chain input. Only a payload which refines the configured
-/// count/byte bound may retain detailed fork collections in the capacity-one
-/// lane; every oversize, overflow or normalization-allocation outcome carries
-/// only the exact snapshot needed for a safe empty-generation replacement.
+/// Sealed ordered chain input. Detailed forks have passed the logical charge
+/// limit and container normalization. Oversize, overflow or allocation failure
+/// carries only the snapshot needed for safe empty-generation replacement.
 pub(crate) struct ChainReorgArgs {
     snapshot: Arc<Snapshot>,
     // Some(empty) is an exact empty delta; only None requests generation replacement.

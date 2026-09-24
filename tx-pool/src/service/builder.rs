@@ -131,22 +131,19 @@ impl TxPoolServiceBuilder {
     }
     /// Register notification of committed pending transactions.
     ///
-    /// The callback must return promptly and must not wait for pool mutations,
-    /// including on helper threads. Publication and shutdown wait for its return.
+    /// The callback must follow the [Callbacks] contract and return promptly.
     pub fn register_pending(&mut self, callback: PendingCallback) {
         self.callbacks.register_pending(callback);
     }
     /// Register notification of committed proposed transactions.
     ///
-    /// The callback must return promptly and must not wait for pool mutations,
-    /// including on helper threads. Publication and shutdown wait for its return.
+    /// The callback must follow the [Callbacks] contract and return promptly.
     pub fn register_proposed(&mut self, callback: ProposedCallback) {
         self.callbacks.register_proposed(callback);
     }
     /// Register notification of committed transaction rejection.
     ///
-    /// The callback must return promptly and must not wait for pool mutations,
-    /// including on helper threads. Publication and shutdown wait for its return.
+    /// The callback must follow the [Callbacks] contract and return promptly.
     pub fn register_reject(&mut self, callback: RejectCallback) {
         self.callbacks.register_reject(callback);
     }

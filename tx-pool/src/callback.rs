@@ -12,8 +12,8 @@ thread_local! {
     /// unrelated chain/RPC threads look re-entrant and can reject an
     /// authoritative reorg merely because a notification callback overlaps
     /// it. Callback ancestry cannot safely be inferred across arbitrary
-    /// threads; callers that spawn helper threads must not synchronously join
-    /// helpers which re-enter a mutating controller operation.
+    /// threads; callers must not join helpers which reenter the controller.
+    /// Preview and template requests also need this context for reserved dispatch.
     static CALLBACK_THREAD: Cell<bool> = const { Cell::new(false) };
 }
 
@@ -34,9 +34,7 @@ pub(crate) fn with_callback_context<T>(operation: impl FnOnce() -> T) -> T {
     operation()
 }
 
-/// Read-only controller calls are safe from callbacks. Synchronous mutations
-/// are not: they can wait for the same publisher that is executing the
-/// callback, directly or through effect-journal backpressure.
+/// Detect direct callback reentry for mutation refusal and reserved read dispatch.
 pub(crate) fn in_callback() -> bool {
     CALLBACK_THREAD.with(Cell::get)
 }
@@ -55,9 +53,10 @@ pub type RejectCallback = Box<dyn Fn(&TxEntrySnapshot, Reject) + Sync + Send>;
 /// Synchronous notifications of committed pool changes.
 ///
 /// Callbacks must return promptly. They execute without pool owner guards, but
-/// ordered publication and service shutdown wait for their return. Read-only
-/// controller calls are supported; do not wait for mutating controller operations,
-/// including through helper threads. Panics disable callbacks for the generation;
+/// ordered publication and service shutdown wait for their return. Direct
+/// read-only controller calls are supported; mutating calls are not. Do not join
+/// helper threads that reenter the controller: the callback's reserved-dispatch
+/// context does not follow them. Panics disable callbacks for the generation;
 /// asynchronous cancellation cannot interrupt an entered callback.
 pub struct Callbacks {
     pub(crate) pending: Option<PendingCallback>,

@@ -34,7 +34,7 @@ missing or spent dependencies instead of creating Waiting owners.
 | Verify | Compact resolved cells, fee and original observations |
 | Waiting | Current missing cell keys; no VM capability |
 | Accepted | Verified cycles/fee, retained input cells, compact dependency identities and direct producer ancestry |
-| Replaced | Optional transaction body and all/any blocker predicates |
+| Replaced | Optional transaction body with `BlockedDependencies` (all) or `RetryInputs` (any) |
 
 [Queue](../../src/authority/queue.rs) selection transfers an immutable owner and
 its non-Clone `ActivePermit` together to one non-Clone Job. It does not add a Working phase. A fixed
@@ -42,6 +42,8 @@ worker retains its completed result while awaiting settlement, so no Ready owner
 or completed-result exchange is needed. A successor owner invalidates old jobs.
 Unexpected drop of a current Job faults the generation; orderly cancellation
 settles/requeues it or observes a successor.
+`Store::is_current` is only an instantaneous owner-identity check. It creates no
+observation and cannot substitute for a prepared decision's commit validation.
 
 ## Scheduling and block priority
 
@@ -51,12 +53,21 @@ the configured selection order: `fee_rate` by default, or `arrival_time`. Comple
 in a different order. Block priority applies to every lane and to direct local
 requests, independently of declared cycles.
 
+An entry's `SizeClass` chooses its small/large bucket. A worker's `WorkSelection`
+chooses small work only or both buckets in their normal order. With multiple
+verification workers, the first is small-only, including its fallback to Resolve;
+dedicated Resolve workers can select either size.
+
 [Pool](../../src/authority/service.rs) admits resolution, direct input checks and
 VM execution through shared compute permits. It checks the current pause after
 acquiring a permit, before selecting a queued job or reserving active memory.
 A suspended waiter returns the permit and waits for the control signal; dry-run
 declines without waiting. A multi-thread runtime with one worker hands off its
 core for synchronous compute; larger runtimes retain capacity for control and I/O.
+`ComputePermit` owns the admitted slot and execution mode. Resolution uses its
+`run` method; authority verification borrows it until computation returns. CPU
+capacity is then released before settlement, while the separate active-memory
+permit remains with its Job or direct request.
 
 The sole [block consumer](../../../chain/src/verify.rs) owns a scoped pause while
 processing ready blocks and truncations. When that backlog empties, it resumes
@@ -252,7 +263,9 @@ dep-group members participate in maturity checks, while group containers do not.
 
 Optional replacement history may be omitted under pressure and can occupy quota
 until relevant availability or clear. It has no ordinary remote TTL or accepted
-timestamp. Recovery returns its body to verification; replay restores neither
+timestamp. `RecoveryTriggers` owns the all/any readiness and creation-event
+deferral rules. Trusted Waiting owners still scan later unavailable keys for a
+lost producer even after finding a key that can wait. Recovery returns its body to verification; replay restores neither
 accepted proof nor old blocker predicates. GenerationReset clears sync's known
 and pending relay state; RelayDrain reconstructs current waiting-parent notices
 in bounded pages after the mailbox drains, not all accepted transaction results.
@@ -272,6 +285,9 @@ Apply reserves its complete final batch before mutation.
 activates it after guards open. A later ready batch cannot overtake an earlier
 unready one. Each batch settles, returns capacity and releases publisher/FIFO
 references before the next. Callback-owned clones have their own lifetimes.
+`NoticeBudget::charged_by` owns cumulative quota membership: remote charges
+remote, ordinary and total; trusted charges ordinary and total; critical charges
+total. Per-batch limits are separate from these shared outstanding budgets.
 
 One bounded rejection record supplies metrics, optional recent status and
 diagnostics. Transient resource/time refusals keep their cause through publication
@@ -295,10 +311,11 @@ omitted records are not retained for replay. Publisher cancellation faults the
 generation and preserves owned obligations. Synchronous endpoints must return for
 publication and shutdown to progress; async abort cannot stop them.
 
-Reserved bounded reads let callbacks query while their invoking admission waits
-for publication. Direct callback mutation is rejected. A callback must not join
-a helper thread that synchronously reenters mutation: its thread-local marker does
-not follow that helper.
+Reserved bounded reads let callbacks query directly while their invoking admission
+waits for publication. Direct callback mutation is rejected. A callback must not
+join a helper thread that reenters the controller: its thread-local marker does
+not follow that helper. In particular, preview and template requests from a helper
+can wait behind ordinary handlers that are themselves waiting for publication.
 
 Application transaction notifications are best effort. The
 [notification service](../../../notify/src/lib.rs) uses bounded ingress and
@@ -338,10 +355,12 @@ carries one 30-second deadline from controller entry through queueing and refres
 The caller's wait ends at that deadline even before dispatch; the driver does not
 renew it. This does not interrupt synchronous work or stop the shared driver.
 
-Each prepared template carries the matching uncle receipt and pruning authority
-into publication. Uncle delivery uses an independent lock: a changed receipt
-requires recapture even if the chain and selected owners still match. A selected
-transaction outside its own captured candidates is instead an internal fault.
+Each uncle cleanup plan carries its source receipt. Under the candidate lock,
+`CandidateUncles::try_prune` validates that receipt before applying cleanup;
+an obsolete plan is returned intact for destruction outside Store guards.
+Uncle delivery uses an independent lock, so a changed receipt requires recapture
+even if the chain and selected owners still match. A selected transaction outside
+its own captured candidates is instead an internal fault.
 
 On a rebuild, the driver reuses cellbase and extension payloads within the same
 lifecycle view. It computes DAO for the final selection and assigns each attempt
@@ -357,6 +376,10 @@ supplies numeric parents, children, a topological order and exact ancestor total
 Construction validates endpoints, cycles, ancestor limits and arithmetic for all
 captured entries, including Gap and Pending. Merged ancestors are deduplicated
 with reusable traversal scratch rather than a retained closure per entry.
+
+Repeated package and descendant walks use a borrowed traversal pass. Starting
+the pass advances its checked epoch; `visit` owns the per-pass deduplication.
+Each algorithm retains its own adjacency, filtering and aggregation rules.
 
 Candidate phases come from the current `ProposalView`, with Proposed taking
 precedence over Gap. A temporary sorted lookup is used only when it has no more
@@ -442,7 +465,9 @@ processing blocks. Replay owns a [ChainServiceScope](../../../chain/src/init.rs)
 that joins chain threads before deleting the temporary database.
 
 Loading and dependency ordering finish before workers start; preparation failure
-is logged and startup uses an empty replay set. Saving uses the captured accepted
+is logged and startup uses an empty replay set. `PreparedReplay` is the consumed
+result of that preparation, preserving accepted order and sorting/deduplicating
+recovery before the background service starts. Saving uses the captured accepted
 graph to order resolved parents and readers before spenders, across all proposal
 phases. Conditional cycles retain the remaining bodies in causal order. Loading
 preserves that accepted prefix; raw bodies cannot reconstruct every expanded
