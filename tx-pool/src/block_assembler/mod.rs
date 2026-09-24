@@ -87,36 +87,38 @@ impl BlockAssembler {
 
     /// Construct new block generator
     pub fn new(config: BlockAssemblerConfig, snapshot: Arc<Snapshot>) -> Result<Self, AnyError> {
-        let consensus = snapshot.consensus();
-        let tip_header = snapshot.tip_header();
-        let current_epoch = consensus
-            .next_epoch_ext(tip_header, &snapshot.borrow_as_data_loader())
-            .ok_or(BlockAssemblerError::MissingTipEpoch)?
-            .epoch();
+        block_offload(|| {
+            let consensus = snapshot.consensus();
+            let tip_header = snapshot.tip_header();
+            let current_epoch = consensus
+                .next_epoch_ext(tip_header, &snapshot.borrow_as_data_loader())
+                .ok_or(BlockAssemblerError::MissingTipEpoch)?
+                .epoch();
 
-        let work_id = AtomicU64::new(0);
-        let cell_liveness_memo = Arc::new(Mutex::new(CellLivenessMemo::for_block_bytes(
-            Self::max_block_bytes(&snapshot)?,
-        )));
-        let current = Self::build_base_template(
-            &config,
-            &work_id,
-            snapshot,
-            &current_epoch,
-            &cell_liveness_memo,
-        )?;
-        Ok(Self {
-            config: Arc::new(config),
-            work_id: Arc::new(work_id),
-            candidate_uncles: Arc::new(Mutex::new(CandidateUncles::new())),
-            current: Arc::new(RwLock::new(Arc::new(current))),
-            cell_liveness_memo,
-            poster: Arc::new(
-                Client::builder(hyper_util::rt::TokioExecutor::new())
-                    .build::<_, Full<bytes::Bytes>>(HttpConnector::new()),
-            ),
-            #[cfg(test)]
-            notify_count: Arc::new(AtomicU64::new(0)),
+            let work_id = AtomicU64::new(0);
+            let cell_liveness_memo = Arc::new(Mutex::new(CellLivenessMemo::for_block_bytes(
+                Self::max_block_bytes(&snapshot)?,
+            )));
+            let current = Self::build_base_template(
+                &config,
+                &work_id,
+                snapshot,
+                &current_epoch,
+                &cell_liveness_memo,
+            )?;
+            Ok(Self {
+                config: Arc::new(config),
+                work_id: Arc::new(work_id),
+                candidate_uncles: Arc::new(Mutex::new(CandidateUncles::new())),
+                current: Arc::new(RwLock::new(Arc::new(current))),
+                cell_liveness_memo,
+                poster: Arc::new(
+                    Client::builder(hyper_util::rt::TokioExecutor::new())
+                        .build::<_, Full<bytes::Bytes>>(HttpConnector::new()),
+                ),
+                #[cfg(test)]
+                notify_count: Arc::new(AtomicU64::new(0)),
+            })
         })
     }
 
@@ -275,32 +277,27 @@ impl BlockAssembler {
             .ok_or(BlockAssemblerError::Overflow)?;
         let cellbase_witness = Self::build_cellbase_witness(config, snapshot);
 
-        let tx = {
-            let (target_lock, block_reward) = block_offload(|| {
-                RewardCalculator::new(snapshot.consensus(), snapshot).block_reward_to_finalize(tip)
-            })?;
-            let input = CellInput::new_cellbase_input(candidate_number);
-            let output = CellOutput::new_builder()
-                .capacity(block_reward.total)
-                .lock(target_lock)
-                .build();
+        let (target_lock, block_reward) =
+            RewardCalculator::new(snapshot.consensus(), snapshot).block_reward_to_finalize(tip)?;
+        let input = CellInput::new_cellbase_input(candidate_number);
+        let output = CellOutput::new_builder()
+            .capacity(block_reward.total)
+            .lock(target_lock)
+            .build();
 
-            let witness = cellbase_witness.as_bytes();
-            let no_finalization_target =
-                candidate_number <= snapshot.consensus().finalization_delay_length();
-            let tx_builder = TransactionBuilder::default().input(input).witness(witness);
-            let insufficient_reward_to_create_cell = output.is_lack_of_capacity(Capacity::zero())?;
-            if no_finalization_target || insufficient_reward_to_create_cell {
-                tx_builder.build()
-            } else {
-                tx_builder
-                    .output(output)
-                    .output_data(Bytes::default())
-                    .build()
-            }
-        };
-
-        Ok(tx)
+        let witness = cellbase_witness.as_bytes();
+        let no_finalization_target =
+            candidate_number <= snapshot.consensus().finalization_delay_length();
+        let tx_builder = TransactionBuilder::default().input(input).witness(witness);
+        let insufficient_reward_to_create_cell = output.is_lack_of_capacity(Capacity::zero())?;
+        if no_finalization_target || insufficient_reward_to_create_cell {
+            Ok(tx_builder.build())
+        } else {
+            Ok(tx_builder
+                .output(output)
+                .output_data(Bytes::default())
+                .build())
+        }
     }
 
     pub(crate) fn build_extension(snapshot: &Snapshot) -> Result<Option<packed::Bytes>, AnyError> {

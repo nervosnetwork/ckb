@@ -6,7 +6,6 @@
 use super::BlockAssembler;
 use super::cell_liveness::{CellLivenessMemo, MemoizedChecker};
 use crate::component::entry::TxEntry;
-use crate::util::block_offload;
 use ckb_dao::DaoCalculator;
 use ckb_error::AnyError;
 use ckb_logger::debug;
@@ -36,37 +35,35 @@ impl BlockAssembler {
         let mut seen_inputs = HashSet::new();
         let mut transactions_checker = TransactionsChecker::new(iter::once(&cellbase));
 
-        let checked_entries: Vec<_> = block_offload(|| {
-            entries
-                .into_iter()
-                .filter_map(|entry| {
-                    // The chain-snapshot fallback goes through the per-tip
-                    // memo; only the in-block overlay is rebuilt per entry.
-                    let checker = MemoizedChecker {
-                        transactions_checker: &transactions_checker,
-                        snapshot,
-                        memo,
-                    };
-                    if let Err(err) = entry.rtx.check(&mut seen_inputs, &checker, snapshot) {
-                        // An unresolved candidate can recur on every template
-                        // rebuild. Keep this at debug level to avoid flooding
-                        // the error log while its inputs remain unavailable.
-                        debug!(
-                            "Resolving transactions while building block template, \
-                             tip_number: {}, tip_hash: {}, tx_hash: {}, error: {:?}",
-                            tip_header.number(),
-                            tip_header.hash(),
-                            entry.transaction().hash(),
-                            err
-                        );
-                        None
-                    } else {
-                        transactions_checker.insert(entry.transaction());
-                        Some(entry)
-                    }
-                })
-                .collect()
-        });
+        let checked_entries: Vec<_> = entries
+            .into_iter()
+            .filter_map(|entry| {
+                // The chain-snapshot fallback goes through the per-tip
+                // memo; only the in-block overlay is rebuilt per entry.
+                let checker = MemoizedChecker {
+                    transactions_checker: &transactions_checker,
+                    snapshot,
+                    memo,
+                };
+                if let Err(err) = entry.rtx.check(&mut seen_inputs, &checker, snapshot) {
+                    // An unresolved candidate can recur on every template
+                    // rebuild. Keep this at debug level to avoid flooding
+                    // the error log while its inputs remain unavailable.
+                    debug!(
+                        "Resolving transactions while building block template, \
+                         tip_number: {}, tip_hash: {}, tx_hash: {}, error: {:?}",
+                        tip_header.number(),
+                        tip_header.hash(),
+                        entry.transaction().hash(),
+                        err
+                    );
+                    None
+                } else {
+                    transactions_checker.insert(entry.transaction());
+                    Some(entry)
+                }
+            })
+            .collect();
 
         let cellbase = ResolvedTransaction::dummy_resolve(cellbase);
         let entries_iter =

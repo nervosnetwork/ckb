@@ -284,8 +284,10 @@ impl Driver {
     }
 
     fn rebuild(&self, packing: &mut Cache) -> Result<(), BuildError> {
-        self.publish(self.prepare(packing)?)?;
-        Ok(())
+        block_offload(|| {
+            self.publish(self.prepare(packing)?)?;
+            Ok(())
+        })
     }
 
     fn publish(&self, prepared: PreparedTemplate) -> Result<(), Error> {
@@ -347,7 +349,7 @@ impl Driver {
                 }
             }
             first = false;
-            let outcome = block_offload(|| self.rebuild(&mut packing));
+            let outcome = self.rebuild(&mut packing);
             let stale = matches!(outcome, Err(BuildError::Pool(Error::Stale)));
             self.failed
                 .store(outcome.is_err() && !stale, Ordering::Release);
