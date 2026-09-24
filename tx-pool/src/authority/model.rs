@@ -82,6 +82,9 @@ pub(super) struct RemoteOrigin {
     pub(super) deadline: Instant,
 }
 
+/// Origin, retention and computation have different policies. Proposal work
+/// retains its remote peer/deadline, but borrows trusted compute headroom and
+/// drops the remote cycle declaration; the methods below own those decisions.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) enum Source {
     Remote {
@@ -297,6 +300,8 @@ impl RecoveryTriggers {
     }
 }
 
+/// Projection rules and their independent oracle are indexed under
+/// "Changing a rule safely" in docs/MAINTENANCE.md.
 #[derive(Clone, Debug)]
 pub(super) enum Phase {
     Resolve,

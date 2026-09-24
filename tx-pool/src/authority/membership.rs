@@ -28,6 +28,8 @@ use std::{
 mod graph;
 pub(super) use graph::Graph;
 
+/// Accepted owners in a captured or virtual graph. Virtual successors are kept
+/// separately from the original owners recorded by the tracked Graph and Plan.
 pub(super) type Members = BTreeMap<Byte32, Arc<Entry>>;
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub(super) struct Aggregate {
@@ -253,6 +255,10 @@ pub(super) fn entry_snapshot(
     })
 }
 
+/// Smaller ranks are evicted first: pending before gap before proposed, then
+/// lower fee rate, fewer descendants, earlier arrival and smaller hash.
+/// Capacity trimming and cycle removal select the minimum; the bounded cycle
+/// fallback retains the maximum among eligible package roots.
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub(super) struct EvictionRank {
     pub(super) status: Status,
@@ -576,6 +582,8 @@ impl AdmissionDecision {
             return Err(causal_cycle(hash));
         }
         drop(ancestors);
+        // Capture original parent chains before applying the late-parent edges;
+        // these observations remain premises even though only validation is used.
         for hash in &late_descendants {
             graph.ancestors([hash.clone()], &removed, config.max_ancestors_count)?;
         }
@@ -597,8 +605,7 @@ impl AdmissionDecision {
         affected.insert(candidate_hash.clone());
         let mut ancestors = BTreeSet::new();
         for hash in &affected {
-            let closure =
-                ancestor_hashes(&observed_successors, hash, config.max_ancestors_count)?;
+            let closure = ancestor_hashes(&observed_successors, hash, config.max_ancestors_count)?;
             // `affected` includes the candidate. Retain its closure at the same
             // position in this ordered validation, preserving rejection order.
             if hash == &candidate_hash {
@@ -629,8 +636,9 @@ impl AdmissionDecision {
             .checked_sub(released)
             .and_then(|usage| usage.checked_add(added));
         if optimistic.is_none_or(|usage| !usage.fits(graph.limits().accepted)) {
-            // Full capture must match the observed owners, preserving the
-            // candidate's closure. Release this map before rebuilding it.
+            // Original observations stay in the Plan across this full capture;
+            // changed ancestors cannot pass commit validation. Release this
+            // map before rebuilding it.
             drop(observed_successors);
             graph.capture_accepted()?;
             observed_successors =
@@ -664,10 +672,11 @@ impl AdmissionDecision {
         retain_history: bool,
     ) -> Result<(), Error> {
         let Self {
-            admitted: AdmissionCandidate {
-                entry: admitted,
-                ancestors,
-            },
+            admitted:
+                AdmissionCandidate {
+                    entry: admitted,
+                    ancestors,
+                },
             replaced,
             removed,
             late,

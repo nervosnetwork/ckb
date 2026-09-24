@@ -34,6 +34,11 @@ and child relations even when they are empty. Capacity planning can extend the
 same decision with a full accepted capture. Only full captures allocate the
 optional shard-revision arrays; ordinary reads stay sparse.
 
+`Plan::readers` and `Plan::children` select the key and role mask internally.
+Their complete-set observations track accepted membership; waiting changes use
+the separate wake protocol. Adding a waiting-cohort policy query therefore needs
+its own observation contract, not another mask passed to the accepted query.
+
 `Plan::edit` adds a unique before/after owner change and its optional effect
 together, after checking the old identity and duplicate/hash constraints.
 Metadata-only changes explicitly pass no effect. Notice-only outcomes use
@@ -110,7 +115,8 @@ in one pass over the original edits. Store's `CommitLocks` routes read-set
 guards once for Apply and for the point reads supported by guarded publication,
 then adds owner writes and lifecycle operations for Apply. Its exhaustive
 ReadSet destructuring makes new observation kinds declare their protection in
-both paths. Under those guards, `OwnerChanges::validate_projections` checks
+both paths, and their handling in merge, validation and verification projection.
+Under those guards, `OwnerChanges::validate_projections` checks
 counters and derived indexes before scalar capacity is reserved. The derived
 changes borrow the Plan's edits rather than copying owners; the same object
 installs the owner, relation and peer projections after validation. One
@@ -149,8 +155,13 @@ Physical routing conservatively groups facts for synchronization.
 
 The current Store uses randomized keyed routing over 256 owner shards and separate
 peer/dependency gate families. Owner routing incorporates proposal ID so a short-ID
-collision shares its owning cut. Within a physical shard, writer mode dominates
-reader mode. Complete relation reads take their gate exclusively; point reader
+collision shares its owning cut. A private `ShardIndex` constructor bounds every
+address; `Shards` owns the fixed arrays and `LockFootprint` yields unique ascending
+indices. Its acquisition method produces `ShardGuards`, which keeps addresses
+paired with their guards and exposes only protected values. Within a physical
+shard, writer mode dominates reader mode. Store still chooses semantic support
+and cross-family order; direct access to a single lock does not order separate
+calls. Complete relation reads take their gate exclusively; point reader
 additions share it and update the short row under its mutex.
 
 ```mermaid

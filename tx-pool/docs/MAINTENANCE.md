@@ -11,13 +11,18 @@ the linked implementation and architecture pages remain authoritative.
 
 | Invariant | Producer and enforcement | Regression evidence | Consequence of violating it |
 |---|---|---|---|
-| A decision retains its original positive, negative and complete-relation premises | [Graph](../src/authority/membership/graph.rs) records policy reads in its borrowed [Plan](../src/authority/store/plan.rs); merging rejects changed observations and Apply checks original identities | [Contracts](../src/authority/tests/contracts.rs): original owner, missing spender and late-reader cases | Stale work can act on a successor or miss a new dependent |
-| Guards cover the whole change in a single lock order | [CommitLocks and acquire](../src/authority/store.rs) derive read support and sorted unique guards; [OwnerChanges](../src/authority/store/apply.rs) derives write support from the edits; debug assertions check order and complete edit consumption | [Concurrency](../src/authority/tests/concurrency.rs): lock-footprint order/write dominance, mixed guards and compatible commit overlap | Deadlock, an unprotected read or a skipped owner edit |
+| A decision retains its original positive, negative and complete-relation premises | [Graph](../src/authority/membership/graph.rs) records policy reads in its borrowed [Plan](../src/authority/store/plan.rs); `readers`/`children` own the accepted query contract, merging rejects changed observations and Apply checks original identities | [Contracts](../src/authority/tests/contracts.rs): original owner, missing spender and late-reader cases | Stale work can act on a successor or miss a new dependent |
+| Guards cover the whole change in a single lock order | [Shards and ShardGuards](../src/authority/store/shards.rs) own bounded addresses and ordered guard pairs; [CommitLocks](../src/authority/store.rs) derives read support and [OwnerChanges](../src/authority/store/apply.rs) write support; one iterator pairs both owner passes with their edit groups | [Concurrency](../src/authority/tests/concurrency.rs): lock-footprint order/write dominance, mixed guards and compatible commit overlap | Deadlock, an unprotected read or a skipped owner edit |
 | Owners, projections, charges and notice obligations commit together | [Application](../src/authority/store/apply.rs) preflights before mutation; exhaustive `Shard::apply_edit` handles local projections; retired payloads outlive guards | [Concurrency](../src/authority/tests/concurrency.rs): preflight refusal, history retry and payload retirement | Partial membership, inconsistent indexes or a destructor under authority locks |
 | Admission counts each affected existing owner once against the shared bound | [Membership](../src/authority/membership.rs) budgets the union of replacement families, capacity-trim families and late-producer descendants | [Membership](../src/authority/tests/membership.rs): exact 100, refusing 101 and overlapping families | Unbounded mutation work or incorrect capacity refusal |
 | Cancellation releases the capability it owns without erasing committed effects | [Job and active permit](../src/authority/jobs.rs), [budget](../src/authority/budget.rs) and [outbox](../src/authority/notice.rs) own separate lifetimes; activation follows guard release | [Execution](../src/authority/tests/execution.rs) and [notice](../src/authority/tests/notice.rs): pause/stop refund, cancelled waiters and publisher failure | Leaked capacity, missing publication or a blocked caller |
+| Authority verification holds admitted compute capacity | [ComputePermit](../src/authority/service.rs) owns the slot and mode; [verification](../src/authority/jobs.rs) borrows it across computation | [Execution](../src/authority/tests/execution.rs): pause during capacity wait, stop and one-worker runtime | Bypassing concurrency or pause admission; releasing active memory before settlement |
+| Recovery uses the same trigger meaning at retention, wakeup and creation-event deferral | [RecoveryTriggers](../src/authority/model.rs) defines blocked-dependency all and retry-input any; [history](../src/authority/membership.rs) produces it and [wake](../src/authority/waiting.rs) preserves short-circuit observations | [Waiting](../src/authority/tests/waiting.rs) and [concurrency](../src/authority/tests/concurrency.rs): all/any recovery, later lost producer, creation-event order | Premature recovery, self-wakeup or missing a terminal dependency |
+| A notice class charges and refunds the same cumulative quotas | [NoticeBudget::charged_by](../src/authority/notice.rs) defines remote/ordinary/total membership; reservation installs a complete projected budget | [Notice](../src/authority/tests/notice.rs): final-tier refusal and refund after a broken tier | Partial charge, leaked capacity or lost trusted headroom |
+| Cancelling a remote batch removes only its still-pending claims | [KnownRemoteBatch and the known filter](../../sync/src/types/mod.rs) own identity and overlapping claim counts; the non-Clone guard alone settles its prefix and releases its suffix | [Relayer](../../sync/src/relayer/tests/transactions_process.rs): duplicates, overlapping batches, reset, accept, expiry and same-batch LRU eviction | Erasing completed or newer known marks, or resurrecting rejected work |
 | Chain success acknowledges reconciliation and required publication | [Builder](../src/service/builder.rs) transfers the sole chain receiver to its consumer; [controller](../src/service/controller.rs) waits for its reply independently of RPC readiness | [Lifecycle](../src/service/tests/lifecycle.rs): real builder startup, abandonment, stop and structural chain failure during replay; [lifecycle contract](architecture/EXECUTION.md) | Lost startup transitions or a success response ahead of required effects |
-| A published template still describes its captured sources | [Driver](../src/authority/template.rs) validates lifecycle, selected owners and uncle receipt at publication; [BlockTemplate](../src/block_assembler/template.rs) owns its time lower bound | [Template driver](../src/authority/tests/template_driver.rs): same-tip clear, owner reentry and stale uncle preparation; [assembler](../src/block_assembler/tests/mod.rs): byte and time boundaries | Stale mining content or an invalid template timestamp |
+| Every detailed chain command passed its logical fork limit | [ChainReorgArgs](../src/service/message.rs) privately bounds serialized block bytes and view slots, excluding cached hashes/shared backing; an empty detailed fork remains distinct from generation replacement | [Controller](../src/service/tests/controller.rs): charge overflow, exact fallback snapshot and empty delta | An unbounded fork population or accidental clearing on an empty update |
+| A published template still describes its captured sources | [Driver](../src/authority/template.rs) validates lifecycle and selected owners; [CandidateUncles](../src/block_assembler/candidate_uncles.rs) validates the cleanup plan's own receipt; [BlockTemplate](../src/block_assembler/template.rs) owns its time lower bound | [Template driver](../src/authority/tests/template_driver.rs): same-tip clear, owner reentry and stale uncle preparation; [assembler](../src/block_assembler/tests/mod.rs): byte and time boundaries | Stale mining content or an invalid template timestamp |
 | Chain detachment rechecks the canonical time conditions applicable to accepted work | [Canonical time verification](../../verification/src/transaction_verifier.rs) shares candidate selection with `transaction_depends_on_time`; [membership](../src/authority/membership.rs) retains that result and [chain](../src/authority/chain.rs) recovers affected descendants | [Canonical transactions](../../verification/src/tests/transaction_verifier.rs): since forms, maturity roles and error order; [chain](../src/authority/tests/chain.rs): admission-derived sensitivity and descendant recovery | A transaction can remain accepted after its time condition becomes invalid, or unrelated work is needlessly requeued |
 
 For a replacement-policy change, begin in membership preparation. Identify every
@@ -34,6 +39,15 @@ new projection, extend the independent `assert_state` oracle in
 clear and lifecycle changes. If it retains more memory, check `owner_amount` in
 [budget](../src/authority/budget.rs) and `accepted_transaction_charge_bytes` in
 [residency](../src/authority/residency.rs).
+
+For a new owner phase, follow its retained facts through
+[`Entry::dependencies`](../src/authority/model.rs),
+[`visit_roles` and `Shard::apply_edit`](../src/authority/store/apply.rs),
+[`WorkStage::for_phase`](../src/authority/queue.rs),
+[`owner_amount`](../src/authority/budget.rs) and
+[notice construction](../src/authority/notice.rs). These are different projections,
+so their exhaustive matches require separate business decisions. Extend the
+independent state-transition oracle for their combined result, including clear.
 
 For a template optional-content change, start with `fit_optional_content`:
 selected proposals consume bytes before compatible uncles, and only selected proposals
@@ -261,8 +275,11 @@ directory; do not infer universal crash durability. [Persistence tests](../src/t
 cover legacy loading, partition/order round-trip and bounded reads.
 
 [RemoteTxBatchOutcome](../src/service/message.rs) identifies the processed input
-prefix. The [relayer](../../sync/src/relayer/transactions_process.rs) releases known
-marks for the remaining suffix, including on cancellation. Its sole result
+prefix. The [relayer](../../sync/src/relayer/transactions_process.rs) settles those
+known claims and releases the remaining suffix on cancellation. Duplicate and
+overlapping claims share a pending mark; a completed or accepted mark survives
+another batch's cancellation. Cleanup neither refreshes TTL/LRU nor recreates a
+mark removed by rejection, reset or eviction. Its sole result
 consumer drains committed observations synchronously before async network sends.
 [Reset and reconstruction](architecture/EXECUTION.md#waiting-chain-and-recovery)
 restore waiting-parent requests, not all accepted results. Mailbox delivery does
