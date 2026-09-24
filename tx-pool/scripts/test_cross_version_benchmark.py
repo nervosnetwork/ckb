@@ -328,20 +328,21 @@ class BuildProfileContractTest(unittest.TestCase):
             with self.assertRaisesRegex(RuntimeError, "duplicate attempt"):
                 BENCHMARK.attempt_index(record)
 
-    def test_resume_reuses_a_completed_attempt_id(self) -> None:
+    def test_resume_retains_a_failed_attempt_id(self) -> None:
         scenario = BENCHMARK.parse_scenario("always_success,8,0,2,2")
         cached = {
             "id": "case/pilot/baseline",
-            "outcome": "success",
+            "outcome": "failure",
+            "category": "runner_timeout",
             "side": "baseline",
             "scenario": scenario,
         }
         record = {"attempts": [cached]}
-        with mock.patch.object(BENCHMARK, "run_attempt") as run:
+        with tempfile.TemporaryDirectory() as temporary, mock.patch.object(BENCHMARK, "run_attempt") as run:
             result = BENCHMARK.obtain_attempt(
                 record,
                 BENCHMARK.attempt_index(record),
-                Path("unused"),
+                Path(temporary) / "result.json",
                 {},
                 scenario,
                 "baseline",

@@ -1,10 +1,13 @@
 """A/B ranking depends on applicable controls reconstructed from raw evidence."""
 
+import argparse
 import copy
+import io
 import json
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 import cross_version_benchmark as benchmark
 from benchmark_build import build_command
@@ -45,7 +48,7 @@ class ControlEvidenceTests(unittest.TestCase):
             confidence_level=0.95, max_ratio_interval_width_percent=4, min_target_seconds=0.25,
             timeout_seconds=180, aa_equivalence_margin_percent=2)
         self.config["schedule"] = {self.key: benchmark.balanced_schedule(6, 1, 0, self.key)}
-        self.context = dict(source={"commit": "candidate"}, consensus={},
+        self.context = dict(source={"commit": "candidate", "root": "/fixed/source"}, consensus={},
             build=dict(bench="profile_one_shot", features="", profile="prod", toolchain={"rustc": "fixed"}),
             binary=dict(path="/fixed/candidate", sha256="candidate binary", size=123))
         self.context["build"].update(schema=1, kind="tx_pool_benchmark_build",
@@ -75,7 +78,7 @@ class ControlEvidenceTests(unittest.TestCase):
         summary = self.summary()
         self.assertEqual(summary["status"], "aa_equivalent", summary)
         original = copy.deepcopy(self.control)
-        for change in (dict(outcome="failure"), dict(output="invalid raw evidence"),
+        for change in (dict(outcome="failure"), dict(output="invalid raw evidence"), dict(output=None),
                        dict(side="wrong"), dict(scenario={})):
             self.control = copy.deepcopy(original)
             self.control["attempts"][2].update(change)
@@ -86,6 +89,239 @@ class ControlEvidenceTests(unittest.TestCase):
         self.control = copy.deepcopy(original)
         self.control["attempts"][2:4] = reversed(self.control["attempts"][2:4])
         self.assertEqual(self.summary()["status"], "non_comparable")
+
+    def resume(self, record, run_attempt=None):
+        """Exercise the checkpoint path while keeping native measurement mocked."""
+        with (
+            tempfile.TemporaryDirectory() as temporary,
+            mock.patch.object(benchmark, "run_attempt", side_effect=run_attempt) as run,
+            mock.patch.object(benchmark, "cool") as cool,
+            mock.patch.object(benchmark, "environment_snapshot", return_value={}),
+            mock.patch("sys.stdout", new=io.StringIO()),
+        ):
+            path = Path(temporary) / "result.json"
+            benchmark.run_scenario(record, benchmark.attempt_index(record), path,
+                                   record["sides"], self.scenario, argparse.Namespace(**self.config))
+            self.assertEqual(benchmark.read_checkpoint(path), record)
+        return run, cool
+
+    def assert_same_evidence(self, actual, expected):
+        for field in ("status", "corpus", "metrics", "metric_quality", "aa_equivalence"):
+            self.assertEqual(actual[field], expected[field], field)
+        self.assertEqual(len(actual["paired_samples"]), len(expected["paired_samples"]))
+        for actual_pair, expected_pair in zip(actual["paired_samples"], expected["paired_samples"]):
+            for side in ("baseline", "candidate"):
+                self.assertEqual(actual_pair[side], expected_pair[side])
+
+    def test_resume_rebuilds_saved_fields_from_the_same_raw_evidence_as_aa(self):
+        expected = self.summary()
+        for attempt in self.control["attempts"]:
+            attempt.update(corpus={"forged": "corpus"}, build={"forged": "build"},
+                           window={}, readiness={"forged": "readiness"},
+                           command=["frozen", attempt["id"]], started_unix_ns=123,
+                           ended_unix_ns=456, environment_before={"cpu": "original"})
+        metadata = [{key: attempt[key] for key in (
+            "id", "command", "output", "started_unix_ns", "ended_unix_ns", "environment_before")}
+            for attempt in self.control["attempts"]]
+        with mock.patch.object(benchmark, "write_checkpoint", wraps=benchmark.write_checkpoint) as write:
+            run, cool = self.resume(self.control)
+        write.assert_called_once()  # One scenario summary, never one rewrite per cached sample.
+        run.assert_not_called()
+        cool.assert_not_called()
+        self.assert_same_evidence(self.control["summary"][self.key], expected)
+        for attempt, original in zip(self.control["attempts"], metadata):
+            self.assertEqual({key: attempt[key] for key in original}, original)
+            self.assertEqual(attempt["metrics"]["elapsed_ns"], 1_000_000_000)
+            self.assertEqual(attempt["metrics"]["throughput_tps"], 8)
+            self.assertEqual(attempt["corpus"], expected["corpus"])
+            self.assertIsNone(attempt["readiness"])
+
+    def test_unchanged_cached_outcomes_do_not_write_the_ledger(self):
+        for outcome in ("success", "failure"):
+            with self.subTest(outcome=outcome), tempfile.TemporaryDirectory() as temporary:
+                record = copy.deepcopy(self.control)
+                attempt = record["attempts"][0]
+                attempt.update(outcome=outcome, category="runner_timeout")
+                before = copy.deepcopy(record)
+                path = Path(temporary) / "result.json"
+                benchmark.write_checkpoint(path, record)
+                with (
+                    mock.patch.object(benchmark, "write_checkpoint", wraps=benchmark.write_checkpoint) as write,
+                    mock.patch.object(benchmark, "run_attempt") as run,
+                    mock.patch.object(benchmark, "cool") as cool,
+                ):
+                    result = benchmark.obtain_attempt(
+                        record, benchmark.attempt_index(record), path, {}, self.scenario,
+                        attempt["side"], attempt["id"], argparse.Namespace(**self.config))
+                self.assertIs(result, attempt)
+                write.assert_not_called()
+                run.assert_not_called()
+                cool.assert_not_called()
+                self.assertEqual(benchmark.read_checkpoint(path), before)
+                if outcome == "success":
+                    self.assertEqual(attempt["metrics"]["throughput_tps"], 8)
+
+    def test_new_cached_failures_are_saved_immediately_without_sampling(self):
+        corpus = benchmark.parse_attempt(output(), None, self.scenario, "disabled")["corpus"]
+        cases = (
+            ({"outcome": "running"}, "interrupted_attempt"),
+            ({"output": "invalid raw evidence"}, "invalid_evidence"),
+            ({"output": output().replace("00" * 32, "44" * 32)}, "corpus_drift"),
+        )
+        for changes, category in cases:
+            with self.subTest(category=category), tempfile.TemporaryDirectory() as temporary:
+                record = copy.deepcopy(self.control)
+                attempt = record["attempts"][0]
+                attempt.update(changes)
+                path = Path(temporary) / "result.json"
+                with (
+                    mock.patch.object(benchmark, "write_checkpoint", wraps=benchmark.write_checkpoint) as write,
+                    mock.patch.object(benchmark, "run_attempt") as run,
+                    mock.patch.object(benchmark, "cool") as cool,
+                ):
+                    benchmark.obtain_attempt(
+                        record, benchmark.attempt_index(record), path, {}, self.scenario,
+                        attempt["side"], attempt["id"], argparse.Namespace(**self.config), corpus)
+                write.assert_called_once()
+                run.assert_not_called()
+                cool.assert_not_called()
+                self.assertEqual(attempt["outcome"], "failure")
+                self.assertEqual(attempt["category"], category)
+                self.assertEqual(benchmark.read_checkpoint(path), record)
+
+    def test_new_attempt_saves_running_then_result_before_cooldown(self):
+        for outcome in ("success", "failure"):
+            with self.subTest(outcome=outcome), tempfile.TemporaryDirectory() as temporary:
+                path = Path(temporary) / "result.json"
+                record = {"attempts": []}
+                result = dict(outcome=outcome, output=output(), category="runner_timeout")
+                if outcome == "success":
+                    result.update(benchmark.parse_attempt(output(), None, self.scenario, "disabled"))
+
+                def sample(*_):
+                    self.assertEqual(benchmark.read_checkpoint(path)["attempts"][0]["outcome"], "running")
+                    return result
+
+                def cooldown(_):
+                    self.assertEqual(benchmark.read_checkpoint(path), record)
+                    self.assertEqual(record["attempts"][0]["outcome"], outcome)
+
+                with (
+                    mock.patch.object(benchmark, "write_checkpoint", wraps=benchmark.write_checkpoint) as write,
+                    mock.patch.object(benchmark, "run_attempt", side_effect=sample) as run,
+                    mock.patch.object(benchmark, "cool", side_effect=cooldown) as cool,
+                    mock.patch.object(benchmark, "environment_snapshot", return_value={}),
+                    mock.patch("sys.stdout", new=io.StringIO()),
+                ):
+                    benchmark.obtain_attempt(
+                        record, {}, path, self.context, self.scenario, "candidate", "new/attempt",
+                        argparse.Namespace(**self.config))
+                self.assertEqual(write.call_count, 2)
+                run.assert_called_once()
+                cool.assert_called_once_with(self.config["cooldown_seconds"])
+
+    def test_ab_resume_cannot_reverse_the_raw_result_with_plausible_saved_metrics(self):
+        self.config["comparison"] = "ab"
+        for attempt in self.control["attempts"]:
+            candidate = attempt["side"] == "candidate"
+            saved = output(elapsed=800_000_000) if candidate else output()
+            attempt.update(benchmark.parse_attempt(saved, None, self.scenario, "disabled"))
+            attempt["output"] = output(elapsed=1_200_000_000) if candidate else output()
+        run, _ = self.resume(self.control)
+        run.assert_not_called()
+        summary = self.control["summary"][self.key]
+        self.assertEqual(summary["status"], "comparable")
+        throughput = summary["metrics"]["throughput_tps"]
+        self.assertEqual(throughput["ratio_direction"], "lower")
+        self.assertAlmostEqual(throughput["median_candidate_over_baseline"], 1 / 1.2)
+
+    def test_resume_bad_raw_evidence_cannot_be_repaired_by_saved_metrics_or_rerun(self):
+        original = copy.deepcopy(self.control)
+        for raw in ("invalid raw evidence", None, output().replace("accepted=8", "accepted=7")):
+            with self.subTest(raw=raw):
+                record = copy.deepcopy(original)
+                attempt = record["attempts"][2]
+                attempt.update(benchmark.parse_attempt(output(), None, self.scenario, "disabled"))
+                attempt["output"] = raw
+                run, _ = self.resume(record)
+                run.assert_not_called()
+                self.assertEqual(record["summary"][self.key]["status"], "non_comparable")
+                self.assertEqual(attempt["category"], "invalid_evidence")
+                self.assertEqual(attempt["output"], raw)
+                # Even restoring parseable output cannot turn an already
+                # recorded failure into a fresh success on the next resume.
+                attempt["output"] = output()
+                run, _ = self.resume(record)
+                run.assert_not_called()
+                self.assertEqual(attempt["outcome"], "failure")
+
+    def test_resume_uses_the_frozen_allocation_observation_mode(self):
+        self.config.update(comparison="ab", allocation_observation="enabled")
+        for attempt in self.control["attempts"]:
+            attempt["output"] = output().replace("allocation_observation=false", "allocation_observation=true").replace(
+                "allocation_calls=0 allocated_bytes=0", "allocation_calls=7 allocated_bytes=64")
+        run, _ = self.resume(self.control)
+        run.assert_not_called()
+        self.assertEqual(self.control["summary"][self.key]["status"], "allocation_observation")
+        for attempt in self.control["attempts"]:
+            self.assertEqual(attempt["metrics"]["allocation_calls"], 7)
+            self.assertEqual(attempt["metrics"]["allocated_bytes"], 64)
+        self.config["allocation_observation"] = "disabled"
+        run, _ = self.resume(self.control)
+        run.assert_not_called()
+        self.assertEqual(self.control["summary"][self.key]["reason"], "pilot_failure")
+        self.assertEqual(self.control["attempts"][0]["category"], "invalid_evidence")
+
+    def test_resume_checks_raw_corpus_against_the_pilot(self):
+        original = copy.deepcopy(self.control)
+        for index, reason in ((1, "pilot_corpus_mismatch"), (2, "measurement_failure")):
+            with self.subTest(index=index):
+                record = copy.deepcopy(original)
+                attempt = record["attempts"][index]
+                attempt["corpus"] = benchmark.parse_attempt(output(), None, self.scenario, "disabled")["corpus"]
+                attempt["output"] = output().replace("00" * 32, "44" * 32)
+                run, _ = self.resume(record)
+                run.assert_not_called()
+                self.assertEqual(record["summary"][self.key]["reason"], reason)
+                if index == 2:
+                    self.assertEqual(attempt["category"], "corpus_drift")
+                self.assertEqual(benchmark.replay_aa_row(record, self.scenario)["status"], "non_comparable")
+
+    def test_resume_retains_failed_and_interrupted_attempts_without_sampling(self):
+        original = copy.deepcopy(self.control)
+        for outcome, category in (("failure", "runner_timeout"), ("running", "interrupted_attempt")):
+            with self.subTest(outcome=outcome):
+                record = copy.deepcopy(original)
+                attempt = record["attempts"][2]
+                attempt.update(outcome=outcome, category="runner_timeout", detail="original timeout")
+                run, cool = self.resume(record)
+                run.assert_not_called()
+                cool.assert_not_called()
+                self.assertEqual(attempt["outcome"], "failure")
+                self.assertEqual(attempt["category"], category)
+                self.assertEqual(attempt["output"], output())
+                if outcome == "failure":
+                    self.assertEqual(attempt["detail"], "original timeout")
+                self.assertEqual(record["summary"][self.key]["reason"], "measurement_failure")
+
+    def test_resume_completes_a_prefix_while_aa_requires_all_scheduled_attempts(self):
+        expected = self.summary()
+        complete = copy.deepcopy(self.control["attempts"])
+        self.control["attempts"] = self.control["attempts"][:3]
+        self.assertEqual(self.summary()["status"], "non_comparable")
+
+        def sample(binary, root, scenario, side, attempt_id, timeout, allocation):
+            self.assertEqual(scenario, self.scenario)
+            return dict(id=attempt_id, side=side, scenario=scenario, outcome="success", output=output(),
+                        **benchmark.parse_attempt(output(), None, scenario, allocation))
+
+        run, cool = self.resume(self.control, sample)
+        self.assertEqual([call.args[4] for call in run.call_args_list], [item["id"] for item in complete[3:]])
+        self.assertEqual(cool.call_count, len(complete) - 3)
+        self.assertEqual([attempt["id"] for attempt in self.control["attempts"]],
+                         [attempt["id"] for attempt in complete])
+        self.assert_same_evidence(self.control["summary"][self.key], expected)
+        self.assertEqual(self.summary(), expected)
 
     def test_two_controls_are_required_and_rss_does_not_erase_throughput(self):
         control = self.summary()

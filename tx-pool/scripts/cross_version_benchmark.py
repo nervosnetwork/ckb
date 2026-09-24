@@ -433,6 +433,8 @@ def unique_match(pattern: re.Pattern[str], output: str, label: str) -> dict[str,
 
 def parse_attempt(output: str, spans: object, scenario: dict[str, object],
                   allocation_observation: str) -> dict[str, object]:
+    if not isinstance(output, str):
+        raise ValueError("benchmark output is not text")
     rejection_diagnostics.validate_success(output)
     result = unique_match(RESULT, output, "BENCH_RESULT")
     resources = unique_match(RESOURCE_RESULT, output, "RESOURCE_RESULT")
@@ -944,49 +946,62 @@ def obtain_attempt(
     expected_corpus: dict[str, object] | None = None,
 ) -> dict[str, object]:
     cached = indexed.get(attempt_id)
+    previous_outcome = cached.get("outcome") if cached is not None else None
     if cached is not None:
         if cached.get("side") != side or cached.get("scenario") != scenario:
             raise RuntimeError(f"checkpoint attempt identity drifted: {attempt_id}")
         if cached.get("outcome") == "running":
             cached.update(outcome="failure", category="interrupted_attempt",
                           detail="The recorded attempt started but did not complete; it cannot be silently rerun.")
-            write_checkpoint(output, record)
         if cached.get("outcome") not in {"success", "failure"}:
             raise RuntimeError(f"checkpoint attempt outcome is invalid: {attempt_id}")
-        return cached
-    print(f">>> {attempt_id}", flush=True)
-    attempt = {"id": attempt_id, "side": side, "scenario": scenario,
-               "outcome": "running", "started_unix_ns": time.time_ns(),
-               "environment_before": environment_snapshot()}
-    record["attempts"].append(attempt)
-    indexed[attempt_id] = attempt
-    write_checkpoint(output, record)
-    try:
-        result = run_attempt(
-            context["binary"],
-            Path(context["source"]["root"]),
-            scenario,
-            side,
-            attempt_id,
-            args.timeout_seconds,
-            args.allocation_observation,
-        )
-    except BaseException as error:
-        attempt.update(outcome="failure", category="runner_interrupted",
-                       detail=type(error).__name__, ended_unix_ns=time.time_ns(),
-                       output=timeout_output(error), environment_after=environment_snapshot())
+        attempt = cached
+        if attempt["outcome"] == "success":
+            # Resume and A/A replay share the raw observation authority. Cached
+            # metrics are derived data; command, timestamps and environment survive.
+            try:
+                attempt.update(parse_attempt(attempt["output"], None, scenario,
+                                             args.allocation_observation))
+            except (KeyError, TypeError, ValueError) as error:
+                attempt.update(outcome="failure", category="invalid_evidence", detail=str(error))
+    else:
+        print(f">>> {attempt_id}", flush=True)
+        attempt = {"id": attempt_id, "side": side, "scenario": scenario,
+                   "outcome": "running", "started_unix_ns": time.time_ns(),
+                   "environment_before": environment_snapshot()}
+        record["attempts"].append(attempt)
+        indexed[attempt_id] = attempt
         write_checkpoint(output, record)
-        raise
-    attempt.update(result)
-    attempt["environment_after"] = environment_snapshot()
+        try:
+            result = run_attempt(
+                context["binary"],
+                Path(context["source"]["root"]),
+                scenario,
+                side,
+                attempt_id,
+                args.timeout_seconds,
+                args.allocation_observation,
+            )
+        except BaseException as error:
+            attempt.update(outcome="failure", category="runner_interrupted",
+                           detail=type(error).__name__, ended_unix_ns=time.time_ns(),
+                           output=timeout_output(error), environment_after=environment_snapshot())
+            write_checkpoint(output, record)
+            raise
+        attempt.update(result)
+        attempt["environment_after"] = environment_snapshot()
     if attempt["outcome"] == "success" and expected_corpus is not None and attempt["corpus"] != expected_corpus:
         attempt.update(
             outcome="failure",
             category="corpus_drift",
             detail="corpus changed after the paired pilot",
         )
-    write_checkpoint(output, record)
-    cool(args.cooldown_seconds)
+    # Rebuilt cached observations are saved with the scenario summary. Only new
+    # attempts or newly discovered failures need an immediate whole-ledger write.
+    if cached is None or attempt["outcome"] != previous_outcome:
+        write_checkpoint(output, record)
+    if cached is None:
+        cool(args.cooldown_seconds)
     return attempt
 
 
