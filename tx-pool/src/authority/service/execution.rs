@@ -53,6 +53,12 @@ impl Pool {
             Err(error) => Err(error),
         }
     }
+    // Capacity refusal is pool policy, independent of resolved transaction
+    // facts. Rejection still settles the selected owner, including stale requeue.
+    async fn reject_capacity(&self, job: &Job, reason: FullReason) -> Result<(), Error> {
+        self.reject_job(job, Reject::Full(reason.to_string()), ReadSet::default())
+            .await
+    }
     pub(super) async fn resolve_job(
         &self,
         job: &Job,
@@ -66,9 +72,7 @@ impl Pool {
             Ok(resolution) => resolution,
             Err(Error::Stale) => return self.requeue(job).await,
             Err(Error::Full(reason)) => {
-                return self
-                    .reject_job(job, Reject::Full(reason.to_string()), ReadSet::default())
-                    .await;
+                return self.reject_capacity(job, reason).await;
             }
             Err(error) => return Err(error),
         };
@@ -79,8 +83,7 @@ impl Pool {
             Ok(_) => Ok(()),
             Err(Error::Stale) => self.requeue(job).await,
             Err(Error::Full(reason)) if !matches!(resolution, Resolution::Rejected(..)) => {
-                self.reject_job(job, Reject::Full(reason.to_string()), ReadSet::default())
-                    .await
+                self.reject_capacity(job, reason).await
             }
             Err(error) => Err(error),
         }
@@ -109,9 +112,7 @@ impl Pool {
                     Err(error) => return Err(error),
                 },
                 Err(Error::Full(reason)) => {
-                    return self
-                        .reject_job(job, Reject::Full(reason.to_string()), ReadSet::default())
-                        .await;
+                    return self.reject_capacity(job, reason).await;
                 }
                 Err(error) => return Err(error),
             }
@@ -193,10 +194,7 @@ impl Pool {
                         self.reject_job(&job, reject, resolved.reads.clone())
                             .await?
                     }
-                    Err(Error::Full(reason)) => {
-                        self.reject_job(&job, Reject::Full(reason.to_string()), ReadSet::default())
-                            .await?
-                    }
+                    Err(Error::Full(reason)) => self.reject_capacity(&job, reason).await?,
                     Err(error) => return Err(error),
                 }
             } else {
