@@ -7,7 +7,7 @@
 
 use super::{
     model::{DependencyKey, Entry, Phase},
-    store::{MissingCursor, Store},
+    store::{MissingCursor, MissingPage, Store},
 };
 use crate::{service::TxVerificationResult, util::compact_packed};
 use ckb_types::packed::Byte32;
@@ -364,11 +364,14 @@ impl RelayDrain {
         };
         let mut cursor = self.cursor.lock();
         let current = cursor.as_mut()?;
-        let (result, complete) = store.next_missing(current, REBUILD_PAGE_SIZE);
-        if complete {
-            *cursor = None;
+        match store.next_missing(current, REBUILD_PAGE_SIZE) {
+            MissingPage::Waiter(result) => Some(result),
+            MissingPage::Incomplete => None,
+            MissingPage::Exhausted => {
+                *cursor = None;
+                None
+            }
         }
-        result
     }
     fn reset_cursor(&self) {
         *self.cursor.lock() = self

@@ -170,6 +170,12 @@ impl MissingCursor {
     }
 }
 
+pub(super) enum MissingPage {
+    Waiter(crate::service::TxVerificationResult),
+    Incomplete,
+    Exhausted,
+}
+
 #[derive(Clone, Debug)]
 struct Wake {
     pass: u64,
@@ -578,11 +584,7 @@ impl Store {
         clippy::arithmetic_side_effects,
         reason = "The cursor is checked below SHARDS; counters advance only within the bounded scan."
     )]
-    pub(super) fn next_missing(
-        &self,
-        cursor: &mut MissingCursor,
-        maximum: usize,
-    ) -> (Option<crate::service::TxVerificationResult>, bool) {
+    pub(super) fn next_missing(&self, cursor: &mut MissingCursor, maximum: usize) -> MissingPage {
         use std::ops::Bound::{Excluded, Unbounded};
         let view = self.view.read();
         if cursor.view != view.revision {
@@ -596,16 +598,16 @@ impl Store {
                 cursor.after = Some(hash.clone());
                 scanned += 1;
                 if let Some(result) = super::relay::unknown_parents(entry) {
-                    return (Some(result), false);
+                    return MissingPage::Waiter(result);
                 }
                 if scanned == maximum {
-                    return (None, false);
+                    return MissingPage::Incomplete;
                 }
             }
             cursor.shard += 1;
             cursor.after = None;
         }
-        (None, true)
+        MissingPage::Exhausted
     }
 
     pub(super) fn peer_banned(&self, peer: PeerIndex) -> bool {
