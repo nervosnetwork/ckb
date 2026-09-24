@@ -718,7 +718,7 @@ dependencies = [
 
 [[package]]
 name = "ckb"
-version = "0.209.0"
+version = "0.210.0"
 dependencies = [
  "ckb-bin",
  "ckb-build-info",
@@ -1778,6 +1778,7 @@ dependencies = [
  "ckb-dao",
  "ckb-dao-utils",
  "ckb-error",
+ "ckb-hash",
  "ckb-logger",
  "ckb-logger-service",
  "ckb-metrics",

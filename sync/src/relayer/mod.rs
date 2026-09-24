@@ -530,6 +530,17 @@ impl Relayer {
                 }
             }
 
+            let authenticated_hash = compact_block.calc_header_hash();
+            if block.hash() != authenticated_hash {
+                return ReconstructionResult::Error(
+                    StatusCode::CompactBlockHasInvalidHeader.with_context(format!(
+                        "reconstructed block {} differs from PoW-authenticated header {}",
+                        block.hash(),
+                        authenticated_hash,
+                    )),
+                );
+            }
+
             ReconstructionResult::Block(block)
         } else {
             let missing_indexes: Vec<usize> = block_transactions
