@@ -56,6 +56,18 @@ pub use tokio;
 /// Protocol version used by network protocol open
 pub type ProtocolVersion = String;
 
+/// Extract the IP socket address from a multiaddr, supporting both TCP-based
+/// transports (TCP/WS/WSS) and UDP-based transports (QUIC).
+///
+/// All IP-based logic (ban list, network group eviction, unique-IP dedup,
+/// reachability filtering, ...) must use this helper instead of
+/// `multiaddr_to_socketaddr` alone, otherwise QUIC addresses (which use
+/// `/udp/<port>/quic-v1`) would silently bypass those checks.
+pub fn multiaddr_to_ip_socketaddr(addr: &multiaddr::Multiaddr) -> Option<std::net::SocketAddr> {
+    p2p::utils::multiaddr_to_socketaddr(addr)
+        .or_else(|| p2p::utils::multiaddr_to_udp_socketaddr(addr))
+}
+
 /// Observe listen port occupancy
 pub async fn observe_listen_port_occupancy(
     _addrs: &[multiaddr::Multiaddr],

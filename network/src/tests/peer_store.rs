@@ -123,6 +123,44 @@ fn test_ban_peer() {
 }
 
 #[test]
+fn test_ban_quic_addr() {
+    // Banning must work for QUIC (UDP-based) addresses too: the ban must be
+    // recorded as an IP ban and apply to both QUIC and TCP addresses of the
+    // same IP, otherwise a banned peer could evade the ban by reconnecting
+    // over another transport.
+    let _faketime_guard = ckb_systemtime::faketime();
+    _faketime_guard.set_faketime(0);
+
+    let mut peer_store: PeerStore = Default::default();
+    let quic_addr: Multiaddr = format!(
+        "/ip4/127.0.0.1/udp/8115/quic-v1/p2p/{}",
+        PeerId::random().to_base58()
+    )
+    .parse()
+    .unwrap();
+    peer_store.add_connected_peer(quic_addr.clone(), SessionType::Inbound);
+    peer_store.ban_addr(&quic_addr, 10_000, "no reason".into());
+
+    assert_eq!(peer_store.ban_list().count(), 1);
+    assert!(peer_store.is_addr_banned(&quic_addr));
+
+    // Same IP over TCP is banned as well, and vice versa.
+    let tcp_addr: Multiaddr = format!(
+        "/ip4/127.0.0.1/tcp/8115/p2p/{}",
+        PeerId::random().to_base58()
+    )
+    .parse()
+    .unwrap();
+    assert!(peer_store.is_addr_banned(&tcp_addr));
+
+    peer_store
+        .mut_ban_list()
+        .unban_network(&multiaddr_to_ip_network(&quic_addr).unwrap());
+    assert!(!peer_store.is_addr_banned(&quic_addr));
+    assert!(!peer_store.is_addr_banned(&tcp_addr));
+}
+
+#[test]
 fn test_ban_addr_timeout_saturates_instead_of_overflowing() {
     let _faketime_guard = ckb_systemtime::faketime();
     _faketime_guard.set_faketime(1_000);

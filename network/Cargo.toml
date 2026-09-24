@@ -46,6 +46,7 @@ p2p = { workspace = true, default-features = false, features = [
     "tokio-runtime",
     "tokio-timer",
     "ws",
+    "quic",
 ] }
 socket2 = "0.6"
 governor.workspace = true
