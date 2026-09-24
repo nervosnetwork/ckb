@@ -58,17 +58,43 @@ pub(super) enum RelayMailboxDisposition {
     Disconnected,
 }
 
-struct RelayEnvelope {
-    result: TxVerificationResult,
-    bytes: usize,
-}
-
 struct RelayMailboxState {
-    queue: VecDeque<RelayEnvelope>,
+    queue: VecDeque<TxVerificationResult>,
     bytes: usize,
 }
 
 impl RelayMailboxState {
+    /// Capacity and the queue ledger change together, or the caller keeps
+    /// the original result for reconciliation. The returned flag records a
+    /// watermark crossing before insertion.
+    fn try_push(
+        &mut self,
+        result: TxVerificationResult,
+        limits: &RelayMailboxInner,
+    ) -> Result<bool, TxVerificationResult> {
+        let next = relay_result_bytes(&result).and_then(|result_bytes| {
+            if self.queue.len() >= limits.max_items {
+                return None;
+            }
+            self.bytes
+                .checked_add(result_bytes)
+                .filter(|bytes| *bytes <= limits.max_bytes)
+        });
+        let Some(bytes) = next else {
+            return Err(result);
+        };
+        let crossed_watermark = (self.queue.len() < limits.wake_items
+            && self
+                .queue
+                .len()
+                .checked_add(1)
+                .is_some_and(|items| items >= limits.wake_items))
+            || (self.bytes < limits.wake_bytes && bytes >= limits.wake_bytes);
+        self.bytes = bytes;
+        self.queue.push_back(result);
+        Ok(crossed_watermark)
+    }
+
     fn replace_with_reset(&mut self) {
         if let Some(metrics) = ckb_metrics::handle() {
             metrics
@@ -78,27 +104,28 @@ impl RelayMailboxState {
         }
         self.queue.clear();
         self.bytes = size_of::<TxVerificationResult>();
-        self.queue.push_back(RelayEnvelope {
-            result: TxVerificationResult::GenerationReset,
-            bytes: self.bytes,
-        });
+        self.queue.push_back(TxVerificationResult::GenerationReset);
     }
 
     fn pop_front(&mut self) -> Option<TxVerificationResult> {
-        let envelope = self.queue.pop_front()?;
-        let Some(bytes) = self.bytes.checked_sub(envelope.bytes) else {
+        let result = self.queue.pop_front()?;
+        // Queued messages are immutable; their constant-time charge needs no
+        // second stored copy beside the message.
+        let Some(bytes) =
+            relay_result_bytes(&result).and_then(|bytes| self.bytes.checked_sub(bytes))
+        else {
             return Some(self.reset_after_accounting_mismatch());
         };
         if self.queue.is_empty() != (bytes == 0) {
             return Some(self.reset_after_accounting_mismatch());
         }
         self.bytes = bytes;
-        Some(envelope.result)
+        Some(result)
     }
 
     fn reset_after_accounting_mismatch(&mut self) -> TxVerificationResult {
         // This mailbox is a rebuildable projection. If its private byte
-        // ledger ever disagrees with its owned envelopes, discard the
+        // ledger ever disagrees with its owned messages, discard the
         // remaining detail and force an authoritative relay rebuild. The
         // empty/zero equivalence detects both undercount and overcount without
         // scanning the queue; never hide either mismatch with saturation.
@@ -222,46 +249,37 @@ impl AuthorityRelaySink {
         if !self.inner.receiver_alive.load(Ordering::Acquire) {
             return RelayMailboxDisposition::Disconnected;
         }
-        let result_bytes = relay_result_bytes(&result);
         let mut state = self.inner.state.lock();
         if !self.inner.receiver_alive.load(Ordering::Acquire) {
             return RelayMailboxDisposition::Disconnected;
         }
-        if let Some(result_bytes) = result_bytes
-            && let Some(bytes) = mailbox_bytes_after(&state, result_bytes, &self.inner)
-        {
-            let prompt = matches!(
-                result,
-                TxVerificationResult::GenerationReset | TxVerificationResult::UnknownParents { .. }
-            );
-            let crossed_watermark = relay_drain_watermark_crossed(&state, bytes, &self.inner);
-            state.bytes = bytes;
-            state.queue.push_back(RelayEnvelope {
-                result,
-                bytes: result_bytes,
-            });
-            crate::metrics::relay_queue(state.queue.len(), self.inner.max_items);
-            drop(state);
-            if prompt || crossed_watermark {
-                self.inner.drain_signal.notify_one();
+        let prompt = matches!(
+            result,
+            TxVerificationResult::GenerationReset | TxVerificationResult::UnknownParents { .. }
+        );
+        let result = match state.try_push(result, &self.inner) {
+            Ok(crossed_watermark) => {
+                crate::metrics::relay_queue(state.queue.len(), self.inner.max_items);
+                drop(state);
+                if prompt || crossed_watermark {
+                    self.inner.drain_signal.notify_one();
+                }
+                return RelayMailboxDisposition::Exact;
             }
-            return RelayMailboxDisposition::Exact;
-        }
+            Err(result) => result,
+        };
 
         state.replace_with_reset();
 
-        let disposition = if matches!(result, TxVerificationResult::GenerationReset) {
-            RelayMailboxDisposition::Reconciled
-        } else if let Some(result_bytes) = result_bytes
-            && let Some(bytes) = mailbox_bytes_after(&state, result_bytes, &self.inner)
-        {
-            state.bytes = bytes;
-            state.queue.push_back(RelayEnvelope {
-                result,
-                bytes: result_bytes,
-            });
-            RelayMailboxDisposition::Reconciled
-        } else if matches!(result, TxVerificationResult::UnknownParents { .. }) {
+        let discarded = if matches!(result, TxVerificationResult::GenerationReset) {
+            Some(result)
+        } else {
+            state.try_push(result, &self.inner).err()
+        };
+        let disposition = if matches!(
+            discarded.as_ref(),
+            Some(TxVerificationResult::UnknownParents { .. })
+        ) {
             RelayMailboxDisposition::Unavailable
         } else {
             // Reset conservatively clears known/pending relay state for an
@@ -271,6 +289,9 @@ impl AuthorityRelaySink {
         crate::metrics::relay_queue(state.queue.len(), self.inner.max_items);
         drop(state);
         self.inner.drain_signal.notify_one();
+        // Rejected detail can own a large parent frontier. Preserve its release
+        // after unlocking and notifying, just as for the original input value.
+        drop(discarded);
         disposition
     }
 }
@@ -417,34 +438,6 @@ impl RelayDrain {
         }
         self.receiver.wait_for_drain().await;
     }
-}
-
-fn mailbox_bytes_after(
-    state: &RelayMailboxState,
-    result_bytes: usize,
-    limits: &RelayMailboxInner,
-) -> Option<usize> {
-    if state.queue.len() >= limits.max_items {
-        return None;
-    }
-    state
-        .bytes
-        .checked_add(result_bytes)
-        .filter(|bytes| *bytes <= limits.max_bytes)
-}
-
-fn relay_drain_watermark_crossed(
-    state: &RelayMailboxState,
-    next_bytes: usize,
-    limits: &RelayMailboxInner,
-) -> bool {
-    (state.queue.len() < limits.wake_items
-        && state
-            .queue
-            .len()
-            .checked_add(1)
-            .is_some_and(|items| items >= limits.wake_items))
-        || (state.bytes < limits.wake_bytes && next_bytes >= limits.wake_bytes)
 }
 
 fn relay_result_bytes(result: &TxVerificationResult) -> Option<usize> {
