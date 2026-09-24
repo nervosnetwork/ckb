@@ -26,11 +26,11 @@ use crate::util::compact_packed;
 /// (`TransactionsChecker`) changes on every update and is always evaluated
 /// fresh.
 pub(crate) struct CellLivenessMemo {
-    pub(crate) tip_hash: Option<Byte32>,
+    tip_hash: Option<Byte32>,
     /// The entry cap follows the block byte limit. Refreshing hits and evicting
     /// one least-recently-used key preserves hot lookups through bounded churn.
     /// Keys have compact backing; values include cached unknown results.
-    pub(crate) inner: LruCache<OutPoint, Option<bool>, RandomState>,
+    inner: LruCache<OutPoint, Option<bool>, RandomState>,
 }
 
 impl CellLivenessMemo {
@@ -91,3 +91,7 @@ impl CellChecker for MemoizedChecker<'_> {
         memo.get_or_load(self.snapshot, out_point)
     }
 }
+
+#[cfg(test)]
+#[path = "tests/cell_liveness.rs"]
+mod tests;
