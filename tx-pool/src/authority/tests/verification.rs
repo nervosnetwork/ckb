@@ -24,12 +24,14 @@ fn fixture() -> (Arc<Store>, Arc<Entry>, Arc<Snapshot>) {
     );
     (store, candidate, snapshot)
 }
+
 fn resolved(store: &Store, candidate: &Entry, config: &TxPoolConfig) -> Arc<Resolved> {
     match resolve(store, candidate, config).unwrap() {
         Resolution::Ready(resolved) => resolved,
         _ => panic!("canonical fixture did not resolve"),
     }
 }
+
 fn key(candidate: &Entry, snapshot: &Snapshot) -> TxVerificationCacheKey {
     TxVerificationCacheKey::from_resolved(
         &ResolvedTransaction::dummy_resolve(candidate.transaction.as_ref().clone()),

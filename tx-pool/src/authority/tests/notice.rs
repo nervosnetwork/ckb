@@ -22,6 +22,7 @@ fn fixture(
     );
     (Arc::clone(&store.outbox), endpoints, receiver)
 }
+
 fn effect(nonce: u32) -> Effect {
     Effect {
         relay: Some(TxVerificationResult::Reject {
@@ -30,6 +31,7 @@ fn effect(nonce: u32) -> Effect {
         ..Effect::default()
     }
 }
+
 fn callback_effect(nonce: u32) -> Effect {
     let store = store();
     let hash = accept(&store, output_tx(nonce), 1, 1, Status::Pending);
@@ -40,6 +42,7 @@ fn callback_effect(nonce: u32) -> Effect {
         ..effect(nonce)
     }
 }
+
 fn append(outbox: &Arc<Outbox>, effects: Vec<Effect>) -> Arc<Batch> {
     outbox
         .reserve(effects, Class::Trusted)
@@ -47,6 +50,7 @@ fn append(outbox: &Arc<Outbox>, effects: Vec<Effect>) -> Arc<Batch> {
         .unwrap()
         .append()
 }
+
 fn poll_pending(future: std::pin::Pin<&mut impl Future>) {
     assert!(
         future
@@ -958,6 +962,7 @@ impl std::task::Wake for PublicationWakeCount {
     fn wake(self: Arc<Self>) {
         self.wake_by_ref();
     }
+
     fn wake_by_ref(self: &Arc<Self>) {
         self.0.fetch_add(1, Ordering::AcqRel);
     }

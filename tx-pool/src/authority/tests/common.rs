@@ -48,6 +48,7 @@ pub(in crate::authority) fn capture_rejections() -> &'static ckb_util::Mutex<Vec
         fn enabled(&self, metadata: &Metadata<'_>) -> bool {
             metadata.target() == "ckb_tx_pool::rejection"
         }
+
         fn log(&self, record: &Record<'_>) {
             if self.enabled(record.metadata()) {
                 let value = serde_json::from_str(&record.args().to_string())
@@ -58,6 +59,7 @@ pub(in crate::authority) fn capture_rejections() -> &'static ckb_util::Mutex<Vec
                 records.push(value);
             }
         }
+
         fn flush(&self) {}
     }
     let records = RECORDS.get_or_init(|| ckb_util::Mutex::new(Vec::with_capacity(128)));
@@ -81,6 +83,7 @@ pub(in crate::authority) fn config() -> TxPoolConfig {
         ..TxPoolConfig::default()
     }
 }
+
 pub(in crate::authority) fn store() -> Arc<Store> {
     store_with_pipeline_limit(
         crate::test_support::genesis_snapshot(),
@@ -88,6 +91,7 @@ pub(in crate::authority) fn store() -> Arc<Store> {
         64_000_000,
     )
 }
+
 /// Exercise resource accounting with controlled fixture residency.
 pub(in crate::authority) fn store_with_pipeline_limit(
     snapshot: Arc<Snapshot>,
@@ -105,9 +109,11 @@ pub(in crate::authority) fn store_with_pipeline_limit(
     .expect("fixture residency limits are usable");
     Store::with_limits(snapshot, config, limits).expect("fixture store initializes")
 }
+
 pub(in crate::authority) fn tx(nonce: u32) -> TransactionView {
     TransactionBuilder::default().version(nonce).build()
 }
+
 pub(in crate::authority) fn output_tx(nonce: u32) -> TransactionView {
     TransactionBuilder::default()
         .version(nonce)
@@ -115,6 +121,7 @@ pub(in crate::authority) fn output_tx(nonce: u32) -> TransactionView {
         .output_data(Bytes::new().pack())
         .build()
 }
+
 pub(in crate::authority) fn spend(
     nonce: u32,
     inputs: &[OutPoint],
@@ -132,6 +139,7 @@ pub(in crate::authority) fn spend(
         .output_data(Bytes::new().pack())
         .build()
 }
+
 pub(in crate::authority) fn entry(
     store: &Store,
     transaction: TransactionView,
@@ -144,11 +152,13 @@ pub(in crate::authority) fn entry(
         phase: Phase::Resolve,
     })
 }
+
 pub(in crate::authority) fn insert(store: &Store, entry: Arc<Entry>) {
     let mut plan = Plan::new(store.snapshot().0, Class::Trusted, Default::default());
     plan.edit(None, Some(entry), None).unwrap();
     store.apply(plan).unwrap();
 }
+
 pub(in crate::authority) fn replace(store: &Store, before: Arc<Entry>, phase: Phase) -> Arc<Entry> {
     let after = before.with_phase(phase);
     let mut plan = Plan::new(store.snapshot().0, Class::Trusted, Default::default());
@@ -157,6 +167,7 @@ pub(in crate::authority) fn replace(store: &Store, before: Arc<Entry>, phase: Ph
     store.apply(plan).unwrap();
     after
 }
+
 /// Supply cells, fees and cycles for owner-state tests without running resolution
 /// or script verification. Canonical verification tests use real chain cells.
 pub(in crate::authority) fn verification_fixture(
@@ -207,6 +218,7 @@ pub(in crate::authority) fn verification_fixture(
         status,
     )
 }
+
 /// Plan admission with synthetic verification; membership policy is production code.
 pub(in crate::authority) fn admission(
     store: &Store,
@@ -220,6 +232,7 @@ pub(in crate::authority) fn admission(
     let verified = verification_fixture(store, candidate, fee, cycles, status);
     membership::admission(store, candidate, before, &verified, config, true)
 }
+
 /// Seed accepted ownership through the real admission and commit paths.
 pub(in crate::authority) fn accept(
     store: &Store,

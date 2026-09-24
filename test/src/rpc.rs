@@ -339,23 +339,39 @@ impl RpcClient {
 jsonrpc!(
     pub struct Inner {
     pub fn get_block(&self, _hash: H256) -> Option<BlockView>;
+
     pub fn get_fork_block(&self, _hash: H256) -> Option<BlockView>;
+
     pub fn get_block_by_number(&self, _number: BlockNumber) -> Option<BlockView>;
+
     pub fn get_header(&self, _hash: H256) -> Option<HeaderView>;
+
     pub fn get_header_by_number(&self, _number: BlockNumber) -> Option<HeaderView>;
+
     pub fn get_block_filter(&self, _hash: H256) -> Option<BlockFilter>;
+
     pub fn get_transaction(&self, _hash: H256, verbosity: Option<Uint32>, only_commited: Option<bool>) -> TransactionWithStatusResponse;
+
     pub fn get_block_hash(&self, _number: BlockNumber) -> Option<H256>;
+
     pub fn get_tip_header(&self) -> HeaderView;
+
     pub fn get_live_cell(&self, _out_point: OutPoint, _with_data: bool, _include_tx_pool: Option<bool>) -> CellWithStatus;
+
     pub fn get_tip_block_number(&self) -> BlockNumber;
+
     pub fn get_current_epoch(&self) -> EpochView;
+
     pub fn get_epoch_by_number(&self, number: EpochNumber) -> Option<EpochView>;
 
     pub fn sync_state(&self) -> SyncState;
+
     pub fn local_node_info(&self) -> LocalNode;
+
     pub fn get_peers(&self) -> Vec<RemoteNode>;
+
     pub fn get_banned_addresses(&self) -> Vec<BannedAddr>;
+
     pub fn set_ban(
         &self,
         address: String,
@@ -364,6 +380,7 @@ jsonrpc!(
         absolute: Option<bool>,
         reason: Option<String>
     ) -> ();
+
     pub fn clear_banned_addresses(&self) -> ();
 
     pub fn get_block_template(
@@ -372,33 +389,58 @@ jsonrpc!(
         proposals_limit: Option<Uint64>,
         max_version: Option<Version>
     ) -> BlockTemplate;
+
     pub fn submit_block(&self, _work_id: String, _data: Block) -> H256;
+
     pub fn get_blockchain_info(&self) -> ChainInfo;
+
     pub fn get_block_median_time(&self, block_hash: H256) -> Option<Timestamp>;
+
     pub fn estimate_cycles(&self, _tx: Transaction) -> EstimateCycles;
+
     pub fn send_transaction(&self, tx: Transaction, outputs_validator: Option<String>) -> H256;
+
     pub fn send_test_transaction(&self, tx: Transaction, outputs_validator: Option<String>) -> H256;
+
     pub fn remove_transaction(&self, tx_hash: H256) -> bool;
+
     pub fn tx_pool_info(&self) -> TxPoolInfo;
+
     pub fn get_raw_tx_pool(&self, verbose: Option<bool>) -> RawTxPool;
 
     pub fn add_node(&self, peer_id: String, address: String) -> ();
+
     pub fn remove_node(&self, peer_id: String) -> ();
+
     pub fn process_block_without_verify(&self, _data: Block, broadcast: bool) -> Option<H256>;
+
     pub fn truncate(&self, target_tip_hash: H256) -> ();
+
     pub fn generate_block(&self) -> H256;
+
     pub fn generate_block_with_template(&self, block_template: BlockTemplate) -> H256;
 
     pub fn calculate_dao_maximum_withdraw(&self, _out_point: OutPoint, _hash: H256) -> Capacity;
+
     pub fn get_block_economic_state(&self, _hash: H256) -> Option<BlockEconomicState>;
+
     pub fn get_transaction_proof(&self, tx_hashes: Vec<H256>, block_hash: Option<H256>) -> TransactionProof;
+
     pub fn verify_transaction_proof(&self, tx_proof: TransactionProof) -> Vec<H256>;
+
     pub fn get_transaction_and_witness_proof(&self, tx_hashes: Vec<H256>, block_hash: Option<H256>) -> TransactionAndWitnessProof;
+
     pub fn verify_transaction_and_witness_proof(&self, tx_proof: TransactionAndWitnessProof) -> Vec<H256>;
+
     pub fn notify_transaction(&self, tx: Transaction) -> H256;
+
     pub fn tx_pool_ready(&self) -> bool;
+
     pub fn get_pool_tx_detail_info(&self, _hash: H256) -> PoolTxDetailInfo;
+
     pub fn get_indexer_tip(&self) -> Option<serde_json::Value>;
+
     pub fn get_cells(&self, search_key: serde_json::Value, order: &str, limit: Uint32) -> serde_json::Value;
+
     pub fn get_cells_capacity(&self, search_key: serde_json::Value) -> Option<serde_json::Value>;
 });

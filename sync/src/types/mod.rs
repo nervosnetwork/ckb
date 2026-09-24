@@ -1961,6 +1961,7 @@ impl ActiveChain {
     pub fn is_main_chain(&self, hash: &packed::Byte32) -> bool {
         self.snapshot.is_main_chain(hash)
     }
+
     pub fn is_unverified_chain(&self, hash: &packed::Byte32) -> bool {
         self.store().get_block_epoch_index(hash).is_some()
     }
@@ -1968,6 +1969,7 @@ impl ActiveChain {
     pub fn is_initial_block_download(&self) -> bool {
         self.shared().is_initial_block_download()
     }
+
     pub fn unverified_tip_header(&self) -> HeaderIndex {
         self.shared().get_unverified_tip()
     }

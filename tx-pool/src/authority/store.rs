@@ -226,6 +226,7 @@ impl Relation {
                 Roles::NONE
             }
     }
+
     fn is_empty(&self) -> bool {
         self.spender.is_none() && self.members.is_empty() && self.wake.is_none()
     }
@@ -382,6 +383,7 @@ fn compact_dependency(key: &DependencyKey) -> DependencyKey {
         DependencyKey::Header(hash) => DependencyKey::Header(compact_packed(hash)),
     }
 }
+
 fn compact_relation(key: &RelationKey) -> RelationKey {
     match key {
         RelationKey::Dependency(key) => RelationKey::Dependency(compact_dependency(key)),
@@ -394,6 +396,7 @@ impl Store {
         let limits = Limits::new(config, snapshot.consensus())?;
         Self::with_limits(snapshot, config, limits)
     }
+
     pub(super) fn with_limits(
         snapshot: Arc<Snapshot>,
         config: &TxPoolConfig,
@@ -431,9 +434,11 @@ impl Store {
             work: Notify::new(),
         }))
     }
+
     fn route<T: Hash + ?Sized>(&self, key: &T) -> ShardIndex {
         self.routing.key(key)
     }
+
     fn owner_shard(&self, hash: &Byte32) -> ShardIndex {
         self.routing.owner(hash)
     }
@@ -444,10 +449,12 @@ impl Store {
             .map_err(|_| Error::Full(FullReason::ChainTransition))?;
         Ok(ChainPause(self))
     }
+
     pub(super) fn snapshot(&self) -> (u64, Arc<Snapshot>) {
         let view = self.view.read();
         (view.revision, Arc::clone(&view.snapshot))
     }
+
     pub(super) fn next_arrival(&self) -> Result<u64, Error> {
         self.arrival
             .fetch_update(Ordering::AcqRel, Ordering::Acquire, |old| {
@@ -458,6 +465,7 @@ impl Store {
                 Error::Fault("arrival counter")
             })
     }
+
     pub(super) fn fault(&self) {
         if !self.faulted.swap(true, Ordering::AcqRel) {
             crate::metrics::record_failure(crate::metrics::FailureBoundary::TypedFault);
@@ -468,18 +476,22 @@ impl Store {
         self.outbox.failed.notify_waiters();
         self.outbox.changed.notify_waiters();
     }
+
     pub(super) fn is_faulted(&self) -> bool {
         self.faulted.load(Ordering::Acquire) || self.budget.faulted()
     }
+
     pub(super) fn stop(&self) {
         self.stopped.store(true, Ordering::Release);
         self.work.notify_waiters();
         self.changed.notify_waiters();
         self.template_changed.notify_waiters();
     }
+
     pub(super) fn is_stopped(&self) -> bool {
         self.stopped.load(Ordering::Acquire)
     }
+
     #[expect(
         clippy::arithmetic_side_effects,
         reason = "The cursor and scan count advance only within the bounded scan."
@@ -669,6 +681,7 @@ impl Store {
         reads.observe_owner(hash, entry.as_ref())?;
         Ok(entry)
     }
+
     /// Copy one bounded pool cell while its producer still owns its complete
     /// payload charge. No provider or foreign code is called under this read.
     pub(super) fn pool_cell(
@@ -706,9 +719,11 @@ impl Store {
                 .build(),
         ))
     }
+
     fn relation(&self, key: &RelationKey) -> Option<Arc<Mutex<Relation>>> {
         self.relations.at(self.route(key)).lock().get(key).cloned()
     }
+
     pub(super) fn spender(
         &self,
         point: &OutPoint,
@@ -728,6 +743,7 @@ impl Store {
         }
         Ok(spender)
     }
+
     /// Owners holding any selected role, including the separately stored spender.
     /// The observation tracks accepted membership, not changes to waiting owners.
     fn members(
@@ -762,6 +778,7 @@ impl Store {
         }
         Ok(members)
     }
+
     pub(super) fn peer_members(
         &self,
         peer: PeerIndex,
@@ -785,6 +802,7 @@ impl Store {
         reads.peers.entry(peer).or_insert(version);
         Ok(hashes)
     }
+
     pub(super) fn capture_all(&self) -> Captured {
         self.capture(false)
     }
@@ -831,6 +849,7 @@ impl Store {
             reads,
         }
     }
+
     /// Capture one accepted descendant closure at a coherent cut. Every child
     /// membership update holds an owner writer, so these read guards stabilize
     /// the existing relation rows too. Caller owns a bounded read/capture slot.
@@ -875,6 +894,7 @@ impl Store {
         }
         Ok((snapshot, owners))
     }
+
     /// Owner reservations settle before their guards open, so the accepted
     /// account and owner/queue projections describe this same complete cut.
     pub(super) fn capture_summary(&self) -> Summary {
@@ -897,6 +917,7 @@ impl Store {
                 .unwrap_or(0),
         }
     }
+
     /// Validate captured facts before bounded synchronous publication, including
     /// candidate pruning and replacement of the current template.
     /// Supports point owners/spenders and complete owner revision captures;
@@ -980,6 +1001,7 @@ impl Store {
             after,
         })
     }
+
     pub(super) fn expired(
         &self,
         now: Instant,

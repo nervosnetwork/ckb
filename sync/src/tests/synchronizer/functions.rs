@@ -450,6 +450,7 @@ impl CKBProtocolContext for DummyNetworkContext {
     async fn remove_notify(&self, _token: u64) -> Result<(), ckb_network::Error> {
         unimplemented!()
     }
+
     async fn async_future_task(
         &self,
         _task: Pin<Box<dyn Future<Output = ()> + 'static + Send>>,
@@ -466,6 +467,7 @@ impl CKBProtocolContext for DummyNetworkContext {
     ) -> Result<(), ckb_network::Error> {
         self.send_message(proto_id, peer_index, data)
     }
+
     async fn async_quick_send_message_to(
         &self,
         peer_index: PeerIndex,
@@ -473,6 +475,7 @@ impl CKBProtocolContext for DummyNetworkContext {
     ) -> Result<(), ckb_network::Error> {
         self.send_message_to(peer_index, data)
     }
+
     async fn async_quick_filter_broadcast(
         &self,
         target: TargetSession,
@@ -480,6 +483,7 @@ impl CKBProtocolContext for DummyNetworkContext {
     ) -> Result<(), ckb_network::Error> {
         self.filter_broadcast(target, data)
     }
+
     async fn async_send_message(
         &self,
         _proto_id: ProtocolId,
@@ -488,6 +492,7 @@ impl CKBProtocolContext for DummyNetworkContext {
     ) -> Result<(), ckb_network::Error> {
         Ok(())
     }
+
     async fn async_send_message_to(
         &self,
         _peer_index: PeerIndex,
@@ -495,6 +500,7 @@ impl CKBProtocolContext for DummyNetworkContext {
     ) -> Result<(), ckb_network::Error> {
         Ok(())
     }
+
     async fn async_filter_broadcast(
         &self,
         _target: TargetSession,
@@ -502,6 +508,7 @@ impl CKBProtocolContext for DummyNetworkContext {
     ) -> Result<(), ckb_network::Error> {
         Ok(())
     }
+
     async fn async_filter_broadcast_with_proto(
         &self,
         _proto_id: ProtocolId,
@@ -510,6 +517,7 @@ impl CKBProtocolContext for DummyNetworkContext {
     ) -> Result<(), ckb_network::Error> {
         Ok(())
     }
+
     async fn async_quick_filter_broadcast_with_proto(
         &self,
         _proto_id: ProtocolId,
@@ -518,6 +526,7 @@ impl CKBProtocolContext for DummyNetworkContext {
     ) -> Result<(), ckb_network::Error> {
         Ok(())
     }
+
     async fn async_disconnect(
         &self,
         peer_index: PeerIndex,
@@ -544,6 +553,7 @@ impl CKBProtocolContext for DummyNetworkContext {
     ) -> Result<(), ckb_network::Error> {
         self.send_message(proto_id, peer_index, data)
     }
+
     fn quick_send_message_to(
         &self,
         peer_index: PeerIndex,
@@ -551,6 +561,7 @@ impl CKBProtocolContext for DummyNetworkContext {
     ) -> Result<(), ckb_network::Error> {
         self.send_message_to(peer_index, data)
     }
+
     fn quick_filter_broadcast(
         &self,
         target: TargetSession,
@@ -558,6 +569,7 @@ impl CKBProtocolContext for DummyNetworkContext {
     ) -> Result<(), ckb_network::Error> {
         self.filter_broadcast(target, data)
     }
+
     fn send_message(
         &self,
         _proto_id: ProtocolId,
@@ -566,6 +578,7 @@ impl CKBProtocolContext for DummyNetworkContext {
     ) -> Result<(), ckb_network::Error> {
         Ok(())
     }
+
     fn send_message_to(
         &self,
         _peer_index: PeerIndex,
@@ -573,6 +586,7 @@ impl CKBProtocolContext for DummyNetworkContext {
     ) -> Result<(), ckb_network::Error> {
         Ok(())
     }
+
     fn filter_broadcast(
         &self,
         _target: TargetSession,
@@ -580,6 +594,7 @@ impl CKBProtocolContext for DummyNetworkContext {
     ) -> Result<(), ckb_network::Error> {
         Ok(())
     }
+
     fn quick_filter_broadcast_with_proto(
         &self,
         _proto_id: ProtocolId,
@@ -588,23 +603,31 @@ impl CKBProtocolContext for DummyNetworkContext {
     ) -> Result<(), ckb_network::Error> {
         Ok(())
     }
+
     fn disconnect(&self, peer_index: PeerIndex, _msg: &str) -> Result<(), ckb_network::Error> {
         self.disconnected.lock().insert(peer_index);
         Ok(())
     }
+
     // Interact with NetworkState
     fn get_peer(&self, peer_index: PeerIndex) -> Option<Peer> {
         self.peers.get(&peer_index).cloned()
     }
+
     fn with_peer_mut(&self, _peer_index: PeerIndex, _f: Box<dyn FnOnce(&mut Peer)>) {}
+
     fn connected_peers(&self) -> Vec<PeerIndex> {
         unimplemented!();
     }
+
     fn full_relay_connected_peers(&self) -> Vec<PeerIndex> {
         unimplemented!();
     }
+
     fn report_peer(&self, _peer_index: PeerIndex, _behaviour: Behaviour) {}
+
     fn ban_peer(&self, _peer_index: PeerIndex, _duration: Duration, _reason: String) {}
+
     // Other methods
     fn protocol_id(&self) -> ProtocolId {
         ProtocolId::new(1)

@@ -16,24 +16,30 @@ impl<'a> Graph<'a> {
             plan,
         }
     }
+
     /// Entries reached by this decision; only a capacity trim captures all accepted entries.
     pub(super) fn observed(&self) -> &Members {
         &self.observed
     }
+
     pub(super) fn limits(&self) -> &Limits {
         &self.store.budget.limits
     }
+
     pub(super) fn accepted_usage(&self) -> Amount {
         self.store.budget.accepted_usage()
     }
+
     pub(super) fn spender(&mut self, point: &OutPoint) -> Result<Option<Byte32>, Error> {
         self.plan.spender(self.store, point)
     }
+
     /// Observe the complete input/dep relation, including an empty result.
     /// New readers of an output must be included when its producer is admitted.
     pub(super) fn readers(&mut self, point: OutPoint) -> Result<Vec<Byte32>, Error> {
         self.plan.readers(self.store, point)
     }
+
     pub(super) fn capture_accepted(&mut self) -> Result<(), Error> {
         self.observed = self
             .plan
@@ -43,6 +49,7 @@ impl<'a> Graph<'a> {
             .collect();
         Ok(())
     }
+
     pub(in crate::authority) fn get(&mut self, hash: &Byte32) -> Result<Option<Arc<Entry>>, Error> {
         if let Some(entry) = self.observed.get(hash) {
             return Ok(Some(Arc::clone(entry)));
@@ -57,9 +64,11 @@ impl<'a> Graph<'a> {
         }
         Ok(entry)
     }
+
     pub(in crate::authority) fn require(&mut self, hash: &Byte32) -> Result<Arc<Entry>, Error> {
         self.get(hash)?.ok_or(Error::Stale)
     }
+
     pub(in crate::authority) fn descendants(
         &mut self,
         roots: impl IntoIterator<Item = Byte32>,
@@ -80,6 +89,7 @@ impl<'a> Graph<'a> {
         }
         Ok(result)
     }
+
     pub(in crate::authority) fn ancestors(
         &mut self,
         roots: impl IntoIterator<Item = Byte32>,
@@ -100,6 +110,7 @@ impl<'a> Graph<'a> {
         }
         Ok(result)
     }
+
     /// Compute original totals only for entries that need removal notices.
     /// Observe each descendant relation once, then reuse immutable parent edges.
     pub(in crate::authority) fn removal_totals(
@@ -147,6 +158,7 @@ impl<'a> Graph<'a> {
         }
         Ok(totals)
     }
+
     pub(in crate::authority) fn entry_snapshot(
         &mut self,
         hash: &Byte32,

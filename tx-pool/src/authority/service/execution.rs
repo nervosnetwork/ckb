@@ -29,6 +29,7 @@ impl Pool {
         }
         Ok(())
     }
+
     pub(super) async fn reject_job(
         &self,
         job: &Job,
@@ -53,12 +54,14 @@ impl Pool {
             Err(error) => Err(error),
         }
     }
+
     // Capacity refusal is pool policy, independent of resolved transaction
     // facts. Rejection still settles the selected owner, including stale requeue.
     async fn reject_capacity(&self, job: &Job, reason: FullReason) -> Result<(), Error> {
         self.reject_job(job, Reject::Full(reason.to_string()), ReadSet::default())
             .await
     }
+
     pub(super) async fn resolve_job(&self, job: &Job, cpu: ComputePermit) -> Result<(), Error> {
         let resolution = cpu.run(|| jobs::resolve(&self.store, &job.entry, &self.config));
         drop(cpu);
@@ -82,6 +85,7 @@ impl Pool {
             Err(error) => Err(error),
         }
     }
+
     pub(super) async fn accept_job(&self, job: &Job, verified: &Verified) -> Result<(), Error> {
         let mut admission = Admission::new(
             self,
@@ -112,6 +116,7 @@ impl Pool {
             }
         }
     }
+
     pub(super) async fn worker(
         self: Arc<Self>,
         primary_stage: WorkStage,

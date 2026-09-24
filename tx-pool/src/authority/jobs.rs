@@ -63,11 +63,13 @@ impl Job {
             handled: false,
         }
     }
+
     /// The worker acknowledges successful settlement before leaving its frame.
     /// The active reservation remains held until Job and its results drop.
     pub(super) fn mark_handled(&mut self) {
         self.handled = true;
     }
+
     pub(super) fn current(&self) -> bool {
         self.store.is_current(&self.entry)
     }
@@ -189,6 +191,7 @@ impl Provider<'_> {
             .insert(compact_packed(point), (cell.clone(), bytes.max(old_bytes)));
         Ok(CellStatus::live_cell(cell))
     }
+
     fn error(&self) -> Option<Error> {
         self.observed.borrow().error.clone()
     }
@@ -414,13 +417,16 @@ impl Verified {
     pub(super) fn resolved(&self) -> &Arc<Resolved> {
         &self.resolved
     }
+
     pub(super) fn cycles(&self) -> u64 {
         self.cycles
     }
+
     #[cfg(any(test, feature = "internal"))]
     pub(super) fn forced_status(&self) -> Option<Status> {
         self.fixture.map(|(status, _)| status)
     }
+
     pub(super) fn serialized_size(&self) -> usize {
         #[cfg(any(test, feature = "internal"))]
         if let Some((_, size)) = self.fixture {
@@ -432,6 +438,7 @@ impl Verified {
             .data()
             .serialized_size_in_block()
     }
+
     pub(super) fn timestamp(&self) -> u64 {
         self.timestamp
     }
@@ -452,6 +459,7 @@ pub(super) fn environment(status: Status, snapshot: &Snapshot) -> TxVerifyEnv {
         ),
     }
 }
+
 #[cfg_attr(
     feature = "profiling",
     tracing::instrument(

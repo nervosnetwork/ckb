@@ -41,9 +41,11 @@ fn fixture() -> (Arc<Pool>, RelaySink, RelayDrain, Handle) {
     .unwrap();
     (pool, sink, drain, handle)
 }
+
 fn bounded(tx: TransactionView) -> BoundedTransaction {
     BoundedTransaction::try_new(tx).unwrap()
 }
+
 fn fund(pool: &Pool, nonce: u32) -> TransactionView {
     let parent = funded_parent(nonce, 20_000_000_000);
     accept(&pool.store, parent.clone(), 1, 1, Status::Pending);
@@ -53,6 +55,7 @@ fn fund(pool: &Pool, nonce: u32) -> TransactionView {
     replace(&pool.store, owner, Phase::Accepted(value));
     funded_tx(OutPoint::new(parent.hash(), 0), 19_999_999_000)
 }
+
 fn endpoints(sink: RelaySink, callbacks: Callbacks) -> Endpoints {
     Endpoints::new(
         Arc::new(DummyTxPoolNetwork),
@@ -62,11 +65,13 @@ fn endpoints(sink: RelaySink, callbacks: Callbacks) -> Endpoints {
         FeeEstimator::new_dummy(),
     )
 }
+
 async fn within<T>(future: impl Future<Output = T>) -> T {
     tokio::time::timeout(Duration::from_secs(10), future)
         .await
         .expect("bounded event completion")
 }
+
 async fn observe(pool: &Pool, hash: &Byte32, check: impl Fn(&Entry) -> bool) {
     within(async {
         loop {
@@ -86,6 +91,7 @@ async fn observe(pool: &Pool, hash: &Byte32, check: impl Fn(&Entry) -> bool) {
     })
     .await;
 }
+
 async fn shutdown(
     pool: &Pool,
     mut tasks: JoinSet<Result<(), Error>>,

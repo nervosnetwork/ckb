@@ -58,6 +58,7 @@ impl Aggregate {
             fee: u128::from(entry.fee.as_u64()),
         }
     }
+
     pub(super) fn add(self, rhs: Self) -> Result<Self, Error> {
         Ok(Self {
             count: self.count.checked_add(rhs.count).ok_or_else(overflow)?,
@@ -66,6 +67,7 @@ impl Aggregate {
             fee: self.fee.checked_add(rhs.fee).ok_or_else(overflow)?,
         })
     }
+
     fn sub(self, rhs: Self) -> Result<Self, Error> {
         Ok(Self {
             count: self.count.checked_sub(rhs.count).ok_or_else(overflow)?,
@@ -74,6 +76,7 @@ impl Aggregate {
             fee: self.fee.checked_sub(rhs.fee).ok_or_else(overflow)?,
         })
     }
+
     pub(super) fn fee(self) -> Capacity {
         Capacity::shannons(self.fee.min(u128::from(u64::MAX)) as u64)
     }
@@ -81,12 +84,14 @@ impl Aggregate {
 fn accepted(entry: &Entry) -> Result<&Accepted, Error> {
     entry.accepted().ok_or(Error::Stale)
 }
+
 fn component_limit() -> Error {
     Reject::Full(format!(
         "pool mutation exceeds the per-transition limit of {MAX_POOL_MUTATION_CANDIDATES}"
     ))
     .into()
 }
+
 fn causal_cycle(hash: &Byte32) -> Error {
     Reject::Invalidated(format!(
         "candidate would create a causal cycle through {hash:?}"
@@ -120,6 +125,7 @@ pub(super) fn ancestor_hashes(
     }
     Ok(seen)
 }
+
 pub(super) fn children(members: &Members) -> BTreeMap<Byte32, BTreeSet<Byte32>> {
     let mut children: BTreeMap<_, BTreeSet<_>> = BTreeMap::new();
     for (hash, entry) in members {
@@ -134,6 +140,7 @@ pub(super) fn children(members: &Members) -> BTreeMap<Byte32, BTreeSet<Byte32>> 
     }
     children
 }
+
 pub(super) fn descendant_hashes(
     children: &BTreeMap<Byte32, BTreeSet<Byte32>>,
     roots: impl IntoIterator<Item = Byte32>,
@@ -154,6 +161,7 @@ pub(super) fn descendant_hashes(
     }
     Ok(seen)
 }
+
 pub(super) fn aggregate(members: &Members, hashes: &BTreeSet<Byte32>) -> Result<Aggregate, Error> {
     hashes.iter().try_fold(Aggregate::default(), |sum, hash| {
         sum.add(Aggregate::one(accepted(
@@ -161,6 +169,7 @@ pub(super) fn aggregate(members: &Members, hashes: &BTreeSet<Byte32>) -> Result<
         )?))
     })
 }
+
 /// Recompute each member's bounded ancestor closure and descendant totals.
 /// Reuse ordinal marks and scratch across roots; no transitive sets or owner
 /// references survive this calculation. The returned map remains the only totals.
@@ -406,6 +415,7 @@ fn rbf(
     }
     Ok(removed)
 }
+
 fn validate_backing(verified: &Verified, removed: &BTreeSet<Byte32>) -> Result<(), Error> {
     // Every resolved cell must remain live after replacement, including
     // cell-deps and both the container and expanded members of dep groups.
@@ -427,6 +437,7 @@ fn validate_backing(verified: &Verified, removed: &BTreeSet<Byte32>) -> Result<(
     }
     Ok(())
 }
+
 fn candidate_parents(
     graph: &mut Graph<'_>,
     candidate: &Entry,
@@ -449,6 +460,7 @@ fn candidate_parents(
     // their read-before-spend order without charging it as causal ancestry.
     Ok(parents)
 }
+
 fn apply_virtual(
     original: &Members,
     candidate: &Arc<Entry>,
@@ -466,6 +478,7 @@ fn apply_virtual(
     }
     Ok(entries)
 }
+
 fn total_charge(entries: &Members) -> Result<Amount, Error> {
     entries
         .values()
@@ -890,6 +903,7 @@ pub(super) fn removal_order(
     }
     Ok(order)
 }
+
 fn history(
     old: &Entry,
     candidate_inputs: &BTreeSet<OutPoint>,

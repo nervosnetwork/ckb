@@ -34,6 +34,7 @@ pub(super) fn remote_source(peer: PeerIndex, cycles: Cycle) -> Result<Source, Er
         cycles: Some(cycles),
     })
 }
+
 pub(super) fn class(source: Source) -> Class {
     if matches!(source, Source::Remote { .. }) {
         Class::Remote

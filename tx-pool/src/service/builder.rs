@@ -61,6 +61,7 @@ impl TxPoolServiceBuilder {
     pub(crate) fn pool_for_test(&self) -> Arc<Pool> {
         Arc::clone(&self.pool)
     }
+
     /// Construct the bounded controller and sole committed relay receiver.
     pub fn new(
         config: TxPoolConfig,
@@ -129,28 +130,33 @@ impl TxPoolServiceBuilder {
             TxVerificationResultReceiver::from_authority(drain),
         ))
     }
+
     /// Register notification of committed pending transactions.
     ///
     /// The callback must follow the [Callbacks] contract and return promptly.
     pub fn register_pending(&mut self, callback: PendingCallback) {
         self.callbacks.register_pending(callback);
     }
+
     /// Register notification of committed proposed transactions.
     ///
     /// The callback must follow the [Callbacks] contract and return promptly.
     pub fn register_proposed(&mut self, callback: ProposedCallback) {
         self.callbacks.register_proposed(callback);
     }
+
     /// Register notification of committed transaction rejection.
     ///
     /// The callback must follow the [Callbacks] contract and return promptly.
     pub fn register_reject(&mut self, callback: RejectCallback) {
         self.callbacks.register_reject(callback);
     }
+
     /// Return the optional recent rejection database.
     pub fn recent_reject(&self) -> Option<Arc<RecentReject>> {
         self.recent_reject.clone()
     }
+
     pub(crate) fn build_recent_reject(config: &TxPoolConfig) -> Option<RecentReject> {
         if config.recent_reject.as_os_str().is_empty() {
             warn!("Recent reject database is disabled!");
@@ -171,10 +177,12 @@ impl TxPoolServiceBuilder {
         })
         .ok()
     }
+
     /// Start the service; its generation task joins all owned workers on stop.
     pub fn start<N: TxPoolNetwork>(self, network: N) {
         drop(self.start_inner(network));
     }
+
     #[cfg(any(test, feature = "internal"))]
     pub(crate) fn start_with_handle<N: TxPoolNetwork>(
         self,
@@ -182,12 +190,14 @@ impl TxPoolServiceBuilder {
     ) -> tokio::task::JoinHandle<()> {
         self.start_inner(network)
     }
+
     fn start_inner<N: TxPoolNetwork>(self, network: N) -> tokio::task::JoinHandle<()> {
         crate::verification::calibration::initialize();
         let handle = self.handle.clone();
         let network: TxPoolNetworkHandle = Arc::new(network);
         handle.spawn(self.run(network))
     }
+
     async fn run(self, network: TxPoolNetworkHandle) {
         let Self {
             pool,

@@ -189,6 +189,7 @@ pub(crate) async fn process(pool: Arc<Pool>, message: Message) -> Result<(), Err
         ),
     }
 }
+
 fn settle(error: Error) -> Result<(), Error> {
     if matches!(error, Error::Fault(_)) {
         Err(error)
@@ -197,6 +198,7 @@ fn settle(error: Error) -> Result<(), Error> {
         Ok(())
     }
 }
+
 fn reply<R: std::fmt::Debug, E: Into<AnyError>>(
     responder: impl OneshotSender<Result<R, AnyError>>,
     result: Result<R, E>,

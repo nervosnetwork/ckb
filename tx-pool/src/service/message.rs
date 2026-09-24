@@ -65,6 +65,7 @@ impl BoundedTransaction {
             transaction: Arc::new(transaction),
         })
     }
+
     pub(crate) fn into_transaction(self) -> Arc<TransactionView> {
         self.transaction
     }

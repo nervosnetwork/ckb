@@ -156,6 +156,7 @@ impl Queues {
             large_threshold,
         }
     }
+
     /// Remaining work in both queues; selected jobs have already been removed.
     /// Complete summary capture holds owner guards while taking these lanes.
     pub(super) fn queued_len(&self) -> usize {
@@ -163,6 +164,7 @@ impl Queues {
         let verify = self.verify.lock();
         [resolve.len, verify.len].into_iter().sum()
     }
+
     pub(super) fn take(&self) -> Self {
         // Clear owns the lifecycle and all owner guards. Like summary capture,
         // it takes resolve before verify; Pop holds no owner guard.
@@ -175,12 +177,14 @@ impl Queues {
             large_threshold: self.large_threshold,
         }
     }
+
     fn lane(&self, stage: WorkStage) -> &Mutex<Lane> {
         match stage {
             WorkStage::Resolve => &self.resolve,
             WorkStage::Verify => &self.verify,
         }
     }
+
     fn placement(&self, entry: &Entry) -> Option<Placement> {
         let stage = WorkStage::for_phase(&entry.phase)?;
         let fee_and_size = match (&entry.phase, self.order) {
@@ -215,6 +219,7 @@ impl Queues {
             },
         })
     }
+
     #[expect(
         clippy::arithmetic_side_effects,
         reason = "The count grows only for a newly allocated map entry; live entries cannot exceed usize."
@@ -236,6 +241,7 @@ impl Queues {
             lane.len += 1;
         }
     }
+
     pub(super) fn remove(&self, entry: &Arc<Entry>) {
         let Some(Placement {
             stage,
@@ -250,6 +256,7 @@ impl Queues {
             .lock()
             .remove(owner, size, &key, Some(entry));
     }
+
     /// Active memory/peer capacity is reserved before removing the exact item.
     /// Neither this queue nor the budget mutex ever waits for an owner lock.
     pub(super) fn pop(

@@ -82,6 +82,7 @@ impl Driver {
             failed: AtomicBool::new(false),
         })
     }
+
     pub(super) fn uncle(&self, uncle: crate::block_assembler::BoundedCandidateUncle) {
         match self
             .assembler
@@ -94,6 +95,7 @@ impl Driver {
             Err(error) => ckb_logger::warn!("candidate uncle unavailable: {error:?}"),
         }
     }
+
     pub(super) async fn read(
         &self,
         deadline: tokio::time::Instant,
@@ -139,6 +141,7 @@ impl Driver {
                 .map_err(|_| Error::Full("template refresh timeout".into()))?;
         }
     }
+
     fn prepare(&self, packing: &mut Cache) -> Result<PreparedTemplate, BuildError> {
         let Captured {
             view,
@@ -255,10 +258,12 @@ impl Driver {
             prune,
         })
     }
+
     fn rebuild(&self, packing: &mut Cache) -> Result<(), BuildError> {
         self.publish(self.prepare(packing)?)?;
         Ok(())
     }
+
     fn publish(&self, prepared: PreparedTemplate) -> Result<(), Error> {
         let PreparedTemplate { current, prune } = prepared;
         let source = current
@@ -283,6 +288,7 @@ impl Driver {
         self.notification.notify_one();
         Ok(())
     }
+
     pub(super) async fn run(self: Arc<Self>) -> Result<(), Error> {
         let mut first = true;
         let mut packing = Cache::default();
@@ -341,6 +347,7 @@ impl Driver {
             tokio::select! { _ = &mut changed => {}, _ = &mut requested => {} }
         }
     }
+
     pub(super) async fn notify(self: Arc<Self>) -> Result<(), Error> {
         loop {
             let changed = self.store.template_changed.notified();

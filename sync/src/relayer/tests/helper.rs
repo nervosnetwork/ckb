@@ -383,9 +383,11 @@ impl CKBProtocolContext for MockProtocolContext {
     async fn set_notify(&self, _interval: Duration, _token: u64) -> Result<(), Error> {
         unimplemented!()
     }
+
     async fn remove_notify(&self, _token: u64) -> Result<(), Error> {
         unimplemented!()
     }
+
     async fn async_quick_send_message(
         &self,
         proto_id: ProtocolId,
@@ -394,6 +396,7 @@ impl CKBProtocolContext for MockProtocolContext {
     ) -> Result<(), Error> {
         self.quick_send_message(proto_id, peer_index, data)
     }
+
     async fn async_quick_send_message_to(
         &self,
         _peer_index: PeerIndex,
@@ -401,6 +404,7 @@ impl CKBProtocolContext for MockProtocolContext {
     ) -> Result<(), Error> {
         unimplemented!();
     }
+
     async fn async_quick_filter_broadcast(
         &self,
         target: TargetSession,
@@ -408,6 +412,7 @@ impl CKBProtocolContext for MockProtocolContext {
     ) -> Result<(), Error> {
         self.quick_filter_broadcast(target, data)
     }
+
     async fn async_future_task(
         &self,
         _task: Pin<Box<dyn Future<Output = ()> + 'static + Send>>,
@@ -415,6 +420,7 @@ impl CKBProtocolContext for MockProtocolContext {
     ) -> Result<(), Error> {
         Ok(())
     }
+
     async fn async_send_message(
         &self,
         proto_id: ProtocolId,
@@ -426,6 +432,7 @@ impl CKBProtocolContext for MockProtocolContext {
             .push((proto_id, peer_index, data));
         Ok(())
     }
+
     async fn async_send_message_to(
         &self,
         peer_index: PeerIndex,
@@ -442,6 +449,7 @@ impl CKBProtocolContext for MockProtocolContext {
     ) -> Result<(), Error> {
         self.quick_filter_broadcast(target, data)
     }
+
     async fn async_filter_broadcast_with_proto(
         &self,
         proto_id: ProtocolId,
@@ -451,6 +459,7 @@ impl CKBProtocolContext for MockProtocolContext {
         self.async_quick_filter_broadcast_with_proto(proto_id, target, data)
             .await
     }
+
     async fn async_quick_filter_broadcast_with_proto(
         &self,
         proto_id: ProtocolId,
@@ -473,9 +482,11 @@ impl CKBProtocolContext for MockProtocolContext {
         }
         Ok(())
     }
+
     async fn async_disconnect(&self, _peer_index: PeerIndex, _message: &str) -> Result<(), Error> {
         unimplemented!();
     }
+
     fn quick_send_message(
         &self,
         proto_id: ProtocolId,
@@ -484,9 +495,11 @@ impl CKBProtocolContext for MockProtocolContext {
     ) -> Result<(), Error> {
         self.send_message(proto_id, peer_index, data)
     }
+
     fn quick_send_message_to(&self, peer_index: PeerIndex, data: P2pBytes) -> Result<(), Error> {
         self.send_message_to(peer_index, data)
     }
+
     fn quick_filter_broadcast(&self, target: TargetSession, data: P2pBytes) -> Result<(), Error> {
         if let TargetSession::Single(peer) = target {
             self.sent_messages
@@ -495,6 +508,7 @@ impl CKBProtocolContext for MockProtocolContext {
         }
         Ok(())
     }
+
     fn quick_filter_broadcast_with_proto(
         &self,
         _proto_id: ProtocolId,
@@ -503,6 +517,7 @@ impl CKBProtocolContext for MockProtocolContext {
     ) -> Result<(), Error> {
         Ok(())
     }
+
     fn future_task(
         &self,
         _task: Pin<Box<dyn Future<Output = ()> + 'static + Send>>,
@@ -510,6 +525,7 @@ impl CKBProtocolContext for MockProtocolContext {
     ) -> Result<(), Error> {
         Ok(())
     }
+
     fn send_message(
         &self,
         proto_id: ProtocolId,
@@ -521,6 +537,7 @@ impl CKBProtocolContext for MockProtocolContext {
             .push((proto_id, peer_index, data));
         Ok(())
     }
+
     fn send_message_to(&self, peer_index: PeerIndex, data: P2pBytes) -> Result<(), Error> {
         let protocol_id = self.protocol_id();
         self.send_message(protocol_id, peer_index, data)
@@ -529,27 +546,35 @@ impl CKBProtocolContext for MockProtocolContext {
     fn filter_broadcast(&self, target: TargetSession, data: P2pBytes) -> Result<(), Error> {
         self.quick_filter_broadcast(target, data)
     }
+
     fn disconnect(&self, _peer_index: PeerIndex, _message: &str) -> Result<(), Error> {
         unimplemented!();
     }
+
     fn get_peer(&self, _peer_index: PeerIndex) -> Option<Peer> {
         unimplemented!();
     }
+
     fn with_peer_mut(&self, _peer_index: PeerIndex, _f: Box<dyn FnOnce(&mut Peer)>) {
         unimplemented!();
     }
+
     fn connected_peers(&self) -> Vec<PeerIndex> {
         vec![]
     }
+
     fn full_relay_connected_peers(&self) -> Vec<PeerIndex> {
         self.full_relay_peers.borrow().clone()
     }
+
     fn report_peer(&self, _peer_index: PeerIndex, _behaviour: Behaviour) {
         unimplemented!();
     }
+
     fn ban_peer(&self, peer_index: PeerIndex, _duration: Duration, reason: String) {
         self.banned_peers.borrow_mut().push((peer_index, reason));
     }
+
     fn protocol_id(&self) -> ProtocolId {
         self.protocol.protocol_id()
     }

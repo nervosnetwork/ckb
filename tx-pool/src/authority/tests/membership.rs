@@ -20,9 +20,11 @@ fn hashes(store: &Store) -> BTreeSet<Byte32> {
         .map(|entry| entry.hash())
         .collect()
 }
+
 fn point(byte: u8) -> OutPoint {
     OutPoint::new(Byte32::new([byte; 32]), 0)
 }
+
 fn rbf() -> TxPoolConfig {
     TxPoolConfig {
         min_rbf_rate: FeeRate::from_u64(1000),

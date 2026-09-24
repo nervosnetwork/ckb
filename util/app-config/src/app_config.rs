@@ -259,6 +259,7 @@ impl AppConfig {
     fn with_ckb(config: CKBAppConfig) -> AppConfig {
         AppConfig::CKB(Box::new(config))
     }
+
     fn with_miner(config: MinerAppConfig) -> AppConfig {
         AppConfig::Miner(Box::new(config))
     }

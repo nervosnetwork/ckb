@@ -21,12 +21,15 @@ fn packed_hashes(packed: &[crate::TxEntry]) -> Vec<Byte32> {
         .map(|entry| entry.transaction().hash())
         .collect()
 }
+
 fn bytes(packed: &[crate::TxEntry]) -> usize {
     packed.iter().map(|entry| entry.size).sum()
 }
+
 fn cycles(packed: &[crate::TxEntry]) -> u64 {
     packed.iter().map(|entry| entry.cycles).sum()
 }
+
 fn output_transaction(version: u32) -> TransactionView {
     TransactionBuilder::default()
         .version(version)
@@ -61,6 +64,7 @@ fn capture(store: &Store) -> (Arc<Snapshot>, Vec<Arc<Entry>>) {
     } = store.capture_accepted();
     (snapshot, owners)
 }
+
 fn selection<'a>(owners: &'a [Arc<Entry>], snapshot: &Snapshot) -> Selection<'a> {
     Selection::new(owners, snapshot, common::config().max_ancestors_count).unwrap()
 }

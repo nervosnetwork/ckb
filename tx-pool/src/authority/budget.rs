@@ -51,6 +51,7 @@ impl Amount {
             cycles: self.cycles.checked_add(rhs.cycles)?,
         })
     }
+
     pub(super) fn checked_sub(self, rhs: Self) -> Option<Self> {
         Some(Self {
             items: self.items.checked_sub(rhs.items)?,
@@ -60,6 +61,7 @@ impl Amount {
             cycles: self.cycles.checked_sub(rhs.cycles)?,
         })
     }
+
     fn positive_difference(self, rhs: Self) -> Self {
         Self {
             items: self.items.saturating_sub(rhs.items),
@@ -69,6 +71,7 @@ impl Amount {
             cycles: self.cycles.saturating_sub(rhs.cycles),
         }
     }
+
     pub(super) fn fits(self, limit: Self) -> bool {
         self.items <= limit.items
             && self.bytes <= limit.bytes
@@ -76,6 +79,7 @@ impl Amount {
             && self.serialized <= limit.serialized
             && self.cycles <= limit.cycles
     }
+
     fn retention_share(self, numerator: usize, denominator: usize) -> Option<Self> {
         // Subquotas partition retained resources; serialized bytes and cycles
         // keep the whole-pool ceilings rather than becoming peer admission policy.
@@ -136,6 +140,7 @@ impl Limits {
             .ok_or_else(|| Error::Full("transaction-pool residency bound overflow".into()))?;
         Self::with_residency(config, consensus, residency)
     }
+
     pub(super) fn with_residency(
         config: &TxPoolConfig,
         consensus: &Consensus,
@@ -229,6 +234,7 @@ impl Limits {
             max_owners,
         })
     }
+
     fn for_account(&self, account: Account) -> Amount {
         match account {
             Account::Accepted => self.accepted,
@@ -238,6 +244,7 @@ impl Limits {
             Account::History => self.history,
         }
     }
+
     pub(super) fn resolved_fits(&self, entry: &Entry) -> Result<(), Error> {
         let amount = owner_amount(entry)?;
         if amount.bytes > self.per_job.bytes || amount.edges > self.per_job.edges {
@@ -247,6 +254,7 @@ impl Limits {
         }
         Ok(())
     }
+
     /// Select a bounded recovery population in the caller's dependency order.
     /// This is pure planning; Store still reserves and commits the exact delta.
     pub(super) fn retain_fitting(&self, entries: &mut Vec<Arc<Entry>>) -> Result<(), Error> {
@@ -453,6 +461,7 @@ impl Active {
         self.total = total;
         Ok(())
     }
+
     fn release(&mut self, peer: Option<PeerIndex>) -> Option<()> {
         let total = self.total.checked_sub(1)?;
         if let Some(peer) = peer {
@@ -509,9 +518,11 @@ impl Budget {
             changed: Notify::new(),
         })
     }
+
     pub(super) fn faulted(&self) -> bool {
         self.faulted.load(Ordering::Acquire)
     }
+
     pub(super) fn publish_metrics(&self) {
         let mut snapshot = {
             let usage = self.usage.lock();
@@ -532,6 +543,7 @@ impl Budget {
         snapshot.active_work = self.active.lock().total;
         snapshot.publish();
     }
+
     pub(super) fn accepted_usage(&self) -> Amount {
         self.usage
             .lock()
@@ -539,6 +551,7 @@ impl Budget {
             .copied()
             .unwrap_or_default()
     }
+
     pub(super) fn rejection_snapshot(
         &self,
         peer: Option<PeerIndex>,
@@ -559,6 +572,7 @@ impl Budget {
             })
         })
     }
+
     pub(super) fn active(self: &Arc<Self>, source: Source) -> Result<ActivePermit, Error> {
         if self.faulted() {
             return Err(Error::Fault("quota counter"));
@@ -570,6 +584,7 @@ impl Budget {
             peer,
         })
     }
+
     fn reserve_changes(
         self: &Arc<Self>,
         positive: Vec<(Account, Amount)>,
@@ -612,6 +627,7 @@ impl Budget {
             negative,
         })
     }
+
     fn release(&self, amounts: &[(Account, Amount)], notify: bool) {
         if amounts.is_empty() {
             return;

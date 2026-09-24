@@ -79,9 +79,11 @@ impl<'a> Candidate<'a> {
     pub(super) fn hash(&self) -> &Byte32 {
         self.hash
     }
+
     pub(super) fn proposal_short_id(&self) -> ProposalShortIdReader<'a> {
         self.proposal
     }
+
     pub(super) fn owner(&self) -> &Arc<model::Entry> {
         self.owner
     }
@@ -284,6 +286,7 @@ impl PackageAggregate {
             fee: candidate.accepted.fee,
         }
     }
+
     fn checked_add(self, incoming: Self) -> Option<Self> {
         Some(Self {
             entries: self.entries.checked_add(incoming.entries)?,
@@ -294,6 +297,7 @@ impl PackageAggregate {
             fee: self.fee.safe_add(incoming.fee).ok()?,
         })
     }
+
     fn checked_sub(self, removed: Self) -> Option<Self> {
         Some(Self {
             entries: self.entries.checked_sub(removed.entries)?,
@@ -304,6 +308,7 @@ impl PackageAggregate {
             fee: self.fee.safe_sub(removed.fee).ok()?,
         })
     }
+
     fn fits(self, limits: TemplatePackingLimits) -> bool {
         self.serialized_bytes <= limits.serialized_bytes && self.cycles <= limits.cycles
     }
@@ -347,6 +352,7 @@ impl CandidatePackingState {
     fn queued(self) -> bool {
         matches!(self, Self::Original | Self::Modified)
     }
+
     fn needed(self) -> bool {
         self.queued() || self == Self::Examining
     }

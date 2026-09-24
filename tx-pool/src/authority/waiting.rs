@@ -40,6 +40,7 @@ pub(super) fn available(
         }
     }
 }
+
 /// A trusted missing input can wait only for a known, not-yet-accepted
 /// producer with that exact output. Absence is terminal on its current cut.
 pub(super) fn pending_producer(owner: Option<&Entry>, point: &ckb_types::packed::OutPoint) -> bool {
@@ -48,6 +49,7 @@ pub(super) fn pending_producer(owner: Option<&Entry>, point: &ckb_types::packed:
         owner.preaccepted() && (index as usize) < owner.transaction.outputs().len()
     })
 }
+
 pub(super) fn wake(
     store: &Store,
     cursor: &mut Option<DependencyKey>,

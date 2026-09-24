@@ -136,6 +136,7 @@ impl Effect {
             ..Self::projected(entry, status)
         }
     }
+
     pub(super) fn projected(entry: TxEntrySnapshot, status: Status) -> Self {
         Self {
             callback: Some(match status {
@@ -145,21 +146,25 @@ impl Effect {
             ..Self::default()
         }
     }
+
     pub(super) fn relay(result: TxVerificationResult) -> Self {
         Self {
             relay: Some(result),
             ..Self::default()
         }
     }
+
     pub(super) fn waiting(entry: &Entry) -> Option<Self> {
         unknown_parents(entry).map(Self::relay)
     }
+
     pub(super) fn blocks(blocks: Vec<Arc<BlockView>>) -> Self {
         Self {
             blocks,
             ..Self::default()
         }
     }
+
     pub(super) fn banned(
         hash: &Byte32,
         reject: Reject,
@@ -182,14 +187,17 @@ impl Effect {
         }
         Ok(effect)
     }
+
     #[cfg(test)]
     pub(super) fn relay_result(&self) -> Option<&TxVerificationResult> {
         self.relay.as_ref()
     }
+
     #[cfg(test)]
     pub(super) fn callback(&self) -> Option<&CallbackEvent> {
         self.callback.as_ref()
     }
+
     /// Retire an existing owner. Accepted removals are eligible for relay
     /// rejection; unaccepted removals need a remote origin. Supply a callback
     /// snapshot if and only if the removed owner is accepted.
@@ -230,6 +238,7 @@ impl Effect {
             ..Self::default()
         })
     }
+
     pub(super) fn candidate_rejected(
         hash: &Byte32,
         reject: Reject,
@@ -242,6 +251,7 @@ impl Effect {
                 .with_rejection_context(source, before, budget),
         )
     }
+
     /// Refusing ingress does not decide transaction validity or retire an owner.
     /// Diagnose the pressure and release relay tracking without writing status.
     pub(super) fn capacity_refused(
@@ -261,6 +271,7 @@ impl Effect {
         }
         .with_rejection_context(source, None, budget)
     }
+
     fn with_rejection_context(
         mut self,
         source: Source,
@@ -295,6 +306,7 @@ impl Effect {
         }
         self
     }
+
     fn recent(&self) -> Option<(&Byte32, &str)> {
         let rejection = self.rejection.as_ref()?;
         rejection
@@ -302,12 +314,14 @@ impl Effect {
             .as_deref()
             .map(|encoded| (&rejection.hash, encoded))
     }
+
     pub(super) fn reset() -> Self {
         Self {
             relay: Some(TxVerificationResult::GenerationReset),
             ..Self::default()
         }
     }
+
     fn bytes(&self) -> Option<usize> {
         const CALLBACK_METADATA_BYTES: usize =
             size_of::<TxEntrySnapshot>() + MAX_TX_POOL_REJECT_DESCRIPTION_BYTES;
@@ -369,12 +383,14 @@ impl Charge {
             bytes: self.bytes.checked_add(rhs.bytes)?,
         })
     }
+
     fn sub(self, rhs: Self) -> Option<Self> {
         Some(Self {
             items: self.items.checked_sub(rhs.items)?,
             bytes: self.bytes.checked_sub(rhs.bytes)?,
         })
     }
+
     fn fits(self, rhs: Self) -> bool {
         self.items <= rhs.items && self.bytes <= rhs.bytes
     }
@@ -440,6 +456,7 @@ impl Batch {
         self.ready.store(true, Ordering::Release);
         outbox.changed.notify_one();
     }
+
     /// Wait for the synchronous endpoint pass and removal from the outbox.
     /// Endpoint failure policies may omit delivery; success does not acknowledge
     /// downstream relay consumption. Cancelling this waiter does not remove or
@@ -582,6 +599,7 @@ impl Outbox {
             room: Notify::new(),
         }))
     }
+
     pub(super) fn reserve(
         self: &Arc<Self>,
         effects: Vec<Effect>,
@@ -636,6 +654,7 @@ impl Outbox {
             appended: false,
         }))
     }
+
     pub(super) fn pending_reject(&self, hash: &Byte32) -> Option<String> {
         let batch = self.state.lock().pending.get(hash)?.upgrade()?;
         batch.effects.iter().rev().find_map(|effect| {
@@ -645,6 +664,7 @@ impl Outbox {
                 .map(|(_, encoded)| encoded.to_owned())
         })
     }
+
     fn release(&self, batch: &Batch, state: &mut State) -> bool {
         let mut failed = false;
         for quota in state.budget.charged_by(batch.class) {
@@ -657,6 +677,7 @@ impl Outbox {
         }
         failed
     }
+
     pub(super) fn publish_metrics(&self) {
         let snapshot = {
             let state = self.state.lock();
@@ -676,15 +697,18 @@ impl Outbox {
         };
         snapshot.publish();
     }
+
     pub(super) fn close(&self) {
         self.state.lock().closed = true;
         self.changed.notify_one();
         self.room.notify_waiters();
     }
+
     pub(super) fn drained(&self) -> bool {
         let state = self.state.lock();
         state.closed && state.queue.is_empty() && state.budget.total.used.items == 0
     }
+
     #[cfg(test)]
     pub(super) fn idle_for_test(&self) -> bool {
         let state = self.state.lock();
@@ -695,6 +719,7 @@ impl Outbox {
                 .into_iter()
                 .all(|charge| charge.items == 0 && charge.bytes == 0)
     }
+
     fn publish_ready(&self, endpoints: &mut Endpoints) -> Result<bool, Error> {
         let (head, count) = {
             let state = self.state.lock();
@@ -813,6 +838,7 @@ impl Outbox {
         }
         Ok(())
     }
+
     pub(super) async fn run(self: Arc<Self>, mut endpoints: Endpoints) -> Result<(), Error> {
         struct Completion {
             outbox: Arc<Outbox>,
@@ -952,6 +978,7 @@ impl Endpoints {
             estimator_disabled: false,
         }
     }
+
     fn callback_enabled(&self, event: &CallbackEvent) -> bool {
         !self.callbacks_disabled
             && match event {
@@ -960,6 +987,7 @@ impl Endpoints {
                 CallbackEvent::Reject(_, _) => self.callbacks.reject.is_some(),
             }
     }
+
     fn publish(&mut self, effect: &Effect) {
         #[cfg(feature = "profiling")]
         let _span = tracing::trace_span!(target: "ckb_tx_pool_profile", "tx_pool.effects.publish")
@@ -1035,6 +1063,7 @@ fn run_endpoint<T>(name: &'static str, operation: impl FnOnce() -> T) -> Option<
 fn bounded_ban_reason(reject: &Reject) -> String {
     bounded_text(format!("reject {reject}"), 1024)
 }
+
 fn serialized_recent_reject(reject: &Reject) -> Result<String, Error> {
     let encode = |reject| {
         let public = PoolTransactionReject::try_from(reject)

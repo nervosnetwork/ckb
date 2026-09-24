@@ -76,6 +76,7 @@ impl VerificationControl {
         let (sender, receiver) = watch::channel(command);
         (Self(sender), receiver)
     }
+
     fn set(&self, command: ChunkCommand) -> Result<(), watch::error::SendError<ChunkCommand>> {
         let mut stopped = false;
         self.0.send_if_modified(|current| {
@@ -93,15 +94,19 @@ impl VerificationControl {
             Ok(())
         }
     }
+
     pub(crate) fn suspend(&self) -> Result<(), watch::error::SendError<ChunkCommand>> {
         self.set(ChunkCommand::Suspend)
     }
+
     pub(crate) fn resume(&self) -> Result<(), watch::error::SendError<ChunkCommand>> {
         self.set(ChunkCommand::Resume)
     }
+
     fn stop(&self) {
         self.0.send_replace(ChunkCommand::Stop);
     }
+
     #[cfg(feature = "internal")]
     pub(crate) fn subscribe(&self) -> watch::Receiver<ChunkCommand> {
         self.0.subscribe()
@@ -156,6 +161,7 @@ impl Pool {
         let store = Store::new(snapshot, &config)?;
         Self::with_store(config, store, handle, cache, assembler, recent, estimator)
     }
+
     fn with_store(
         config: TxPoolConfig,
         store: Arc<Store>,
@@ -213,21 +219,26 @@ impl Pool {
             drain,
         ))
     }
+
     pub(crate) fn stop(&self) {
         self.store.stop();
         self.verification.stop();
         self.stopped.cancel();
     }
+
     pub(crate) fn fault(&self) {
         self.store.fault();
         self.stop();
     }
+
     pub(crate) fn is_stopped(&self) -> bool {
         self.store.is_stopped()
     }
+
     pub(crate) fn is_faulted(&self) -> bool {
         self.store.is_faulted()
     }
+
     fn open(&self) -> Result<(), Error> {
         if self.store.is_faulted() {
             Err(Error::Fault("closed generation"))
@@ -237,12 +248,15 @@ impl Pool {
             Ok(())
         }
     }
+
     pub(crate) fn close_outbox(&self) {
         self.store.outbox.close();
     }
+
     pub(crate) fn persistence_eligible(&self) -> bool {
         !self.store.is_faulted() && self.store.outbox.drained()
     }
+
     #[expect(
         clippy::type_complexity,
         reason = "The caller joins workers first and the sole publisher last."
@@ -277,6 +291,7 @@ impl Pool {
         }
         (tasks, publisher)
     }
+
     async fn compute(&self) -> Result<ComputePermit, Error> {
         loop {
             let cpu = tokio::select! {
@@ -308,6 +323,7 @@ impl Pool {
             }
         }
     }
+
     fn computation_ready(&self) -> Result<(), Error> {
         self.open()?;
         match *self.commands.borrow() {
@@ -316,6 +332,7 @@ impl Pool {
             ChunkCommand::Stop => Err(Error::Closed),
         }
     }
+
     fn try_direct_capacity(&self) -> Result<(ComputePermit, ActivePermit), Error> {
         self.open()?;
         let cpu = Arc::clone(&self.cpu)
@@ -331,6 +348,7 @@ impl Pool {
             memory,
         ))
     }
+
     async fn direct_capacity(&self) -> Result<(ComputePermit, ActivePermit), Error> {
         loop {
             let changed = self.store.budget.changed.notified();
@@ -348,6 +366,7 @@ impl Pool {
             }
         }
     }
+
     async fn commit(
         &self,
         mut prepare: impl FnMut() -> Result<Plan, Error>,
@@ -355,6 +374,7 @@ impl Pool {
         self.commit_attempt(|| prepare().and_then(|plan| self.store.apply(plan)))
             .await
     }
+
     /// Create broadcasts before planning: notify_waiters is observed even before
     /// the first poll, without registering a waiter on the successful path.
     async fn commit_attempt<T>(
@@ -378,12 +398,14 @@ impl Pool {
             }
         }
     }
+
     async fn published(&self, batch: Option<Arc<Batch>>) -> Result<(), Error> {
         if let Some(batch) = batch {
             batch.wait(&self.store.outbox).await?;
         }
         Ok(())
     }
+
     async fn reconcile(&self, command: &ChainReorgArgs) -> Result<(), Error> {
         let _pause = self.store.begin_chain()?;
         let applied = self
@@ -426,6 +448,7 @@ impl Pool {
         }
         self.published(batch).await
     }
+
     async fn clear(
         &self,
         snapshot: Option<Arc<Snapshot>>,
@@ -437,6 +460,7 @@ impl Pool {
             .await?;
         self.published(batch).await
     }
+
     async fn chain_loop(
         self: Arc<Self>,
         mut receiver: mpsc::Receiver<ChainControl>,
@@ -497,6 +521,7 @@ impl Pool {
             }
         }
     }
+
     async fn maintain(self: Arc<Self>) -> Result<(), Error> {
         let mut expiry = tokio::time::interval(Duration::from_secs(1));
         expiry.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
@@ -570,6 +595,7 @@ impl Pool {
             }
         }
     }
+
     async fn read<T>(&self, query: impl FnOnce() -> Result<T, Error>) -> Result<T, Error> {
         let _permit = tokio::select! {
             permit = self.reads.acquire() => permit.map_err(|_| Error::Closed)?,
@@ -578,23 +604,28 @@ impl Pool {
         self.open()?;
         block_offload(query)
     }
+
     pub(crate) async fn pool_info(&self) -> Result<ckb_types::core::tx_pool::TxPoolInfo, Error> {
         self.read(|| query::summary(&self.store, &self.config))
             .await
     }
+
     pub(crate) async fn pool_ids(&self) -> Result<ckb_types::core::tx_pool::TxPoolIds, Error> {
         self.read(|| Ok(query::ids(&self.store))).await
     }
+
     pub(crate) async fn input_snapshot(&self) -> Result<crate::TxPoolInputSnapshot, Error> {
         self.read(|| self.input_snapshots.capture(&self.store))
             .await
     }
+
     pub(crate) async fn entry_info(
         &self,
     ) -> Result<ckb_types::core::tx_pool::TxPoolEntryInfo, Error> {
         self.read(|| query::entry_info(&self.store, &self.config))
             .await
     }
+
     pub(crate) async fn detail(
         &self,
         hash: &Byte32,
@@ -602,6 +633,7 @@ impl Pool {
         self.read(|| query::detail(&self.store, hash, &self.config))
             .await
     }
+
     pub(crate) fn live_cell(
         &self,
         point: &ckb_types::packed::OutPoint,
@@ -612,6 +644,7 @@ impl Pool {
             query::live_cell(&self.store, point, with_data)
         }))
     }
+
     pub(crate) fn fresh_proposals(
         &self,
         ids: Vec<ProposalShortId>,
@@ -619,6 +652,7 @@ impl Pool {
         self.open()?;
         Ok(self.store.filter_fresh_proposals(ids))
     }
+
     pub(crate) fn compact_transactions(
         &self,
         ids: &[ProposalShortId],
@@ -628,6 +662,7 @@ impl Pool {
             query::compact_transactions(&self.store, ids)
         }))
     }
+
     pub(crate) fn accepted_with_cycles(
         &self,
         ids: &[Byte32],
@@ -635,6 +670,7 @@ impl Pool {
         self.open()?;
         Ok(query::accepted_with_cycles(&self.store, ids))
     }
+
     pub(crate) async fn block_template(
         &self,
         deadline: tokio::time::Instant,
@@ -645,11 +681,13 @@ impl Pool {
             .read(deadline)
             .await
     }
+
     pub(crate) fn uncle(&self, uncle: BoundedCandidateUncle) {
         if let Some(template) = &self.template {
             template.uncle(uncle);
         }
     }
+
     fn recent_reject(&self, hash: &Byte32) -> Result<Option<String>, AnyError> {
         if let Some(reject) = self.store.outbox.pending_reject(hash) {
             return Ok(Some(reject));
@@ -660,6 +698,7 @@ impl Pool {
             .transpose()
             .map(Option::flatten)
     }
+
     pub(crate) fn transaction_status(
         &self,
         hash: &Byte32,
@@ -674,6 +713,7 @@ impl Pool {
                 (TxStatus::Rejected(reason), None)
             }))
     }
+
     pub(crate) async fn transaction(
         &self,
         hash: &Byte32,
@@ -689,11 +729,13 @@ impl Pool {
             TransactionWithStatus::with_rejected,
         ))
     }
+
     pub(crate) fn recent_count(&self) -> Option<u64> {
         self.recent
             .as_ref()
             .map(|recent| block_offload(|| recent.get_estimate_total_keys_num()))
     }
+
     pub(crate) async fn estimate_fee(
         &self,
         mode: EstimateMode,
@@ -717,6 +759,7 @@ impl Pool {
             }
         }
     }
+
     pub(crate) async fn save(&self) -> Result<(), AnyError> {
         let save_guard = Arc::clone(&self.save_gate).lock_owned().await;
         if self.store.is_faulted() {
@@ -752,6 +795,7 @@ impl Pool {
         .await??;
         Ok(())
     }
+
     #[expect(
         clippy::arithmetic_side_effects,
         reason = "Loaded and rejected counts partition the bounded input vector."
@@ -777,6 +821,7 @@ impl Pool {
         }
         Ok((loaded, rejected))
     }
+
     #[cfg(feature = "internal")]
     pub(crate) async fn package_transactions(
         &self,

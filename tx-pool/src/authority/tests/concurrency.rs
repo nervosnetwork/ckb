@@ -789,6 +789,7 @@ fn accepted(store: &Store, tx: TransactionView) {
     value.timestamp = ckb_systemtime::unix_time_as_millis();
     replace(store, owner, Phase::Accepted(value));
 }
+
 fn code(nonce: u32) -> TransactionView {
     TransactionBuilder::default()
         .version(nonce)
@@ -796,6 +797,7 @@ fn code(nonce: u32) -> TransactionView {
         .output_data(ckb_test_chain_utils::always_success_cell().1.pack())
         .build()
 }
+
 fn candidate(store: &Store, nonce: u32, code: &TransactionView) -> TransactionView {
     let parent = funded_parent(nonce, 20_000_000_000);
     accepted(store, parent.clone());
@@ -808,6 +810,7 @@ fn candidate(store: &Store, nonce: u32, code: &TransactionView) -> TransactionVi
         ])
         .build()
 }
+
 // Select physical shard footprints from the fixture's actual independent
 // inputs/outputs and parents. The barrier below observes the production cut.
 fn footprint(store: &Store, tx: &TransactionView) -> [BTreeMap<usize, bool>; 2] {
@@ -839,12 +842,14 @@ fn footprint(store: &Store, tx: &TransactionView) -> [BTreeMap<usize, bool>; 2] 
     }
     [owners, dependencies]
 }
+
 fn compatible(a: &[BTreeMap<usize, bool>; 2], b: &[BTreeMap<usize, bool>; 2]) -> bool {
     a.iter().zip(b).all(|(a, b)| {
         a.iter()
             .all(|(index, write)| b.get(index).is_none_or(|other| !write && !other))
     })
 }
+
 async fn production_overlap(shared_code: bool) {
     let handle = Handle::new(tokio::runtime::Handle::current(), None);
     let configuration = config();

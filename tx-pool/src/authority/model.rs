@@ -109,6 +109,7 @@ impl Source {
             source => source,
         }
     }
+
     /// An originless proposal has no network work to restore after expiry.
     pub(super) fn after_proposal_window(self) -> Option<Self> {
         match self {
@@ -122,6 +123,7 @@ impl Source {
             source => Some(source),
         }
     }
+
     pub(super) fn residency_peer(self) -> Option<PeerIndex> {
         match self {
             Self::Remote { origin, .. } => Some(origin.peer),
@@ -129,12 +131,14 @@ impl Source {
             Self::Recovery | Self::Local => None,
         }
     }
+
     pub(super) fn compute_peer(self) -> Option<PeerIndex> {
         match self {
             Self::Remote { origin, .. } => Some(origin.peer),
             _ => None,
         }
     }
+
     pub(super) fn deadline(self) -> Option<Instant> {
         match self {
             Self::Remote { origin, .. } => Some(origin.deadline),
@@ -142,17 +146,20 @@ impl Source {
             Self::Recovery | Self::Local => None,
         }
     }
+
     pub(super) fn declared_cycles(self) -> Option<Cycle> {
         match self {
             Self::Remote { cycles, .. } => cycles,
             _ => None,
         }
     }
+
     /// Locally recovered work needs a retained producer. Network work can arrive
     /// before its producer, independently of proposal or declared-cycle policy.
     pub(super) fn requires_known_producer(self) -> bool {
         matches!(self, Self::Recovery | Self::Local)
     }
+
     pub(super) fn priority(self) -> u8 {
         match self {
             Self::Recovery | Self::Local => 0,
@@ -160,6 +167,7 @@ impl Source {
             Self::Remote { .. } => 2,
         }
     }
+
     pub(super) fn verification_time_limit(
         self,
         config: &ckb_app_config::TxPoolConfig,
@@ -238,9 +246,11 @@ impl Accepted {
             self.timestamp,
         )
     }
+
     pub(super) fn dependencies(&self) -> impl Iterator<Item = OutPoint> + '_ {
         self.transaction.related_dep_out_points().cloned()
     }
+
     pub(super) fn status(&self, snapshot: &Snapshot) -> Status {
         #[cfg(any(test, feature = "internal"))]
         if let Some(status) = self.forced_status {
@@ -324,24 +334,29 @@ impl Entry {
     pub(super) fn hash(&self) -> Byte32 {
         self.transaction.hash()
     }
+
     pub(super) fn proposal(&self) -> ProposalShortId {
         self.transaction.proposal_short_id()
     }
+
     pub(super) fn accepted(&self) -> Option<&Accepted> {
         match &self.phase {
             Phase::Accepted(entry) => Some(entry),
             _ => None,
         }
     }
+
     pub(super) fn preaccepted(&self) -> bool {
         !matches!(self.phase, Phase::Accepted(_) | Phase::Replaced(_))
     }
+
     /// The retained peer cohort excludes accepted owners and replacement history.
     pub(super) fn preaccepted_peer(&self) -> Option<PeerIndex> {
         self.preaccepted()
             .then(|| self.source.residency_peer())
             .flatten()
     }
+
     pub(super) fn with_phase(&self, phase: Phase) -> Arc<Self> {
         Arc::new(Self {
             transaction: Arc::clone(&self.transaction),
@@ -350,6 +365,7 @@ impl Entry {
             phase,
         })
     }
+
     pub(super) fn declared_dependencies(&self) -> Box<[DependencyKey]> {
         sorted_dependencies(
             self.transaction
@@ -367,6 +383,7 @@ impl Entry {
                 ),
         )
     }
+
     pub(super) fn dependencies(&self) -> Box<[DependencyKey]> {
         match &self.phase {
             Phase::Accepted(entry) => sorted_dependencies(

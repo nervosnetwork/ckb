@@ -109,6 +109,7 @@ impl Pool {
             }
         }
     }
+
     pub(crate) async fn submit_remote(
         &self,
         transaction: BoundedTransaction,
@@ -121,6 +122,7 @@ impl Pool {
         )
         .await
     }
+
     pub(crate) async fn submit_remote_batch(
         &self,
         peer: PeerIndex,
@@ -135,6 +137,7 @@ impl Pool {
         }
         Ok(())
     }
+
     pub(crate) async fn submit_proposal_batch(
         &self,
         transactions: Vec<BoundedTransaction>,
@@ -149,6 +152,7 @@ impl Pool {
         }
         Ok(())
     }
+
     async fn reject_local(
         &self,
         view: u64,
@@ -180,6 +184,7 @@ impl Pool {
         }
         Ok(reject)
     }
+
     /// Reply after verification, admission and publication complete.
     pub(crate) async fn submit_local(
         &self,
@@ -339,6 +344,7 @@ impl Pool {
             .map_err(capacity_rejection)?;
         self.published(batch).await
     }
+
     pub(crate) async fn remove_local(
         &self,
         hash: &Byte32,
@@ -360,6 +366,7 @@ impl Pool {
             Err(error) => Err(error),
         }
     }
+
     #[cfg(feature = "internal")]
     pub(crate) async fn plug(
         &self,

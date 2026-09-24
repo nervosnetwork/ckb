@@ -335,6 +335,7 @@ fn visit_roles(entry: &Entry, mut add: impl FnMut(RelationKey, Roles)) {
         Phase::Resolve | Phase::Verify(_) => {}
     }
 }
+
 // A roleless side cannot cancel a visited role. Stream that common transition
 // directly; two role-bearing sides still need a bounded owner-local merge.
 fn visit_role_changes(edit: &Edit, mut add: impl FnMut(RelationKey, MemberChange<Roles>)) {
@@ -377,6 +378,7 @@ fn visit_role_changes(edit: &Edit, mut add: impl FnMut(RelationKey, MemberChange
         (None, None) => {}
     }
 }
+
 fn deadline(entry: &Entry) -> Option<Instant> {
     entry
         .preaccepted()
@@ -962,6 +964,7 @@ impl Store {
             collection.remove(&key);
         }
     }
+
     pub(super) fn start_wake(&self, key: &DependencyKey) {
         let relation_key = RelationKey::Dependency(key.clone());
         let collection = self.relations.at(self.route(&relation_key)).lock();
@@ -995,6 +998,7 @@ impl Store {
             self.dirty.lock().insert(compact_dependency(key));
         }
     }
+
     fn advance_wake(&self, page: &WakePage) {
         let key = RelationKey::Dependency(page.key.clone());
         let mut collection = self.relations.at(self.route(&key)).lock();

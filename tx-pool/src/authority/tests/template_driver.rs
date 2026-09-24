@@ -38,14 +38,17 @@ fn fixture() -> Arc<Driver> {
     let assembler = BlockAssembler::new(template_config(), snapshot).unwrap();
     Driver::new(store, assembler, config().max_ancestors_count)
 }
+
 async fn within<T>(future: impl std::future::Future<Output = T>) -> T {
     tokio::time::timeout(Duration::from_secs(5), future)
         .await
         .expect("template event completes")
 }
+
 fn deadline() -> tokio::time::Instant {
     tokio::time::Instant::now() + crate::constants::BLOCK_TEMPLATE_TIMEOUT
 }
+
 fn selected(driver: &Driver) -> Arc<CurrentTemplate> {
     Arc::clone(&driver.assembler.current.read())
 }

@@ -286,6 +286,7 @@ impl AuthorityRelayReceiver {
         crate::metrics::relay_queue(state.queue.len(), self.inner.max_items);
         result
     }
+
     /// Reserve outside the mailbox lock, then move one bounded prefix while
     /// holding it once. A concurrent reset may shorten or replace that prefix.
     pub(super) fn drain(&self, limit: usize) -> Vec<TxVerificationResult> {
@@ -347,10 +348,12 @@ impl RelayDrain {
             cursor: Mutex::new(None),
         }
     }
+
     pub(crate) fn try_recv(&self) -> Option<TxVerificationResult> {
         // Bound reconstruction work even when a page contains no remote waiter.
         (0..REBUILD_PAGES_PER_RECEIVE).find_map(|_| self.try_recv_page())
     }
+
     fn try_recv_page(&self) -> Option<TxVerificationResult> {
         if let Some(result) = self.receiver.try_recv() {
             if matches!(result, TxVerificationResult::GenerationReset) {
@@ -373,12 +376,14 @@ impl RelayDrain {
             }
         }
     }
+
     fn reset_cursor(&self) {
         *self.cursor.lock() = self
             .store
             .upgrade()
             .map(|store| MissingCursor::new(store.snapshot().0));
     }
+
     pub(crate) fn drain(&self, limit: usize) -> Vec<TxVerificationResult> {
         let mut drained = self.receiver.drain(limit);
         // No reconstruction or external consumer runs within the raw prefix,
@@ -405,6 +410,7 @@ impl RelayDrain {
         }
         drained
     }
+
     pub(crate) async fn wait_for_drain(&self) {
         if self.cursor.lock().is_some() {
             return;

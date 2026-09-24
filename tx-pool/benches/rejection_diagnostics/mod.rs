@@ -22,6 +22,7 @@ impl Log for RejectionLogger {
     fn enabled(&self, metadata: &Metadata<'_>) -> bool {
         metadata.target() == "ckb_tx_pool::rejection" || metadata.level() <= ckb_logger::Level::Warn
     }
+
     fn log(&self, record: &Record<'_>) {
         if record.target() == "ckb_tx_pool::rejection" {
             if writeln!(
@@ -46,6 +47,7 @@ impl Log for RejectionLogger {
             self.service_records.fetch_add(1, Ordering::SeqCst);
         }
     }
+
     fn flush(&self) {}
 }
 

@@ -93,6 +93,7 @@ fn public_status(value: Status) -> TxStatus {
         Status::Proposed => TxStatus::Proposed,
     }
 }
+
 pub(super) fn transaction_status(
     store: &Store,
     hash: &Byte32,
@@ -102,6 +103,7 @@ pub(super) fn transaction_status(
     let value = entry.accepted()?;
     Some((public_status(value.status(&snapshot)), Some(value.cycles)))
 }
+
 fn live_transaction(entry: &Entry, snapshot: &Snapshot) -> Option<TransactionWithStatus> {
     let value = entry.accepted()?;
     Some(TransactionWithStatus {
@@ -113,6 +115,7 @@ fn live_transaction(entry: &Entry, snapshot: &Snapshot) -> Option<TransactionWit
         time_added_to_pool: Some(value.timestamp),
     })
 }
+
 pub(super) fn transaction(
     store: &Store,
     hash: &Byte32,
@@ -129,6 +132,7 @@ pub(super) fn transaction(
     }
     Ok(live_transaction(&entry, &snapshot))
 }
+
 fn transaction_with_replacement_fee(
     store: &Store,
     hash: &Byte32,
@@ -157,6 +161,7 @@ fn transaction_with_replacement_fee(
     }
     Ok(Some(result))
 }
+
 pub(super) fn summary(store: &Store, config: &TxPoolConfig) -> Result<TxPoolInfo, Error> {
     let summary = store.capture_summary();
     Ok(TxPoolInfo {
@@ -179,6 +184,7 @@ pub(super) fn summary(store: &Store, config: &TxPoolConfig) -> Result<TxPoolInfo
         verify_queue_size: summary.queued,
     })
 }
+
 pub(super) fn ids(store: &Store) -> TxPoolIds {
     let Captured {
         snapshot, owners, ..
@@ -201,6 +207,7 @@ pub(super) fn ids(store: &Store) -> TxPoolIds {
     result.proposed.sort_unstable();
     result
 }
+
 pub(super) fn entry_info(store: &Store, config: &TxPoolConfig) -> Result<TxPoolEntryInfo, Error> {
     let Captured {
         snapshot, owners, ..
@@ -245,6 +252,7 @@ pub(super) fn entry_info(store: &Store, config: &TxPoolConfig) -> Result<TxPoolE
     result.conflicted.sort_unstable();
     Ok(result)
 }
+
 #[expect(
     clippy::arithmetic_side_effects,
     reason = "Counts and one-based rank cannot exceed the bounded captured membership length."
@@ -312,6 +320,7 @@ pub(super) fn detail(
         score_sortkey: target.score.into(),
     })
 }
+
 fn score(
     value: &super::model::Accepted,
     ancestors: membership::Aggregate,
@@ -325,6 +334,7 @@ fn score(
         ancestors_weight: get_transaction_weight(ancestors.bytes, ancestors.cycles),
     })
 }
+
 pub(super) fn live_cell(store: &Store, point: &OutPoint, with_data: bool) -> CellStatus {
     let (snapshot, overlay) = store.live_cell(point, with_data);
     if let Some(cell) = overlay {
@@ -341,6 +351,7 @@ pub(super) fn live_cell(store: &Store, point: &OutPoint, with_data: bool) -> Cel
         CellStatus::Dead | CellStatus::Unknown => CellStatus::Unknown,
     }
 }
+
 pub(super) fn compact_transactions(
     store: &Store,
     ids: &[ProposalShortId],
@@ -360,6 +371,7 @@ pub(super) fn compact_transactions(
     }
     result
 }
+
 pub(super) fn accepted_with_cycles(
     store: &Store,
     ids: &[Byte32],
@@ -374,6 +386,7 @@ pub(super) fn accepted_with_cycles(
         })
         .collect()
 }
+
 pub(super) fn fee_samples(store: &Store) -> Vec<FeeSample> {
     store
         .capture_accepted()
@@ -386,6 +399,7 @@ pub(super) fn fee_samples(store: &Store) -> Vec<FeeSample> {
         })
         .collect()
 }
+
 pub(super) fn estimate_fee(
     store: &Store,
     config: &TxPoolConfig,

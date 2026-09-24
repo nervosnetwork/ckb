@@ -26,6 +26,7 @@ fn snapshot(
         base.cloned_consensus(),
     ))
 }
+
 fn command(store: &Store, transactions: Vec<ckb_types::core::TransactionView>) -> ChainReorgArgs {
     let base = store.snapshot().1;
     let block = BlockBuilder::default()
@@ -35,11 +36,13 @@ fn command(store: &Store, transactions: Vec<ckb_types::core::TransactionView>) -
     let snapshot = snapshot(&base, &block, HashSet::new(), HashSet::new());
     ChainReorgArgs::for_test(VecDeque::new(), [block].into(), snapshot)
 }
+
 fn apply(store: &Store, command: &ChainReorgArgs) {
     let _pause = store.begin_chain().unwrap();
     let plan = reconcile(store, command, &config()).unwrap();
     store.apply(plan).unwrap();
 }
+
 fn accepted_hashes(store: &Store) -> BTreeSet<Byte32> {
     store
         .capture_accepted()
@@ -594,6 +597,7 @@ fn proposal_view_promotes_remote_and_expiry_preserves_its_origin_and_deadline() 
         assert_eq!(demoted.source.deadline(), source.deadline());
     }
 }
+
 #[test]
 fn chain_conflict_removes_more_readers_than_ordinary_replacement_policy_limit() {
     let store = store();
