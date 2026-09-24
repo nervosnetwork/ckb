@@ -85,6 +85,23 @@ def build_command(bench: str, features: str) -> list[str]:
     return command
 
 
+def parse_cargo_artifact(output: str, bench: str) -> dict[str, object]:
+    """Select the one executable Cargo produced for the requested benchmark."""
+    artifacts = []
+    for line in output.splitlines():
+        try:
+            message = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        target = message.get("target", {})
+        if (message.get("reason") == "compiler-artifact" and target.get("name") == bench
+                and "bench" in target.get("kind", []) and message.get("executable")):
+            artifacts.append(message)
+    if len(artifacts) != 1:
+        raise RuntimeError(f"Cargo reported {len(artifacts)} {bench} executables")
+    return artifacts[0]
+
+
 def build_binary(root: Path, target_dir: Path, features: str, bench: str) -> dict[str, object]:
     root, target_dir = root.resolve(), target_dir.resolve()
     source = git_record(root)
@@ -103,24 +120,13 @@ def build_binary(root: Path, target_dir: Path, features: str, bench: str) -> dic
     if completed.returncode != 0:
         raise RuntimeError(f"benchmark build failed ({completed.returncode}):\n"
                            f"{completed.stdout[-4000:]}\n{completed.stderr[-4000:]}")
-    artifacts = []
-    for line in completed.stdout.splitlines():
-        try:
-            message = json.loads(line)
-        except json.JSONDecodeError:
-            continue
-        target = message.get("target", {})
-        if (message.get("reason") == "compiler-artifact" and target.get("name") == bench
-                and "bench" in target.get("kind", []) and message.get("executable")):
-            artifacts.append(message)
-    if len(artifacts) != 1:
-        raise RuntimeError(f"Cargo did not report exactly one {bench} executable")
+    artifact = parse_cargo_artifact(completed.stdout, bench)
     if git_record(root) != source:
         raise RuntimeError("source changed during benchmark build")
-    binary = binary_record(Path(artifacts[0]["executable"]))
+    binary = binary_record(Path(artifact["executable"]))
     # Normalize Cargo's executable path once; archived receipts need no filesystem
     # or original symlinks to check their producer/artifact relationship.
-    artifact = artifacts[0] | {"executable": binary["path"]}
+    artifact = artifact | {"executable": binary["path"]}
     return {"schema": 1, "kind": "tx_pool_benchmark_build", "source": source,
             "bench": bench, "features": features, "profile": "prod", "toolchain": toolchain,
             "command": command, "environment": {name: environment[name] for name in

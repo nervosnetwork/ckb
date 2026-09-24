@@ -18,10 +18,10 @@ from collections import Counter
 from pathlib import Path
 from typing import Any
 
-from benchmark_build import build_command as cargo_build_command, load_build, validate_build
+from benchmark_build import build_command as cargo_build_command, load_build, parse_cargo_artifact, validate_build
 from benchmark_scenario import validate_scenario
 from measurement_process import run_process
-from measurement_window import parse_measurement_window, parse_readiness, wall_alignment
+from measurement_window import parse_readiness, validate_measurement_window, wall_alignment
 from rejection_diagnostics import validate_success
 
 
@@ -319,24 +319,12 @@ def build_binary(
     command = cargo_build_command(bench_name, ",".join(f"ckb-tx-pool/{feature}" for feature in features))
     env = build_environment(target_dir)
     completed = run(command, env=env, label="profile binary build", timeout=3600)
-    artifacts = []
-    for line in completed.stdout.splitlines():
-        try:
-            message = json.loads(line)
-        except json.JSONDecodeError:
-            continue
-        target = message.get("target", {})
-        if (
-            message.get("reason") == "compiler-artifact"
-            and target.get("name") == bench_name
-            and "bench" in target.get("kind", [])
-            and message.get("executable")
-        ):
-            artifacts.append(message)
-    if len(artifacts) != 1:
-        raise ProfileError(f"Cargo reported {len(artifacts)} {bench_name} executables")
-    binary = Path(artifacts[0]["executable"]).resolve(strict=True)
-    return binary, command, env, artifacts[0] | {"executable": str(binary)}
+    try:
+        artifact = parse_cargo_artifact(completed.stdout, bench_name)
+    except RuntimeError as error:
+        raise ProfileError(str(error)) from error
+    binary = Path(artifact["executable"]).resolve(strict=True)
+    return binary, command, env, artifact | {"executable": str(binary)}
 
 
 def tagged_json(stdout: str, prefix: str, label: str) -> dict[str, Any]:
@@ -361,7 +349,7 @@ def parse_marker(stdout: str) -> dict[str, Any]:
         raise ProfileError("profile contains additional diagnostic instrumentation")
     marker = tagged_json(stdout, MARKER_PREFIX, "profile window")
     try:
-        return parse_measurement_window(stdout, marker.get("scenario"), marker.get("elapsed_nanos"))
+        return validate_measurement_window(marker)
     except ValueError as error:
         raise ProfileError(str(error)) from error
 
@@ -454,11 +442,12 @@ def parse_observation(stdout: str, expected: dict[str, Any]) -> dict[str, Any]:
 
 def validate_window_observation(window: dict[str, Any], observation: dict[str, Any]) -> None:
     try:
-        parse_measurement_window(MARKER_PREFIX + json.dumps(window),
-                                 observation["scenario"], observation["elapsed_nanos"])
         alignment = wall_alignment(window)
     except ValueError as error:
         raise ProfileError(str(error)) from error
+    if (window["scenario"] != observation["scenario"]
+            or window["elapsed_nanos"] != observation["elapsed_nanos"]):
+        raise ProfileError("measurement window and benchmark observation differ")
     if not alignment["profile_alignment_valid"]:
         raise ProfileError(f"profile wall alignment is uncertain: {alignment}")
 
