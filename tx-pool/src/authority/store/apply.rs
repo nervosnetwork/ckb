@@ -64,6 +64,7 @@ struct OwnerChanges<'a> {
     relation_changes: BTreeMap<RelationKey, MemberChanges<Roles>>,
     peer_changes: BTreeMap<PeerIndex, MemberChanges<bool>>,
 }
+
 /// Both passes visit exactly the same shard-major groups, including empty
 /// lifecycle write shards. ShardGuards fixes the order; derive supplies one
 /// write request for every routed edit before either pass can start.

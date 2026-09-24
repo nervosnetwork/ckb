@@ -118,6 +118,7 @@ impl Verified {
         self.timestamp
     }
 }
+
 pub(super) fn environment(status: Status, snapshot: &Snapshot) -> TxVerifyEnv {
     match status {
         Status::Pending => TxVerifyEnv::new_submit(snapshot.tip_header()),

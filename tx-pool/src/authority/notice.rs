@@ -1042,6 +1042,7 @@ impl Endpoints {
         }
     }
 }
+
 fn run_endpoint<T>(name: &'static str, operation: impl FnOnce() -> T) -> Option<T> {
     block_offload(|| {
         std::panic::catch_unwind(std::panic::AssertUnwindSafe(operation))

@@ -81,6 +81,7 @@ impl Aggregate {
         Capacity::shannons(self.fee.min(u128::from(u64::MAX)) as u64)
     }
 }
+
 fn accepted(entry: &Entry) -> Result<&Accepted, Error> {
     entry.accepted().ok_or(Error::Stale)
 }
@@ -310,6 +311,7 @@ impl EvictionRank {
         }
     }
 }
+
 fn rbf(
     graph: &mut Graph<'_>,
     candidate: &Entry,
