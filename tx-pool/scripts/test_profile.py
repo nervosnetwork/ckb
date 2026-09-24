@@ -29,7 +29,7 @@ SPEC.loader.exec_module(PROFILE)
 class ProfileAnalyzerTests(unittest.TestCase):
     def setUp(self) -> None:
         self.temporary = tempfile.TemporaryDirectory(prefix="txpool-profile-test-")
-        self.root = Path(self.temporary.name)
+        self.root = Path(self.temporary.name).resolve()
 
     def tearDown(self) -> None:
         self.temporary.cleanup()
@@ -404,10 +404,11 @@ class ProfileAnalyzerTests(unittest.TestCase):
         run.assert_not_called()
 
     def test_dirty_build_freezes_untracked_contents_outside_the_harness(self):
-        source = self.root / "tx-pool/src/authority/new source\nmodule.rs"
+        workspace = self.root / "workspace"
+        source = workspace / "tx-pool/src/authority/new source\nmodule.rs"
         source.parent.mkdir(parents=True)
         source.write_text("before")
-        relative = source.relative_to(self.root).as_posix()
+        relative = source.relative_to(workspace).as_posix()
 
         def git(command, **_):
             self.assertEqual(command[0], "git")
@@ -421,7 +422,7 @@ class ProfileAnalyzerTests(unittest.TestCase):
 
         args = argparse.Namespace(**self.scenario(), output_prefix=self.root / "capture",
                                   force=False, binary=None, target_dir=self.root / "target")
-        with mock.patch.object(PROFILE, "WORKSPACE_ROOT", self.root), mock.patch.object(
+        with mock.patch.object(PROFILE, "WORKSPACE_ROOT", workspace), mock.patch.object(
                 PROFILE, "run", side_effect=git):
             before = PROFILE.git_identity()
             with mock.patch.object(PROFILE, "capture_source_identity", side_effect=lambda _: {"git": PROFILE.git_identity()}), mock.patch.object(
