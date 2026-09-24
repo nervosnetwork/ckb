@@ -295,6 +295,51 @@ impl RelayCounts {
     }
 }
 
+/// Fixture events determine both notification populations independently of
+/// production publication. Counts retain repeated acceptance after recovery.
+#[derive(Default)]
+struct ExpectedTerminals {
+    callbacks: Counts,
+    relay: RelayCounts,
+}
+
+impl ExpectedTerminals {
+    fn accepted(&mut self, hash: Byte32, peer: Option<PeerIndex>) {
+        count(&mut self.callbacks.accepted, hash.clone());
+        count(&mut self.relay.accepted, (hash, peer));
+    }
+
+    fn replaced(&mut self, hash: Byte32) {
+        count(&mut self.callbacks.rejected, hash.clone());
+        count(&mut self.relay.rejected, hash);
+    }
+
+    fn assert_matches(&self, callbacks: &StdMutex<Counts>, relay: &RelayCounts) {
+        assert_eq!(
+            relay.accepted, self.relay.accepted,
+            "exact relay acceptance population"
+        );
+        assert_eq!(
+            relay.rejected, self.relay.rejected,
+            "exact relay rejection population"
+        );
+        assert_eq!(
+            relay.parents, self.relay.parents,
+            "exact parent requests without duplicates"
+        );
+        assert_eq!(relay.resets, self.relay.resets);
+        let actual = std::mem::take(&mut *callbacks.lock().unwrap());
+        assert_eq!(
+            actual.accepted, self.callbacks.accepted,
+            "exact callback acceptance population"
+        );
+        assert_eq!(
+            actual.rejected, self.callbacks.rejected,
+            "exact replacement callback population"
+        );
+    }
+}
+
 struct HeldCallback {
     hash: Byte32,
     entered: tokio::sync::oneshot::Sender<()>,
@@ -425,9 +470,8 @@ async fn round(
     callbacks: &StdMutex<Counts>,
     gate: &StdMutex<Option<HeldCallback>>,
 ) -> RoundResult {
-    let mut expected = Counts::default();
+    let mut expected = ExpectedTerminals::default();
     let mut relay = RelayCounts::default();
-    let mut expected_relay = RelayCounts::default();
     let mut retired = Retired::default();
     let mut survivors = Vec::new();
     let mut replacements = Vec::new();
@@ -451,12 +495,10 @@ async fn round(
         );
         for tx in [&parent, &child, &grandchild] {
             within(submit_local(controller, tx.clone())).await.unwrap();
-            count(&mut expected.accepted, tx.hash());
-            count(&mut expected_relay.accepted, (tx.hash(), None));
+            expected.accepted(tx.hash(), None);
         }
         for tx in [&child, &grandchild] {
-            count(&mut expected.rejected, tx.hash());
-            count(&mut expected_relay.rejected, tx.hash());
+            expected.replaced(tx.hash());
         }
         survivors.extend([parent, replacement.clone()]);
         replacements.push(replacement);
@@ -485,7 +527,7 @@ async fn round(
         matches!(entry.phase, Phase::Waiting(_))
     })
     .await;
-    count(&mut expected_relay.parents, (2.into(), late_parent.hash()));
+    count(&mut expected.relay.parents, (2.into(), late_parent.hash()));
 
     // Occupy a real peer's queued residency with valid, missing-parent bodies.
     // The producer stops at the first observed terminal refusal, with a fixed
@@ -505,14 +547,15 @@ async fn round(
             .unwrap();
         relay.drain(receiver);
         if relay.rejected.contains_key(&transaction.hash()) {
-            count(&mut expected_relay.rejected, transaction.hash());
+            // A refused candidate has no removal callback.
+            count(&mut expected.relay.rejected, transaction.hash());
             break;
         }
         observe(pool, &transaction.hash(), |entry| {
             matches!(entry.phase, Phase::Waiting(_))
         })
         .await;
-        count(&mut expected_relay.parents, (PRESSURE_PEER.into(), parent));
+        count(&mut expected.relay.parents, (PRESSURE_PEER.into(), parent));
         pressure_accepted += 1;
     }
     assert!(
@@ -557,8 +600,7 @@ async fn round(
         futures_util::poll!(probe_submission.as_mut()).is_pending(),
         "the local response waits for its entered callback"
     );
-    count(&mut expected.accepted, probe.hash());
-    count(&mut expected_relay.accepted, (probe.hash(), None));
+    expected.accepted(probe.hash(), None);
     survivors.push(probe);
 
     // Wake and verify the remote child while the blocked local callers still
@@ -571,8 +613,7 @@ async fn round(
     .await;
     observe(pool, &late_child.hash(), |entry| entry.accepted().is_some()).await;
     for (tx, peer) in [(&late_parent, None), (&late_child, Some(2.into()))] {
-        count(&mut expected.accepted, tx.hash());
-        count(&mut expected_relay.accepted, (tx.hash(), peer));
+        expected.accepted(tx.hash(), peer);
     }
     let mut submissions = vec![late];
     survivors.extend([late_parent, late_child]);
@@ -583,8 +624,7 @@ async fn round(
             !submission.is_finished(),
             "replacement committed behind the blocked publisher"
         );
-        count(&mut expected.accepted, tx.hash());
-        count(&mut expected_relay.accepted, (tx.hash(), None));
+        expected.accepted(tx.hash(), None);
         submissions.push(submission);
     }
     retired.capture(pool);
@@ -616,7 +656,7 @@ async fn round(
     relay.drain(receiver);
 
     clear(controller, None).await;
-    expected_relay.resets += 1;
+    expected.relay.resets += 1;
     until(pool, "active work and publication release", || {
         pool.store.budget.active_is_empty_for_test() && pool.store.outbox.idle_for_test()
     })
@@ -635,8 +675,7 @@ async fn round(
     .unwrap();
     for tx in &survivors {
         observe(pool, &tx.hash(), |entry| entry.accepted().is_some()).await;
-        count(&mut expected.accepted, tx.hash());
-        count(&mut expected_relay.accepted, (tx.hash(), None));
+        expected.accepted(tx.hash(), None);
     }
     until(pool, "active work and publication release", || {
         pool.store.budget.active_is_empty_for_test() && pool.store.outbox.idle_for_test()
@@ -652,11 +691,7 @@ async fn round(
         .await
         .unwrap();
     observe(pool, &retry.hash(), |entry| entry.accepted().is_some()).await;
-    count(&mut expected.accepted, retry.hash());
-    count(
-        &mut expected_relay.accepted,
-        (retry.hash(), Some(PRESSURE_PEER.into())),
-    );
+    expected.accepted(retry.hash(), Some(PRESSURE_PEER.into()));
     until(pool, "publication drain", || {
         pool.store.outbox.idle_for_test()
     })
@@ -665,7 +700,7 @@ async fn round(
     relay.drain(receiver);
 
     let clear = clear(controller, Some(Arc::clone(&chain.base))).await;
-    expected_relay.resets += 1;
+    expected.relay.resets += 1;
     drop((survivors, retry));
     until(
         pool,
@@ -680,28 +715,7 @@ async fn round(
     pool.store.assert_empty_for_test();
     assert_eq!(pool.store.budget.owner_usage(), OwnerUsage::default());
     relay.drain(receiver);
-    assert_eq!(
-        relay.accepted, expected_relay.accepted,
-        "exact relay acceptance population"
-    );
-    assert_eq!(
-        relay.rejected, expected_relay.rejected,
-        "exact relay rejection population"
-    );
-    assert_eq!(
-        relay.parents, expected_relay.parents,
-        "exact parent requests without duplicates"
-    );
-    assert_eq!(relay.resets, expected_relay.resets);
-    let actual = std::mem::take(&mut *callbacks.lock().unwrap());
-    assert_eq!(
-        actual.accepted, expected.accepted,
-        "exact callback acceptance population"
-    );
-    assert_eq!(
-        actual.rejected, expected.rejected,
-        "exact replacement callback population"
-    );
+    expected.assert_matches(callbacks, &relay);
     assert!(gate.lock().unwrap().is_none());
     RoundResult {
         local,
