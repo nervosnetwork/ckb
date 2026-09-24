@@ -54,6 +54,41 @@ pub(crate) fn sort_by_dependencies<T>(
         return Ok(());
     }
 
+    let Some(mut sorted) = dependency_order(items, transaction)? else {
+        return Ok(());
+    };
+
+    // sorted[destination] is its original source. Walk each permutation cycle,
+    // placing that source and marking the destination complete as we go. The
+    // final source is already in place after the preceding swaps. No item is
+    // cloned, dropped or temporarily removed from the caller's slice.
+    #[expect(
+        clippy::indexing_slicing,
+        reason = "A complete topological order is a permutation of the item indices, each emitted once."
+    )]
+    for start in 0..sorted.len() {
+        let mut destination = start;
+        loop {
+            let source = std::mem::replace(&mut sorted[destination], destination);
+            if source == start {
+                break;
+            }
+            debug_assert_ne!(
+                source, destination,
+                "topological order revisited a completed index"
+            );
+            items.swap(destination, source);
+            destination = source;
+        }
+    }
+    Ok(())
+}
+
+/// Complete all fallible ordering work before the caller permutes its items.
+fn dependency_order<T>(
+    items: &[T],
+    transaction: impl Fn(&T) -> &TransactionView,
+) -> Result<Option<Vec<usize>>, DependencySortError> {
     // Canonical raw hashes identify the complete output vector. Keep the last
     // cohort member for duplicate hashes, including different witnesses.
     let mut producers: HashMap<Byte32, (usize, usize)> = HashMap::new();
@@ -87,46 +122,36 @@ pub(crate) fn sort_by_dependencies<T>(
     children.resize_with(items.len(), Vec::new);
     for (index, item) in items.iter().enumerate() {
         let tx = transaction(item);
-        for input in tx.input_pts_iter() {
-            if let Some(parent) = producer(&input)
+        let dependencies = tx
+            .input_pts_iter()
+            .map(|point| (point, DependencyRelation::Input))
+            .chain(
+                tx.cell_deps_iter()
+                    .map(|dep| (dep.out_point(), DependencyRelation::CellDep)),
+            );
+        for (point, relation) in dependencies {
+            if let Some(parent) = producer(&point)
                 && parent != index
             {
-                register_edge(
-                    parent,
-                    index,
-                    &mut in_degree,
-                    &mut children,
-                    DependencyRelation::Input,
-                )?;
-            }
-        }
-        for dependency in tx.cell_deps_iter() {
-            if let Some(parent) = producer(&dependency.out_point())
-                && parent != index
-            {
-                register_edge(
-                    parent,
-                    index,
-                    &mut in_degree,
-                    &mut children,
-                    DependencyRelation::CellDep,
-                )?;
+                register_edge(&mut in_degree, &mut children, parent, index, relation)?;
             }
         }
     }
 
+    // Producer lookup is no longer needed; release it before the sort buffers.
+    drop(producers);
     let mut ready = BinaryHeap::new();
     ready
-        .try_reserve(items.len())
+        .try_reserve(in_degree.len())
         .map_err(|_| DependencySortError::Allocation("ready queue"))?;
     ready.extend(
-        (0..items.len())
+        (0..in_degree.len())
             .filter(|&index| in_degree.get(index).is_some_and(|degree| *degree == 0))
             .map(Reverse),
     );
     let mut sorted = Vec::new();
     sorted
-        .try_reserve_exact(items.len())
+        .try_reserve_exact(in_degree.len())
         .map_err(|_| DependencySortError::Allocation("sorted indexes"))?;
     while let Some(Reverse(index)) = ready.pop() {
         sorted.push(index);
@@ -150,41 +175,14 @@ pub(crate) fn sort_by_dependencies<T>(
         }
     }
 
-    if sorted.len() != items.len() {
-        return Ok(());
-    }
-
-    // sorted[destination] is its original source. Walk each permutation cycle,
-    // placing that source and marking the destination complete as we go. The
-    // final source is already in place after the preceding swaps. No item is
-    // cloned, dropped or temporarily removed from the caller's slice.
-    #[expect(
-        clippy::indexing_slicing,
-        reason = "A complete topological order is a permutation of the item indices, each emitted once."
-    )]
-    for start in 0..sorted.len() {
-        let mut destination = start;
-        loop {
-            let source = std::mem::replace(&mut sorted[destination], destination);
-            if source == start {
-                break;
-            }
-            debug_assert_ne!(
-                source, destination,
-                "topological order revisited a completed index"
-            );
-            items.swap(destination, source);
-            destination = source;
-        }
-    }
-    Ok(())
+    Ok((sorted.len() == in_degree.len()).then_some(sorted))
 }
 
 fn register_edge(
-    parent: usize,
-    child: usize,
     in_degree: &mut [usize],
     children: &mut [Vec<usize>],
+    parent: usize,
+    child: usize,
     relation: DependencyRelation,
 ) -> Result<(), DependencySortError> {
     let degree = in_degree
@@ -192,7 +190,7 @@ fn register_edge(
         .ok_or(DependencySortError::Projection(
             relation.child_index_error(),
         ))?;
-    *degree = degree
+    let next_degree = degree
         .checked_add(1)
         .ok_or(DependencySortError::Arithmetic(relation.degree_error()))?;
     let planned_children = children
@@ -204,6 +202,7 @@ fn register_edge(
         .try_reserve(1)
         .map_err(|_| DependencySortError::Allocation("child-list growth"))?;
     planned_children.push(child);
+    *degree = next_degree;
     Ok(())
 }
 
