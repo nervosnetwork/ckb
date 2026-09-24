@@ -143,19 +143,8 @@ impl Reject {
     /// Wrong declared cycles may be corrected; non-malformed conflicts and local
     /// resource outcomes may become admissible later. Low fees do not qualify.
     pub fn is_allowed_relay(&self) -> bool {
-        match self {
-            Self::LowFeeRate(..) | Self::Malformed(..) => false,
-            Self::Resolve(..) | Self::Verification(..) => !self.is_malformed_tx(),
-            Self::ExceededMaximumAncestorsCount
-            | Self::ExceededTransactionSizeLimit(..)
-            | Self::Full(..)
-            | Self::Duplicated(..)
-            | Self::DeclaredWrongCycles(..)
-            | Self::ExcessiveVerifyTime
-            | Self::Expiry(..)
-            | Self::RBFRejected(..)
-            | Self::Invalidated(..) => true,
-        }
+        matches!(self, Self::DeclaredWrongCycles(..))
+            || (!matches!(self, Self::LowFeeRate(..)) && !self.is_malformed_tx())
     }
 }
 
