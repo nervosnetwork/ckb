@@ -7,7 +7,7 @@ use super::super::{
     },
     notice::Class,
     queue::WorkStage,
-    store::{Captured, DEP, Plan, ReadSet, Store},
+    store::{Captured, Plan, ReadSet, Roles, Store},
 };
 use super::common::*;
 use ckb_types::{
@@ -498,7 +498,7 @@ fn complete_dependency_observation_detects_late_readers() {
         store
             .members(
                 &RelationKey::Dependency(DependencyKey::Cell(point.clone())),
-                DEP,
+                Roles::DEPENDENCY,
                 &mut reads,
             )
             .unwrap()

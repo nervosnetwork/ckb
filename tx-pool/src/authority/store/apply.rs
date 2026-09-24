@@ -2,9 +2,9 @@
 //! lock release stay in one path; retired payloads outlive every authority guard.
 use super::plan::LifecycleWrite;
 use super::{
-    ACCEPTED_ROLES, CHILD, COMMITTED_HASH_CACHE_CAPACITY, CommitLocks, DEP, Edit, Guard, INPUT,
-    Peer, Plan, Relation, RelationMember, SHARDS, Shard, Store, View, WAIT, Wake, WakePage,
-    acquire, compact_dependency, compact_relation, proposal_key,
+    COMMITTED_HASH_CACHE_CAPACITY, CommitLocks, Edit, Guard, Peer, Plan, Relation, RelationMember,
+    Roles, SHARDS, Shard, Store, View, Wake, WakePage, acquire, compact_dependency,
+    compact_relation, proposal_key,
 };
 use crate::authority::{
     budget::OwnerDelta,
@@ -23,8 +23,14 @@ use std::{
     time::Instant,
 };
 
-// Unique owner hashes in order, each paired with its old and new membership.
-type MemberChanges<T> = Vec<(Byte32, (T, T))>;
+#[derive(Clone, Copy, Default)]
+struct MemberChange<T> {
+    before: T,
+    after: T,
+}
+
+// Unique owner hashes in order, each paired with its membership transition.
+type MemberChanges<T> = Vec<(Byte32, MemberChange<T>)>;
 
 /// Payload displaced by a committed cut. Keep it alive until all authority
 /// guards are released; dropping an owner can run caller-owned destructors.
@@ -53,7 +59,7 @@ struct Application<'a> {
 struct OwnerChanges<'a> {
     owner_edits: Vec<(usize, &'a Byte32, &'a Edit)>,
     locks: CommitLocks,
-    relation_changes: BTreeMap<RelationKey, MemberChanges<u8>>,
+    relation_changes: BTreeMap<RelationKey, MemberChanges<Roles>>,
     peer_changes: BTreeMap<PeerIndex, MemberChanges<bool>>,
 }
 impl<'a> OwnerChanges<'a> {
@@ -67,7 +73,7 @@ impl<'a> OwnerChanges<'a> {
         let mut owner_edits = Vec::with_capacity(edits.len());
         // Plan hashes are unique and ordered; the last per-key change can merge
         // repeated roles of the current owner without another lookup tree.
-        let mut relation_changes: BTreeMap<RelationKey, MemberChanges<u8>> = BTreeMap::new();
+        let mut relation_changes: BTreeMap<RelationKey, MemberChanges<Roles>> = BTreeMap::new();
         let mut peer_changes: BTreeMap<PeerIndex, MemberChanges<bool>> = BTreeMap::new();
         for (hash, edit) in edits {
             let index = store.owner_shard(hash);
@@ -76,22 +82,22 @@ impl<'a> OwnerChanges<'a> {
             if replace_generation {
                 continue;
             }
-            visit_role_changes(edit, |key, old, new| {
+            visit_role_changes(edit, |key, change| {
                 if let Some(changes) = relation_changes.get_mut(&key) {
                     // Ordered owners keep duplicate roles in the final item.
                     if let Some((_, roles)) = changes.last_mut().filter(|(last, _)| last == hash) {
-                        roles.0 |= old;
-                        roles.1 |= new;
+                        roles.before |= change.before;
+                        roles.after |= change.after;
                     } else {
-                        changes.push((hash.clone(), (old, new)));
+                        changes.push((hash.clone(), change));
                     }
                 } else {
-                    relation_changes
-                        .insert(compact_relation(&key), vec![(hash.clone(), (old, new))]);
+                    relation_changes.insert(compact_relation(&key), vec![(hash.clone(), change)]);
                 }
-                locks
-                    .dependencies
-                    .insert(store.route(&key), (old | new) & INPUT != 0);
+                locks.dependencies.insert(
+                    store.route(&key),
+                    (change.before | change.after).intersects(Roles::SPENDER),
+                );
             });
             let old_peer = edit.before.as_deref().and_then(Entry::preaccepted_peer);
             let new_peer = edit.after.as_deref().and_then(Entry::preaccepted_peer);
@@ -113,7 +119,10 @@ impl<'a> OwnerChanges<'a> {
                         .or_insert_with(|| Vec::with_capacity(1))
                         .push((
                             hash.clone(),
-                            (old_peer == Some(peer), new_peer == Some(peer)),
+                            MemberChange {
+                                before: old_peer == Some(peer),
+                                after: new_peer == Some(peer),
+                            },
                         ));
                 }
             }
@@ -206,16 +215,16 @@ impl<'a> OwnerChanges<'a> {
             let row = store.relation(key);
             let row = row.as_ref().map(|row| row.lock());
             let mut spender = row.as_ref().and_then(|row| row.spender.clone());
-            for (hash, (old, _)) in changes {
-                if row.as_ref().map_or(0, |row| row.roles(hash)) != *old {
+            for (hash, change) in changes {
+                if row.as_ref().map_or(Roles::NONE, |row| row.roles(hash)) != change.before {
                     return Err(Error::Fault("relation projection"));
                 }
-                if old & INPUT != 0 && spender.as_ref() == Some(hash) {
+                if change.before.intersects(Roles::SPENDER) && spender.as_ref() == Some(hash) {
                     spender = None;
                 }
             }
-            for (hash, (_, new)) in changes {
-                if new & INPUT != 0 {
+            for (hash, change) in changes {
+                if change.after.intersects(Roles::SPENDER) {
                     if spender.as_ref().is_some_and(|old| old != hash) {
                         return Err(Error::Fault("multiple accepted spenders"));
                     }
@@ -234,8 +243,8 @@ impl<'a> OwnerChanges<'a> {
         for (peer, changes) in &self.peer_changes {
             let row = store.peers.lock().get(peer).cloned();
             let row = row.as_ref().map(|row| row.lock());
-            for (hash, (old, _)) in changes {
-                if row.as_ref().is_some_and(|row| row.members.contains(hash)) != *old {
+            for (hash, change) in changes {
+                if row.as_ref().is_some_and(|row| row.members.contains(hash)) != change.before {
                     return Err(Error::Fault("peer projection"));
                 }
             }
@@ -286,22 +295,28 @@ fn commit_infallibly(commit: impl FnOnce()) {
     commit();
 }
 
-fn visit_roles(entry: &Entry, mut add: impl FnMut(RelationKey, u8)) {
+fn visit_roles(entry: &Entry, mut add: impl FnMut(RelationKey, Roles)) {
     match &entry.phase {
         Phase::Accepted(accepted) => {
             for point in entry.transaction.input_pts_iter() {
-                add(RelationKey::Dependency(DependencyKey::Cell(point)), INPUT);
+                add(
+                    RelationKey::Dependency(DependencyKey::Cell(point)),
+                    Roles::SPENDER,
+                );
             }
             for point in accepted.dependencies() {
-                add(RelationKey::Dependency(DependencyKey::Cell(point)), DEP);
+                add(
+                    RelationKey::Dependency(DependencyKey::Cell(point)),
+                    Roles::DEPENDENCY,
+                );
             }
             for hash in &accepted.parents {
-                add(RelationKey::Children(hash.clone()), CHILD);
+                add(RelationKey::Children(hash.clone()), Roles::CHILD);
             }
         }
         Phase::Waiting(keys) | Phase::Replaced { triggers: keys, .. } => {
             for key in keys {
-                add(RelationKey::Dependency(key.clone()), WAIT);
+                add(RelationKey::Dependency(key.clone()), Roles::WAITING);
             }
         }
         Phase::Resolve | Phase::Verify(_) => {}
@@ -309,20 +324,40 @@ fn visit_roles(entry: &Entry, mut add: impl FnMut(RelationKey, u8)) {
 }
 // A roleless side cannot cancel a visited role. Stream that common transition
 // directly; two role-bearing sides still need a bounded owner-local merge.
-fn visit_role_changes(edit: &Edit, mut add: impl FnMut(RelationKey, u8, u8)) {
+fn visit_role_changes(edit: &Edit, mut add: impl FnMut(RelationKey, MemberChange<Roles>)) {
     let has_roles = |entry: &&Entry| !matches!(entry.phase, Phase::Resolve | Phase::Verify(_));
     let before = edit.before.as_deref().filter(has_roles);
     let after = edit.after.as_deref().filter(has_roles);
     match (before, after) {
-        (None, Some(after)) => visit_roles(after, |key, role| add(key, 0, role)),
-        (Some(before), None) => visit_roles(before, |key, role| add(key, role, 0)),
+        (None, Some(after)) => visit_roles(after, |key, role| {
+            add(
+                key,
+                MemberChange {
+                    before: Roles::NONE,
+                    after: role,
+                },
+            );
+        }),
+        (Some(before), None) => visit_roles(before, |key, role| {
+            add(
+                key,
+                MemberChange {
+                    before: role,
+                    after: Roles::NONE,
+                },
+            );
+        }),
         (Some(before), Some(after)) => {
-            let mut roles: BTreeMap<RelationKey, (u8, u8)> = BTreeMap::new();
-            visit_roles(before, |key, role| roles.entry(key).or_default().0 |= role);
-            visit_roles(after, |key, role| roles.entry(key).or_default().1 |= role);
-            for (key, (old, new)) in roles {
-                if old != new {
-                    add(key, old, new);
+            let mut roles: BTreeMap<RelationKey, MemberChange<Roles>> = BTreeMap::new();
+            visit_roles(before, |key, role| {
+                roles.entry(key).or_default().before |= role
+            });
+            visit_roles(after, |key, role| {
+                roles.entry(key).or_default().after |= role
+            });
+            for (key, change) in roles {
+                if change.before != change.after {
+                    add(key, change);
                 }
             }
         }
@@ -816,8 +851,8 @@ impl Store {
                 .entry(peer)
                 .or_insert_with(|| Arc::new(Mutex::new(Peer::default())));
             let mut row = row.lock();
-            for (hash, (_, new)) in changes {
-                if new {
+            for (hash, change) in changes {
+                if change.after {
                     row.members.insert(hash);
                 } else {
                     row.members.remove(&hash);
@@ -857,7 +892,7 @@ impl Store {
     fn apply_relation(
         &self,
         key: RelationKey,
-        changes: MemberChanges<u8>,
+        changes: MemberChanges<Roles>,
         edits: &BTreeMap<Byte32, Edit>,
         wake: &BTreeSet<DependencyKey>,
     ) {
@@ -866,20 +901,24 @@ impl Store {
             .entry(key.clone())
             .or_insert_with(|| Arc::new(Mutex::new(Relation::default())));
         let mut row = row.lock();
-        for (hash, (old, _)) in &changes {
-            if old & INPUT != 0 && row.spender.as_ref() == Some(hash) {
+        for (hash, change) in &changes {
+            if change.before.intersects(Roles::SPENDER) && row.spender.as_ref() == Some(hash) {
                 row.spender = None;
             }
         }
         // Use the final spender, independent of the order of owner hashes.
         // A newly blocked history cannot recover during its creation event.
-        let spent = row.spender.is_some() || changes.iter().any(|(_, (_, new))| new & INPUT != 0);
-        let accepted_changed = changes
-            .iter()
-            .any(|(_, (old, new))| old & ACCEPTED_ROLES != new & ACCEPTED_ROLES);
-        for (hash, (_, new)) in changes {
-            let other_roles = new & !INPUT;
-            if other_roles == 0 {
+        let spent = row.spender.is_some()
+            || changes
+                .iter()
+                .any(|(_, change)| change.after.intersects(Roles::SPENDER));
+        let accepted_membership_changed = changes.iter().any(|(_, change)| {
+            change.before.intersection(Roles::ACCEPTED)
+                != change.after.intersection(Roles::ACCEPTED)
+        });
+        for (hash, change) in changes {
+            let member_roles = change.after.intersection(Roles::MEMBERS);
+            if member_roles.is_empty() {
                 row.members.remove(&hash);
             } else {
                 let deferred = matches!(&key, RelationKey::Dependency(key) if wake.contains(key))
@@ -905,16 +944,16 @@ impl Store {
                 row.members.insert(
                     hash.clone(),
                     RelationMember {
-                        roles: other_roles,
+                        roles: member_roles,
                         wait_after_pass,
                     },
                 );
             }
-            if new & INPUT != 0 {
+            if change.after.intersects(Roles::SPENDER) {
                 row.spender = Some(hash);
             }
         }
-        if accepted_changed {
+        if accepted_membership_changed {
             row.accepted_version = Arc::new(());
         }
         if row.members.is_empty() {
@@ -948,7 +987,7 @@ impl Store {
         let mut waiters = row
             .members
             .values()
-            .filter(|member| member.roles & WAIT != 0);
+            .filter(|member| member.roles.intersects(Roles::WAITING));
         let Some(first) = waiters.next() else {
             return;
         };

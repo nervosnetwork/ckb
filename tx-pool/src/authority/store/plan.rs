@@ -1,7 +1,7 @@
 //! A decision owns its original observations, intended owner edits and notices.
 //! Tracked reads extend that decision; only Store can inspect its private state
 //! while validating and committing it.
-use super::{Captured, SHARDS, Store, WakePage};
+use super::{Captured, Roles, SHARDS, Store, WakePage};
 use crate::{
     authority::{
         model::{DependencyKey, Entry, Error, RelationKey},
@@ -331,7 +331,7 @@ impl Plan {
         &mut self,
         store: &Store,
         key: &RelationKey,
-        roles: u8,
+        roles: Roles,
     ) -> Result<Vec<Byte32>, Error> {
         store.members(key, roles, &mut self.reads)
     }

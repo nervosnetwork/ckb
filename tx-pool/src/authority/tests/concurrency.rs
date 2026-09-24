@@ -392,7 +392,11 @@ fn coupled_spender_transfer_preserves_roles_in_both_hash_orders() {
         );
         assert_eq!(
             store
-                .members(&key, INPUT | DEP, &mut ReadSet::default())
+                .members(
+                    &key,
+                    Roles::SPENDER | Roles::DEPENDENCY,
+                    &mut ReadSet::default()
+                )
                 .unwrap(),
             vec![new.hash()]
         );
@@ -405,7 +409,7 @@ fn coupled_spender_transfer_preserves_roles_in_both_hash_orders() {
                 .get(&new.hash())
                 .unwrap()
                 .roles,
-            DEP
+            Roles::DEPENDENCY
         );
         assert_eq!(
             store
@@ -453,7 +457,11 @@ fn spender_only_relation_survives_reader_and_wake_retirement() {
     });
     assert_eq!(
         store
-            .members(&key, INPUT | DEP, &mut ReadSet::default())
+            .members(
+                &key,
+                Roles::SPENDER | Roles::DEPENDENCY,
+                &mut ReadSet::default()
+            )
             .unwrap(),
         vec![readers[0].clone(), spender.clone(), readers[1].clone()]
     );
@@ -485,7 +493,9 @@ fn spender_only_relation_survives_reader_and_wake_retirement() {
         Some(spender.clone())
     );
     assert_eq!(
-        store.members(&key, INPUT, &mut ReadSet::default()).unwrap(),
+        store
+            .members(&key, Roles::SPENDER, &mut ReadSet::default())
+            .unwrap(),
         vec![spender.clone()]
     );
     assert!(store.relation(&key).unwrap().lock().members.is_empty());
@@ -521,26 +531,26 @@ fn projection_role_union_survives_phase_changes_and_duplicate_dependencies() {
         store
             .relation(key)
             .map(|row| row.lock().roles(&hash))
-            .filter(|roles| *roles != 0)
+            .filter(|roles| *roles != Roles::NONE)
     };
-    assert_eq!(roles(&cell_key), Some(INPUT | DEP));
-    assert_eq!(roles(&child_key), Some(CHILD));
+    assert_eq!(roles(&cell_key), Some(Roles::SPENDER | Roles::DEPENDENCY));
+    assert_eq!(roles(&child_key), Some(Roles::CHILD));
     assert_eq!(roles(&header_key), None);
     let owner = store.point(&hash).1.unwrap();
     let mut accepted = owner.accepted().unwrap().clone();
     let version = Arc::clone(&store.relation(&cell_key).unwrap().lock().accepted_version);
     accepted.timestamp += 1;
     let owner = replace(&store, owner, Phase::Accepted(accepted.clone()));
-    assert_eq!(roles(&cell_key), Some(INPUT | DEP));
+    assert_eq!(roles(&cell_key), Some(Roles::SPENDER | Roles::DEPENDENCY));
     assert!(Arc::ptr_eq(
         &version,
         &store.relation(&cell_key).unwrap().lock().accepted_version
     ));
     let keys = BTreeSet::from([cell, header]);
     let owner = replace(&store, owner, Phase::Waiting(keys.clone()));
-    assert_eq!(roles(&cell_key), Some(WAIT));
+    assert_eq!(roles(&cell_key), Some(Roles::WAITING));
     assert_eq!(roles(&child_key), None);
-    assert_eq!(roles(&header_key), Some(WAIT));
+    assert_eq!(roles(&header_key), Some(Roles::WAITING));
     assert!(
         store
             .spender(&point, &mut ReadSet::default())
@@ -555,14 +565,14 @@ fn projection_role_union_survives_phase_changes_and_duplicate_dependencies() {
             require_all: false,
         },
     );
-    assert_eq!(roles(&cell_key), Some(WAIT));
-    assert_eq!(roles(&header_key), Some(WAIT));
+    assert_eq!(roles(&cell_key), Some(Roles::WAITING));
+    assert_eq!(roles(&header_key), Some(Roles::WAITING));
     let owner = replace(&store, owner, Phase::Resolve);
     assert_eq!(roles(&cell_key), None);
     assert_eq!(roles(&header_key), None);
     let owner = replace(&store, owner, Phase::Accepted(accepted));
-    assert_eq!(roles(&cell_key), Some(INPUT | DEP));
-    assert_eq!(roles(&child_key), Some(CHILD));
+    assert_eq!(roles(&cell_key), Some(Roles::SPENDER | Roles::DEPENDENCY));
+    assert_eq!(roles(&child_key), Some(Roles::CHILD));
     assert_eq!(
         store.spender(&point, &mut ReadSet::default()).unwrap(),
         Some(hash.clone())
@@ -1118,7 +1128,9 @@ fn projection_versions_do_not_alias_after_complete_relation_or_peer_reentry() {
     let mut relation = ReadSet::default();
     let key = RelationKey::Dependency(DependencyKey::Cell(point));
     assert_eq!(
-        store.members(&key, DEP, &mut relation).unwrap(),
+        store
+            .members(&key, Roles::DEPENDENCY, &mut relation)
+            .unwrap(),
         vec![hash.clone()]
     );
     let owner = store.point(&hash).1.unwrap();
@@ -1127,7 +1139,10 @@ fn projection_versions_do_not_alias_after_complete_relation_or_peer_reentry() {
     store.apply(removal).unwrap();
     accept(&store, transaction, 1, 1, Status::Pending);
     let mut fresh = ReadSet::default();
-    assert_eq!(store.members(&key, DEP, &mut fresh).unwrap(), vec![hash]);
+    assert_eq!(
+        store.members(&key, Roles::DEPENDENCY, &mut fresh).unwrap(),
+        vec![hash]
+    );
     assert!(matches!(relation.merge(&fresh), Err(Error::Stale)));
     let stale = Plan::new(store.snapshot().0, Class::Trusted, relation);
     assert!(matches!(store.apply(stale), Err(Error::Stale)));
@@ -1801,14 +1816,22 @@ fn roleless_owner_transition_combines_duplicate_roles_and_preserves_waiters() {
     let relation = store.relation(&key).unwrap();
     {
         let row = relation.lock();
-        assert_eq!(row.roles(&accepted.hash()), INPUT | DEP);
-        assert_eq!(row.members.get(&accepted.hash()).unwrap().roles, DEP);
-        assert_eq!(row.roles(&waiter.hash()), WAIT);
+        assert_eq!(
+            row.roles(&accepted.hash()),
+            Roles::SPENDER | Roles::DEPENDENCY
+        );
+        assert_eq!(
+            row.members.get(&accepted.hash()).unwrap().roles,
+            Roles::DEPENDENCY
+        );
+        assert_eq!(row.roles(&waiter.hash()), Roles::WAITING);
     }
     let view = store.snapshot().0;
     let mut reads = ReadSet::default();
     assert_eq!(
-        store.members(&key, INPUT | DEP, &mut reads).unwrap(),
+        store
+            .members(&key, Roles::SPENDER | Roles::DEPENDENCY, &mut reads)
+            .unwrap(),
         vec![accepted.hash()]
     );
     let mut observed = Plan::new(view, Class::Trusted, reads);
@@ -1818,9 +1841,9 @@ fn roleless_owner_transition_combines_duplicate_roles_and_preserves_waiters() {
     replace(&store, accepted, Phase::Resolve);
     assert!(matches!(store.apply(observed), Err(Error::Stale)));
     let row = relation.lock();
-    assert_eq!(row.roles(&hash), 0);
+    assert_eq!(row.roles(&hash), Roles::NONE);
     assert!(row.spender.is_none());
-    assert_eq!(row.roles(&waiter.hash()), WAIT);
+    assert_eq!(row.roles(&waiter.hash()), Roles::WAITING);
     assert_eq!(row.members.len(), 1);
     assert!(!store.is_faulted());
 }
@@ -1856,7 +1879,11 @@ fn history_capacity_retry_rebuilds_relation_changes_after_dropping_history() {
     for key in keys {
         assert!(
             !store
-                .members(&RelationKey::Dependency(key), WAIT, &mut ReadSet::default(),)
+                .members(
+                    &RelationKey::Dependency(key),
+                    Roles::WAITING,
+                    &mut ReadSet::default(),
+                )
                 .unwrap()
                 .contains(&victim)
         );

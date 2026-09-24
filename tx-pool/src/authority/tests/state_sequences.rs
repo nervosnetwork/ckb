@@ -490,8 +490,8 @@ impl<'a> Sequence<'a> {
                 let owner = owner.as_ref()?;
                 let cell = RelationKey::Dependency(DependencyKey::Cell(self.corpus.input(id)));
                 let mut roles = match owner.shape {
-                    Shape::Waiting | Shape::HistoryAll => vec![(cell, WAIT)],
-                    Shape::Pending => vec![(cell, INPUT)],
+                    Shape::Waiting | Shape::HistoryAll => vec![(cell, Roles::WAITING)],
+                    Shape::Pending => vec![(cell, Roles::SPENDER)],
                     _ => Vec::new(),
                 };
                 if owner.shape.accepted()
@@ -499,7 +499,7 @@ impl<'a> Sequence<'a> {
                 {
                     roles.push((
                         RelationKey::Children(self.corpus.transactions[parent].hash()),
-                        CHILD,
+                        Roles::CHILD,
                     ));
                 }
                 Some(Expected {

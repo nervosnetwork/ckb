@@ -47,13 +47,69 @@ mod transition_tests;
 type CommitObserver = Arc<dyn Fn(&Plan, bool) + Send + Sync>;
 
 pub(super) const SHARDS: usize = 256;
-pub(super) const INPUT: u8 = 1;
-pub(super) const DEP: u8 = 2;
-pub(super) const WAIT: u8 = 4;
-pub(super) const CHILD: u8 = 8;
-const ACCEPTED_ROLES: u8 = INPUT | DEP | CHILD;
 const WAKE_PAGE: usize = 32;
 const COMMITTED_HASH_CACHE_CAPACITY: usize = 100_000;
+
+/// One owner's roles toward a dependency or parent. The spender is exclusive;
+/// the other roles share the relation's member map.
+#[derive(Clone, Copy, Default, PartialEq, Eq)]
+#[repr(transparent)]
+pub(super) struct Roles(u8);
+
+impl Roles {
+    pub(super) const NONE: Self = Self(0);
+    pub(super) const SPENDER: Self = Self(1);
+    pub(super) const DEPENDENCY: Self = Self(2);
+    pub(super) const WAITING: Self = Self(4);
+    pub(super) const CHILD: Self = Self(8);
+    pub(super) const READERS: Self = Self(Self::SPENDER.0 | Self::DEPENDENCY.0);
+    // Waiting membership does not invalidate accepted-relation observations.
+    const ACCEPTED: Self = Self(Self::READERS.0 | Self::CHILD.0);
+    const MEMBERS: Self = Self(Self::DEPENDENCY.0 | Self::WAITING.0 | Self::CHILD.0);
+
+    pub(super) fn intersects(self, other: Self) -> bool {
+        self.0 & other.0 != 0
+    }
+
+    fn intersection(self, other: Self) -> Self {
+        Self(self.0 & other.0)
+    }
+
+    fn is_empty(self) -> bool {
+        self == Self::NONE
+    }
+}
+
+impl std::ops::BitOr for Roles {
+    type Output = Self;
+
+    fn bitor(self, other: Self) -> Self {
+        Self(self.0 | other.0)
+    }
+}
+
+impl std::ops::BitOrAssign for Roles {
+    fn bitor_assign(&mut self, other: Self) {
+        *self = *self | other;
+    }
+}
+
+impl std::fmt::Debug for Roles {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_set()
+            .entries(
+                [
+                    (Self::SPENDER, "spender"),
+                    (Self::DEPENDENCY, "dependency"),
+                    (Self::WAITING, "waiting"),
+                    (Self::CHILD, "child"),
+                ]
+                .into_iter()
+                .filter_map(|(role, name)| self.intersects(role).then_some(name)),
+            )
+            .finish()
+    }
+}
 
 struct View {
     snapshot: Arc<Snapshot>,
@@ -121,7 +177,7 @@ struct Wake {
 }
 #[derive(Debug)]
 struct RelationMember {
-    roles: u8,
+    roles: Roles,
     // A freshly registered current absence waits for a later availability
     // event. A policy-only history cannot wake itself on its own removal.
     wait_after_pass: u64,
@@ -129,12 +185,12 @@ struct RelationMember {
 
 impl RelationMember {
     fn can_wake(&self, pass: u64) -> bool {
-        self.roles & WAIT != 0 && pass > self.wait_after_pass
+        self.roles.intersects(Roles::WAITING) && pass > self.wait_after_pass
     }
 }
 #[derive(Debug, Default)]
 struct Relation {
-    // INPUT is held only by spender; this map stores DEP, WAIT and CHILD.
+    // The exclusive spender lives separately; members hold only Roles::MEMBERS.
     members: BTreeMap<Byte32, RelationMember>,
     spender: Option<Byte32>,
     // Weak observations keep each retired marker allocation unique until the
@@ -151,12 +207,14 @@ impl Relation {
             .filter_map(move |(hash, member)| member.can_wake(pass).then_some(hash))
     }
 
-    fn roles(&self, hash: &Byte32) -> u8 {
-        self.members.get(hash).map_or(0, |member| member.roles)
+    fn roles(&self, hash: &Byte32) -> Roles {
+        self.members
+            .get(hash)
+            .map_or(Roles::NONE, |member| member.roles)
             | if self.spender.as_ref() == Some(hash) {
-                INPUT
+                Roles::SPENDER
             } else {
-                0
+                Roles::NONE
             }
     }
     fn is_empty(&self) -> bool {
@@ -772,10 +830,11 @@ impl Store {
         }
         Ok(spender)
     }
+    /// Owners holding any selected role, including the separately stored spender.
     pub(super) fn members(
         &self,
         key: &RelationKey,
-        role: u8,
+        roles: Roles,
         reads: &mut ReadSet,
     ) -> Result<Vec<Byte32>, Error> {
         let row = self.relation(key);
@@ -784,10 +843,10 @@ impl Store {
             let mut members: Vec<_> = row
                 .members
                 .iter()
-                .filter(|(_, member)| member.roles & role != 0)
+                .filter(|(_, member)| member.roles.intersects(roles))
                 .map(|(hash, _)| hash.clone())
                 .collect();
-            if role & INPUT != 0
+            if roles.intersects(Roles::SPENDER)
                 && let Some(spender) = &row.spender
                 && let Err(index) = members.binary_search(spender)
             {
@@ -873,7 +932,7 @@ impl Store {
             reads,
         }
     }
-    /// Capture one accepted descendant closure at a coherent cut. Every CHILD
+    /// Capture one accepted descendant closure at a coherent cut. Every child
     /// membership update holds an owner writer, so these read guards stabilize
     /// the existing relation rows too. Caller owns a bounded read/capture slot.
     #[expect(
@@ -902,7 +961,7 @@ impl Store {
             if let Some(row) = self.relation(&RelationKey::Children(parent.hash())) {
                 let row = row.lock();
                 for (hash, member) in &row.members {
-                    if member.roles & CHILD != 0 && seen.insert(hash.clone()) {
+                    if member.roles.intersects(Roles::CHILD) && seen.insert(hash.clone()) {
                         let child = guards[self.owner_shard(hash)]
                             .owners
                             .get(hash)

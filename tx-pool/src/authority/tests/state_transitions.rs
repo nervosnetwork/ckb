@@ -193,25 +193,25 @@ impl Fixture {
         })
     }
 
-    fn roles(&self, shape: Shape) -> Vec<(RelationKey, u8)> {
+    fn roles(&self, shape: Shape) -> Vec<(RelationKey, Roles)> {
         let cell = |point| RelationKey::Dependency(DependencyKey::Cell(point));
         match shape {
             Shape::Resolve | Shape::Verify => Vec::new(),
             Shape::Waiting => vec![
-                (cell(self.dependency.clone()), WAIT),
+                (cell(self.dependency.clone()), Roles::WAITING),
                 (
                     RelationKey::Dependency(DependencyKey::Header(self.header.clone())),
-                    WAIT,
+                    Roles::WAITING,
                 ),
             ],
             Shape::HistoryAll | Shape::HistoryAny => vec![
-                (cell(self.input.clone()), WAIT),
-                (cell(self.dependency.clone()), WAIT),
+                (cell(self.input.clone()), Roles::WAITING),
+                (cell(self.dependency.clone()), Roles::WAITING),
             ],
             Shape::Pending | Shape::Gap | Shape::Proposed => vec![
-                (cell(self.input.clone()), INPUT | DEP),
-                (cell(self.dependency.clone()), DEP),
-                (RelationKey::Children(self.parent.hash()), CHILD),
+                (cell(self.input.clone()), Roles::SPENDER | Roles::DEPENDENCY),
+                (cell(self.dependency.clone()), Roles::DEPENDENCY),
+                (RelationKey::Children(self.parent.hash()), Roles::CHILD),
             ],
         }
     }
@@ -222,7 +222,7 @@ struct Expected {
     shape: Shape,
     origin: Origin,
     timestamp: u64,
-    roles: Vec<(RelationKey, u8)>,
+    roles: Vec<(RelationKey, Roles)>,
 }
 
 fn add(total: &mut Amount, amount: Amount) {
@@ -240,7 +240,7 @@ fn assert_state(store: &Store, expected: &[Expected], wakes: &[DependencyKey]) {
     let mut proposals = BTreeMap::new();
     let mut deadlines = BTreeSet::new();
     let mut accepted_times = BTreeSet::new();
-    let mut roles: BTreeMap<RelationKey, BTreeMap<Byte32, u8>> = BTreeMap::new();
+    let mut roles: BTreeMap<RelationKey, BTreeMap<Byte32, Roles>> = BTreeMap::new();
     let mut peers: BTreeMap<PeerIndex, BTreeSet<Byte32>> = BTreeMap::new();
     let mut queued = [Vec::new(), Vec::new()];
     let mut waiting = 0;
@@ -388,7 +388,7 @@ fn assert_state(store: &Store, expected: &[Expected], wakes: &[DependencyKey]) {
                 .map(|(hash, member)| (hash.clone(), member.roles))
                 .collect();
             if let Some(hash) = &relation.spender {
-                *members.entry(hash.clone()).or_default() |= INPUT;
+                *members.entry(hash.clone()).or_default() |= Roles::SPENDER;
             }
             if let Some(wake) = &relation.wake {
                 let RelationKey::Dependency(key) = key else {
@@ -579,14 +579,14 @@ fn admission_replacement_recovery_reorg_and_clear_preserve_the_whole_population(
     let cell = |point: &OutPoint| RelationKey::Dependency(DependencyKey::Cell(point.clone()));
     let child_roles = || {
         vec![
-            (cell(&parent_output), INPUT),
-            (RelationKey::Children(parent.hash()), CHILD),
+            (cell(&parent_output), Roles::SPENDER),
+            (RelationKey::Children(parent.hash()), Roles::CHILD),
         ]
     };
     let grandchild_roles = || {
         vec![
-            (cell(&child_output), INPUT),
-            (RelationKey::Children(child.hash()), CHILD),
+            (cell(&child_output), Roles::SPENDER),
+            (RelationKey::Children(child.hash()), Roles::CHILD),
         ]
     };
     let current = |transaction: &TransactionView| store.point(&transaction.hash()).1.unwrap();
@@ -636,7 +636,7 @@ fn admission_replacement_recovery_reorg_and_clear_preserve_the_whole_population(
                 &child,
                 Shape::Waiting,
                 remote,
-                vec![(cell(&parent_output), WAIT)],
+                vec![(cell(&parent_output), Roles::WAITING)],
             ),
         ],
         &[],
@@ -662,7 +662,7 @@ fn admission_replacement_recovery_reorg_and_clear_preserve_the_whole_population(
                 &child,
                 Shape::Waiting,
                 remote,
-                vec![(cell(&parent_output), WAIT)],
+                vec![(cell(&parent_output), Roles::WAITING)],
             ),
         ],
         &[],
@@ -676,7 +676,7 @@ fn admission_replacement_recovery_reorg_and_clear_preserve_the_whole_population(
                 &child,
                 Shape::Waiting,
                 remote,
-                vec![(cell(&parent_output), WAIT)],
+                vec![(cell(&parent_output), Roles::WAITING)],
             ),
         ],
         &[DependencyKey::Cell(parent_output.clone())],
@@ -746,13 +746,13 @@ fn admission_replacement_recovery_reorg_and_clear_preserve_the_whole_population(
                 &child,
                 Shape::HistoryAll,
                 recovery,
-                vec![(cell(&parent_output), WAIT)],
+                vec![(cell(&parent_output), Roles::WAITING)],
             ),
             expected(
                 &grandchild,
                 Shape::HistoryAll,
                 recovery,
-                vec![(cell(&child_output), WAIT)],
+                vec![(cell(&child_output), Roles::WAITING)],
             ),
         ]
     };
@@ -775,13 +775,13 @@ fn admission_replacement_recovery_reorg_and_clear_preserve_the_whole_population(
                 &child,
                 Shape::HistoryAll,
                 recovery,
-                vec![(cell(&parent_output), WAIT)],
+                vec![(cell(&parent_output), Roles::WAITING)],
             ),
             expected(
                 &grandchild,
                 Shape::HistoryAll,
                 recovery,
-                vec![(cell(&child_output), WAIT)],
+                vec![(cell(&child_output), Roles::WAITING)],
             ),
         ],
         &[DependencyKey::Cell(parent_output.clone())],
@@ -796,7 +796,7 @@ fn admission_replacement_recovery_reorg_and_clear_preserve_the_whole_population(
                 &grandchild,
                 Shape::HistoryAll,
                 recovery,
-                vec![(cell(&child_output), WAIT)],
+                vec![(cell(&child_output), Roles::WAITING)],
             ),
         ],
         &[],
@@ -811,7 +811,7 @@ fn admission_replacement_recovery_reorg_and_clear_preserve_the_whole_population(
                 &grandchild,
                 Shape::HistoryAll,
                 recovery,
-                vec![(cell(&child_output), WAIT)],
+                vec![(cell(&child_output), Roles::WAITING)],
             ),
         ],
         &[DependencyKey::Cell(child_output.clone())],
