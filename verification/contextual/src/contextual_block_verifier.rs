@@ -351,23 +351,19 @@ impl<'a, 'b, CS: ChainStore + VersionbitsIndexer + 'static> BlockTxsVerifier<'a,
         rtxs: &'a [Arc<ResolvedTransaction>],
         rules: ScriptVerificationRules,
     ) -> HashMap<usize, ScriptVerificationProof> {
-        let txs_verify_cache = Arc::clone(self.txs_verify_cache);
         let keys: Vec<TxVerificationCacheKey> = rtxs
             .iter()
             .skip(1)
             .map(|rtx| TxVerificationCacheKey::from_resolved(rtx, rules))
             .collect();
-        let task = self.handle.spawn(async move {
-            let guard = txs_verify_cache.read().await;
+        self.handle.block_on(async {
+            let guard = self.txs_verify_cache.read().await;
             // The non-cellbase keys keep their original block indices.
             (1..)
                 .zip(keys)
                 .filter_map(|(index, key)| guard.lookup(&key).map(|proof| (index, proof)))
                 .collect()
-        });
-        self.handle
-            .block_on(task)
-            .expect("fetched cache no exception")
+        })
     }
 
     fn update_cache(&self, proofs: Vec<ScriptVerificationProof>) {
