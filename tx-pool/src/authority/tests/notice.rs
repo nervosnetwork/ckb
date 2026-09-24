@@ -147,9 +147,9 @@ async fn later_activation_cannot_overtake_committed_fifo_head() {
 async fn dropped_reservation_creates_no_sequence_gap_and_returns_all_capacity() {
     let (outbox, endpoints, receiver) = fixture(Callbacks::new());
     let reservation = outbox.reserve(vec![effect(1)], Class::Remote).unwrap();
-    assert_eq!(outbox.state.lock().usage[2].items, 1);
+    assert_eq!(outbox.state.lock().budget.total.used.items, 1);
     drop(reservation);
-    assert_eq!(outbox.state.lock().usage[2].items, 0);
+    assert_eq!(outbox.state.lock().budget.total.used.items, 0);
     let committed = append(&outbox, vec![effect(2)]);
     committed.activate(&outbox);
     outbox.close();
@@ -188,7 +188,58 @@ fn ordinary_saturation_preserves_trusted_and_critical_headroom() {
         Err(Error::Full(_))
     ));
     drop((remote, trusted, critical));
-    assert_eq!(outbox.state.lock().usage[2].items, 0);
+    assert_eq!(outbox.state.lock().budget.total.used.items, 0);
+    assert!(!outbox.faulted.load(Ordering::Acquire));
+}
+
+#[test]
+fn total_saturation_refuses_remote_without_retaining_partial_charges() {
+    let (outbox, _, _) = fixture(Callbacks::new());
+    {
+        let mut state = outbox.state.lock();
+        state.budget.remote.limit.items = 1;
+        state.budget.ordinary.limit.items = 2;
+        state.budget.total.limit.items = 3;
+    }
+    let mut critical = (0..3)
+        .map(|_| {
+            outbox
+                .reserve(vec![Effect::reset()], Class::Critical)
+                .unwrap()
+                .unwrap()
+        })
+        .collect::<Vec<_>>();
+    let full_total = outbox.state.lock().budget.total.used;
+    assert!(matches!(
+        outbox.reserve(vec![effect(1)], Class::Remote),
+        Err(Error::Full(FullReason::NoticeOutbox))
+    ));
+    {
+        let state = outbox.state.lock();
+        assert_eq!(state.budget.remote.used.items, 0);
+        assert_eq!(state.budget.remote.used.bytes, 0);
+        assert_eq!(state.budget.ordinary.used.items, 0);
+        assert_eq!(state.budget.ordinary.used.bytes, 0);
+        assert_eq!(state.budget.total.used.items, full_total.items);
+        assert_eq!(state.budget.total.used.bytes, full_total.bytes);
+    }
+    // Releasing only total capacity is enough to retry: the refusal must not
+    // consume the still-unused remote and ordinary headroom.
+    drop(critical.pop());
+    let remote = outbox
+        .reserve(vec![effect(1)], Class::Remote)
+        .unwrap()
+        .unwrap();
+    drop((critical, remote));
+    let state = outbox.state.lock();
+    for used in [
+        state.budget.remote.used,
+        state.budget.ordinary.used,
+        state.budget.total.used,
+    ] {
+        assert_eq!(used.items, 0);
+        assert_eq!(used.bytes, 0);
+    }
     assert!(!outbox.faulted.load(Ordering::Acquire));
 }
 
@@ -231,7 +282,7 @@ async fn publisher_cancellation_faults_generation_and_releases_waiters_with_fail
     drop(publisher);
     assert!(matches!(batch.wait(&outbox).await, Err(Error::Fault(_))));
     assert!(!batch.published.load(Ordering::Acquire));
-    assert_eq!(outbox.state.lock().usage[2].items, 1);
+    assert_eq!(outbox.state.lock().budget.total.used.items, 1);
     assert!(!outbox.drained());
 }
 
@@ -620,8 +671,8 @@ fn largest_admission_and_missing_parent_notice_shapes_fit_their_reserved_regions
     let owner = store.point(&hash).1.unwrap();
     let selected =
         super::super::membership::snapshot(&owner, Default::default(), Default::default()).unwrap();
-    let mut events = Vec::with_capacity(outbox.batch_effects[0]);
-    for _ in 1..outbox.batch_effects[0] {
+    let mut events = Vec::with_capacity(outbox.remote_batch.effects);
+    for _ in 1..outbox.remote_batch.effects {
         events.push(
             Effect::rejected(
                 &hash,
@@ -655,7 +706,7 @@ fn largest_admission_and_missing_parent_notice_shapes_fit_their_reserved_regions
         .unwrap()
         .unwrap();
     drop(reservation);
-    let mut too_many = vec![effect(802); outbox.batch_effects[0] + 1];
+    let mut too_many = vec![effect(802); outbox.remote_batch.effects + 1];
     too_many.shrink_to_fit();
     assert!(matches!(
         outbox.reserve(too_many, Class::Remote),
@@ -697,14 +748,14 @@ async fn publisher_abort_keeps_a_running_callback_and_its_batch_owned_until_retu
     publisher.abort();
     assert!(!publisher.is_finished());
     assert!(!batch.published.load(Ordering::Acquire));
-    assert_eq!(outbox.state.lock().usage[2].items, 1);
+    assert_eq!(outbox.state.lock().budget.total.used.items, 1);
     release.send(()).unwrap();
     let result = tokio::time::timeout(std::time::Duration::from_secs(5), publisher)
         .await
         .unwrap();
     assert!(result.unwrap_err().is_cancelled());
     assert!(batch.published.load(Ordering::Acquire));
-    assert_eq!(outbox.state.lock().usage[2].items, 0);
+    assert_eq!(outbox.state.lock().budget.total.used.items, 0);
     assert!(outbox.faulted.load(Ordering::Acquire));
 }
 
@@ -834,7 +885,7 @@ async fn later_callback_observes_prior_batch_settled_and_released() {
             .unwrap()
             .unwrap();
         first.wait(&outbox).await.unwrap();
-        assert_eq!(outbox.state.lock().usage[2].items, 1);
+        assert_eq!(outbox.state.lock().budget.total.used.items, 1);
         assert_eq!(Arc::strong_count(&first), 1);
         let released = Arc::downgrade(&first);
         drop(first);
@@ -893,7 +944,7 @@ async fn unregistered_callback_prefix_is_bounded_without_a_blocking_boundary() {
                     .published
                     .load(Ordering::Acquire)
             );
-            assert_eq!(outbox.state.lock().usage[2].items, 1);
+            assert_eq!(outbox.state.lock().budget.total.used.items, 1);
             assert!(outbox.publish_ready(&mut endpoints).unwrap());
             assert!(!outbox.publish_ready(&mut endpoints).unwrap());
         })
@@ -1066,7 +1117,7 @@ fn store_fault_and_publisher_cancellation_wake_every_unfinished_batch() {
                 .iter()
                 .all(|batch| !batch.published.load(Ordering::Acquire))
         );
-        assert_eq!(outbox.state.lock().usage[2].items, 2);
+        assert_eq!(outbox.state.lock().budget.total.used.items, 2);
         assert!(!outbox.drained());
     }
 }
@@ -1104,7 +1155,7 @@ async fn release_fault_wakes_later_batch_before_the_next_callback_returns() {
     second.activate(&outbox);
     // The first release cannot subtract its charge from this ledger. Other
     // counters still release, and publication reaches the next callback.
-    outbox.state.lock().usage[1].bytes = 0;
+    outbox.state.lock().budget.ordinary.used.bytes = 0;
     let publishing = Arc::clone(&outbox);
     let publisher = tokio::spawn(async move { publishing.publish_ready(&mut endpoints) });
     tokio::time::timeout(Duration::from_secs(5), events.recv())
@@ -1135,6 +1186,9 @@ async fn release_fault_wakes_later_batch_before_the_next_callback_returns() {
     assert!(matches!(first_completed, std::task::Poll::Ready(Ok(()))));
     assert!(second.published.load(Ordering::Acquire));
     assert!(!last.published.load(Ordering::Acquire));
+    let state = outbox.state.lock();
+    assert_eq!(state.budget.total.used.items, 1);
+    assert_eq!(state.budget.total.used.bytes, last.charge.bytes);
 }
 
 #[test]
@@ -1151,7 +1205,7 @@ fn unappended_release_fault_wakes_committed_waiter_without_a_publisher() {
             .poll(&mut std::task::Context::from_waker(&waker))
             .is_pending()
     );
-    outbox.state.lock().usage[1].bytes = 0;
+    outbox.state.lock().budget.ordinary.used.bytes = 0;
     drop(reservation);
     assert!(counter.0.load(Ordering::Acquire) > 0);
     assert!(matches!(
@@ -1161,5 +1215,8 @@ fn unappended_release_fault_wakes_committed_waiter_without_a_publisher() {
         std::task::Poll::Ready(Err(Error::Fault(_)))
     ));
     assert!(!batch.published.load(Ordering::Acquire));
-    assert_eq!(outbox.state.lock().queue.len(), 1);
+    let state = outbox.state.lock();
+    assert_eq!(state.queue.len(), 1);
+    assert_eq!(state.budget.total.used.items, 1);
+    assert_eq!(state.budget.total.used.bytes, batch.charge.bytes);
 }

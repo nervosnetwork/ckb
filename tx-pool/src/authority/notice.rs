@@ -357,15 +357,6 @@ pub(super) enum Class {
     Trusted,
     Critical,
 }
-impl Class {
-    fn index(self) -> usize {
-        match self {
-            Self::Remote => 0,
-            Self::Trusted => 1,
-            Self::Critical => 2,
-        }
-    }
-}
 #[derive(Clone, Copy, Default)]
 struct Charge {
     items: usize,
@@ -387,6 +378,51 @@ impl Charge {
     fn fits(self, rhs: Self) -> bool {
         self.items <= rhs.items && self.bytes <= rhs.bytes
     }
+}
+
+#[derive(Clone, Copy)]
+struct Quota {
+    used: Charge,
+    limit: Charge,
+}
+impl Quota {
+    fn new(limit: Charge) -> Self {
+        Self {
+            used: Charge::default(),
+            limit,
+        }
+    }
+}
+
+/// Remote batches also consume ordinary and total capacity; trusted batches
+/// consume ordinary and total, leaving the remaining headroom for critical work.
+#[derive(Clone, Copy)]
+struct NoticeBudget {
+    remote: Quota,
+    ordinary: Quota,
+    total: Quota,
+}
+impl NoticeBudget {
+    fn charged_by(&mut self, class: Class) -> impl Iterator<Item = &mut Quota> {
+        let Self {
+            remote,
+            ordinary,
+            total,
+        } = self;
+        match class {
+            Class::Remote => [Some(remote), Some(ordinary), Some(total)],
+            Class::Trusted => [None, Some(ordinary), Some(total)],
+            Class::Critical => [None, None, Some(total)],
+        }
+        .into_iter()
+        .flatten()
+    }
+}
+
+/// Bounds one indivisible batch; NoticeBudget accounts for all retained batches.
+struct BatchLimit {
+    effects: usize,
+    bytes: usize,
 }
 
 pub(super) struct Batch {
@@ -430,15 +466,15 @@ impl Batch {
 }
 struct State {
     queue: VecDeque<Arc<Batch>>,
-    usage: [Charge; 3],
+    budget: NoticeBudget,
     pending: BTreeMap<Byte32, Weak<Batch>>,
     closed: bool,
 }
 pub(super) struct Outbox {
     state: Mutex<State>,
-    limits: [Charge; 3],
-    batch_bytes: [usize; 3],
-    batch_effects: [usize; 3],
+    remote_batch: BatchLimit,
+    trusted_batch: BatchLimit,
+    critical_batch: BatchLimit,
     faulted: Arc<AtomicBool>,
     pub(super) changed: Notify,
     pub(super) failed: Notify,
@@ -520,23 +556,32 @@ impl Outbox {
         Ok(Arc::new(Self {
             state: Mutex::new(State {
                 queue,
-                usage: [Charge::default(); 3],
+                budget: NoticeBudget {
+                    remote: Quota::new(remote),
+                    ordinary: Quota::new(ordinary),
+                    total: Quota::new(total),
+                },
                 pending: BTreeMap::new(),
                 closed: false,
             }),
-            limits: [remote, ordinary, total],
-            batch_bytes: [remote_bytes, admission, critical],
-            batch_effects: [effects, effects, all_effects],
+            remote_batch: BatchLimit {
+                effects,
+                bytes: remote_bytes,
+            },
+            trusted_batch: BatchLimit {
+                effects,
+                bytes: admission,
+            },
+            critical_batch: BatchLimit {
+                effects: all_effects,
+                bytes: critical,
+            },
             faulted,
             changed: Notify::new(),
             failed: Notify::new(),
             room: Notify::new(),
         }))
     }
-    #[expect(
-        clippy::indexing_slicing,
-        reason = "Class::index returns 0, 1 or 2 for the three fixed capacity arrays."
-    )]
     pub(super) fn reserve(
         self: &Arc<Self>,
         effects: Vec<Effect>,
@@ -554,8 +599,12 @@ impl Outbox {
             .iter()
             .try_fold(base, |sum, effect| sum.checked_add(effect.bytes()?))
             .ok_or(Error::Full("notice byte arithmetic".into()))?;
-        let index = class.index();
-        if effects.len() > self.batch_effects[index] || bytes > self.batch_bytes[index] {
+        let batch_limit = match class {
+            Class::Remote => &self.remote_batch,
+            Class::Trusted => &self.trusted_batch,
+            Class::Critical => &self.critical_batch,
+        };
+        if effects.len() > batch_limit.effects || bytes > batch_limit.bytes {
             return Err(Error::Full("indivisible notice batch".into()));
         }
         let charge = Charge { items: 1, bytes };
@@ -571,14 +620,15 @@ impl Outbox {
         if state.closed {
             return Err(Error::Closed);
         }
-        let mut projected = state.usage;
-        for (usage, limit) in projected.iter_mut().zip(self.limits).skip(index) {
-            *usage = usage
+        let mut projected = state.budget;
+        for quota in projected.charged_by(class) {
+            quota.used = quota
+                .used
                 .add(charge)
-                .filter(|value| value.fits(limit))
+                .filter(|value| value.fits(quota.limit))
                 .ok_or(Error::Full(FullReason::NoticeOutbox))?;
         }
-        state.usage = projected;
+        state.budget = projected;
         drop(state);
         Ok(Some(Reservation {
             outbox: Arc::clone(self),
@@ -597,9 +647,9 @@ impl Outbox {
     }
     fn release(&self, batch: &Batch, state: &mut State) -> bool {
         let mut failed = false;
-        for usage in state.usage.iter_mut().skip(batch.class.index()) {
-            if let Some(next) = usage.sub(batch.charge) {
-                *usage = next;
+        for quota in state.budget.charged_by(batch.class) {
+            if let Some(next) = quota.used.sub(batch.charge) {
+                quota.used = next;
             } else {
                 self.faulted.store(true, Ordering::Release);
                 failed = true;
@@ -610,14 +660,18 @@ impl Outbox {
     pub(super) fn publish_metrics(&self) {
         let snapshot = {
             let state = self.state.lock();
-            let [remote, ordinary, total] = state.usage;
+            let NoticeBudget {
+                remote,
+                ordinary,
+                total,
+            } = &state.budget;
             crate::metrics::EffectUsage {
-                remote_batches: remote.items,
-                remote_bytes: remote.bytes,
-                ordinary_batches: ordinary.items,
-                ordinary_bytes: ordinary.bytes,
-                total_batches: total.items,
-                total_bytes: total.bytes,
+                remote_batches: remote.used.items,
+                remote_bytes: remote.used.bytes,
+                ordinary_batches: ordinary.used.items,
+                ordinary_bytes: ordinary.used.bytes,
+                total_batches: total.used.items,
+                total_bytes: total.used.bytes,
             }
         };
         snapshot.publish();
@@ -629,16 +683,16 @@ impl Outbox {
     }
     pub(super) fn drained(&self) -> bool {
         let state = self.state.lock();
-        state.closed && state.queue.is_empty() && state.usage[2].items == 0
+        state.closed && state.queue.is_empty() && state.budget.total.used.items == 0
     }
     #[cfg(test)]
     pub(super) fn idle_for_test(&self) -> bool {
         let state = self.state.lock();
+        let budget = &state.budget;
         state.queue.is_empty()
             && state.pending.is_empty()
-            && state
-                .usage
-                .iter()
+            && [budget.remote.used, budget.ordinary.used, budget.total.used]
+                .into_iter()
                 .all(|charge| charge.items == 0 && charge.bytes == 0)
     }
     fn publish_ready(&self, endpoints: &mut Endpoints) -> Result<bool, Error> {
