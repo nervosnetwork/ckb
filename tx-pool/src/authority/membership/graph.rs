@@ -5,6 +5,7 @@ use crate::authority::budget::Limits;
 
 pub(in crate::authority) struct Graph<'a> {
     store: &'a Store,
+    // Keys reuse the cached hashes already retained by their owners.
     observed: Members,
     pub(super) plan: &'a mut Plan,
 }
@@ -59,8 +60,7 @@ impl<'a> Graph<'a> {
             .original(self.store, hash)?
             .filter(|entry| entry.accepted().is_some());
         if let Some(entry) = &entry {
-            self.observed
-                .insert(compact_packed(hash), Arc::clone(entry));
+            self.observed.insert(entry.hash(), Arc::clone(entry));
         }
         Ok(entry)
     }
