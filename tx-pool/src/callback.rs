@@ -59,9 +59,9 @@ pub type RejectCallback = Box<dyn Fn(&TxEntrySnapshot, Reject) + Sync + Send>;
 /// context does not follow them. Panics disable callbacks for the generation;
 /// asynchronous cancellation cannot interrupt an entered callback.
 pub struct Callbacks {
-    pub(crate) pending: Option<PendingCallback>,
-    pub(crate) proposed: Option<ProposedCallback>,
-    pub(crate) reject: Option<RejectCallback>,
+    pending: Option<PendingCallback>,
+    proposed: Option<ProposedCallback>,
+    reject: Option<RejectCallback>,
 }
 
 #[derive(Clone)]
@@ -100,6 +100,14 @@ impl Callbacks {
     /// Register a new abandon callback
     pub fn register_reject(&mut self, callback: RejectCallback) {
         self.reject = Some(callback);
+    }
+
+    pub(crate) fn has_callback(&self, event: &CallbackEvent) -> bool {
+        match event {
+            CallbackEvent::Pending(_) => self.pending.is_some(),
+            CallbackEvent::Proposed(_) => self.proposed.is_some(),
+            CallbackEvent::Reject(_, _) => self.reject.is_some(),
+        }
     }
 
     /// Dispatch one committed effect to its registered callback.

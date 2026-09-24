@@ -980,12 +980,7 @@ impl Endpoints {
     }
 
     fn callback_enabled(&self, event: &CallbackEvent) -> bool {
-        !self.callbacks_disabled
-            && match event {
-                CallbackEvent::Pending(_) => self.callbacks.pending.is_some(),
-                CallbackEvent::Proposed(_) => self.callbacks.proposed.is_some(),
-                CallbackEvent::Reject(_, _) => self.callbacks.reject.is_some(),
-            }
+        !self.callbacks_disabled && self.callbacks.has_callback(event)
     }
 
     fn publish(&mut self, effect: &Effect) {
