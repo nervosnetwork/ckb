@@ -1,7 +1,7 @@
 //! Public values derived from coherent immutable owners. Full projections are
 //! called only while a service read slot owns their bounded scratch lifetime.
 use super::{
-    membership::{self, Members, NeighborhoodTotals},
+    membership::{self, Aggregate, Members, NeighborhoodTotals},
     model::{Entry, Error, Phase, Status},
     packing::Selection,
     store::{Captured, ReadSet, Store},
@@ -147,16 +147,13 @@ fn transaction_with_replacement_fee(
         && value.status(&snapshot) != Status::Proposed
     {
         let increment = config.min_rbf_rate.fee(value.size as u64);
-        // Match Aggregate::fee saturation before adding the optional increment.
-        // Other aggregate coordinates already fit the shared accepted account.
-        let fee = owners.iter().try_fold(Capacity::zero(), |sum, entry| {
+        // These owners belong to one accepted cut, so their count, bytes and
+        // cycles also fit the accepted account while we sum their fees.
+        let descendants = owners.iter().try_fold(Aggregate::default(), |sum, entry| {
             let value = entry.accepted().ok_or(Error::Stale)?;
-            Ok::<_, Error>(
-                sum.safe_add(value.fee)
-                    .unwrap_or(Capacity::shannons(u64::MAX)),
-            )
+            sum.add(Aggregate::one(value))
         })?;
-        result.min_replace_fee = fee.safe_add(increment).ok();
+        result.min_replace_fee = descendants.fee().safe_add(increment).ok();
     }
     Ok(Some(result))
 }
