@@ -81,11 +81,6 @@ impl ProposalKey {
     }
 }
 
-#[derive(Debug)]
-struct ProposalViewState {
-    counts: OrdMap<ProposalKey, BandCounts>,
-}
-
 /// An immutable point-in-time projection of canonical proposal history.
 ///
 /// Reference counts preserve repeated proposal ids across heights and across
@@ -94,7 +89,7 @@ struct ProposalViewState {
 /// consensus verifier does not consume this rebuildable projection.
 #[derive(Clone, Debug)]
 pub struct ProposalView {
-    state: Arc<ProposalViewState>,
+    counts: Arc<OrdMap<ProposalKey, BandCounts>>,
 }
 
 impl Default for ProposalView {
@@ -106,7 +101,7 @@ impl Default for ProposalView {
 impl ProposalView {
     fn from_counts(counts: OrdMap<ProposalKey, BandCounts>) -> Self {
         Self {
-            state: Arc::new(ProposalViewState { counts }),
+            counts: Arc::new(counts),
         }
     }
 
@@ -131,8 +126,7 @@ impl ProposalView {
 
     /// Iterates ids with at least one occurrence in the Gap band.
     pub fn gap_ids(&self) -> impl Iterator<Item = ProposalShortId> + '_ {
-        self.state
-            .counts
+        self.counts
             .iter()
             .filter(|(_, counts)| counts.gap != 0)
             .map(|(id, _)| id.into_packed())
@@ -140,8 +134,7 @@ impl ProposalView {
 
     /// Iterates ids with at least one occurrence in the Proposed band.
     pub fn proposed_ids(&self) -> impl Iterator<Item = ProposalShortId> + '_ {
-        self.state
-            .counts
+        self.counts
             .iter()
             .filter(|(_, counts)| counts.proposed != 0)
             .map(|(id, _)| id.into_packed())
@@ -149,21 +142,19 @@ impl ProposalView {
 
     /// Iterates the exact retained id universe in deterministic order.
     pub fn ids(&self) -> impl Iterator<Item = ProposalShortId> + '_ {
-        self.state.counts.keys().map(|id| id.into_packed())
+        self.counts.keys().map(|id| id.into_packed())
     }
 
     /// Returns true if an id has any occurrence in the Proposed band.
     pub fn contains_proposed(&self, id: &ProposalShortId) -> bool {
-        self.state
-            .counts
+        self.counts
             .get(&ProposalKey::from_packed(id))
             .is_some_and(|counts| counts.proposed != 0)
     }
 
     /// Returns true if an id has any occurrence in the Gap band.
     pub fn contains_gap(&self, id: &ProposalShortId) -> bool {
-        self.state
-            .counts
+        self.counts
             .get(&ProposalKey::from_packed(id))
             .is_some_and(|counts| counts.gap != 0)
     }
@@ -174,12 +165,7 @@ impl ProposalView {
     }
 
     fn status_key(&self, id: ProposalKey) -> ProposalStatus {
-        self.state
-            .counts
-            .get(&id)
-            .copied()
-            .unwrap_or_default()
-            .status()
+        self.counts.get(&id).copied().unwrap_or_default().status()
     }
 
     /// Creates a temporary lookup for repeated phase queries against this view.
@@ -193,14 +179,12 @@ impl ProposalView {
         &self,
         expected_queries: usize,
     ) -> impl Fn(ProposalShortIdReader<'_>) -> ProposalStatus + '_ {
-        let flat =
-            (self.state.counts.len() <= expected_queries && expected_queries != 0).then(|| {
-                self.state
-                    .counts
-                    .iter()
-                    .map(|(id, counts)| (*id, counts.status()))
-                    .collect::<Vec<_>>()
-            });
+        let flat = (self.counts.len() <= expected_queries && expected_queries != 0).then(|| {
+            self.counts
+                .iter()
+                .map(|(id, counts)| (*id, counts.status()))
+                .collect::<Vec<_>>()
+        });
         move |id| {
             let id = ProposalKey::from_reader(id);
             match &flat {
@@ -214,10 +198,10 @@ impl ProposalView {
         }
     }
 
-    fn same_identity(&self, state: &Weak<ProposalViewState>) -> bool {
+    fn same_identity(&self, state: &Weak<OrdMap<ProposalKey, BandCounts>>) -> bool {
         // The table's `Weak` keeps the predecessor control block allocated,
         // so an unrelated `Arc` cannot reuse this address while it is retained.
-        state.as_ptr() == Arc::as_ptr(&self.state)
+        state.as_ptr() == Arc::as_ptr(&self.counts)
     }
 }
 
@@ -249,14 +233,14 @@ impl std::error::Error for ProposalTableError {}
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum PendingTransition {
     Clean,
-    SuccessorInsert(BlockNumber),
+    SuccessorInsert,
     Rebuild,
 }
 
 #[derive(Debug)]
 struct FinalizedIdentity {
     number: BlockNumber,
-    state: Weak<ProposalViewState>,
+    state: Weak<OrdMap<ProposalKey, BandCounts>>,
 }
 
 /// Canonical primitive proposal ids indexed by block height.
@@ -298,7 +282,7 @@ impl ProposalTable {
             (Some(finalized), PendingTransition::Clean, true)
                 if finalized.number.checked_add(1) == Some(number) =>
             {
-                PendingTransition::SuccessorInsert(number)
+                PendingTransition::SuccessorInsert
             }
             _ => PendingTransition::Rebuild,
         };
@@ -397,7 +381,7 @@ impl ProposalTable {
     fn successor_view(&self, origin: &ProposalView, number: BlockNumber) -> Option<ProposalView> {
         let finalized = self.finalized.as_ref()?;
         if finalized.number.checked_add(1) != Some(number)
-            || self.pending != PendingTransition::SuccessorInsert(number)
+            || self.pending != PendingTransition::SuccessorInsert
             || !origin.same_identity(&finalized.state)
         {
             return None;
@@ -415,7 +399,7 @@ impl ProposalTable {
         ];
         heights.sort_unstable();
 
-        let mut counts = origin.state.counts.clone();
+        let mut counts = (*origin.counts).clone();
         let mut previous_height = None;
         for height in heights {
             if previous_height == Some(height) {
@@ -456,6 +440,8 @@ impl ProposalTable {
     /// Ordinary successors update only changing height classes. Any mutation,
     /// identity mismatch, discontinuity or terminal height rebuilds exactly
     /// from the bounded primitive table.
+    /// Before a rollback, callers must restore any pruned canonical history
+    /// needed by the new proposal window; rebuilding uses only the current table.
     pub fn finalize(&mut self, origin: &ProposalView, number: BlockNumber) -> ProposalView {
         let next = self
             .successor_view(origin, number)
@@ -464,14 +450,14 @@ impl ProposalTable {
         self.prune(number);
         self.finalized = Some(FinalizedIdentity {
             number,
-            state: Arc::downgrade(&next.state),
+            state: Arc::downgrade(&next.counts),
         });
         self.pending = PendingTransition::Clean;
         ckb_logger::trace!(
             "[proposal_finalize] number {} retained heights {} distinct ids {}",
             number,
             self.table.len(),
-            next.state.counts.len()
+            next.counts.len()
         );
         next
     }
