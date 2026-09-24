@@ -66,7 +66,7 @@ impl Roles {
     pub(super) const WAITING: Self = Self(4);
     pub(super) const CHILD: Self = Self(8);
     pub(super) const READERS: Self = Self(Self::SPENDER.0 | Self::DEPENDENCY.0);
-    // Waiting membership does not invalidate accepted-relation observations.
+    // Only these roles advance an existing row's accepted version.
     const ACCEPTED: Self = Self(Self::READERS.0 | Self::CHILD.0);
     const MEMBERS: Self = Self(Self::DEPENDENCY.0 | Self::WAITING.0 | Self::CHILD.0);
 
@@ -737,7 +737,8 @@ impl Store {
     }
 
     /// Owners holding any selected role, including the separately stored spender.
-    /// The observation tracks accepted membership, not changes to waiting owners.
+    /// Waiting-only edits preserve an existing row's accepted version. Creating
+    /// or removing the row can still invalidate an empty observation.
     fn members(
         &self,
         key: &RelationKey,

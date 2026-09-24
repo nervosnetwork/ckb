@@ -399,7 +399,8 @@ impl Plan {
     }
 
     /// Complete accepted input/dep readers, including an empty relation.
-    /// Waiting membership has a separate wake protocol and is not observed here.
+    /// Waiting membership has a separate wake protocol; only its creation or
+    /// removal of the physical row can invalidate this accepted observation.
     pub(in crate::authority) fn readers(
         &mut self,
         store: &Store,

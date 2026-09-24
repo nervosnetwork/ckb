@@ -35,8 +35,10 @@ same decision with a full accepted capture. Only full captures allocate the
 optional shard-revision arrays; ordinary reads stay sparse.
 
 `Plan::readers` and `Plan::children` select the key and role mask internally.
-Their complete-set observations track accepted membership; waiting changes use
-the separate wake protocol. Adding a waiting-cohort policy query therefore needs
+Their complete-set observations track accepted membership. Waiting-only edits
+preserve an existing row's accepted version, but creating or removing the row can
+conservatively invalidate an empty observation. Waiting changes use the separate
+wake protocol. Adding a waiting-cohort policy query therefore needs
 its own observation contract, not another mask passed to the accepted query.
 
 `Plan::edit` adds a unique before/after owner change and its optional effect
