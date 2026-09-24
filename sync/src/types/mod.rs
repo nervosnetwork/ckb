@@ -39,8 +39,8 @@ use keyed_priority_queue::KeyedPriorityQueue;
 use lru::LruCache;
 use std::collections::{BTreeMap, HashMap, HashSet, btree_map::Entry};
 use std::hash::Hash;
-use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::{Arc, Weak};
 use std::time::{Duration, Instant};
 use std::{cmp, fmt, iter};
 
@@ -324,8 +324,96 @@ impl PeerState {
 }
 
 pub struct TtlFilter<T> {
-    inner: LruCache<T, u64>,
+    inner: LruCache<T, FilterEntry>,
     ttl: u64,
+}
+
+struct FilterEntry {
+    timestamp: u64,
+    pending: Option<PendingClaim>,
+}
+
+// Overlapping batches share one identity for each pending entry. Counts are
+// per hash, not per token: one batch token may identify several different hashes.
+// Only claim/release change the count; a new entry starts at one and its last
+// release removes it, so every retained pending entry has a positive count.
+struct PendingClaim {
+    identity: Weak<()>,
+    count: usize,
+}
+
+/// One occurrence in a remote batch, including repeated hashes. A settled
+/// entry has no pending identity and cannot be removed by batch cancellation.
+struct KnownTxClaim {
+    hash: Byte32,
+    identity: Option<Weak<()>>,
+}
+
+/// Owns tentative known marks until the pool completes a prefix. This
+/// non-Clone guard is the sole owner of each claim's release obligation.
+/// Admission failure and cancellation release the remaining suffix on drop.
+pub(crate) struct KnownRemoteBatch {
+    shared: Arc<SyncShared>,
+    claims: Vec<KnownTxClaim>,
+    completed: usize,
+}
+
+impl KnownRemoteBatch {
+    pub(crate) fn mark(shared: Arc<SyncShared>, hashes: impl IntoIterator<Item = Byte32>) -> Self {
+        let mut claims: Vec<_> = hashes
+            .into_iter()
+            .map(|hash| KnownTxClaim {
+                hash,
+                identity: None,
+            })
+            .collect();
+        if !claims.is_empty() {
+            let mut identity = Arc::new(());
+            let state = shared.state();
+            let mut unknown_tx_hashes = state.unknown_tx_hashes.lock();
+            let mut filter = state.tx_filter.lock();
+            for claim in &mut claims {
+                unknown_tx_hashes.remove(&claim.hash);
+                claim.identity = filter.claim(claim.hash.clone(), &mut identity);
+            }
+        }
+        Self {
+            shared,
+            claims,
+            completed: 0,
+        }
+    }
+
+    pub(crate) fn complete_prefix(&mut self, completed: usize) {
+        let completed = completed.min(self.claims.len());
+        if completed > self.completed {
+            {
+                let mut filter = self.shared.state().tx_filter.lock();
+                for claim in &self.claims[self.completed..completed] {
+                    if let Some(identity) = &claim.identity {
+                        filter.settle_claim(&claim.hash, identity);
+                    }
+                }
+            }
+            self.completed = completed;
+        }
+    }
+}
+
+impl Drop for KnownRemoteBatch {
+    fn drop(&mut self) {
+        let suffix = &self.claims[self.completed..];
+        if suffix.is_empty() {
+            return;
+        }
+        let mut filter = self.shared.state().tx_filter.lock();
+        for claim in suffix {
+            if let Some(identity) = &claim.identity {
+                filter.release_claim(&claim.hash, identity);
+            }
+        }
+        // The guard's claim payloads drop after this filter lock is released.
+    }
 }
 
 impl<T: Eq + Hash + Clone> Default for TtlFilter<T> {
@@ -348,7 +436,75 @@ impl<T: Eq + Hash + Clone> TtlFilter<T> {
 
     pub fn insert(&mut self, item: T) -> bool {
         let now = ckb_systemtime::unix_time().as_secs();
-        self.inner.put(item, now).is_none()
+        self.inner
+            .put(
+                item,
+                FilterEntry {
+                    timestamp: now,
+                    pending: None,
+                },
+            )
+            .is_none()
+    }
+
+    fn claim(&mut self, item: T, batch_identity: &mut Arc<()>) -> Option<Weak<()>> {
+        let now = ckb_systemtime::unix_time().as_secs();
+        if let Some(entry) = self.inner.get_mut(&item) {
+            // Marking a received body still refreshes the existing TTL/LRU.
+            entry.timestamp = now;
+            return entry.pending.as_mut().map(|pending| {
+                // Every increment has a retained record in a batch vector;
+                // those records' addressable storage bounds the count.
+                pending.count += 1;
+                Weak::clone(&pending.identity)
+            });
+        }
+        let identity = Arc::downgrade(batch_identity);
+        let evicted = self.inner.push(
+            item,
+            FilterEntry {
+                timestamp: now,
+                pending: Some(PendingClaim {
+                    identity: Weak::clone(&identity),
+                    count: 1,
+                }),
+            },
+        );
+        // A small filter can evict and reinsert a repeated hash within this
+        // batch. Never reuse its evicted identity for a later new entry.
+        if evicted.is_some_and(|(_, entry)| {
+            entry
+                .pending
+                .is_some_and(|pending| pending.identity.ptr_eq(&identity))
+        }) {
+            *batch_identity = Arc::new(());
+        }
+        Some(identity)
+    }
+
+    fn settle_claim(&mut self, item: &T, identity: &Weak<()>) {
+        if let Some(entry) = self.inner.peek_mut(item)
+            && entry
+                .pending
+                .as_ref()
+                .is_some_and(|pending| pending.identity.ptr_eq(identity))
+        {
+            // Completion must not refresh TTL/LRU or recreate a mark removed
+            // by rejection, reset or eviction. Other claims can no longer erase it.
+            entry.pending = None;
+        }
+    }
+
+    fn release_claim(&mut self, item: &T, identity: &Weak<()>) {
+        if let Some(entry) = self.inner.peek_mut(item)
+            && let Some(pending) = &mut entry.pending
+            && pending.identity.ptr_eq(identity)
+        {
+            pending.count -= 1;
+            if pending.count == 0 {
+                self.inner.pop(item);
+            }
+        }
     }
 
     pub fn remove(&mut self, item: &T) -> bool {
@@ -365,8 +521,8 @@ impl<T: Eq + Hash + Clone> TtlFilter<T> {
         let expired_keys: Vec<T> = self
             .inner
             .iter()
-            .filter_map(|(key, time)| {
-                if now.saturating_sub(*time) > self.ttl {
+            .filter_map(|(key, entry)| {
+                if now.saturating_sub(entry.timestamp) > self.ttl {
                     Some(key)
                 } else {
                     None

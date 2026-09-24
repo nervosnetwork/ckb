@@ -2,10 +2,10 @@
 
 use crate::relayer::tests::helper::{MockProtocolContext, build_chain, new_transaction};
 use crate::relayer::{
-    MAX_RELAY_PEERS,
-    transaction_hashes_process::TransactionHashesProcess,
-    transactions_process::{KnownRemoteBatch, TransactionsProcess},
+    MAX_RELAY_PEERS, transaction_hashes_process::TransactionHashesProcess,
+    transactions_process::TransactionsProcess,
 };
+use crate::types::KnownRemoteBatch;
 use ckb_network::{CKBProtocolContext, PeerIndex, SupportProtocols};
 use ckb_types::{packed, prelude::*};
 use std::{
@@ -223,6 +223,260 @@ fn remote_known_batch_drop_releases_only_the_uncommitted_suffix() {
         "the uncommitted suffix is released on drop"
     );
     state.remove_from_known_txs(&first);
+}
+
+#[test]
+fn duplicate_remote_body_in_a_completed_prefix_survives_suffix_cancellation() {
+    let (_chain, relayer, always_success) = build_chain(1);
+    let transaction = new_transaction(&relayer, 710, &always_success);
+    let hash = transaction.hash();
+    let state = relayer.shared.state();
+    let peer = PeerIndex::from(11);
+    state.add_ask_for_txs(peer, vec![hash.clone()]);
+    state.pop_ask_for_txs();
+    // The real body gate permits repeated requested transactions in one batch.
+    let bodies = state.requested_transactions(
+        peer,
+        [(transaction.clone(), 1), (transaction, 1)].into_iter(),
+    );
+    assert_eq!(bodies.len(), 2);
+    let mut batch = KnownRemoteBatch::mark(
+        Arc::clone(&relayer.shared),
+        bodies.iter().map(|(transaction, _)| transaction.hash()),
+    );
+    batch.complete_prefix(1);
+    drop(batch);
+    assert!(state.already_known_tx(&hash));
+
+    state.remove_from_known_txs(&hash);
+    drop(KnownRemoteBatch::mark(
+        Arc::clone(&relayer.shared),
+        vec![hash.clone(), hash.clone()],
+    ));
+    assert!(!state.already_known_tx(&hash));
+}
+
+#[test]
+fn overlapping_remote_batches_keep_known_until_all_cancel_or_any_completes() {
+    let (_chain, relayer, always_success) = build_chain(1);
+    let hash = new_transaction(&relayer, 711, &always_success).hash();
+    let state = relayer.shared.state();
+    for completed in [[false, false], [true, false], [false, true], [true, true]] {
+        for order in [[0, 1], [1, 0]] {
+            state.reset_known_txs();
+            let mut batches = [0, 1].map(|_| {
+                Some(KnownRemoteBatch::mark(
+                    Arc::clone(&relayer.shared),
+                    vec![hash.clone()],
+                ))
+            });
+            for (step, index) in order.into_iter().enumerate() {
+                let mut batch = batches[index].take().unwrap();
+                if completed[index] {
+                    batch.complete_prefix(1);
+                }
+                drop(batch);
+                assert_eq!(
+                    state.already_known_tx(&hash),
+                    step == 0 || completed.into_iter().any(|done| done),
+                    "completion={completed:?}, order={order:?}, step={step}"
+                );
+            }
+        }
+    }
+}
+
+#[test]
+fn a_batch_reinserting_its_own_evicted_hash_cannot_settle_or_release_the_old_identity() {
+    use crate::types::TtlFilter;
+
+    let (_chain, relayer, always_success) = build_chain(1);
+    let first = new_transaction(&relayer, 719, &always_success).hash();
+    let second = new_transaction(&relayer, 720, &always_success).hash();
+    let third = new_transaction(&relayer, 721, &always_success).hash();
+    let state = relayer.shared.state();
+    for prefix in [0, 1, 4] {
+        for other_completes in [false, true] {
+            for order in [[0, 1], [1, 0]] {
+                *state.tx_filter() = TtlFilter::new(2, crate::types::FILTER_TTL);
+                let mut batches = [
+                    Some(KnownRemoteBatch::mark(
+                        Arc::clone(&relayer.shared),
+                        vec![first.clone(), second.clone(), third.clone(), first.clone()],
+                    )),
+                    Some(KnownRemoteBatch::mark(
+                        Arc::clone(&relayer.shared),
+                        vec![first.clone()],
+                    )),
+                ];
+                for (step, index) in order.into_iter().enumerate() {
+                    let mut batch = batches[index].take().unwrap();
+                    batch.complete_prefix(if index == 0 {
+                        prefix
+                    } else {
+                        usize::from(other_completes)
+                    });
+                    drop(batch);
+                    assert_eq!(
+                        state.already_known_tx(&first),
+                        step == 0 || prefix == 4 || other_completes,
+                        "evicted first occurrence is not the replacement: prefix={prefix}, other={other_completes}, order={order:?}"
+                    );
+                }
+            }
+        }
+    }
+}
+
+#[test]
+fn accepted_known_marks_survive_older_and_later_batch_cleanup() {
+    let (_chain, relayer, always_success) = build_chain(1);
+    let hash = new_transaction(&relayer, 712, &always_success).hash();
+    let state = relayer.shared.state();
+    for complete in [false, true] {
+        state.reset_tx_pool_relay_projection();
+        let mut older = KnownRemoteBatch::mark(Arc::clone(&relayer.shared), vec![hash.clone()]);
+        state.record_accepted_tx(hash.clone(), Some(12.into()));
+        let later = KnownRemoteBatch::mark(Arc::clone(&relayer.shared), vec![hash.clone()]);
+        if complete {
+            older.complete_prefix(1);
+        }
+        drop(older);
+        drop(later);
+        assert!(state.already_known_tx(&hash));
+        assert_eq!(
+            state.take_pending_relay_txs(1),
+            vec![(hash.clone(), Some(12.into()))]
+        );
+    }
+}
+
+#[test]
+fn reset_and_rejection_prevent_late_completion_or_cleanup_from_changing_a_new_claim() {
+    let (_chain, relayer, always_success) = build_chain(1);
+    let hash = new_transaction(&relayer, 713, &always_success).hash();
+    let state = relayer.shared.state();
+    for reset in [false, true] {
+        for replace in [false, true] {
+            for complete in [false, true] {
+                let mut older =
+                    KnownRemoteBatch::mark(Arc::clone(&relayer.shared), vec![hash.clone()]);
+                if reset {
+                    state.reset_tx_pool_relay_projection();
+                } else {
+                    state.reject_pending_relay_tx(&hash);
+                }
+                assert!(!state.already_known_tx(&hash));
+                let later = replace.then(|| {
+                    KnownRemoteBatch::mark(Arc::clone(&relayer.shared), vec![hash.clone()])
+                });
+                if complete {
+                    older.complete_prefix(1);
+                }
+                drop(older);
+                assert_eq!(state.already_known_tx(&hash), replace);
+                drop(later);
+                assert!(
+                    !state.already_known_tx(&hash),
+                    "old completion cannot settle a successor: reset={reset}, complete={complete}"
+                );
+            }
+        }
+    }
+}
+
+#[test]
+fn remote_claim_settlement_and_cancellation_preserve_ttl_without_reviving_expired_marks() {
+    use crate::types::TtlFilter;
+
+    let (_chain, relayer, always_success) = build_chain(1);
+    let first = new_transaction(&relayer, 714, &always_success).hash();
+    let second = new_transaction(&relayer, 715, &always_success).hash();
+    let state = relayer.shared.state();
+    *state.tx_filter() = TtlFilter::new(4, 3);
+    let start = ckb_systemtime::unix_time().as_secs() * 1000;
+    let clock = ckb_systemtime::faketime();
+    clock.set_faketime(start);
+    let mut older = KnownRemoteBatch::mark(
+        Arc::clone(&relayer.shared),
+        vec![first.clone(), second.clone()],
+    );
+    clock.set_faketime(start + 3_000);
+    state.tx_filter().remove_expired();
+    assert!(state.already_known_tx(&first));
+    assert!(state.already_known_tx(&second));
+    older.complete_prefix(1);
+    clock.set_faketime(start + 4_000);
+    state.tx_filter().remove_expired();
+    assert!(
+        !state.already_known_tx(&first),
+        "completion cannot extend TTL"
+    );
+    assert!(!state.already_known_tx(&second));
+    let later = KnownRemoteBatch::mark(Arc::clone(&relayer.shared), vec![second.clone()]);
+    older.complete_prefix(2);
+    drop(older);
+    assert!(state.already_known_tx(&second));
+    drop(later);
+    assert!(
+        !state.already_known_tx(&second),
+        "expired identity cannot settle a successor"
+    );
+    assert!(!state.already_known_tx(&first));
+
+    // Cancellation of one overlapping claimant must not renew the survivor.
+    let cancelled = KnownRemoteBatch::mark(Arc::clone(&relayer.shared), vec![first.clone()]);
+    let mut survivor = KnownRemoteBatch::mark(Arc::clone(&relayer.shared), vec![first.clone()]);
+    clock.set_faketime(start + 7_000);
+    drop(cancelled);
+    clock.set_faketime(start + 8_000);
+    state.tx_filter().remove_expired();
+    assert!(
+        !state.already_known_tx(&first),
+        "cancellation cannot extend TTL"
+    );
+    survivor.complete_prefix(1);
+    drop(survivor);
+    assert!(
+        !state.already_known_tx(&first),
+        "late completion cannot recreate an expired mark"
+    );
+}
+
+#[test]
+fn remote_claim_settlement_and_cancellation_do_not_refresh_lru_or_revive_evicted_marks() {
+    use crate::types::TtlFilter;
+
+    let (_chain, relayer, always_success) = build_chain(1);
+    let first = new_transaction(&relayer, 716, &always_success).hash();
+    let second = new_transaction(&relayer, 717, &always_success).hash();
+    let newest = new_transaction(&relayer, 718, &always_success).hash();
+    let state = relayer.shared.state();
+    for complete in [false, true] {
+        *state.tx_filter() = TtlFilter::new(2, crate::types::FILTER_TTL);
+        let mut earlier = KnownRemoteBatch::mark(Arc::clone(&relayer.shared), vec![first.clone()]);
+        let mut overlapping =
+            KnownRemoteBatch::mark(Arc::clone(&relayer.shared), vec![first.clone()]);
+        let other = KnownRemoteBatch::mark(Arc::clone(&relayer.shared), vec![second.clone()]);
+        if complete {
+            earlier.complete_prefix(1);
+        }
+        drop(earlier);
+        state.mark_as_known_tx(newest.clone());
+        assert!(
+            !state.already_known_tx(&first),
+            "settling/releasing must preserve LRU order"
+        );
+        assert!(state.already_known_tx(&second));
+        assert!(state.already_known_tx(&newest));
+        overlapping.complete_prefix(1);
+        drop(overlapping);
+        assert!(
+            !state.already_known_tx(&first),
+            "late completion cannot recreate an evicted mark"
+        );
+        drop(other);
+    }
 }
 
 #[test]

@@ -1,6 +1,6 @@
 use crate::Status;
 use crate::relayer::Relayer;
-use crate::types::SyncShared;
+use crate::types::KnownRemoteBatch;
 use ckb_logger::error;
 use ckb_network::{CKBProtocolContext, PeerIndex};
 use ckb_types::{packed, prelude::*};
@@ -8,41 +8,6 @@ use std::sync::Arc;
 use std::time::Duration;
 
 const DEFAULT_BAN_TIME: Duration = Duration::from_secs(3600 * 24 * 3);
-
-pub(super) struct KnownRemoteBatch {
-    shared: Arc<SyncShared>,
-    hashes: Vec<packed::Byte32>,
-    completed: usize,
-}
-
-impl KnownRemoteBatch {
-    /// Mark this batch known and own cleanup until the pool completes a prefix.
-    /// Failed admission and cancellation release the remaining marks on drop.
-    pub(super) fn mark(shared: Arc<SyncShared>, hashes: Vec<packed::Byte32>) -> Self {
-        let batch = Self {
-            shared,
-            hashes,
-            completed: 0,
-        };
-        batch
-            .shared
-            .state()
-            .mark_as_known_txs(batch.hashes.iter().cloned());
-        batch
-    }
-
-    pub(super) fn complete_prefix(&mut self, completed: usize) {
-        self.completed = completed;
-    }
-}
-
-impl Drop for KnownRemoteBatch {
-    fn drop(&mut self) {
-        for hash in self.hashes.iter().skip(self.completed) {
-            self.shared.state().remove_from_known_txs(hash);
-        }
-    }
-}
 
 pub struct TransactionsProcess<'a> {
     message: packed::RelayTransactionsReader<'a>,
@@ -95,7 +60,7 @@ impl<'a> TransactionsProcess<'a> {
 
         let mut known = KnownRemoteBatch::mark(
             Arc::clone(self.relayer.shared()),
-            txs.iter().map(|(tx, _)| tx.hash()).collect(),
+            txs.iter().map(|(tx, _)| tx.hash()),
         );
         let tx_pool = self.relayer.shared.shared().tx_pool_controller().clone();
         let peer = self.peer;
