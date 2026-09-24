@@ -3,6 +3,7 @@ use crate::authority::{
     model::{RemoteOrigin, Source},
     tests::common::*,
 };
+use crate::verification::ComputeMode;
 use ckb_types::{
     bytes::Bytes,
     core::{Capacity, cell::ResolvedTransaction},
@@ -151,7 +152,7 @@ async fn canonical_vm_success_produces_witness_bound_cache_proof_and_current_fee
         &config,
         &cache,
         &mut commands,
-        ComputeMode::Inline,
+        &ComputePermit::for_test(ComputeMode::Inline),
     )
     .await
     .unwrap();
@@ -172,7 +173,7 @@ async fn canonical_vm_success_produces_witness_bound_cache_proof_and_current_fee
         &config,
         &cache,
         &mut commands,
-        ComputeMode::Inline,
+        &ComputePermit::for_test(ComputeMode::Inline),
     )
     .await
     .unwrap();
@@ -220,7 +221,7 @@ async fn local_and_recovery_verification_ignore_network_time_limit() {
             &config,
             &cache,
             &mut commands,
-            ComputeMode::YieldRuntimeWorker,
+            &ComputePermit::for_test(ComputeMode::YieldRuntimeWorker),
         )
         .await
         .unwrap();
@@ -269,7 +270,7 @@ async fn network_time_budget_refusal_is_not_cached_and_allows_a_later_normal_att
             &config,
             &cache,
             &mut commands,
-            ComputeMode::Inline,
+            &ComputePermit::for_test(ComputeMode::Inline),
         )
         .await;
         assert!(
@@ -293,7 +294,7 @@ async fn network_time_budget_refusal_is_not_cached_and_allows_a_later_normal_att
             &config,
             &cache,
             &mut commands,
-            ComputeMode::Inline
+            &ComputePermit::for_test(ComputeMode::Inline)
         )
         .await
         .is_ok()
@@ -315,7 +316,7 @@ async fn remote_cycle_declaration_is_exact_even_when_reusing_local_cache_success
         &config,
         &cache,
         &mut commands,
-        ComputeMode::Inline,
+        &ComputePermit::for_test(ComputeMode::Inline),
     )
     .await
     .unwrap();
@@ -337,7 +338,7 @@ async fn remote_cycle_declaration_is_exact_even_when_reusing_local_cache_success
             &config,
             &cache,
             &mut commands,
-            ComputeMode::Inline
+            &ComputePermit::for_test(ComputeMode::Inline)
         )
         .await,
         Err(Error::Rejected(Reject::DeclaredWrongCycles(_, _)))
@@ -367,7 +368,7 @@ async fn producer_reentry_invalidates_queued_resolution_before_vm_or_cache_publi
             &config,
             &cache,
             &mut commands,
-            ComputeMode::Inline
+            &ComputePermit::for_test(ComputeMode::Inline)
         )
         .await,
         Err(Error::Stale)
@@ -584,7 +585,7 @@ async fn dependency_spent_after_verification_cannot_commit_the_old_live_observat
         &config,
         &cache,
         &mut commands,
-        ComputeMode::Inline,
+        &ComputePermit::for_test(ComputeMode::Inline),
     )
     .await
     .unwrap();
@@ -891,7 +892,7 @@ async fn canonical_conflicting_input_obeys_final_replacement_policy() {
         &configuration,
         &cache,
         &mut commands,
-        ComputeMode::Inline,
+        &ComputePermit::for_test(ComputeMode::Inline),
     )
     .await
     .unwrap();

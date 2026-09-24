@@ -59,14 +59,8 @@ impl Pool {
         self.reject_job(job, Reject::Full(reason.to_string()), ReadSet::default())
             .await
     }
-    pub(super) async fn resolve_job(
-        &self,
-        job: &Job,
-        cpu: OwnedSemaphorePermit,
-    ) -> Result<(), Error> {
-        let resolution = self.run_compute(&cpu, || {
-            jobs::resolve(&self.store, &job.entry, &self.config)
-        });
+    pub(super) async fn resolve_job(&self, job: &Job, cpu: ComputePermit) -> Result<(), Error> {
+        let resolution = cpu.run(|| jobs::resolve(&self.store, &job.entry, &self.config));
         drop(cpu);
         let resolution = match resolution {
             Ok(resolution) => resolution,
@@ -183,7 +177,7 @@ impl Pool {
                     &self.config,
                     &self.cache,
                     &mut commands,
-                    self.mode,
+                    &cpu,
                 )
                 .await;
                 drop(cpu);

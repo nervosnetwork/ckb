@@ -7,7 +7,7 @@ use super::{
     },
     common::*,
 };
-use crate::authority::chain::ClearScope;
+use crate::authority::{chain::ClearScope, service::ComputePermit};
 use crate::error::Reject;
 use ckb_types::{packed::OutPoint, prelude::*};
 use std::{
@@ -577,7 +577,7 @@ async fn proposal_promotion_reuses_exact_resolution_and_rechecks_original_produc
             &config(),
             &RwLock::new(init_cache()),
             &mut commands,
-            ComputeMode::Inline,
+            &ComputePermit::for_test(ComputeMode::Inline),
         )
         .await;
         if remove_producer {

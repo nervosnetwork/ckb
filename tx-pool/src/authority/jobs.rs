@@ -5,9 +5,9 @@ use super::{
     budget::ActivePermit,
     model::{Entry, Error, Phase, Resolved, Status, status},
     residency::detach_cell,
+    service::ComputePermit,
     store::{ReadSet, Store},
 };
-use crate::verification::ComputeMode;
 use crate::{
     error::Reject,
     util::compact_packed,
@@ -468,7 +468,7 @@ pub(super) async fn verify(
     config: &TxPoolConfig,
     cache: &RwLock<TxVerificationCache>,
     commands: &mut watch::Receiver<ChunkCommand>,
-    mode: ComputeMode,
+    compute: &ComputePermit,
 ) -> Result<Verified, Error> {
     let (view, snapshot) = store.snapshot();
     if view != resolved.view {
@@ -482,7 +482,7 @@ pub(super) async fn verify(
     let budget = entry
         .source
         .verification_time_limit(config)
-        .map(|limit| TxPoolVerificationBudget::new(limit, mode));
+        .map(|limit| TxPoolVerificationBudget::new(limit, compute.mode()));
     let max_cycles = entry
         .source
         .declared_cycles()

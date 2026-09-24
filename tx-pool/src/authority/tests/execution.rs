@@ -16,6 +16,16 @@ use std::future::Future;
 #[path = "stability.rs"]
 mod stability;
 
+impl ComputePermit {
+    /// Canonical-verifier unit fixtures have no Pool, but still own CPU capacity.
+    pub(in crate::authority) fn for_test(mode: ComputeMode) -> Self {
+        Self {
+            _permit: Arc::new(Semaphore::new(1)).try_acquire_owned().unwrap(),
+            mode,
+        }
+    }
+}
+
 fn fixture() -> (Arc<Pool>, RelaySink, RelayDrain, Handle) {
     let handle = Handle::new(tokio::runtime::Handle::current(), None);
     let store = store_with_pipeline_limit(chain_snapshot(), &config(), 64_000_000);
@@ -410,7 +420,10 @@ async fn pause_during_compute_capacity_wait_refunds_permit_and_stop_wakes_waiter
 
     // Resume is already published before the suspended future is polled again.
     pool.verification.resume().unwrap();
-    drop(within(compute).await.unwrap());
+    let admitted = within(compute).await.unwrap();
+    assert!(pool.cpu.available_permits() < capacity);
+    drop(admitted);
+    assert_eq!(pool.cpu.available_permits(), capacity);
     pool.verification.suspend().unwrap();
     let mut compute = Box::pin(pool.compute());
     assert!(futures_util::poll!(compute.as_mut()).is_pending());
@@ -1107,7 +1120,7 @@ async fn dependency_readers_follow_admission_order_including_prepared_reads() {
             &pool.config,
             &pool.cache,
             &mut pool.commands.clone(),
-            pool.mode,
+            &pool.compute().await.unwrap(),
         )
         .await
         .unwrap();
@@ -1480,7 +1493,7 @@ async fn control_progress_while_sync_computation_is_at_capacity() {
         releases.push(release);
         tasks.spawn(async move {
             let permit = pool.compute().await.unwrap();
-            pool.run_compute(&permit, || {
+            permit.run(|| {
                 entered.send(()).unwrap();
                 wait.recv_timeout(Duration::from_secs(10)).unwrap();
             });
@@ -1986,7 +1999,7 @@ async fn missing_parent_wait_and_request_commit_together_after_notice_pressure()
                 .unwrap()
         })
         .collect();
-    let cpu = Arc::clone(&pool.cpu).acquire_owned().await.unwrap();
+    let cpu = pool.compute().await.unwrap();
     let mut settle = Box::pin(pool.resolve_job(&job, cpu));
     assert!(
         settle

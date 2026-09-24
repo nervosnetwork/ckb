@@ -108,6 +108,24 @@ impl VerificationControl {
     }
 }
 
+/// Computation admitted through the pool's capacity and pause gate. The owned
+/// permit stays with the caller while synchronous or asynchronous work runs.
+pub(super) struct ComputePermit {
+    _permit: OwnedSemaphorePermit,
+    mode: ComputeMode,
+}
+
+impl ComputePermit {
+    /// Preserve runtime capacity for controls while synchronous work runs.
+    pub(super) fn run<T>(&self, operation: impl FnOnce() -> T) -> T {
+        self.mode.run(operation)
+    }
+
+    pub(super) fn mode(&self) -> ComputeMode {
+        self.mode
+    }
+}
+
 pub(crate) struct Pool {
     pub(crate) config: Arc<TxPoolConfig>,
     pub(super) store: Arc<Store>,
@@ -259,7 +277,7 @@ impl Pool {
         }
         (tasks, publisher)
     }
-    async fn compute(&self) -> Result<OwnedSemaphorePermit, Error> {
+    async fn compute(&self) -> Result<ComputePermit, Error> {
         loop {
             let cpu = tokio::select! {
                 permit = Arc::clone(&self.cpu).acquire_owned() => permit.map_err(|_| Error::Closed)?,
@@ -269,7 +287,12 @@ impl Pool {
             // this request was waiting. No queued job or active memory is
             // selected until all computation sources pass this same gate.
             match self.computation_ready() {
-                Ok(()) => return Ok(cpu),
+                Ok(()) => {
+                    return Ok(ComputePermit {
+                        _permit: cpu,
+                        mode: self.mode,
+                    });
+                }
                 Err(Error::Full(_)) => drop(cpu),
                 Err(error) => return Err(error),
             }
@@ -293,22 +316,22 @@ impl Pool {
             ChunkCommand::Stop => Err(Error::Closed),
         }
     }
-    /// The held permit caps synchronous resolution and VM work together. With
-    /// multiple runtime workers that cap leaves a worker for control and I/O;
-    /// a one-worker runtime instead hands its core off while this call runs.
-    fn run_compute<T>(&self, _permit: &OwnedSemaphorePermit, operation: impl FnOnce() -> T) -> T {
-        self.mode.run(operation)
-    }
-    fn try_direct_capacity(&self) -> Result<(OwnedSemaphorePermit, ActivePermit), Error> {
+    fn try_direct_capacity(&self) -> Result<(ComputePermit, ActivePermit), Error> {
         self.open()?;
         let cpu = Arc::clone(&self.cpu)
             .try_acquire_owned()
             .map_err(|_| Error::Full("active computation".into()))?;
         self.computation_ready()?;
         let memory = self.store.budget.active(Source::Local)?;
-        Ok((cpu, memory))
+        Ok((
+            ComputePermit {
+                _permit: cpu,
+                mode: self.mode,
+            },
+            memory,
+        ))
     }
-    async fn direct_capacity(&self) -> Result<(OwnedSemaphorePermit, ActivePermit), Error> {
+    async fn direct_capacity(&self) -> Result<(ComputePermit, ActivePermit), Error> {
         loop {
             let changed = self.store.budget.changed.notified();
             tokio::pin!(changed);

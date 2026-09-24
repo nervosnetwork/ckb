@@ -235,8 +235,8 @@ impl Pool {
             view,
             reads,
             resolved,
-        } = self
-            .run_compute(&cpu, || self.prepare_local(transaction, arrival))
+        } = cpu
+            .run(|| self.prepare_local(transaction, arrival))
             .map_err(capacity_rejection)?;
         let resolved = match resolved {
             Ok(resolved) => resolved,
@@ -255,7 +255,7 @@ impl Pool {
             &self.config,
             &self.cache,
             &mut self.commands.clone(),
-            self.mode,
+            &cpu,
         )
         .await;
         drop(cpu);
@@ -297,7 +297,7 @@ impl Pool {
         arrival: u64,
     ) -> Result<(), Error> {
         let (cpu, _memory) = self.direct_capacity().await.map_err(capacity_rejection)?;
-        let prepared = self.run_compute(&cpu, || self.prepare_local(transaction, arrival));
+        let prepared = cpu.run(|| self.prepare_local(transaction, arrival));
         drop(cpu);
         let LocalPreparation {
             candidate,
