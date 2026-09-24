@@ -173,6 +173,42 @@ fn verification_queue_preserves_configured_arrival_and_fee_ordering() {
 }
 
 #[test]
+fn one_peer_compares_size_classes_by_key_and_restricts_small_selection() {
+    for order in [VerifyOrdering::ArrivalTime, VerifyOrdering::FeeRate] {
+        let store = store();
+        let queues = Queues::new(order, 100);
+        let large = queued(&store, 35, remote(1, 200), 1);
+        let small = queued(&store, 36, remote(1, 1), 100);
+        queues.insert(&large);
+        queues.insert(&small);
+        let (selected, memory) = queues
+            .pop(WorkStage::Verify, WorkSelection::Any, &store.budget)
+            .unwrap()
+            .unwrap();
+        let expected = match order {
+            VerifyOrdering::ArrivalTime => &large,
+            VerifyOrdering::FeeRate => &small,
+        };
+        assert!(Arc::ptr_eq(&selected, expected));
+        drop(memory);
+        queues.insert(&selected);
+        let (selected, memory) = queues
+            .pop(WorkStage::Verify, WorkSelection::SmallOnly, &store.budget)
+            .unwrap()
+            .unwrap();
+        assert!(Arc::ptr_eq(&selected, &small));
+        assert_eq!(queues.queued_len(), 1);
+        drop(memory);
+        let (selected, _) = queues
+            .pop(WorkStage::Verify, WorkSelection::Any, &store.budget)
+            .unwrap()
+            .unwrap();
+        assert!(Arc::ptr_eq(&selected, &large));
+        assert_eq!(queues.queued_len(), 0);
+    }
+}
+
+#[test]
 fn fair_peer_selection_skips_an_ineligible_peer_and_preserves_the_small_lane() {
     let store = store();
     let queues = Queues::new(VerifyOrdering::ArrivalTime, 100);

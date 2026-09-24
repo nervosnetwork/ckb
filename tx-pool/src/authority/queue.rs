@@ -85,6 +85,23 @@ struct OwnerQueue {
     large: BTreeMap<Key, Weak<Entry>>,
 }
 impl OwnerQueue {
+    /// The lowest key across the selected size classes for this owner.
+    fn front(&self, selection: WorkSelection) -> Option<(SizeClass, &Key, &Weak<Entry>)> {
+        let small = self
+            .small
+            .first_key_value()
+            .map(|(key, entry)| (SizeClass::Small, key, entry));
+        let large = match selection {
+            WorkSelection::SmallOnly => None,
+            WorkSelection::Any => self.large.first_key_value(),
+        }
+        .map(|(key, entry)| (SizeClass::Large, key, entry));
+        small
+            .into_iter()
+            .chain(large)
+            .min_by(|(_, a, _), (_, b, _)| a.cmp(b))
+    }
+
     fn entries_mut(&mut self, size: SizeClass) -> &mut BTreeMap<Key, Weak<Entry>> {
         match size {
             SizeClass::Small => &mut self.small,
@@ -279,22 +296,11 @@ impl Queues {
                 return Ok(None);
             };
             cursor = Some(owner);
-            let selected = lane.owners.get(&owner).and_then(|queue| {
-                let small = queue
-                    .small
-                    .first_key_value()
-                    .map(|(key, entry)| (SizeClass::Small, key, entry));
-                let large = match selection {
-                    WorkSelection::SmallOnly => None,
-                    WorkSelection::Any => queue.large.first_key_value(),
-                }
-                .map(|(key, entry)| (SizeClass::Large, key, entry));
-                small
-                    .into_iter()
-                    .chain(large)
-                    .min_by(|(_, a, _), (_, b, _)| a.cmp(b))
-                    .map(|(size, key, entry)| (size, key.clone(), entry.upgrade()))
-            });
+            let selected = lane
+                .owners
+                .get(&owner)
+                .and_then(|queue| queue.front(selection))
+                .map(|(size, key, entry)| (size, key.clone(), entry.upgrade()));
             let Some((size, key, entry)) = selected else {
                 continue;
             };
