@@ -921,7 +921,7 @@ fn try_recv_relay(receiver: &BenchmarkRelayReceiver) -> Option<TxVerificationRes
 struct RelayDrainGuard {
     stop: Arc<AtomicBool>,
     completion: Arc<RelayCompletion>,
-    handle: std::thread::JoinHandle<()>,
+    handle: Option<std::thread::JoinHandle<BenchmarkRelayReceiver>>,
 }
 
 impl RelayDrainGuard {
@@ -937,39 +937,34 @@ impl RelayDrainGuard {
         let handle = std::thread::Builder::new()
             .name("txpool-bench-relay-drain".to_owned())
             .spawn(move || {
-                loop {
-                    let mut drained = false;
-                    while let Some(result) = try_recv_relay(&receiver) {
+                while !thread_stop.load(Ordering::Acquire) {
+                    if let Some(result) = try_recv_relay(&receiver) {
                         thread_completion.record(result);
-                        drained = true;
+                        continue;
                     }
-                    if thread_stop.load(Ordering::Acquire) && !drained {
-                        break;
-                    }
-                    if !drained {
-                        #[cfg(not(feature = "cross-version-legacy-bench-adapter"))]
-                        timer.block_on(async {
-                            // A sparse ordinary outcome has no producer wake; keep
-                            // a bounded fallback, also bounding stop/join latency.
-                            let _ = tokio::time::timeout(
-                                Duration::from_millis(1),
-                                receiver.wait_for_drain(),
-                            )
-                            .await;
-                        });
-                        #[cfg(feature = "cross-version-legacy-bench-adapter")]
-                        match receiver.recv_timeout(Duration::from_millis(1)) {
-                            Ok(result) => thread_completion.record(result),
-                            Err(ckb_channel::RecvTimeoutError::Timeout) => {}
-                            Err(ckb_channel::RecvTimeoutError::Disconnected) => break,
-                        }
+                    #[cfg(not(feature = "cross-version-legacy-bench-adapter"))]
+                    timer.block_on(async {
+                        // A sparse ordinary outcome has no producer wake; keep
+                        // a bounded fallback, also bounding stop/join latency.
+                        let _ = tokio::time::timeout(
+                            Duration::from_millis(1),
+                            receiver.wait_for_drain(),
+                        )
+                        .await;
+                    });
+                    #[cfg(feature = "cross-version-legacy-bench-adapter")]
+                    match receiver.recv_timeout(Duration::from_millis(1)) {
+                        Ok(result) => thread_completion.record(result),
+                        Err(ckb_channel::RecvTimeoutError::Timeout) => {}
+                        Err(ckb_channel::RecvTimeoutError::Disconnected) => break,
                     }
                 }
+                receiver
             })?;
         Ok(Self {
             stop,
             completion,
-            handle,
+            handle: Some(handle),
         })
     }
 
@@ -977,12 +972,35 @@ impl RelayDrainGuard {
         Arc::clone(&self.completion)
     }
 
-    fn stop(self) -> BenchResult<()> {
+    fn join(&mut self) -> BenchResult<Option<BenchmarkRelayReceiver>> {
+        let Some(handle) = self.handle.take() else {
+            return Ok(None);
+        };
         self.stop.store(true, Ordering::Release);
-        self.handle
+        handle
             .join()
-            .map_err(|_| bench_error("relay drain thread panicked"))?;
+            .map(Some)
+            .map_err(|_| bench_error("relay drain thread panicked"))
+    }
+
+    /// Producers have joined, so the returned receiver can now drain completely.
+    fn stop(mut self) -> BenchResult<()> {
+        if let Some(receiver) = self.join()? {
+            while let Some(result) = try_recv_relay(&receiver) {
+                self.completion.record(result);
+            }
+        }
         Ok(())
+    }
+}
+
+impl Drop for RelayDrainGuard {
+    fn drop(&mut self) {
+        // A failed operation may leave producers alive. Cancel reception and
+        // release the receiver without waiting for those producers to drain.
+        if let Err(error) = self.join() {
+            eprintln!("Relay drain cleanup failed: {error}");
+        }
     }
 }
 
@@ -2442,6 +2460,126 @@ fn run() -> BenchResult<()> {
 
 #[cfg(test)]
 mod terminal_tests {
+    #[test]
+    fn failed_operation_joins_relay_observer_while_producer_is_alive() {
+        use super::*;
+
+        #[cfg(not(feature = "cross-version-legacy-bench-adapter"))]
+        let (handle, _stopped, _runtime) = new_global_runtime(Some(2));
+        #[cfg(not(feature = "cross-version-legacy-bench-adapter"))]
+        let (consensus, _) = test_consensus(1).unwrap();
+        #[cfg(not(feature = "cross-version-legacy-bench-adapter"))]
+        let (_store, snapshot) = snapshot_with_genesis(Arc::new(consensus));
+        #[cfg(not(feature = "cross-version-legacy-bench-adapter"))]
+        let (builder, controller, receiver) = TxPoolServiceBuilder::new(
+            tx_pool_config(1, false),
+            snapshot,
+            None,
+            Arc::new(RwLock::new(init_cache())),
+            &handle,
+            FeeEstimator::new_dummy(),
+        )
+        .unwrap();
+        #[cfg(feature = "cross-version-legacy-bench-adapter")]
+        let (producer, receiver) = ckb_channel::unbounded();
+
+        let guard = RelayDrainGuard::start(receiver).unwrap();
+        let retained = Arc::downgrade(&guard.completion);
+        let failed = move || -> BenchResult<()> {
+            let _guard = guard;
+            Err(bench_error("injected benchmark failure"))
+        };
+        assert_eq!(
+            failed().unwrap_err().to_string(),
+            "injected benchmark failure"
+        );
+        assert!(
+            retained.upgrade().is_none(),
+            "error return joins the observer and releases its completion owner"
+        );
+
+        #[cfg(not(feature = "cross-version-legacy-bench-adapter"))]
+        {
+            // The real producer remains owned by an unstarted builder. No
+            // service, network or global stop signal participates in cleanup.
+            assert!(controller.accepts_chain_updates());
+            drop(builder);
+        }
+        #[cfg(feature = "cross-version-legacy-bench-adapter")]
+        assert!(
+            producer
+                .send(TxVerificationResult::Reject {
+                    tx_hash: Byte32::default(),
+                })
+                .is_err(),
+            "the joined observer has also released its receiver"
+        );
+    }
+
+    #[cfg(feature = "cross-version-legacy-bench-adapter")]
+    #[test]
+    fn explicit_stop_records_every_result_returned_by_join() {
+        use super::*;
+
+        let (producer, receiver) = ckb_channel::unbounded();
+        let first = Byte32::new([1; 32]);
+        let second = Byte32::new([2; 32]);
+        let rejected = Byte32::new([3; 32]);
+        let peer = Some(PeerIndex::from(7));
+        for tx_hash in [&first, &second] {
+            producer
+                .send(TxVerificationResult::Ok {
+                    original_peer: peer,
+                    tx_hash: tx_hash.clone(),
+                })
+                .unwrap();
+        }
+        producer
+            .send(TxVerificationResult::Reject {
+                tx_hash: rejected.clone(),
+            })
+            .unwrap();
+        drop(producer);
+        let completion = Arc::new(RelayCompletion::default());
+        // Supply the exact handoff where cancellation returned a receiver with
+        // queued results. No race with a worker can consume those results first.
+        let guard = RelayDrainGuard {
+            stop: Arc::new(AtomicBool::new(false)),
+            completion: Arc::clone(&completion),
+            handle: Some(std::thread::spawn(move || receiver)),
+        };
+        assert_eq!(completion.terminal_counts(), (0, 0));
+        guard.stop().unwrap();
+        completion
+            .validate(
+                &RelayOkSet::from([(first, peer), (second, peer)]),
+                &RelayRejectSet::from([rejected]),
+                None,
+            )
+            .unwrap();
+    }
+
+    #[test]
+    fn relay_cleanup_panic_preserves_the_original_operation_error() {
+        use super::*;
+
+        let guard = RelayDrainGuard {
+            stop: Arc::new(AtomicBool::new(false)),
+            completion: Arc::new(RelayCompletion::default()),
+            handle: Some(std::thread::spawn(|| -> BenchmarkRelayReceiver {
+                panic!("injected relay observer panic")
+            })),
+        };
+        let failed = move || -> BenchResult<()> {
+            let _guard = guard;
+            Err(bench_error("original operation failure"))
+        };
+        assert_eq!(
+            failed().unwrap_err().to_string(),
+            "original operation failure"
+        );
+    }
+
     #[test]
     fn target_latency_requires_complete_terminals_and_one_origin() {
         use super::*;
