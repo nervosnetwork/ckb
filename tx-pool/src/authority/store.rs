@@ -831,6 +831,7 @@ impl Store {
         Ok(spender)
     }
     /// Owners holding any selected role, including the separately stored spender.
+    /// The observation tracks accepted membership, not changes to waiting owners.
     pub(super) fn members(
         &self,
         key: &RelationKey,
@@ -999,6 +1000,8 @@ impl Store {
     }
     /// Validate captured facts before bounded synchronous publication, including
     /// candidate pruning and replacement of the current template.
+    /// Supports point owners/spenders and complete owner revision captures;
+    /// relation and peer membership need the additional guards owned by Apply.
     /// The closure must not perform I/O, callbacks, allocation or await. Removed
     /// output is returned to the caller for destruction after all guards open.
     pub(super) fn read_selected<R>(
@@ -1126,35 +1129,41 @@ impl Store {
     fn validate_reads(
         &self,
         reads: &ReadSet,
-        owners: &[(usize, Guard<'_, Shard>)],
+        guards: &[(usize, Guard<'_, Shard>)],
     ) -> Result<(), Error> {
-        for (hash, expected) in &reads.owners {
-            let shard = guarded_shard(owners, self.owner_shard(hash))
+        let ReadSet {
+            owners,
+            spenders,
+            relations,
+            peers,
+            all,
+            accepted,
+        } = reads;
+        for (hash, expected) in owners {
+            let shard = guarded_shard(guards, self.owner_shard(hash))
                 .ok_or(Error::Fault("owner read support"))?;
             if !same_weak(expected, &shard.owners.get(hash).map(Arc::downgrade)) {
                 return Err(Error::Stale);
             }
         }
-        for (index, shard) in owners {
-            if reads
-                .all
+        for (index, shard) in guards {
+            if all
                 .as_ref()
                 .is_some_and(|versions| versions[*index] != shard.get().revision)
-                || reads
-                    .accepted
+                || accepted
                     .as_ref()
                     .is_some_and(|versions| versions[*index] != shard.get().accepted_revision)
             {
                 return Err(Error::Stale);
             }
         }
-        for (point, expected) in &reads.spenders {
+        for (point, expected) in spenders {
             let row = self.relation(&RelationKey::Dependency(DependencyKey::Cell(point.clone())));
             if row.as_ref().and_then(|row| row.lock().spender.clone()) != *expected {
                 return Err(Error::Stale);
             }
         }
-        for (key, expected) in &reads.relations {
+        for (key, expected) in relations {
             let row = self.relation(key);
             if !same_weak(
                 expected,
@@ -1164,7 +1173,7 @@ impl Store {
                 return Err(Error::Stale);
             }
         }
-        for (peer, expected) in &reads.peers {
+        for (peer, expected) in peers {
             let row = self.peers.lock().get(peer).cloned();
             if !same_weak(
                 expected,

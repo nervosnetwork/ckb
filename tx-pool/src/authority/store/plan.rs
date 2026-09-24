@@ -81,14 +81,19 @@ impl ReadSet {
         Ok(())
     }
     pub(in crate::authority) fn merge(&mut self, other: &Self) -> Result<(), Error> {
-        merge_observations(&mut self.owners, &other.owners, same_weak)?;
-        merge_observations(&mut self.spenders, &other.spenders, PartialEq::eq)?;
-        merge_observations(&mut self.relations, &other.relations, same_weak)?;
-        merge_observations(&mut self.peers, &other.peers, same_weak)?;
-        for (own, incoming) in [
-            (&mut self.all, &other.all),
-            (&mut self.accepted, &other.accepted),
-        ] {
+        let Self {
+            owners,
+            spenders,
+            relations,
+            peers,
+            all,
+            accepted,
+        } = other;
+        merge_observations(&mut self.owners, owners, same_weak)?;
+        merge_observations(&mut self.spenders, spenders, PartialEq::eq)?;
+        merge_observations(&mut self.relations, relations, same_weak)?;
+        merge_observations(&mut self.peers, peers, same_weak)?;
+        for (own, incoming) in [(&mut self.all, all), (&mut self.accepted, accepted)] {
             if let Some(incoming) = incoming {
                 if own.as_ref().is_some_and(|old| old != incoming) {
                     return Err(Error::Stale);
@@ -100,10 +105,20 @@ impl ReadSet {
         }
         Ok(())
     }
+    /// Verification depends on producer identities and point spenders.
+    /// Admission observes membership anew when constructing its own decision.
     pub(in crate::authority) fn into_verification_reads(self) -> Self {
+        let Self {
+            owners,
+            spenders,
+            relations: _,
+            peers: _,
+            all: _,
+            accepted: _,
+        } = self;
         Self {
-            owners: self.owners,
-            spenders: self.spenders,
+            owners,
+            spenders,
             ..Self::default()
         }
     }
