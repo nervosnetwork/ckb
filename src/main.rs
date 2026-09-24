@@ -33,14 +33,6 @@ fn init_optional_observability() -> Result<(), Box<dyn std::error::Error>> {
     use tracing_subscriber::layer::SubscriberExt;
     use tracing_subscriber::util::SubscriberInitExt;
 
-    fn optional_env(name: &str) -> Result<Option<String>, std::env::VarError> {
-        match std::env::var(name) {
-            Ok(value) => Ok(Some(value)),
-            Err(std::env::VarError::NotPresent) => Ok(None),
-            Err(error) => Err(error),
-        }
-    }
-
     #[cfg(feature = "profiling")]
     let tx_pool_layer = if let Some(path) = optional_env("TX_POOL_PROFILE_TRACE_PATH")? {
         let output = std::fs::OpenOptions::new()
@@ -69,73 +61,7 @@ fn init_optional_observability() -> Result<(), Box<dyn std::error::Error>> {
 
     #[cfg(feature = "tokio-trace")]
     let (console_layer, start_tx) = {
-        use std::net::ToSocketAddrs;
-
-        fn positive_usize(name: &str, value: &str) -> Result<usize, std::io::Error> {
-            let parsed = value.parse::<usize>().map_err(|error| {
-                std::io::Error::new(
-                    std::io::ErrorKind::InvalidInput,
-                    format!("{name} must be a positive integer: {error}"),
-                )
-            })?;
-            if parsed == 0 {
-                return Err(std::io::Error::new(
-                    std::io::ErrorKind::InvalidInput,
-                    format!("{name} must be greater than zero"),
-                ));
-            }
-            Ok(parsed)
-        }
-
-        fn positive_duration(
-            name: &str,
-            value: &str,
-        ) -> Result<std::time::Duration, std::io::Error> {
-            let parsed = humantime::parse_duration(value).map_err(|error| {
-                std::io::Error::new(
-                    std::io::ErrorKind::InvalidInput,
-                    format!("{name} must be a duration: {error}"),
-                )
-            })?;
-            if parsed.is_zero() {
-                return Err(std::io::Error::new(
-                    std::io::ErrorKind::InvalidInput,
-                    format!("{name} must be greater than zero"),
-                ));
-            }
-            Ok(parsed)
-        }
-
-        let mut builder = console_subscriber::ConsoleLayer::builder();
-        if let Some(value) = optional_env("TOKIO_CONSOLE_RETENTION")? {
-            builder = builder.retention(humantime::parse_duration(&value)?);
-        }
-        if let Some(value) = optional_env("TOKIO_CONSOLE_PUBLISH_INTERVAL")? {
-            builder = builder
-                .publish_interval(positive_duration("TOKIO_CONSOLE_PUBLISH_INTERVAL", &value)?);
-        }
-        if let Some(value) = optional_env("TOKIO_CONSOLE_BIND")? {
-            let address = value.to_socket_addrs()?.next().ok_or_else(|| {
-                std::io::Error::new(
-                    std::io::ErrorKind::InvalidInput,
-                    format!("TOKIO_CONSOLE_BIND resolved to no address: {value}"),
-                )
-            })?;
-            builder = builder.server_addr(address);
-        }
-        if optional_env("TOKIO_CONSOLE_RECORD_PATH")?.is_some() {
-            return Err(std::io::Error::new(
-                std::io::ErrorKind::Unsupported,
-                "TOKIO_CONSOLE_RECORD_PATH is disabled because console-subscriber opens it with a panic-based API",
-            )
-            .into());
-        }
-        if let Some(value) = optional_env("TOKIO_CONSOLE_BUFFER_CAPACITY")? {
-            builder = builder
-                .event_buffer_capacity(positive_usize("TOKIO_CONSOLE_BUFFER_CAPACITY", &value)?);
-        }
-
-        let (layer, server) = builder.build();
+        let (layer, server) = console_builder_from_env()?.build();
         let filter = FilterFn::new(|metadata| {
             if metadata.is_event() {
                 metadata.target().starts_with("runtime") || metadata.target().starts_with("tokio")
@@ -180,6 +106,83 @@ fn init_optional_observability() -> Result<(), Box<dyn std::error::Error>> {
         })?;
     }
     Ok(())
+}
+
+#[cfg(any(feature = "profiling", feature = "tokio-trace"))]
+fn optional_env(name: &str) -> Result<Option<String>, std::env::VarError> {
+    match std::env::var(name) {
+        Ok(value) => Ok(Some(value)),
+        Err(std::env::VarError::NotPresent) => Ok(None),
+        Err(error) => Err(error),
+    }
+}
+
+#[cfg(feature = "tokio-trace")]
+fn console_builder_from_env() -> Result<console_subscriber::Builder, Box<dyn std::error::Error>> {
+    use std::net::ToSocketAddrs;
+
+    fn positive_usize(name: &str, value: &str) -> Result<usize, std::io::Error> {
+        let parsed = value.parse::<usize>().map_err(|error| {
+            std::io::Error::new(
+                std::io::ErrorKind::InvalidInput,
+                format!("{name} must be a positive integer: {error}"),
+            )
+        })?;
+        if parsed == 0 {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidInput,
+                format!("{name} must be greater than zero"),
+            ));
+        }
+        Ok(parsed)
+    }
+
+    fn positive_duration(name: &str, value: &str) -> Result<std::time::Duration, std::io::Error> {
+        let parsed = humantime::parse_duration(value).map_err(|error| {
+            std::io::Error::new(
+                std::io::ErrorKind::InvalidInput,
+                format!("{name} must be a duration: {error}"),
+            )
+        })?;
+        if parsed.is_zero() {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidInput,
+                format!("{name} must be greater than zero"),
+            ));
+        }
+        Ok(parsed)
+    }
+
+    let mut builder = console_subscriber::ConsoleLayer::builder();
+    if let Some(value) = optional_env("TOKIO_CONSOLE_RETENTION")? {
+        builder = builder.retention(humantime::parse_duration(&value)?);
+    }
+    if let Some(value) = optional_env("TOKIO_CONSOLE_PUBLISH_INTERVAL")? {
+        builder =
+            builder.publish_interval(positive_duration("TOKIO_CONSOLE_PUBLISH_INTERVAL", &value)?);
+    }
+    if let Some(value) = optional_env("TOKIO_CONSOLE_BIND")? {
+        let address = value.to_socket_addrs()?.next().ok_or_else(|| {
+            std::io::Error::new(
+                std::io::ErrorKind::InvalidInput,
+                format!("TOKIO_CONSOLE_BIND resolved to no address: {value}"),
+            )
+        })?;
+        builder = builder.server_addr(address);
+    }
+    if optional_env("TOKIO_CONSOLE_RECORD_PATH")?.is_some() {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::Unsupported,
+            "TOKIO_CONSOLE_RECORD_PATH is disabled because console-subscriber opens it with a panic-based API",
+        )
+        .into());
+    }
+    if let Some(value) = optional_env("TOKIO_CONSOLE_BUFFER_CAPACITY")? {
+        builder =
+            builder.event_buffer_capacity(positive_usize("TOKIO_CONSOLE_BUFFER_CAPACITY", &value)?);
+    }
+
+    Ok(builder)
 }
 
 #[cfg(all(target_os = "windows", not(target_feature = "crt-static")))]
