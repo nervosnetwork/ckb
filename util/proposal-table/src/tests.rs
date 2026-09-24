@@ -149,6 +149,54 @@ fn incremental_update_requires_the_exact_predecessor() {
 }
 
 #[test]
+fn mutations_between_tips_preserve_the_exact_history_projection() {
+    let mut table = ProposalTable::new(ProposalWindow(3, 10)).expect("window is valid");
+    for height in [1, 3, 4, 5] {
+        table.insert(height, [id(height as u8)]);
+    }
+    let origin = table.finalize(&ProposalView::default(), 5);
+
+    // Removing an absent height preserves both the clean predecessor and an
+    // already prepared ordinary successor.
+    assert!(!table.remove(99));
+    assert!(table.insert(6, [id(6)]));
+    assert!(!table.remove(99));
+    assert!(table.successor_view(&origin, 6).is_some());
+    let view = table.finalize(&origin, 6);
+    assert_eq!(proposed(&view), HashSet::from([1, 3, 4].map(id)));
+    assert_eq!(gap(&view), HashSet::from([5, 6].map(id)));
+
+    // A second insertion can add history inside an unchanged height band;
+    // updating only the ordinary successor's boundaries would miss id(2).
+    assert!(table.insert(7, [id(7)]));
+    assert!(table.insert(2, [id(2)]));
+    let view = table.finalize(&view, 7);
+    assert_eq!(proposed(&view), HashSet::from([1, 2, 3, 4, 5].map(id)));
+    assert_eq!(gap(&view), HashSet::from([6, 7].map(id)));
+
+    assert!(table.insert(8, [id(8)]));
+    assert!(!table.insert(3, [id(33)]));
+    let replaced = table.finalize(&view, 8);
+    assert_eq!(
+        proposed(&replaced),
+        HashSet::from([1, 2, 33, 4, 5, 6].map(id))
+    );
+    assert_eq!(gap(&replaced), HashSet::from([7, 8].map(id)));
+    assert!(view.contains_proposed(&id(3)));
+    assert!(!view.contains_proposed(&id(33)));
+
+    assert!(table.insert(9, [id(9)]));
+    assert!(table.remove(3));
+    let removed = table.finalize(&replaced, 9);
+    assert_eq!(
+        proposed(&removed),
+        HashSet::from([1, 2, 4, 5, 6, 7].map(id))
+    );
+    assert_eq!(gap(&removed), HashSet::from([8, 9].map(id)));
+    assert!(replaced.contains_proposed(&id(33)));
+}
+
+#[test]
 fn incremental_counts_preserve_repeated_ids_across_both_bands() {
     let window = ProposalWindow(2, 4);
     let mut history = BTreeMap::new();

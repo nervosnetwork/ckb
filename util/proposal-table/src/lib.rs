@@ -230,10 +230,10 @@ impl fmt::Display for ProposalTableError {
 
 impl std::error::Error for ProposalTableError {}
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Debug)]
 enum PendingTransition {
-    Clean,
-    SuccessorInsert,
+    Clean(FinalizedIdentity),
+    SuccessorInsert(FinalizedIdentity),
     Rebuild,
 }
 
@@ -248,7 +248,6 @@ struct FinalizedIdentity {
 pub struct ProposalTable {
     table: BTreeMap<BlockNumber, Box<[ProposalKey]>>,
     proposal_window: ProposalWindow,
-    finalized: Option<FinalizedIdentity>,
     pending: PendingTransition,
 }
 
@@ -265,7 +264,6 @@ impl ProposalTable {
         Ok(Self {
             proposal_window,
             table: BTreeMap::new(),
-            finalized: None,
             pending: PendingTransition::Rebuild,
         })
     }
@@ -278,11 +276,14 @@ impl ProposalTable {
     ) -> bool {
         let ids = ProposalKey::sorted_unique(ids);
         let absent = self.table.insert(number, ids.into_boxed_slice()).is_none();
-        self.pending = match (&self.finalized, self.pending, absent) {
-            (Some(finalized), PendingTransition::Clean, true)
+        self.pending = match (
+            std::mem::replace(&mut self.pending, PendingTransition::Rebuild),
+            absent,
+        ) {
+            (PendingTransition::Clean(finalized), true)
                 if finalized.number.checked_add(1) == Some(number) =>
             {
-                PendingTransition::SuccessorInsert
+                PendingTransition::SuccessorInsert(finalized)
             }
             _ => PendingTransition::Rebuild,
         };
@@ -379,9 +380,10 @@ impl ProposalTable {
     }
 
     fn successor_view(&self, origin: &ProposalView, number: BlockNumber) -> Option<ProposalView> {
-        let finalized = self.finalized.as_ref()?;
+        let PendingTransition::SuccessorInsert(finalized) = &self.pending else {
+            return None;
+        };
         if finalized.number.checked_add(1) != Some(number)
-            || self.pending != PendingTransition::SuccessorInsert
             || !origin.same_identity(&finalized.state)
         {
             return None;
@@ -448,11 +450,10 @@ impl ProposalTable {
             .unwrap_or_else(|| self.rebuild_view(number));
 
         self.prune(number);
-        self.finalized = Some(FinalizedIdentity {
+        self.pending = PendingTransition::Clean(FinalizedIdentity {
             number,
             state: Arc::downgrade(&next.counts),
         });
-        self.pending = PendingTransition::Clean;
         ckb_logger::trace!(
             "[proposal_finalize] number {} retained heights {} distinct ids {}",
             number,
