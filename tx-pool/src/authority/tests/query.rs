@@ -626,6 +626,19 @@ fn detail_rank_preserves_ordering_equivalence_arrival_hash_and_status() {
         ));
     }
     let proposed = accept(&store, output_tx(6420), 10000, 1, Status::Proposed);
+    // Make arrival and hash order disagree, so a hash-only comparator cannot
+    // accidentally satisfy the arrival tie-break assertion below.
+    children.sort_unstable_by(|a, b| b.cmp(a));
+    for (arrival, hash) in children.iter().enumerate() {
+        let old = store.point(hash).1.unwrap();
+        let after = Arc::new(Entry {
+            arrival: arrival as u64,
+            ..old.as_ref().clone()
+        });
+        let mut plan = Plan::new(store.snapshot().0, Class::Trusted, Default::default());
+        plan.edit(Some(old), Some(after), None).unwrap();
+        store.apply(plan).unwrap();
+    }
     let owners = store.capture_accepted().owners;
     let members: Members = owners
         .into_iter()
