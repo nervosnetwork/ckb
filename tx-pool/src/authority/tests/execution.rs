@@ -371,11 +371,7 @@ async fn suspended_workers_keep_verification_queued_and_dry_run_declines_without
     chain_sender
         .send(ChainControl::Reconcile(Request {
             responder,
-            arguments: ChainReorgArgs::Detailed {
-                detached_blocks: Default::default(),
-                attached_blocks: Default::default(),
-                snapshot,
-            },
+            arguments: ChainReorgArgs::for_test(Default::default(), Default::default(), snapshot),
         }))
         .await
         .unwrap();
@@ -1598,11 +1594,11 @@ async fn requeue_retries_concurrent_chain_changes_even_during_stop() {
                 // Reconciliation changes the view after requeue has planned,
                 // while preserving the selected Resolve owner and empty queue.
                 let pool = applying.upgrade().unwrap();
-                let command = ChainReorgArgs::Detailed {
-                    detached_blocks: Default::default(),
-                    attached_blocks: Default::default(),
-                    snapshot: pool.store.snapshot().1,
-                };
+                let command = ChainReorgArgs::for_test(
+                    Default::default(),
+                    Default::default(),
+                    pool.store.snapshot().1,
+                );
                 let _pause = pool.store.begin_chain().unwrap();
                 let plan = chain::reconcile(&pool.store, &command, &pool.config).unwrap();
                 pool.store.apply(plan).unwrap();
@@ -1937,11 +1933,7 @@ async fn committed_chain_reconciliation_publishes_detached_uncle_candidates() {
         .compact_target(snapshot.tip_header().compact_target())
         .epoch(snapshot.epoch_ext().number_with_fraction(1))
         .build();
-    let command = ChainReorgArgs::Detailed {
-        detached_blocks: [detached.clone()].into(),
-        attached_blocks: Default::default(),
-        snapshot,
-    };
+    let command = ChainReorgArgs::for_test([detached.clone()].into(), Default::default(), snapshot);
     pool.reconcile(&command).await.unwrap();
     let template = pool.template.as_ref().unwrap();
     within(async {

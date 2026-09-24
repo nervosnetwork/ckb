@@ -471,17 +471,12 @@ async fn authoritative_reorg_delivery_is_independent_of_rpc_readiness() {
     else {
         panic!("the ordered control must retain the exact chain transition");
     };
-    let ChainReorgArgs::Detailed {
-        detached_blocks,
-        attached_blocks,
-        snapshot: delivered_snapshot,
-    } = arguments
-    else {
-        panic!("an empty bounded reorg remains a detailed transition")
-    };
-    assert!(detached_blocks.is_empty());
-    assert!(attached_blocks.is_empty());
-    assert_eq!(delivered_snapshot.tip_hash(), snapshot.tip_hash());
+    let fork = arguments
+        .fork()
+        .expect("an empty bounded reorg remains a detailed transition");
+    assert!(fork.detached_blocks.is_empty());
+    assert!(fork.attached_blocks.is_empty());
+    assert!(Arc::ptr_eq(arguments.snapshot(), &snapshot));
     responder
         .send(())
         .expect("the chain publisher owns the exact Apply completion response");
@@ -543,14 +538,11 @@ fn oversized_reorg_payload_reduces_to_the_exact_snapshot_replacement() {
         ChainReorgPayloadLimit::for_test(0),
     );
 
-    assert!(!arguments.is_detailed());
-    let ChainReorgArgs::ReplaceGeneration {
-        snapshot: replacement,
-    } = arguments
-    else {
-        panic!("the zero-byte bound admits only a constant-size replacement")
-    };
-    assert!(Arc::ptr_eq(&replacement, &snapshot));
+    assert!(
+        arguments.fork().is_none(),
+        "the zero-byte bound admits only a constant-size replacement"
+    );
+    assert!(Arc::ptr_eq(arguments.snapshot(), &snapshot));
 }
 
 #[test]

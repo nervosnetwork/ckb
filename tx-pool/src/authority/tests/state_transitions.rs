@@ -838,11 +838,8 @@ fn admission_replacement_recovery_reorg_and_clear_preserve_the_whole_population(
     ));
     {
         let _pause = store.begin_chain().unwrap();
-        let command = ChainReorgArgs::Detailed {
-            detached_blocks: Default::default(),
-            attached_blocks: [block.clone()].into(),
-            snapshot,
-        };
+        let command =
+            ChainReorgArgs::for_test(Default::default(), [block.clone()].into(), snapshot);
         store
             .apply(chain::reconcile(&store, &command, &configuration).unwrap())
             .unwrap();
@@ -850,11 +847,7 @@ fn admission_replacement_recovery_reorg_and_clear_preserve_the_whole_population(
     assert_state(&store, &[accepted_parent()], &[]);
     {
         let _pause = store.begin_chain().unwrap();
-        let command = ChainReorgArgs::Detailed {
-            detached_blocks: [block].into(),
-            attached_blocks: Default::default(),
-            snapshot: base,
-        };
+        let command = ChainReorgArgs::for_test([block].into(), Default::default(), base);
         store
             .apply(chain::reconcile(&store, &command, &configuration).unwrap())
             .unwrap();

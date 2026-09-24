@@ -54,16 +54,12 @@ pub(super) fn recover_bounded(store: &Store, command: &ChainReorgArgs) -> Result
     #[cfg(feature = "profiling")]
     let _span =
         tracing::trace_span!(target: "ckb_tx_pool_profile", "tx_pool.chain.recover").entered();
-    let (detached_blocks, attached_blocks, snapshot) = match command {
-        ChainReorgArgs::Detailed {
-            detached_blocks,
-            attached_blocks,
-            snapshot,
-        } => (detached_blocks, attached_blocks, snapshot),
-        ChainReorgArgs::ReplaceGeneration { snapshot } => {
-            return clear(store, Some(Arc::clone(snapshot)), ClearScope::All);
-        }
+    let snapshot = command.snapshot();
+    let Some(fork) = command.fork() else {
+        return clear(store, Some(Arc::clone(snapshot)), ClearScope::All);
     };
+    let detached_blocks = &fork.detached_blocks;
+    let attached_blocks = &fork.attached_blocks;
     let Captured {
         view,
         snapshot: old_snapshot,
@@ -446,16 +442,12 @@ pub(super) fn reconcile(
     #[cfg(feature = "profiling")]
     let _span =
         tracing::trace_span!(target: "ckb_tx_pool_profile", "tx_pool.chain.reconcile").entered();
-    let (detached_blocks, attached_blocks, snapshot) = match command {
-        ChainReorgArgs::Detailed {
-            detached_blocks,
-            attached_blocks,
-            snapshot,
-        } => (detached_blocks, attached_blocks, snapshot),
-        ChainReorgArgs::ReplaceGeneration { snapshot } => {
-            return clear(store, Some(Arc::clone(snapshot)), ClearScope::All);
-        }
+    let snapshot = command.snapshot();
+    let Some(fork) = command.fork() else {
+        return clear(store, Some(Arc::clone(snapshot)), ClearScope::All);
     };
+    let detached_blocks = &fork.detached_blocks;
+    let attached_blocks = &fork.attached_blocks;
     if attached_blocks
         .back()
         .is_some_and(|block| block.hash() != snapshot.tip_hash())

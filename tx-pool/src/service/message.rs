@@ -578,18 +578,26 @@ impl ChainReorgPayloadLimit {
 /// count/byte bound may retain detailed fork collections in the capacity-one
 /// lane; every oversize, overflow or normalization-allocation outcome carries
 /// only the exact snapshot needed for a safe empty-generation replacement.
-pub(crate) enum ChainReorgArgs {
-    Detailed {
-        detached_blocks: VecDeque<BlockView>,
-        attached_blocks: VecDeque<BlockView>,
-        snapshot: Arc<Snapshot>,
-    },
-    ReplaceGeneration {
-        snapshot: Arc<Snapshot>,
-    },
+pub(crate) struct ChainReorgArgs {
+    snapshot: Arc<Snapshot>,
+    // Some(empty) is an exact empty delta; only None requests generation replacement.
+    fork: Option<ChainFork>,
+}
+
+pub(crate) struct ChainFork {
+    pub(crate) detached_blocks: VecDeque<BlockView>,
+    pub(crate) attached_blocks: VecDeque<BlockView>,
 }
 
 impl ChainReorgArgs {
+    pub(crate) fn snapshot(&self) -> &Arc<Snapshot> {
+        &self.snapshot
+    }
+
+    pub(crate) fn fork(&self) -> Option<&ChainFork> {
+        self.fork.as_ref()
+    }
+
     pub(crate) fn bounded(
         detached_blocks: VecDeque<BlockView>,
         attached_blocks: VecDeque<BlockView>,
@@ -605,7 +613,10 @@ impl ChainReorgArgs {
                     .checked_add(block.data().total_size())
             });
         if charge.is_none_or(|charge| charge > limit.0) {
-            return Self::ReplaceGeneration { snapshot };
+            return Self {
+                snapshot,
+                fork: None,
+            };
         }
 
         let mut normalized_detached = VecDeque::new();
@@ -617,14 +628,19 @@ impl ChainReorgArgs {
                 .try_reserve_exact(attached_blocks.len())
                 .is_err()
         {
-            return Self::ReplaceGeneration { snapshot };
+            return Self {
+                snapshot,
+                fork: None,
+            };
         }
         normalized_detached.extend(detached_blocks);
         normalized_attached.extend(attached_blocks);
-        Self::Detailed {
-            detached_blocks: normalized_detached,
-            attached_blocks: normalized_attached,
+        Self {
             snapshot,
+            fork: Some(ChainFork {
+                detached_blocks: normalized_detached,
+                attached_blocks: normalized_attached,
+            }),
         }
     }
 }

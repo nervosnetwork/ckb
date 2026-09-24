@@ -397,11 +397,11 @@ impl<'a> Sequence<'a> {
                 self.apply(
                     chain::reconcile(
                         &self.store,
-                        &ChainReorgArgs::Detailed {
-                            detached_blocks: Default::default(),
-                            attached_blocks: [block.clone()].into(),
+                        &ChainReorgArgs::for_test(
+                            Default::default(),
+                            [block.clone()].into(),
                             snapshot,
-                        },
+                        ),
                         &self.corpus.config,
                     )
                     .unwrap(),
@@ -415,11 +415,11 @@ impl<'a> Sequence<'a> {
                 self.apply(
                     chain::reconcile(
                         &self.store,
-                        &ChainReorgArgs::Detailed {
-                            detached_blocks: [block].into(),
-                            attached_blocks: Default::default(),
-                            snapshot: Arc::clone(&self.corpus.base),
-                        },
+                        &ChainReorgArgs::for_test(
+                            [block].into(),
+                            Default::default(),
+                            Arc::clone(&self.corpus.base),
+                        ),
                         &self.corpus.config,
                     )
                     .unwrap(),

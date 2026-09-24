@@ -389,19 +389,12 @@ impl Pool {
         // Detached blocks are optional template candidates after the chain
         // commit. The command already bounds their retained payload, and the
         // candidate cache independently bounds its population and backing.
-        if let (
-            Some(template),
-            ChainReorgArgs::Detailed {
-                detached_blocks,
-                snapshot,
-                ..
-            },
-        ) = (&self.template, command)
-        {
-            let maximum =
-                BoundedCandidateUncle::payload_limit(snapshot.consensus().max_block_bytes())
-                    .unwrap_or(usize::MAX);
-            for block in detached_blocks {
+        if let (Some(template), Some(fork)) = (&self.template, command.fork()) {
+            let maximum = BoundedCandidateUncle::payload_limit(
+                command.snapshot().consensus().max_block_bytes(),
+            )
+            .unwrap_or(usize::MAX);
+            for block in &fork.detached_blocks {
                 match BoundedCandidateUncle::try_new(block.as_uncle(), maximum) {
                     Ok(uncle) => template.uncle(uncle),
                     Err(error) => ckb_logger::warn!("detached uncle unavailable: {error:?}"),

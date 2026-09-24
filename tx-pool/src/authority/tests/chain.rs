@@ -32,11 +32,8 @@ fn command(store: &Store, transactions: Vec<ckb_types::core::TransactionView>) -
         .transaction(tx(0))
         .transactions(transactions)
         .build();
-    ChainReorgArgs::Detailed {
-        detached_blocks: VecDeque::new(),
-        snapshot: snapshot(&base, &block, HashSet::new(), HashSet::new()),
-        attached_blocks: [block].into(),
-    }
+    let snapshot = snapshot(&base, &block, HashSet::new(), HashSet::new());
+    ChainReorgArgs::for_test(VecDeque::new(), [block].into(), snapshot)
 }
 fn apply(store: &Store, command: &ChainReorgArgs) {
     let _pause = store.begin_chain().unwrap();
@@ -151,11 +148,11 @@ fn retained_replacement_history_survives_age_and_unrelated_chain_until_wake_or_c
 fn mismatched_attached_tip_is_rejected_before_any_mutation() {
     let store = store();
     let hash = accept(&store, output_tx(5005), 1, 1, Status::Pending);
-    let command = ChainReorgArgs::Detailed {
-        detached_blocks: VecDeque::new(),
-        attached_blocks: [BlockBuilder::default().build()].into(),
-        snapshot: store.snapshot().1,
-    };
+    let command = ChainReorgArgs::for_test(
+        VecDeque::new(),
+        [BlockBuilder::default().build()].into(),
+        store.snapshot().1,
+    );
     assert!(matches!(
         reconcile(&store, &command, &config()),
         Err(Error::Fault("chain snapshot tip"))
@@ -281,19 +278,10 @@ fn detached_committed_producer_invalidates_its_pool_resolved_readers_before_reco
                 .chain(&accepted.transaction.resolved_cell_deps)
                 .all(|cell| cell.transaction_info.is_none())
         );
-        let ChainReorgArgs::Detailed {
-            attached_blocks, ..
-        } = attached
-        else {
-            unreachable!();
-        };
+        let attached_blocks = attached.into_fork().unwrap().attached_blocks;
         apply(
             &store,
-            &ChainReorgArgs::Detailed {
-                detached_blocks: attached_blocks,
-                attached_blocks: VecDeque::new(),
-                snapshot: original_snapshot,
-            },
+            &ChainReorgArgs::for_test(attached_blocks, VecDeque::new(), original_snapshot),
         );
         // Observe the committed reorg before any recovery worker can admit the
         // producer again and repair its readers' parent links as a side effect.
@@ -324,30 +312,21 @@ fn producer_reattached_on_the_new_chain_keeps_its_pool_resolved_reader_accepted(
     let attached = command(&store, vec![parent.clone()]);
     apply(&store, &attached);
     let child = store.point(&child_hash).1.unwrap();
-    let ChainReorgArgs::Detailed {
-        attached_blocks: detached_blocks,
-        ..
-    } = attached
-    else {
-        unreachable!();
-    };
+    let detached_blocks = attached.into_fork().unwrap().attached_blocks;
     let replacement = BlockBuilder::default()
         .timestamp(1)
         .transaction(tx(0))
         .transaction(parent)
         .build();
+    let snapshot = snapshot(
+        &store.snapshot().1,
+        &replacement,
+        HashSet::new(),
+        HashSet::new(),
+    );
     apply(
         &store,
-        &ChainReorgArgs::Detailed {
-            detached_blocks,
-            snapshot: snapshot(
-                &store.snapshot().1,
-                &replacement,
-                HashSet::new(),
-                HashSet::new(),
-            ),
-            attached_blocks: [replacement].into(),
-        },
+        &ChainReorgArgs::for_test(detached_blocks, [replacement].into(), snapshot),
     );
     assert!(store.point(&parent_hash).1.is_none());
     assert!(Arc::ptr_eq(&store.point(&child_hash).1.unwrap(), &child));
@@ -380,11 +359,8 @@ fn bounded_recovery_committed_lookup_survives_partial_clear_only() {
     let attached = BlockBuilder::default()
         .transactions([tx(0), committed_tx.clone()])
         .build();
-    let command = ChainReorgArgs::Detailed {
-        detached_blocks: VecDeque::new(),
-        snapshot: snapshot(&base, &attached, HashSet::new(), HashSet::new()),
-        attached_blocks: [attached].into(),
-    };
+    let snapshot = snapshot(&base, &attached, HashSet::new(), HashSet::new());
+    let command = ChainReorgArgs::for_test(VecDeque::new(), [attached].into(), snapshot);
     let pause = store.begin_chain().unwrap();
     store
         .apply(recover_bounded(&store, &command).unwrap())
@@ -464,11 +440,7 @@ fn detached_witness_wins_raw_hash_and_recovers_parent_before_child() {
         .transaction(child.clone())
         .transaction(changed.clone())
         .build();
-    let command = ChainReorgArgs::Detailed {
-        detached_blocks: [detached].into(),
-        attached_blocks: VecDeque::new(),
-        snapshot: store.snapshot().1,
-    };
+    let command = ChainReorgArgs::for_test([detached].into(), VecDeque::new(), store.snapshot().1);
     apply(&store, &command);
     let restored = store.point(&parent.hash()).1.unwrap();
     assert_eq!(restored.transaction.witness_hash(), changed.witness_hash());
@@ -521,11 +493,11 @@ fn reorg_moves_context_sensitive_accepted_closure_to_recovery() {
     );
     apply(
         &store,
-        &ChainReorgArgs::Detailed {
-            detached_blocks: [BlockBuilder::default().transaction(tx(0)).build()].into(),
-            attached_blocks: VecDeque::new(),
-            snapshot: store.snapshot().1,
-        },
+        &ChainReorgArgs::for_test(
+            [BlockBuilder::default().transaction(tx(0)).build()].into(),
+            VecDeque::new(),
+            store.snapshot().1,
+        ),
     );
     for hash in [root, child] {
         let owner = store.point(&hash).1.unwrap();
@@ -554,11 +526,8 @@ fn optional_detached_candidates_do_not_prevent_either_chain_recovery_plan() {
             .build();
         let attached = BlockBuilder::default().transaction(tx(0)).build();
         let next = snapshot(&base, &attached, HashSet::new(), HashSet::new());
-        let command = ChainReorgArgs::Detailed {
-            detached_blocks: [detached].into(),
-            attached_blocks: [attached].into(),
-            snapshot: Arc::clone(&next),
-        };
+        let command =
+            ChainReorgArgs::for_test([detached].into(), [attached].into(), Arc::clone(&next));
         let _pause = store.begin_chain().unwrap();
         let plan = if bounded {
             recover_bounded(&store, &command)
@@ -604,11 +573,7 @@ fn proposal_view_promotes_remote_and_expiry_preserves_its_origin_and_deadline() 
         };
         apply(
             &store,
-            &ChainReorgArgs::Detailed {
-                detached_blocks: VecDeque::new(),
-                attached_blocks: VecDeque::new(),
-                snapshot: proposed,
-            },
+            &ChainReorgArgs::for_test(VecDeque::new(), VecDeque::new(), proposed),
         );
         let promoted = store.point(&owner.hash()).1.unwrap();
         assert!(matches!(
@@ -619,11 +584,7 @@ fn proposal_view_promotes_remote_and_expiry_preserves_its_origin_and_deadline() 
         assert_eq!(promoted.source.deadline(), source.deadline());
         apply(
             &store,
-            &ChainReorgArgs::Detailed {
-                detached_blocks: VecDeque::new(),
-                attached_blocks: VecDeque::new(),
-                snapshot: base,
-            },
+            &ChainReorgArgs::for_test(VecDeque::new(), VecDeque::new(), base),
         );
         let demoted = store.point(&owner.hash()).1.unwrap();
         assert!(matches!(
@@ -676,11 +637,11 @@ fn over_capacity_reorg_retains_a_bounded_parent_first_recovery_population() {
     let mut value = owner.accepted().unwrap().clone();
     value.context_sensitive = true;
     replace(&store, owner, Phase::Accepted(value));
-    let command = ChainReorgArgs::Detailed {
-        detached_blocks: [BlockBuilder::default().transaction(tx(0)).build()].into(),
-        attached_blocks: VecDeque::new(),
-        snapshot: store.snapshot().1,
-    };
+    let command = ChainReorgArgs::for_test(
+        [BlockBuilder::default().transaction(tx(0)).build()].into(),
+        VecDeque::new(),
+        store.snapshot().1,
+    );
     let _pause = store.begin_chain().unwrap();
     let detailed = reconcile(&store, &command, &configuration).unwrap();
     assert!(matches!(store.apply(detailed), Err(Error::Full(_))));
@@ -725,11 +686,7 @@ fn trusted_pending_proposal_survives_unchanged_window_and_expires_only_after_pro
         ));
         let base = store.snapshot().1;
         let update = |next| {
-            let args = ChainReorgArgs::Detailed {
-                detached_blocks: VecDeque::new(),
-                attached_blocks: VecDeque::new(),
-                snapshot: next,
-            };
+            let args = ChainReorgArgs::for_test(VecDeque::new(), VecDeque::new(), next);
             let plan = if bounded {
                 recover_bounded(&store, &args)
             } else {
@@ -783,11 +740,11 @@ fn detached_header_requeues_its_dependent_owner_and_causal_children_only() {
         .epoch(ckb_types::core::EpochNumberWithFraction::new(0, 8, 1000))
         .build();
     let base = store.snapshot().1;
-    let command = ChainReorgArgs::Detailed {
-        detached_blocks: [detached].into(),
-        attached_blocks: [next.clone()].into(),
-        snapshot: snapshot(&base, &next, HashSet::new(), HashSet::new()),
-    };
+    let command = ChainReorgArgs::for_test(
+        [detached].into(),
+        [next.clone()].into(),
+        snapshot(&base, &next, HashSet::new(), HashSet::new()),
+    );
     apply(&store, &command);
     for hash in [parent, child] {
         let owner = store.point(&hash).1.unwrap();
@@ -837,11 +794,7 @@ fn script_hardfork_transition_requeues_the_current_accepted_proof_without_changi
     );
     apply(
         &store,
-        &ChainReorgArgs::Detailed {
-            detached_blocks: Default::default(),
-            attached_blocks: [block].into(),
-            snapshot: new_snapshot,
-        },
+        &ChainReorgArgs::for_test(Default::default(), [block].into(), new_snapshot),
     );
     let current = store.point(&hash).1.unwrap();
     assert!(matches!(current.phase, Phase::Resolve));
@@ -939,16 +892,13 @@ fn chain_status_callback_uses_final_graph_after_parent_commit() {
         .transaction(tx(0))
         .transaction(parent)
         .build();
-    let command = ChainReorgArgs::Detailed {
-        detached_blocks: VecDeque::new(),
-        snapshot: snapshot(
-            &store.snapshot().1,
-            &block,
-            HashSet::new(),
-            [child.proposal_short_id()].into(),
-        ),
-        attached_blocks: [block].into(),
-    };
+    let snapshot = snapshot(
+        &store.snapshot().1,
+        &block,
+        HashSet::new(),
+        [child.proposal_short_id()].into(),
+    );
+    let command = ChainReorgArgs::for_test(VecDeque::new(), [block].into(), snapshot);
     let plan = reconcile(&store, &command, &config()).unwrap();
     let callbacks: Vec<_> = plan
         .effects()
