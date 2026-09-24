@@ -5,7 +5,6 @@
 //! releasing them. The independent relay mailbox records its own queue directly.
 
 use crate::error::Reject;
-use ckb_types::core::error::OutPointError;
 
 fn gauge_value(value: usize) -> i64 {
     i64::try_from(value).map_or(i64::MAX, |converted| converted)
@@ -94,16 +93,19 @@ pub(crate) enum RejectionClass {
 
 impl RejectionClass {
     pub(crate) fn from_reject(reject: &Reject) -> Self {
+        if reject.is_malformed_tx() {
+            return Self::Malformed;
+        }
+        // Classify the remaining, non-malformed rejections without duplicating
+        // the canonical validity rule (including its script-error exceptions).
         match reject {
-            Reject::Malformed(_, _)
-            | Reject::DeclaredWrongCycles(_, _)
-            | Reject::Resolve(OutPointError::OverMaxDepExpansionLimit) => Self::Malformed,
-            Reject::Verification(_) if reject.is_malformed_tx() => Self::Malformed,
             Reject::Full(_)
             | Reject::ExceededMaximumAncestorsCount
             | Reject::ExcessiveVerifyTime => Self::Capacity,
             Reject::Duplicated(_) => Self::Duplicate,
-            Reject::LowFeeRate(_, _, _)
+            Reject::Malformed(_, _)
+            | Reject::DeclaredWrongCycles(_, _)
+            | Reject::LowFeeRate(_, _, _)
             | Reject::ExceededTransactionSizeLimit(_, _)
             | Reject::Resolve(_)
             | Reject::Verification(_)
@@ -147,5 +149,47 @@ pub(crate) fn record_failure(boundary: FailureBoundary) {
         FailureBoundary::WorkerExit => counters.worker_exit.inc(),
         FailureBoundary::HandlerUnwind => counters.handler_unwind.inc(),
         FailureBoundary::EffectPublisher => counters.effect_publisher.inc(),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use ckb_error::{ErrorKind, OtherError};
+    use ckb_types::core::error::{ARGV_TOO_LONG_TEXT, OutPointError};
+
+    #[test]
+    fn rejection_metrics_preserve_validity_exceptions_and_local_refusals() {
+        for (reject, expected) in [
+            (
+                Reject::Verification(ErrorKind::Script.because(OtherError::new("script failure"))),
+                RejectionClass::Malformed,
+            ),
+            (
+                Reject::Verification(
+                    ErrorKind::Script.because(OtherError::new(ARGV_TOO_LONG_TEXT)),
+                ),
+                RejectionClass::Policy,
+            ),
+            (
+                Reject::Resolve(OutPointError::OverMaxDepExpansionLimit),
+                RejectionClass::Malformed,
+            ),
+            (Reject::Full("pipeline".into()), RejectionClass::Capacity),
+            (
+                Reject::ExceededMaximumAncestorsCount,
+                RejectionClass::Capacity,
+            ),
+            (
+                Reject::ExceededTransactionSizeLimit(2, 1),
+                RejectionClass::Policy,
+            ),
+            (
+                Reject::Duplicated(Default::default()),
+                RejectionClass::Duplicate,
+            ),
+        ] {
+            assert_eq!(RejectionClass::from_reject(&reject), expected, "{reject:?}");
+        }
     }
 }
