@@ -48,6 +48,7 @@ use std::mem::MaybeUninit;
 use std::{
     collections::{BTreeMap, HashMap, HashSet, VecDeque},
     error::Error,
+    path::Path,
     sync::{
         Arc, Mutex, OnceLock,
         atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering},
@@ -1232,13 +1233,13 @@ fn snapshot_with_proposed(
 fn start_network(
     consensus: &Consensus,
     handle: &Handle,
-) -> Result<(TempDir, NetworkController), Box<dyn Error>> {
-    let directory = TempDir::new()?;
+    directory: &Path,
+) -> BenchResult<NetworkController> {
     let state = Arc::new(
         NetworkState::from_config(NetworkConfig {
             max_peers: 19,
             max_outbound_peers: 5,
-            path: directory.path().to_path_buf(),
+            path: directory.to_path_buf(),
             ping_interval_secs: 15,
             ping_timeout_secs: 20,
             connect_outbound_interval_secs: 1,
@@ -1249,7 +1250,7 @@ fn start_network(
         })
         .map_err(|error| std::io::Error::other(error.to_string()))?,
     );
-    let controller = NetworkService::new(
+    NetworkService::new(
         state,
         vec![],
         vec![],
@@ -1261,8 +1262,7 @@ fn start_network(
         TransportType::Tcp,
     )
     .start(handle)
-    .map_err(|error| std::io::Error::other(error.to_string()))?;
-    Ok((directory, controller))
+    .map_err(bench_error)
 }
 
 fn build_success_tx(
@@ -2052,11 +2052,14 @@ fn run() -> BenchResult<()> {
     resource_phases
         .capture("fixture_ready")
         .map_err(bench_error)?;
-    let runtime_threads = std::thread::available_parallelism().map_or(8, |count| count.get());
-    let (handle, handle_stop, runtime) = new_global_runtime(Some(runtime_threads));
+    // Backing directories must outlive runtime task destruction and blocking I/O,
+    // including when an error returns before graceful shutdown.
     let consensus = Arc::new(consensus);
     let (store, snapshot) = snapshot_with_genesis(Arc::clone(&consensus));
-    let (network_directory, network) = start_network(&consensus, &handle)?;
+    let network_directory = TempDir::new()?;
+    let runtime_threads = std::thread::available_parallelism().map_or(8, |count| count.get());
+    let (handle, handle_stop, runtime) = new_global_runtime(Some(runtime_threads));
+    let network = start_network(&consensus, &handle, network_directory.path())?;
     let config = TxPoolConfig {
         persisted_data: network_directory.path().join("tx-pool.data"),
         ..tx_pool_config(workers, workload.is_rbf_pairs())
