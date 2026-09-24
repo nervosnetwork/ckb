@@ -127,20 +127,13 @@ pub(super) fn recover_bounded(store: &Store, command: &ChainReorgArgs) -> Result
     .map_err(|_| Error::Full("recovery dependency ordering".into()))?;
     store.budget.limits.retain_fitting(&mut candidates)?;
     let mut retained = BTreeMap::new();
-    for entry in candidates {
-        // Queue order follows the bounded parent-before-child recovery order.
-        let arrival = if matches!(entry.source, Source::Recovery) {
-            store.next_arrival()?
-        } else {
-            entry.arrival
-        };
-        retained.insert(
-            entry.hash(),
-            Arc::new(Entry {
-                arrival,
-                ..entry.as_ref().clone()
-            }),
-        );
+    for mut entry in candidates {
+        // These owners are newly constructed above. Assign recovery order before
+        // publishing them; remote origins retain their original arrival.
+        if matches!(entry.source, Source::Recovery) {
+            Arc::make_mut(&mut entry).arrival = store.next_arrival()?;
+        }
+        retained.insert(entry.hash(), entry);
     }
     let mut plan = Plan::new(view, Class::Critical, reads);
     for entry in owners {
@@ -525,10 +518,8 @@ pub(super) fn reconcile(
             plan.edit(None, Some(Arc::clone(entry)), None)?;
         }
     }
-    let final_accepted: Members = after
-        .into_iter()
-        .filter(|(_, entry)| entry.accepted().is_some())
-        .collect();
+    let mut final_accepted = after;
+    final_accepted.retain(|_, entry| entry.accepted().is_some());
     let mut final_totals = None;
     for (hash, entry) in &final_accepted {
         let Some(previous) = old.get(hash).and_then(|entry| entry.accepted()) else {
