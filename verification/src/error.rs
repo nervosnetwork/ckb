@@ -204,6 +204,7 @@ pub enum CellbaseError {
     InvalidOutputData,
     /// The cellbase output lock is Invalid.
     InvalidOutputLock,
+    InvalidWitnessLock,
 }
 
 /// Errors due to the fact that the uncle rule is not respected.

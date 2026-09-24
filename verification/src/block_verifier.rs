@@ -1,5 +1,6 @@
 use crate::{
-    BlockErrorKind, CellbaseError, transaction_verifier::NonContextualTransactionVerifier,
+    BlockErrorKind, CellbaseError, UnclesError,
+    transaction_verifier::NonContextualTransactionVerifier,
 };
 use ckb_chain_spec::consensus::Consensus;
 use ckb_constant::consensus::ENABLED_SCRIPT_HASH_TYPE;
@@ -11,6 +12,10 @@ use ckb_types::{
 };
 use ckb_verification_traits::Verifier;
 use std::collections::HashSet;
+
+pub const MIN_BLOCK_BYTES_WITH_EMPTY_REWARD_LOCK: u64 = 562;
+
+pub const RESERVED_FINALIZER_WITNESS_BYTES: u64 = 256;
 
 /// Block verifier that are independent of context.
 ///
@@ -41,9 +46,64 @@ impl<'a> Verifier for BlockVerifier<'a> {
         let max_block_bytes = self.consensus.max_block_bytes();
         BlockProposalsLimitVerifier::new(max_block_proposals_limit).verify(target)?;
         BlockBytesVerifier::new(max_block_bytes).verify(target)?;
-        CellbaseVerifier::new().verify(target)?;
+        UnclesBodyVerifier::new(self.consensus.max_uncles_num(), max_block_proposals_limit)
+            .verify(target)?;
+        CellbaseVerifier::new(max_block_bytes).verify(target)?;
         DuplicateVerifier::new().verify(target)?;
         MerkleRootVerifier::new().verify(target)
+    }
+}
+
+#[derive(Clone)]
+pub struct UnclesBodyVerifier {
+    max_uncles_num: u32,
+    max_proposals_limit: u64,
+}
+
+impl UnclesBodyVerifier {
+    pub fn new(max_uncles_num: usize, max_proposals_limit: u64) -> Self {
+        UnclesBodyVerifier {
+            max_uncles_num: max_uncles_num as u32,
+            max_proposals_limit,
+        }
+    }
+
+    pub fn verify(&self, block: &BlockView) -> Result<(), Error> {
+        let uncles_count = block.data().uncles().len() as u32;
+
+        if uncles_count == 0 {
+            return Ok(());
+        }
+
+        if uncles_count > self.max_uncles_num {
+            return Err((UnclesError::OverCount {
+                max: self.max_uncles_num,
+                actual: uncles_count,
+            })
+            .into());
+        }
+
+        for uncle in block.uncles().into_iter() {
+            if uncle.data().proposals().len() as u64 > self.max_proposals_limit {
+                return Err((UnclesError::ExceededMaximumProposalsLimit).into());
+            }
+
+            if uncle.proposals_hash() != uncle.data().as_reader().calc_proposals_hash() {
+                return Err((UnclesError::ProposalsHash).into());
+            }
+
+            let mut seen = HashSet::with_capacity(uncle.data().proposals().len());
+            if !uncle
+                .data()
+                .proposals()
+                .into_iter()
+                .all(|id| seen.insert(id))
+            {
+                return Err((UnclesError::ProposalDuplicate).into());
+            }
+        }
+
+        Ok(())
     }
 }
 
@@ -55,12 +115,14 @@ impl<'a> Verifier for BlockVerifier<'a> {
 /// Cellbase output type_ must be empty
 /// Cellbase has only one dummy input. The input's `since` field must be equal to the block number.
 #[derive(Clone)]
-pub struct CellbaseVerifier {}
+pub struct CellbaseVerifier {
+    max_block_bytes: u64,
+}
 
 impl CellbaseVerifier {
     /// Constructs a CellbaseVerifier
-    pub fn new() -> Self {
-        CellbaseVerifier {}
+    pub fn new(max_block_bytes: u64) -> Self {
+        CellbaseVerifier { max_block_bytes }
     }
 
     pub fn verify(&self, block: &BlockView) -> Result<(), Error> {
@@ -103,24 +165,28 @@ impl CellbaseVerifier {
             return Err((CellbaseError::InvalidOutputData).into());
         }
 
-        if cellbase_transaction
+        let witness = cellbase_transaction
             .witnesses()
             .get(0)
-            .and_then(|witness| {
-                CellbaseWitness::from_slice(&witness.raw_data())
-                    .ok()
-                    .and_then(|cellbase_witness| {
-                        ScriptHashType::try_from(cellbase_witness.lock().hash_type())
-                            .ok()
-                            .and_then(|hash_type| {
-                                let val: u8 = hash_type.into();
-                                ENABLED_SCRIPT_HASH_TYPE.contains(&val).then_some(())
-                            })
-                    })
+            .ok_or_else(|| Error::from(CellbaseError::InvalidWitness))?;
+        let cellbase_witness = CellbaseWitness::from_slice(&witness.raw_data())
+            .map_err(|_| Error::from(CellbaseError::InvalidWitness))?;
+        if ScriptHashType::try_from(cellbase_witness.lock().hash_type())
+            .ok()
+            .and_then(|hash_type| {
+                let val: u8 = hash_type.into();
+                ENABLED_SCRIPT_HASH_TYPE.contains(&val).then_some(())
             })
             .is_none()
         {
             return Err((CellbaseError::InvalidWitness).into());
+        }
+
+        let args_len = cellbase_witness.lock().args().raw_data().len() as u64;
+        if MIN_BLOCK_BYTES_WITH_EMPTY_REWARD_LOCK + RESERVED_FINALIZER_WITNESS_BYTES + args_len
+            > self.max_block_bytes
+        {
+            return Err((CellbaseError::InvalidWitnessLock).into());
         }
 
         // cellbase output type_ must be empty

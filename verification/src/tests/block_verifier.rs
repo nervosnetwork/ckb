@@ -3,6 +3,7 @@ use super::super::block_verifier::{
     MerkleRootVerifier,
 };
 use crate::{BlockErrorKind, CellbaseError};
+use ckb_chain_spec::consensus::MAX_BLOCK_BYTES;
 use ckb_error::assert_error_eq;
 use ckb_types::{
     bytes::Bytes,
@@ -178,7 +179,7 @@ pub fn test_block_without_cellbase() {
     let block = BlockBuilder::new_with_number(1)
         .transaction(TransactionBuilder::default().build())
         .build();
-    let verifier = CellbaseVerifier::new();
+    let verifier = CellbaseVerifier::new(MAX_BLOCK_BYTES);
     assert_error_eq!(
         verifier.verify(&block).unwrap_err(),
         CellbaseError::InvalidQuantity,
@@ -194,7 +195,7 @@ pub fn test_block_with_one_cellbase_at_first() {
         .transaction(transaction)
         .build();
 
-    let verifier = CellbaseVerifier::new();
+    let verifier = CellbaseVerifier::new(MAX_BLOCK_BYTES);
     assert!(verifier.verify(&block).is_ok());
 }
 
@@ -204,7 +205,7 @@ pub fn test_block_with_correct_cellbase_number() {
         .transaction(create_cellbase_transaction_with_block_number(2))
         .build();
 
-    let verifier = CellbaseVerifier::new();
+    let verifier = CellbaseVerifier::new(MAX_BLOCK_BYTES);
     assert!(verifier.verify(&block).is_ok());
 }
 
@@ -214,7 +215,7 @@ pub fn test_block_with_incorrect_cellbase_number() {
         .transaction(create_cellbase_transaction_with_block_number(3))
         .build();
 
-    let verifier = CellbaseVerifier::new();
+    let verifier = CellbaseVerifier::new(MAX_BLOCK_BYTES);
     assert_error_eq!(
         verifier.verify(&block).unwrap_err(),
         CellbaseError::InvalidInput,
@@ -228,7 +229,7 @@ pub fn test_block_with_one_cellbase_at_last() {
         .transaction(create_cellbase_transaction())
         .build();
 
-    let verifier = CellbaseVerifier::new();
+    let verifier = CellbaseVerifier::new(MAX_BLOCK_BYTES);
     assert_error_eq!(
         verifier.verify(&block).unwrap_err(),
         CellbaseError::InvalidPosition,
@@ -241,7 +242,7 @@ pub fn test_block_with_unknown_hash_type_cellbase() {
         .transaction(create_cellbase_transaction_with_unknown_hash_type())
         .build();
 
-    let verifier = CellbaseVerifier::new();
+    let verifier = CellbaseVerifier::new(MAX_BLOCK_BYTES);
     assert_error_eq!(
         verifier.verify(&block).unwrap_err(),
         CellbaseError::InvalidWitness,
@@ -251,7 +252,7 @@ pub fn test_block_with_unknown_hash_type_cellbase() {
         .transaction(create_cellbase_transaction_with_unknown_hash_type_lock())
         .build();
 
-    let verifier = CellbaseVerifier::new();
+    let verifier = CellbaseVerifier::new(MAX_BLOCK_BYTES);
     assert_error_eq!(
         verifier.verify(&block).unwrap_err(),
         CellbaseError::InvalidOutputLock,
@@ -264,7 +265,7 @@ pub fn test_block_with_data3_cellbase() {
         .transaction(create_cellbase_transaction_with_data3_witness())
         .build();
 
-    let verifier = CellbaseVerifier::new();
+    let verifier = CellbaseVerifier::new(MAX_BLOCK_BYTES);
     assert_error_eq!(
         verifier.verify(&block).unwrap_err(),
         CellbaseError::InvalidWitness,
@@ -274,7 +275,7 @@ pub fn test_block_with_data3_cellbase() {
         .transaction(create_cellbase_transaction_with_data3_lock())
         .build();
 
-    let verifier = CellbaseVerifier::new();
+    let verifier = CellbaseVerifier::new(MAX_BLOCK_BYTES);
     assert_error_eq!(
         verifier.verify(&block).unwrap_err(),
         CellbaseError::InvalidOutputLock,
@@ -286,7 +287,7 @@ pub fn test_cellbase_with_non_empty_output_data() {
     let block = BlockBuilder::new_with_number(MOCK_BLOCK_NUMBER)
         .transaction(create_cellbase_transaction_with_non_empty_output_data())
         .build();
-    let verifier = CellbaseVerifier::new();
+    let verifier = CellbaseVerifier::new(MAX_BLOCK_BYTES);
     assert_error_eq!(
         verifier.verify(&block).unwrap_err(),
         CellbaseError::InvalidOutputData,
@@ -303,7 +304,7 @@ pub fn test_cellbase_without_output() {
     let block = BlockBuilder::new_with_number(MOCK_BLOCK_NUMBER)
         .transaction(cellbase_without_output)
         .build();
-    let result = CellbaseVerifier::new().verify(&block);
+    let result = CellbaseVerifier::new(MAX_BLOCK_BYTES).verify(&block);
     assert!(result.is_ok(), "Unexpected error {result:?}");
 
     // only output_data
@@ -315,7 +316,7 @@ pub fn test_cellbase_without_output() {
     let block = BlockBuilder::new_with_number(MOCK_BLOCK_NUMBER)
         .transaction(cellbase_without_output)
         .build();
-    let result = CellbaseVerifier::new().verify(&block);
+    let result = CellbaseVerifier::new(MAX_BLOCK_BYTES).verify(&block);
     assert_error_eq!(result.unwrap_err(), CellbaseError::InvalidOutputQuantity);
 
     // only output
@@ -331,7 +332,7 @@ pub fn test_cellbase_without_output() {
     let block = BlockBuilder::new_with_number(MOCK_BLOCK_NUMBER)
         .transaction(cellbase_without_output)
         .build();
-    let result = CellbaseVerifier::new().verify(&block);
+    let result = CellbaseVerifier::new(MAX_BLOCK_BYTES).verify(&block);
     assert_error_eq!(result.unwrap_err(), CellbaseError::InvalidOutputQuantity);
 }
 
@@ -340,7 +341,7 @@ pub fn test_cellbase_with_two_output() {
     let block = BlockBuilder::new_with_number(MOCK_BLOCK_NUMBER)
         .transaction(create_cellbase_transaction_with_two_output())
         .build();
-    let verifier = CellbaseVerifier::new();
+    let verifier = CellbaseVerifier::new(MAX_BLOCK_BYTES);
     assert_error_eq!(
         verifier.verify(&block).unwrap_err(),
         CellbaseError::InvalidOutputQuantity,
@@ -352,7 +353,7 @@ pub fn test_cellbase_with_two_output_data() {
     let block = BlockBuilder::new_with_number(MOCK_BLOCK_NUMBER)
         .transaction(create_cellbase_transaction_with_two_output_data())
         .build();
-    let verifier = CellbaseVerifier::new();
+    let verifier = CellbaseVerifier::new(MAX_BLOCK_BYTES);
     assert_error_eq!(
         verifier.verify(&block).unwrap_err(),
         CellbaseError::InvalidOutputQuantity,
@@ -429,7 +430,7 @@ pub fn test_block_with_two_cellbases() {
         .transaction(create_cellbase_transaction())
         .build();
 
-    let verifier = CellbaseVerifier::new();
+    let verifier = CellbaseVerifier::new(MAX_BLOCK_BYTES);
     assert_error_eq!(
         verifier.verify(&block).unwrap_err(),
         CellbaseError::InvalidQuantity,
@@ -447,7 +448,7 @@ pub fn test_cellbase_with_less_reward() {
         .transaction(transaction)
         .build();
 
-    let verifier = CellbaseVerifier::new();
+    let verifier = CellbaseVerifier::new(MAX_BLOCK_BYTES);
     assert!(verifier.verify(&block).is_ok());
 }
 
@@ -462,7 +463,7 @@ pub fn test_cellbase_with_fee() {
         .transaction(transaction)
         .build();
 
-    let verifier = CellbaseVerifier::new();
+    let verifier = CellbaseVerifier::new(MAX_BLOCK_BYTES);
     assert!(verifier.verify(&block).is_ok());
 }
 
