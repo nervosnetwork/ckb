@@ -1,7 +1,7 @@
 //! A decision owns its original observations, intended owner edits and notices.
 //! Tracked reads extend that decision; only Store can inspect its private state
 //! while validating and committing it.
-use super::{Captured, Roles, Shards, Store, WakePage};
+use super::{Captured, Roles, Shards, Store, WakePage, compact_dependency};
 use crate::{
     authority::{
         model::{DependencyKey, Entry, Error, RelationKey},
@@ -169,7 +169,7 @@ pub(in crate::authority) struct Plan {
     pub(super) dry_run: bool,
     pub(super) ban: Option<(PeerIndex, Instant)>,
     pub(super) peer_access: Option<(PeerIndex, bool)>,
-    pub(in crate::authority) wake: BTreeSet<DependencyKey>,
+    pub(super) wake: BTreeSet<DependencyKey>,
     pub(super) wake_advance: Option<WakePage>,
 }
 impl Plan {
@@ -417,5 +417,9 @@ impl Plan {
     }
     pub(in crate::authority) fn advance(&mut self, page: WakePage) {
         self.wake_advance = Some(page);
+    }
+    /// Recheck waiters for this dependency after the decision commits.
+    pub(in crate::authority) fn signal_available(&mut self, key: DependencyKey) {
+        self.wake.insert(compact_dependency(&key));
     }
 }

@@ -2555,7 +2555,7 @@ fn maintenance_expires_accepted_work_while_wake_pages_remain() {
                 .store
                 .wake_page(&mut None)
                 .expect("wake work still pending at the expiry turn")
-                .hashes
+                .hashes()
                 .is_empty()
         );
         pool.stop();

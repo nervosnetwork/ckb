@@ -554,8 +554,7 @@ pub(super) fn reconcile(
     for block in attached_blocks.iter().chain(detached_blocks) {
         for tx in block.transactions() {
             for point in tx.output_pts_iter().chain(tx.input_pts_iter()) {
-                plan.wake
-                    .insert(DependencyKey::Cell(compact_packed(&point)));
+                plan.signal_available(DependencyKey::Cell(point));
             }
         }
     }

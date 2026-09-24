@@ -64,7 +64,7 @@ pub(super) fn wake(
     // and is validated for every waiter when the whole plan commits.
     let mut trigger_ready = None;
     let mut ready = |key: &DependencyKey, plan: &mut Plan| {
-        if key != &page.key {
+        if key != page.key() {
             return available(store, &snapshot, key, plan);
         }
         if let Some(ready) = trigger_ready {
@@ -74,7 +74,7 @@ pub(super) fn wake(
         trigger_ready = Some(ready);
         Ok(ready)
     };
-    for hash in &page.hashes {
+    for hash in page.hashes() {
         let Some(entry) = plan.get(store, hash)? else {
             continue;
         };

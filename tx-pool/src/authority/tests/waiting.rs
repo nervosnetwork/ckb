@@ -240,8 +240,8 @@ fn replacement_history_skips_its_blocked_creation_event_and_observes_the_next_ch
             let mut cursor = None;
             if existing_waiter {
                 let page = store.wake_page(&mut cursor).unwrap();
-                assert_eq!(page.key, key);
-                assert_eq!(page.hashes, vec![waiter.hash()]);
+                assert_eq!(page.key(), &key);
+                assert_eq!(page.hashes(), &[waiter.hash()]);
                 assert_eq!(drain_wakes(&store), 1);
             } else {
                 assert!(store.wake_page(&mut cursor).is_none());
@@ -324,8 +324,8 @@ fn wake_cursor_excludes_a_removed_boundary_and_waiters_added_during_its_pass() {
     expected.sort();
     accept(&store, first, 1, 1, Status::Pending);
     let first_page = store.wake_page(&mut None).unwrap();
-    assert_eq!(first_page.hashes, expected[..32]);
-    let boundary = first_page.hashes.last().unwrap().clone();
+    assert_eq!(first_page.hashes(), &expected[..32]);
+    let boundary = first_page.hashes().last().unwrap().clone();
     let mut cursor = None;
     store
         .apply(waiting::wake(&store, &mut cursor).unwrap().unwrap())
@@ -344,7 +344,7 @@ fn wake_cursor_excludes_a_removed_boundary_and_waiters_added_during_its_pass() {
     insert(&store, Arc::clone(&late));
     for hashes in expected[32..].chunks(32) {
         let page = store.wake_page(&mut None).unwrap();
-        assert_eq!(page.hashes, hashes);
+        assert_eq!(page.hashes(), hashes);
         store
             .apply(waiting::wake(&store, &mut cursor).unwrap().unwrap())
             .unwrap();

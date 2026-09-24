@@ -238,11 +238,20 @@ struct Peer {
 
 #[derive(Clone)]
 pub(super) struct WakePage {
-    pub(super) key: DependencyKey,
-    pub(super) hashes: Vec<Byte32>,
+    key: DependencyKey,
+    hashes: Vec<Byte32>,
     row: Weak<Mutex<Relation>>,
     pass: u64,
     after: Option<Byte32>,
+}
+impl WakePage {
+    pub(super) fn key(&self) -> &DependencyKey {
+        &self.key
+    }
+
+    pub(super) fn hashes(&self) -> &[Byte32] {
+        &self.hashes
+    }
 }
 
 /// Nested acquisition order: view -> peer gates -> dependency gates -> owner
