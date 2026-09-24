@@ -149,16 +149,15 @@ impl Selection<'_> {
 
     #[expect(
         clippy::indexing_slicing,
-        reason = "SCC members and eviction ranks belong to the same graph; binary_search returns a position in this component."
+        reason = "SCC members and eviction ranks belong to the same compiled graph."
     )]
     fn cycle_drop_roots(
         &self,
         eviction: &[EvictionRank],
         components: Vec<Vec<usize>>,
         round: usize,
-    ) -> Result<Vec<bool>, PackingError> {
-        let bounded_fallback = round > MAX_CONDITIONAL_CYCLE_ROUNDS;
-        let mut dropped = vec![false; self.candidates.len()];
+    ) -> Result<Vec<usize>, PackingError> {
+        let mut dropped = Vec::new();
         // The stored package graph is acyclic even when conditional ordering
         // is not. Drop a package leaf within this SCC so its ancestors remain;
         // the bounded fallback retains a package root for the same reason.
@@ -166,44 +165,31 @@ impl Selection<'_> {
         // between two members cannot leave the SCC, so direct edges suffice.
         for component in components {
             debug_assert!(component.is_sorted(), "SCC membership uses binary search");
-            let mut eligible = vec![true; component.len()];
-            for (position, parent) in component.iter().enumerate() {
-                for child in &self.graph.children[*parent] {
-                    if let Ok(child_position) = component.binary_search(child) {
-                        eligible[if bounded_fallback {
-                            child_position
-                        } else {
-                            position
-                        }] = false;
+            if round > MAX_CONDITIONAL_CYCLE_ROUNDS {
+                let mut roots = component.iter().copied().filter(|index| {
+                    self.graph.parents[*index]
+                        .iter()
+                        .all(|parent| component.binary_search(parent).is_err())
+                });
+                let mut retained = roots.next().ok_or(PackingError::Projection)?;
+                for root in roots {
+                    if eviction[root] > eviction[retained] {
+                        retained = root;
                     }
                 }
-            }
-            let mut choices = component
-                .iter()
-                .copied()
-                .zip(eligible)
-                .filter_map(|(index, eligible)| eligible.then_some(index));
-            let mut selected = choices.next().ok_or(PackingError::Projection)?;
-            for candidate in choices {
-                let selected_order = &eviction[selected];
-                let candidate_order = &eviction[candidate];
-                let replace = if bounded_fallback {
-                    candidate_order > selected_order
-                } else {
-                    candidate_order < selected_order
-                };
-                if replace {
-                    selected = candidate;
-                }
-            }
-            if bounded_fallback {
-                for index in component {
-                    if index != selected {
-                        dropped[index] = true;
-                    }
-                }
+                dropped.extend(component.into_iter().filter(|index| *index != retained));
             } else {
-                dropped[selected] = true;
+                let leaf = component
+                    .iter()
+                    .copied()
+                    .filter(|index| {
+                        self.graph.children[*index]
+                            .iter()
+                            .all(|child| component.binary_search(child).is_err())
+                    })
+                    .min_by_key(|index| &eviction[*index])
+                    .ok_or(PackingError::Projection)?;
+                dropped.push(leaf);
             }
         }
         Ok(dropped)
@@ -342,43 +328,30 @@ fn strongly_connected_active(
 
 #[expect(
     clippy::indexing_slicing,
-    reason = "Links validates every endpoint; both masks are checked against its node count before traversal."
+    reason = "Links validates every endpoint; the activity mask and all roots are checked before mutation."
 )]
 fn drop_package_descendants(
     active: &mut [bool],
-    mut dropped: Vec<bool>,
+    mut roots: Vec<usize>,
     package_children: &Links,
 ) -> Result<(), PackingError> {
-    if active.len() != dropped.len() || active.len() != package_children.len() {
+    if active.len() != package_children.len()
+        || roots.is_empty()
+        || roots.iter().any(|root| active.get(*root) != Some(&true))
+    {
         return Err(PackingError::Projection);
     }
-    let mut stack = Vec::with_capacity(active.len());
-    for (index, is_dropped) in dropped.iter().copied().enumerate() {
-        if is_dropped {
-            if !active[index] {
-                return Err(PackingError::Projection);
-            }
-            stack.push(index);
-        }
+    // Mark all roots before traversing, then mark each discovered child before
+    // pushing so shared descendants queue once.
+    for &root in &roots {
+        active[root] = false;
     }
-    if stack.is_empty() {
-        return Err(PackingError::Projection);
-    }
-    while let Some(index) = stack.pop() {
+    while let Some(index) = roots.pop() {
         for child in &package_children[index] {
-            if !active[*child] {
-                continue;
+            if active[*child] {
+                active[*child] = false;
+                roots.push(*child);
             }
-            let child_dropped = &mut dropped[*child];
-            if !*child_dropped {
-                *child_dropped = true;
-                stack.push(*child);
-            }
-        }
-    }
-    for (index, is_dropped) in dropped.into_iter().enumerate() {
-        if is_dropped {
-            active[index] = false;
         }
     }
     Ok(())

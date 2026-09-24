@@ -109,6 +109,48 @@ fn reused_graph_drops_multiple_sccs_and_complete_causal_packages() {
 }
 
 #[test]
+fn cycle_round_boundary_uses_causal_leaves_then_roots_and_keeps_first_ties() {
+    let (owners, snapshot, hashes) = mixed_owners(Status::Proposed);
+    let selection =
+        Selection::new(&owners, &snapshot, common::config().max_ancestors_count).unwrap();
+    let index = |hash: &Byte32| {
+        selection
+            .candidates
+            .iter()
+            .position(|candidate| candidate.hash() == hash)
+            .unwrap()
+    };
+    let a = index(&hashes[0]);
+    let b = index(&hashes[1]);
+    let mut causal = vec![a, b];
+    causal.sort_unstable();
+    let mut independent = vec![index(&hashes[2]), index(&hashes[3])];
+    independent.sort_unstable();
+    let components = vec![causal, independent.clone()];
+    // Synthetic equal ranks exercise first-in-component selection independently
+    // of the unique hash tie-breaker used by ordinary accepted candidates.
+    let mut ranks = selection.eviction_ranks().unwrap();
+    let equal_rank = ranks[0].clone();
+    ranks.fill(equal_rank);
+    for round in [1, MAX_CONDITIONAL_CYCLE_ROUNDS] {
+        assert_eq!(
+            selection
+                .cycle_drop_roots(&ranks, components.clone(), round)
+                .unwrap(),
+            vec![b, independent[0]],
+            "ordinary round {round} drops the causal leaf and first tied leaf"
+        );
+    }
+    assert_eq!(
+        selection
+            .cycle_drop_roots(&ranks, components, MAX_CONDITIONAL_CYCLE_ROUNDS + 1)
+            .unwrap(),
+        vec![b, independent[1]],
+        "fallback retains causal root A and the first tied independent root"
+    );
+}
+
+#[test]
 fn replay_retains_conditional_cycles_in_causal_order_in_every_phase() {
     for phase in [Status::Pending, Status::Gap, Status::Proposed] {
         let (owners, snapshot, hashes) = mixed_owners(phase);
@@ -163,7 +205,7 @@ fn active_graph_operations_skip_inactive_nodes_and_reject_mismatched_masks() {
     let mut remaining = active;
     drop_package_descendants(
         &mut remaining,
-        vec![true, false, false],
+        vec![0],
         &Links::from_lists([vec![1], vec![2], Vec::new()]).unwrap(),
     )
     .unwrap();
@@ -177,12 +219,20 @@ fn active_graph_operations_skip_inactive_nodes_and_reject_mismatched_masks() {
         strongly_connected_active(&active[..2], &children),
         Err(PackingError::Projection)
     );
-    let mut remaining = active;
+    for roots in [vec![], vec![0, 1], vec![0, 3], vec![0, usize::MAX]] {
+        let mut remaining = active;
+        assert_eq!(
+            drop_package_descendants(&mut remaining, roots, &children),
+            Err(PackingError::Projection)
+        );
+        assert_eq!(remaining, active, "all roots are validated before mutation");
+    }
+    let mut remaining = active[..2].to_vec();
     assert_eq!(
-        drop_package_descendants(&mut remaining, vec![true, false], &children),
+        drop_package_descendants(&mut remaining, vec![0], &children),
         Err(PackingError::Projection)
     );
-    assert_eq!(remaining, active);
+    assert_eq!(remaining, active[..2]);
 }
 
 #[test]
@@ -300,19 +350,23 @@ fn small_graphs_match_reachability_and_ready_node_oracles() {
                 "edges={edge_bits} mask={mask}"
             );
 
-            for root in (0..N).filter(|root| active[*root]) {
+            // Every nonempty active root subset includes overlapping roots,
+            // shared descendants, and roots reached through another root.
+            for roots_mask in 1..1 << N {
+                if roots_mask & mask != roots_mask {
+                    continue;
+                }
+                let roots: Vec<_> = (0..N)
+                    .filter(|root| roots_mask & (1 << root) != 0)
+                    .collect();
+                let expected: [bool; N] = std::array::from_fn(|node| {
+                    active[node] && roots.iter().all(|root| !reachable[*root][node])
+                });
                 let mut remaining = active;
-                drop_package_descendants(
-                    &mut remaining,
-                    (0..N).map(|node| node == root).collect(),
-                    &graph,
-                )
-                .unwrap();
-                let expected: [bool; N] =
-                    std::array::from_fn(|node| active[node] && !reachable[root][node]);
+                drop_package_descendants(&mut remaining, roots, &graph).unwrap();
                 assert_eq!(
                     remaining, expected,
-                    "edges={edge_bits} mask={mask} root={root}"
+                    "edges={edge_bits} mask={mask} roots={roots_mask}"
                 );
             }
         }
