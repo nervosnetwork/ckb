@@ -64,21 +64,14 @@ fn try_compact_fixed_packed<T: FixedSizePackedEntity + Default>(
         return Err(FixedPackedSequenceError::Arithmetic);
     }
 
-    let backing = Bytes::from(backing);
+    let mut backing = Bytes::from(backing);
     let mut compact = Vec::new();
     compact
         .try_reserve_exact(count)
         .map_err(|_| FixedPackedSequenceError::Allocation)?;
-    let mut start = 0usize;
+    // The checked total and fixed entity size prove every split is in bounds.
     for _ in 0..count {
-        let end = start
-            .checked_add(item_bytes)
-            .ok_or(FixedPackedSequenceError::Arithmetic)?;
-        if end > backing.len() {
-            return Err(FixedPackedSequenceError::Arithmetic);
-        }
-        compact.push(T::new_unchecked(backing.slice(start..end)));
-        start = end;
+        compact.push(T::new_unchecked(backing.split_to(item_bytes)));
     }
     Ok(compact)
 }
