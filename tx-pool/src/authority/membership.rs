@@ -728,6 +728,63 @@ fn prepare_admission(
         .edit(before.cloned(), Some(admitted), Some(effect))
 }
 
+/// Descendant totals and their eviction order change together against one
+/// snapshot. A popped root stays ineligible when its descendants later shrink.
+struct EvictionRanks<'a> {
+    descendants: BTreeMap<Byte32, Aggregate>,
+    ordered: BTreeSet<EvictionRank>,
+    snapshot: &'a Snapshot,
+}
+
+impl<'a> EvictionRanks<'a> {
+    fn new(entries: &Members, snapshot: &'a Snapshot, max_ancestors: usize) -> Result<Self, Error> {
+        let descendants: BTreeMap<_, _> = aggregates(entries, max_ancestors)?
+            .into_iter()
+            .map(|(hash, totals)| (hash, totals.descendants))
+            .collect();
+        let mut ordered = BTreeSet::new();
+        for (hash, entry) in entries {
+            ordered.insert(EvictionRank::new(
+                entry,
+                *descendants.get(hash).ok_or(Error::Stale)?,
+                snapshot,
+            )?);
+        }
+        Ok(Self {
+            descendants,
+            ordered,
+            snapshot,
+        })
+    }
+
+    fn pop_lowest(&mut self) -> Option<EvictionRank> {
+        self.ordered.pop_first()
+    }
+
+    fn reduce(&mut self, entry: &Entry, reduction: Aggregate) -> Result<(), Error> {
+        let total = self
+            .descendants
+            .get_mut(&entry.hash())
+            .ok_or(Error::Stale)?;
+        let eligible = self
+            .ordered
+            .remove(&EvictionRank::new(entry, *total, self.snapshot)?);
+        *total = total.sub(reduction)?;
+        if eligible {
+            self.ordered
+                .insert(EvictionRank::new(entry, *total, self.snapshot)?);
+        }
+        Ok(())
+    }
+
+    fn retire(&mut self, entry: &Entry) -> Result<(), Error> {
+        let total = self.descendants.remove(&entry.hash()).ok_or(Error::Stale)?;
+        self.ordered
+            .remove(&EvictionRank::new(entry, total, self.snapshot)?);
+        Ok(())
+    }
+}
+
 fn trim_virtual(
     entries: &mut Members,
     snapshot: &Snapshot,
@@ -741,19 +798,7 @@ fn trim_virtual(
     if charge.fits(limit) {
         return Ok(());
     }
-    let totals = aggregates(entries, config.max_ancestors_count)?;
-    let mut descendants: BTreeMap<_, _> = totals
-        .into_iter()
-        .map(|(hash, totals)| (hash, totals.descendants))
-        .collect();
-    let mut ranks = BTreeSet::new();
-    for (hash, entry) in entries.iter() {
-        ranks.insert(EvictionRank::new(
-            entry,
-            *descendants.get(hash).ok_or(Error::Stale)?,
-            snapshot,
-        )?);
-    }
+    let mut ranks = EvictionRanks::new(entries, snapshot, config.max_ancestors_count)?;
     let child_index = children(entries);
     let candidate_rate = EvictionRank::new(
         &candidate.entry,
@@ -765,7 +810,7 @@ fn trim_virtual(
         // A root that cannot fit this mutation remains unaffordable: removed
         // descendants move into `removed`, and the touched union never shrinks.
         let closure = loop {
-            let root = ranks.pop_first().ok_or_else(component_limit)?;
+            let root = ranks.pop_lowest().ok_or_else(component_limit)?;
             // Do not pass a protected ancestor's rank to evict a more valuable
             // independent owner; removing any ancestor would remove the candidate.
             if candidate.ancestors.contains(&root.hash) {
@@ -793,16 +838,6 @@ fn trim_virtual(
                 break closure;
             }
         };
-        let mut update_rank = |ancestor: &Byte32, reduction: Aggregate| -> Result<(), Error> {
-            let parent = entries.get(ancestor).ok_or(Error::Stale)?;
-            let total = descendants.get_mut(ancestor).ok_or(Error::Stale)?;
-            let eligible = ranks.remove(&EvictionRank::new(parent, *total, snapshot)?);
-            *total = total.sub(reduction)?;
-            if eligible {
-                ranks.insert(EvictionRank::new(parent, *total, snapshot)?);
-            }
-            Ok(())
-        };
         let mut reductions: BTreeMap<Byte32, Aggregate> = BTreeMap::new();
         for hash in &closure {
             let entry = entries.get(hash).ok_or(Error::Stale)?;
@@ -812,7 +847,8 @@ fn trim_virtual(
                     continue;
                 }
                 if closure.len() == 1 {
-                    update_rank(&ancestor, own)?;
+                    let parent = entries.get(&ancestor).ok_or(Error::Stale)?;
+                    ranks.reduce(parent, own)?;
                 } else {
                     let reduction = reductions.entry(ancestor).or_default();
                     *reduction = reduction.add(own)?;
@@ -822,15 +858,12 @@ fn trim_virtual(
         // No selection occurs within a closure: settle every surviving rank
         // once before the next round chooses its root.
         for (ancestor, reduction) in reductions {
-            update_rank(&ancestor, reduction)?;
+            let parent = entries.get(&ancestor).ok_or(Error::Stale)?;
+            ranks.reduce(parent, reduction)?;
         }
         for hash in closure {
             let entry = entries.remove(&hash).ok_or(Error::Stale)?;
-            ranks.remove(&EvictionRank::new(
-                &entry,
-                descendants.remove(&hash).ok_or(Error::Stale)?,
-                snapshot,
-            )?);
+            ranks.retire(&entry)?;
             charge = charge
                 .checked_sub(owner_amount(&entry)?)
                 .ok_or_else(overflow)?;

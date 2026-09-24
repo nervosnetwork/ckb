@@ -143,3 +143,28 @@ fn trim_singleton_round_still_updates_its_surviving_ancestor() {
     .unwrap();
     assert_eq!(removed, expected);
 }
+
+#[test]
+fn reducing_a_skipped_root_does_not_return_it_to_eviction_order() {
+    let (store, entries, [a, b, c, _, _, _]) = rank_fixture();
+    let snapshot = store.snapshot().1;
+    let mut ranks = EvictionRanks::new(&entries, &snapshot, config().max_ancestors_count).unwrap();
+    // A transition with room for one removal skips b's two-entry family,
+    // then selects c. Reducing b's remaining fee cannot make it eligible again.
+    assert_eq!(ranks.pop_lowest().unwrap().hash, b);
+    assert_eq!(ranks.pop_lowest().unwrap().hash, c);
+    let removed = entries.get(&c).unwrap();
+    let reduction = Aggregate::one(accepted(removed).unwrap());
+    for ancestor in [&a, &b] {
+        ranks
+            .reduce(entries.get(ancestor).unwrap(), reduction)
+            .unwrap();
+    }
+    ranks.retire(removed).unwrap();
+    // b's new rate is 1; it would incorrectly precede a if reinserted.
+    assert_eq!(ranks.pop_lowest().unwrap().hash, a);
+    while let Some(rank) = ranks.pop_lowest() {
+        assert_ne!(rank.hash, b);
+        assert_ne!(rank.hash, c);
+    }
+}
