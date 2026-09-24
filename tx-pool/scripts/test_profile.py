@@ -18,6 +18,8 @@ from unittest import mock
 SCRIPT = Path(__file__).resolve().with_name("profile.py")
 sys.path.insert(0, str(SCRIPT.parent))
 import benchmark_build
+import measurement_observation
+from test_measurement_observation import completed_observation
 
 SPEC = importlib.util.spec_from_file_location("txpool_profile", SCRIPT)
 if SPEC is None or SPEC.loader is None:
@@ -54,32 +56,13 @@ class ProfileAnalyzerTests(unittest.TestCase):
     def observation(
         scenario: dict[str, object], **changes: object
     ) -> dict[str, object]:
-        accepted = int(scenario["target"]) + int(scenario["warm"])
-        value: dict[str, object] = {
-            "schema_version": PROFILE.OBSERVATION_SCHEMA_VERSION,
+        value = completed_observation(
             **scenario,
-            "elapsed_nanos": 1_000_000_000,
-            "throughput_tps": float(scenario["target"]),
-            "accepted": accepted,
-            "callback_duplicates": 0,
-            "p99_latency_nanos": 1,
-            "target_cpu_nanos": 1,
-            "target_user_cpu_nanos": 1,
-            "target_system_cpu_nanos": 0,
-            "allocation_calls": 0,
-            "allocated_bytes": 0,
-            "reorg_latency_nanos": 1,
-            "reorg_overlap_callbacks": 0,
-            "relay_ok": accepted,
-            "relay_duplicate_ok": 0,
-            "relay_rejects": int(scenario["warm"])
-            if scenario["scenario"] == "rbf_pairs"
+            cpu=1,
+            relay_rejects=int(scenario["warm"])
+            if scenario["scenario"] in {"rbf_pairs", "rbf_pairs_windowed"}
             else 0,
-            "relay_unknown_parents": 0,
-            "relay_unknown_parent_observations": [],
-            "relay_generation_resets": 0,
-            "shutdown_latency_nanos": 1,
-        }
+        )
         value.update(changes)
         return value
 
@@ -87,7 +70,7 @@ class ProfileAnalyzerTests(unittest.TestCase):
     def output(window: dict[str, object], observation: dict[str, object]) -> str:
         return (
             f"{PROFILE.MARKER_PREFIX}{json.dumps(window, sort_keys=True)}\n"
-            f"{PROFILE.OBSERVATION_PREFIX}{json.dumps(observation, sort_keys=True)}\n"
+            f"{measurement_observation.PREFIX}{json.dumps(observation, sort_keys=True)}\n"
         )
 
     def bundle(
@@ -329,7 +312,7 @@ class ProfileAnalyzerTests(unittest.TestCase):
         self.write_json(path, manifest)
         summary = PROFILE.read_json(PROFILE.analyze_manifest(path))
         self.assertEqual(summary["source_attribution"], dict(verified=False, basis="unverified_supplied"))
-        manifest["schema_version"] = 10
+        manifest["schema_version"] = 11
         self.write_json(path, manifest)
         with self.assertRaisesRegex(PROFILE.ProfileError, "schema is unsupported"):
             PROFILE.analyze_manifest(path)
@@ -349,6 +332,7 @@ class ProfileAnalyzerTests(unittest.TestCase):
         expected.append(PROFILE.WINDOW_SOURCE)
         expected.append(PROFILE.REJECTION_SOURCE)
         expected.append(PROFILE.BUILD_SOURCE)
+        expected.append(PROFILE.OBSERVATION_SOURCE)
         self.assertTrue(set(expected).issubset(sources))
         manifest_path = self.bundle("helper-drift", absolute_time=True)
         original_read = Path.read_bytes
@@ -639,14 +623,14 @@ class ProfileAnalyzerTests(unittest.TestCase):
             PROFILE.analyze_manifest(manifest_path)
 
     def test_observation_binds_exact_terminals(self) -> None:
-        rbf = self.scenario(scenario="rbf_pairs", target=4, warm=2, workers=2, peers=2)
+        rbf = self.scenario(scenario="rbf_pairs", target=2, warm=2, workers=2, peers=2)
         observation = self.observation(rbf)
-        stdout = f"{PROFILE.OBSERVATION_PREFIX}{json.dumps(observation)}\n"
+        stdout = f"{measurement_observation.PREFIX}{json.dumps(observation)}\n"
         self.assertEqual(PROFILE.parse_observation(stdout, rbf), observation)
         broken = {**observation, "relay_rejects": 0}
         with self.assertRaisesRegex(PROFILE.ProfileError, "unexpected reject"):
             PROFILE.parse_observation(
-                f"{PROFILE.OBSERVATION_PREFIX}{json.dumps(broken)}\n", rbf
+                f"{measurement_observation.PREFIX}{json.dumps(broken)}\n", rbf
             )
 
     def test_reorg_reaccept_callbacks_preserve_other_terminal_guards(self) -> None:
@@ -656,7 +640,7 @@ class ProfileAnalyzerTests(unittest.TestCase):
         )
         def parse(value, expected=scenario):
             return PROFILE.parse_observation(
-                f"{PROFILE.OBSERVATION_PREFIX}{json.dumps(value)}\n", expected
+                f"{measurement_observation.PREFIX}{json.dumps(value)}\n", expected
             )
         self.assertEqual(parse(observation), observation)
         for field, value in (("relay_duplicate_ok", 1), ("relay_generation_resets", 1),
@@ -680,12 +664,12 @@ class ProfileAnalyzerTests(unittest.TestCase):
                 {"peer": 1, "parents": ["00" * 32], "count": 2}
             ],
         )
-        stdout = f"{PROFILE.OBSERVATION_PREFIX}{json.dumps(observation)}\n"
+        stdout = f"{measurement_observation.PREFIX}{json.dumps(observation)}\n"
         self.assertEqual(PROFILE.parse_observation(stdout, reverse), observation)
         broken = {**observation, "relay_unknown_parents": 1}
         with self.assertRaisesRegex(PROFILE.ProfileError, "does not match"):
             PROFILE.parse_observation(
-                f"{PROFILE.OBSERVATION_PREFIX}{json.dumps(broken)}\n", reverse
+                f"{measurement_observation.PREFIX}{json.dumps(broken)}\n", reverse
             )
 
     def test_sidecar_resolves_address_frame(self) -> None:

@@ -8,6 +8,8 @@ import json
 from pathlib import Path
 import re
 
+from measurement_observation import PREFIX as OBSERVATION_PREFIX
+
 
 HEX_32 = re.compile(r"^[0-9a-f]{64}$")
 AMOUNT_KEYS = {"items", "bytes", "edges", "serialized", "cycles"}
@@ -129,7 +131,7 @@ def validate_pressure(output: str) -> dict:
     events = validate_success(output, allow_rejections=True)
     pressure = one_record(output, "BENCH_RBF_PRESSURE ")
     corpus = one_record(output, "BENCH_CORPUS ")
-    if any(value.startswith("BENCH_RESULT ") for value in output.splitlines()):
+    if any(value.startswith(OBSERVATION_PREFIX) for value in output.splitlines()):
         raise ValueError("overload diagnostic emitted a throughput result")
     for key in ("consensus_blake2b", "cycles_blake2b", "transaction_bytes_blake2b", "transaction_hashes_blake2b"):
         if not isinstance(corpus.get(key), str) or not HEX_32.fullmatch(corpus[key]):

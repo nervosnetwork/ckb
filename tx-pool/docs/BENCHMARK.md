@@ -18,9 +18,9 @@ Both checkouts need identical Rust harness sources under `benches/` and matching
 CKB-VM packages, checksums and features. An older pool also needs a reviewed,
 committed `cross-version-legacy-bench-adapter`; preserve its production basis and
 patch. The runner does not create the adapter. It freezes the complete harness,
-process runner, window parser, rejection verifier and scenario validator.
-Current comparison records use schema 14; schema 13 evidence retains its original
-runner and source attribution.
+process runner, window parser, observation decoder, rejection verifier and
+scenario validator. Current comparison records use schema 15; schema 14 and
+earlier evidence retain their original runner and source attribution.
 
 Edit the two checkout paths and run:
 
@@ -113,9 +113,10 @@ and runtime consensus. Measured attempts use randomized, balanced AB/BA blocks.
 `--order-seed` and the complete resulting schedule are part of the frozen
 configuration; changing either requires a new study.
 
-Schema 14 `attempts[]` retains commands, raw output, source side, attempt ID,
-corpus, terminals, window and metrics. Start/outcome checkpoints are atomic;
-completion rechecks source and binary identity. Host-load snapshots accompany
+Schema 15 `attempts[]` retains commands, raw output, source side, attempt ID,
+corpus, window and metrics; terminal evidence remains in the raw observation.
+Start/outcome checkpoints are atomic; completion rechecks source and binary
+identity. Host-load snapshots accompany
 every outcome but cannot certify isolation. Host identity includes node name and
 CPU model alongside the software/toolchain fields.
 
@@ -166,6 +167,23 @@ It is outside the target window and differs from historical stop-request timing.
 The legacy post-window reorg return observes submission, not reconciliation.
 RSS includes all replicates and outliers; neither its mean nor maximum is a memory
 bound. Use the definitions recorded by each study's schema.
+
+The executor emits one schema-3 `TX_POOL_PROFILE_OBSERVATION` for a successful
+workload. Both the paired runner and profile analyzer use the
+[observation decoder](../scripts/measurement_observation.py) for exact fields,
+typed metrics, CPU totals, throughput and callback/relay terminal identity.
+Unknown-parent evidence must be a canonical peer/hash multiset. The validated
+adapter decides whether RBF victims produce rejection notices. Structured clock,
+corpus, build, process-resource and failure records retain their own scopes.
+The two tools apply their timing and profile qualification rules separately.
+
+This contract replaces the duplicate text result, terminal summary and bare
+clock marker. Full-precision JSON throughput is checked against target/elapsed
+with relative tolerance `1e-12`; the former three-decimal allowance is removed.
+Malformed-record diagnostics may therefore differ. Both comparison arms must
+use the new frozen harness; deleted post-window serialization can also affect
+process-lifetime resource observations. Historical captures require their
+matching immutable decoder and runner and cannot resume under the new schema.
 
 ## Quality and decision rules
 
@@ -438,10 +456,7 @@ After changing the executor, runner or analyzer, run:
 make clippy ALL_FEATURES=profiling,ckb-tx-pool/allocation-observation
 cargo nextest run -p ckb-tx-pool --features profiling,allocation-observation,packing-bench \
   --test profile_contract --test packing_contract
-python3 -m unittest tx-pool/scripts/test_profile.py
-python3 -m unittest tx-pool/scripts/test_cross_version_benchmark.py
-python3 -m unittest tx-pool/scripts/test_measurement_process.py
-python3 -m unittest discover -s tx-pool/scripts -p 'test*benchmark*.py'
+python3 -m unittest discover -s tx-pool/scripts -p 'test_*.py'
 ```
 
 Final performance decisions require the candidate and baseline frozen before

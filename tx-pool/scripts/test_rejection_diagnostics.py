@@ -94,8 +94,9 @@ class RejectionEvidenceTests(unittest.TestCase):
         for index, changed in enumerate(cases):
             with self.subTest(index=index), self.assertRaises(ValueError):
                 diagnostics.validate_pressure(encode(changed))
-        with self.assertRaisesRegex(ValueError, "throughput"):
-            diagnostics.validate_pressure(encode(rows) + "BENCH_RESULT falsely_successful\n")
+        for body in ("{}", "not valid JSON"):
+            with self.subTest(body=body), self.assertRaisesRegex(ValueError, "throughput"):
+                diagnostics.validate_pressure(encode(rows) + diagnostics.OBSERVATION_PREFIX + body + "\n")
 
     def test_success_requires_complete_capture_and_successful_service_shutdown(self):
         capture = fixture()[-1][1] | {"records": 0}

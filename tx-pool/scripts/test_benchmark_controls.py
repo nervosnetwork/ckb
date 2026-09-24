@@ -4,21 +4,22 @@ import argparse
 import copy
 import io
 import json
+import sys
 import tempfile
 import unittest
 from pathlib import Path
 from unittest import mock
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
 import cross_version_benchmark as benchmark
 from benchmark_build import build_command
+from test_measurement_observation import completed_observation, record_output
 
 
 def output(elapsed=1_000_000_000, cpu=1_000_000_000, rss=1_000_000):
     corpus = dict(consensus_blake2b="00" * 32, cycles_blake2b="11" * 32,
                   transaction_bytes_blake2b="22" * 32, transaction_hashes_blake2b="33" * 32,
                   cycle_assignment_count=8, cycles_sum=80, script_preflight_count=1, transaction_count=8)
-    terminals = dict(callback_duplicates=0, relay_duplicate_ok=0, relay_generation_resets=0,
-                     relay_ok=8, relay_rejects=0, relay_unknown_parent_observations=[])
     window = dict(schema_version=3, scenario="always_success", start_unix_nanos=1_000_000_000,
                   end_unix_nanos=1_000_000_000 + elapsed, elapsed_nanos=elapsed,
                   start_clock_uncertainty_nanos=0, end_clock_uncertainty_nanos=0,
@@ -27,14 +28,10 @@ def output(elapsed=1_000_000_000, cpu=1_000_000_000, rss=1_000_000):
             "callback_observer=preallocated_atomic_slots_sharded_completion adapter=bounded_remote_batch "
             "debug_assertions=false measurement_window=terminal_completion_v3\n"
             + "BENCH_CORPUS " + json.dumps(corpus) + "\n"
-            + "BENCH_TERMINALS " + json.dumps(terminals) + "\n"
             + "TX_POOL_PROFILE_WINDOW " + json.dumps(window) + "\n"
             + "BENCH_REJECTION_CAPTURE " + json.dumps(dict(schema=1, logger="rejections_and_warnings_v1",
                 records=0, service_records=0, write_failed=False)) + "\n"
-            + f"BENCH_RESULT scenario=always_success target=8 warm=0 workers=1 peers=1 elapsed_ns={elapsed} "
-            + f"throughput_tps={8e9 / elapsed:.6f} accepted=8 callback_duplicates=0 relay_ok=8 relay_duplicate_ok=0 "
-            + f"relay_rejects=0 relay_unknown_parents=0 relay_generation_resets=0 p99_latency_ns=1 target_cpu_ns={cpu} "
-            + "allocation_calls=0 allocated_bytes=0 reorg_latency_ns=1 reorg_overlap_callbacks=0 shutdown_latency_ns=1\n"
+            + record_output(completed_observation(elapsed=elapsed, cpu=cpu))
             + f"RESOURCE_RESULT max_rss_bytes={rss} voluntary_context_switches=0 involuntary_context_switches=0\n")
 
 
@@ -62,7 +59,7 @@ class ControlEvidenceTests(unittest.TestCase):
             sides={side: copy.deepcopy(self.context) for side in ("baseline", "candidate")},
             summary={self.key: {"status": "forged summary must be ignored"}})
         for name in ("runner_sha256", "build_runner_sha256", "process_runner_sha256", "harness_sha256",
-                     "measurement_window_sha256", "rejection_diagnostics_sha256", "scenario_parser_sha256"):
+                     "measurement_window_sha256", "rejection_diagnostics_sha256", "scenario_parser_sha256", "observation_parser_sha256"):
             self.control[name] = "same"
         attempts = [(side, f"{self.key}/pilot/{side}") for side in ("candidate", "baseline")]
         for pair, block in enumerate(self.config["schedule"][self.key], 1):
@@ -237,7 +234,7 @@ class ControlEvidenceTests(unittest.TestCase):
 
     def test_resume_bad_raw_evidence_cannot_be_repaired_by_saved_metrics_or_rerun(self):
         original = copy.deepcopy(self.control)
-        for raw in ("invalid raw evidence", None, output().replace("accepted=8", "accepted=7")):
+        for raw in ("invalid raw evidence", None, output().replace('"accepted": 8', '"accepted": 7')):
             with self.subTest(raw=raw):
                 record = copy.deepcopy(original)
                 attempt = record["attempts"][2]
@@ -259,7 +256,7 @@ class ControlEvidenceTests(unittest.TestCase):
         self.config.update(comparison="ab", allocation_observation="enabled")
         for attempt in self.control["attempts"]:
             attempt["output"] = output().replace("allocation_observation=false", "allocation_observation=true").replace(
-                "allocation_calls=0 allocated_bytes=0", "allocation_calls=7 allocated_bytes=64")
+                '"allocation_calls": 0, "allocated_bytes": 0', '"allocation_calls": 7, "allocated_bytes": 64')
         run, _ = self.resume(self.control)
         run.assert_not_called()
         self.assertEqual(self.control["summary"][self.key]["status"], "allocation_observation")
@@ -408,7 +405,7 @@ class ControlEvidenceTests(unittest.TestCase):
                 record["configuration"]["aa_evidence"]["candidate"] = benchmark.binary_record(path)
                 with self.subTest(field=field), self.assertRaises(RuntimeError):
                     benchmark.load_aa_evidence(record)
-            for field, value in (("host", {}), ("complete", False), ("harness_sha256", "wrong")):
+            for field, value in (("host", {}), ("complete", False), ("harness_sha256", "wrong"), ("observation_parser_sha256", "wrong")):
                 self.control = original | {field: value}
                 path.write_text(json.dumps(self.control))
                 record["configuration"]["aa_evidence"]["candidate"] = benchmark.binary_record(path)

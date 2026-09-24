@@ -103,16 +103,25 @@ For prefix `rbf`, keep the complete bundle together:
 Analysis verifies artifact paths, sizes and SHA-256 before consuming them. The
 bundle can move and no longer needs the capture binary. Preserve the analyzer
 and its [process helper](../scripts/measurement_process.py),
-[window parser](../scripts/measurement_window.py) and
-[rejection verifier](../scripts/rejection_diagnostics.py) and
+[window parser](../scripts/measurement_window.py),
+[observation decoder](../scripts/measurement_observation.py),
+[rejection verifier](../scripts/rejection_diagnostics.py),
 [build verifier](../scripts/benchmark_build.py) and
 [scenario validator](../scripts/benchmark_scenario.py) with an immutable study.
 Use the matching analyzer for each bundle schema. Current manifest/summary/window
-schemas are 11/9/3, and current span output is schema 4. Schema 10 bundles retain
-their original analyzer and provenance; they are not upgraded into verified
-build evidence. All Rust harness modules
+schemas are 12/10/3; workload observations use schema 3 and span output uses
+schema 4. Schema 11 and earlier bundles retain their original analyzer and
+provenance. They are not upgraded into new observations or verified build
+evidence. The shared observation decoder and all Rust harness modules
 are included in source identity. Reanalysis is not a new
 timing run.
+
+Timing and profiling consume the same structured successful workload record.
+The decoder checks exact fields and integer types, CPU component sums,
+full-precision throughput and canonical callback/relay evidence. This profile
+frontend uses the current adapter's RBF victim-notice semantics. Sampling and
+wall alignment remain profile-specific checks; wall corrections do not
+invalidate the paired runner's separate monotonic throughput measurement.
 
 CPU capture, span capture and artifact reanalysis all validate the complete
 stdout/stderr rejection log. Missing capture, failed output, unexpected committed

@@ -22,6 +22,8 @@ if SPEC is None or SPEC.loader is None:
 BENCHMARK = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(BENCHMARK)
 
+from test_measurement_observation import completed_observation, record_output
+
 
 EMPTY_CAPTURE = "BENCH_REJECTION_CAPTURE " + json.dumps(dict(
     schema=1, logger="rejections_and_warnings_v1", records=0, service_records=0, write_failed=False)) + "\n"
@@ -98,8 +100,6 @@ class BuildProfileContractTest(unittest.TestCase):
                       transaction_bytes_blake2b="22" * 32, transaction_hashes_blake2b="33" * 32,
                       cycle_assignment_count=8, cycles_sum=80, script_preflight_count=1,
                       transaction_count=8)
-        terminals = dict(callback_duplicates=0, relay_duplicate_ok=0, relay_generation_resets=0,
-                         relay_ok=8, relay_rejects=0, relay_unknown_parent_observations=[])
         with tempfile.TemporaryDirectory() as raw:
             root = Path(raw)
             attempts = {}
@@ -109,13 +109,8 @@ class BuildProfileContractTest(unittest.TestCase):
                     "callback_observer=preallocated_atomic_slots_sharded_completion "
                     "adapter=bounded_remote_batch debug_assertions=false measurement_window=terminal_completion_v3\n"
                     f"{window_record('always_success', elapsed)}"
-                    f"BENCH_CORPUS {json.dumps(corpus)}\nBENCH_TERMINALS {json.dumps(terminals)}\n{EMPTY_CAPTURE}"
-                    "BENCH_RESULT scenario=always_success target=8 warm=0 workers=1 peers=1 "
-                    f"elapsed_ns={elapsed} throughput_tps={8e9 / elapsed:.3f} accepted=8 callback_duplicates=0 "
-                    "relay_ok=8 relay_duplicate_ok=0 relay_rejects=0 relay_unknown_parents=0 "
-                    f"relay_generation_resets=0 p99_latency_ns=1 target_cpu_ns={elapsed} "
-                    "allocation_calls=0 allocated_bytes=0 reorg_latency_ns=1 "
-                    "reorg_overlap_callbacks=0 shutdown_latency_ns=1\n"
+                    f"BENCH_CORPUS {json.dumps(corpus)}\n{EMPTY_CAPTURE}"
+                    + record_output(completed_observation(elapsed=elapsed, cpu=elapsed))
                 )
                 binary = root / f"fixture-{elapsed}"
                 binary.write_text(f"#!{sys.executable}\nprint({output!r})\n")
@@ -140,9 +135,9 @@ class BuildProfileContractTest(unittest.TestCase):
             self.assertEqual(result["outcome"], "success", result)
             self.assertFalse(result["wall_alignment"]["profile_alignment_valid"])
             self.assertEqual(result["metrics"]["elapsed_ns"], 1_200_000_000)
-            for invalid in (output.replace("throughput_tps=6.667", "throughput_tps=8.000"),
+            for invalid in (output.replace('"throughput_tps": 6.666666666666667', '"throughput_tps": 8.0'),
                             output.replace('"end_unix_nanos": 2200000000', '"end_unix_nanos": 2400000000'),
-                            output.replace("callback_duplicates=0", "callback_duplicates=1")):
+                            output.replace('"callback_duplicates": 0', '"callback_duplicates": 1')):
                 binary.write_text(f"#!{sys.executable}\nprint({invalid!r})\n")
                 result = BENCHMARK.run_attempt(BENCHMARK.binary_record(binary), root, scenario,
                                                "baseline", "rejection", 5, "disabled")
@@ -152,7 +147,7 @@ class BuildProfileContractTest(unittest.TestCase):
         source = {"root": "/fixed-source", "commit": "before"}
         contexts = {"baseline": {"source": source, "consensus": {}}}
         record = {"runner_sha256": "same", "build_runner_sha256": "same", "process_runner_sha256": "same", "measurement_window_sha256": "same",
-                  "rejection_diagnostics_sha256": "same", "scenario_parser_sha256": "same",
+                  "rejection_diagnostics_sha256": "same", "scenario_parser_sha256": "same", "observation_parser_sha256": "same",
                   "harness_sha256": "same", "host": {}, "sides": contexts,
                   "metric_scopes": BENCHMARK.METRIC_SCOPES}
         with mock.patch.object(BENCHMARK, "sha256", return_value="same"), mock.patch.object(
@@ -160,58 +155,6 @@ class BuildProfileContractTest(unittest.TestCase):
         ):
             with self.assertRaisesRegex(RuntimeError, "source changed during measurement"):
                 BENCHMARK.validate_frozen(record, contexts, "same", {}, {"baseline": None})
-
-    def test_result_record_requires_exact_callback_and_relay_terminal_fields(self) -> None:
-        output = (
-            "BENCH_RESULT scenario=always_success target=8 warm=1 workers=2 peers=2 "
-            "elapsed_ns=100 throughput_tps=1.000 accepted=9 callback_duplicates=0 "
-            "relay_ok=9 relay_duplicate_ok=0 relay_rejects=0 relay_unknown_parents=0 "
-            "relay_generation_resets=0 p99_latency_ns=90 target_cpu_ns=80 "
-            "allocation_calls=7 allocated_bytes=6 reorg_latency_ns=5 "
-            "reorg_overlap_callbacks=0 shutdown_latency_ns=4"
-        )
-        match = BENCHMARK.RESULT.fullmatch(output)
-        self.assertIsNotNone(match)
-        self.assertEqual(match.group("relay_ok"), "9")
-        self.assertNotRegex(output.replace(" relay_ok=9", ""), BENCHMARK.RESULT)
-
-    def test_terminal_contract_rejects_loss_and_allows_only_scoped_duplicates(self) -> None:
-        valid = {
-            "scenario_name": "always_success",
-            "expected_accepted": 9,
-            "accepted": 9,
-            "callback_duplicates": 0,
-            "relay_ok": 9,
-            "relay_duplicate_ok": 0,
-            "relay_rejects": 0,
-            "relay_unknown_parents": 0,
-            "relay_generation_resets": 0,
-            "expected_relay_rejects": 0,
-        }
-        self.assertIsNone(BENCHMARK.terminal_observation_error(**valid))
-        for field in (
-            "relay_duplicate_ok",
-            "relay_rejects",
-            "relay_generation_resets",
-        ):
-            invalid = dict(valid)
-            invalid[field] = 1
-            with self.subTest(field=field):
-                self.assertIsNotNone(BENCHMARK.terminal_observation_error(**invalid))
-
-        reorg = dict(valid, scenario_name="reorg_in_flight", callback_duplicates=2)
-        self.assertIsNone(BENCHMARK.terminal_observation_error(**reorg))
-        reverse = dict(valid, scenario_name="dependent_forest_8_reverse", relay_unknown_parents=8)
-        self.assertIsNone(BENCHMARK.terminal_observation_error(**reverse))
-        rbf = dict(
-            valid,
-            scenario_name="rbf_pairs",
-            relay_rejects=8,
-            expected_relay_rejects=8,
-        )
-        self.assertIsNone(BENCHMARK.terminal_observation_error(**rbf))
-        rbf_missing = dict(rbf, relay_rejects=7)
-        self.assertIsNotNone(BENCHMARK.terminal_observation_error(**rbf_missing))
 
     def test_final_timing_requires_profiling_disabled_build_identity(self) -> None:
         output = (
@@ -279,41 +222,11 @@ class BuildProfileContractTest(unittest.TestCase):
         invalid = dict(corpus, script_preflight_count=9)
         self.assertIsNotNone(BENCHMARK.corpus_observation_error(invalid, 8))
 
-    def test_terminal_multiset_requires_canonical_exact_records(self) -> None:
-        terminals = {
-            "callback_duplicates": 0,
-            "relay_duplicate_ok": 0,
-            "relay_generation_resets": 0,
-            "relay_ok": 8,
-            "relay_rejects": 0,
-            "relay_unknown_parent_observations": [
-                {"peer": 1, "parents": ["11" * 32], "count": 2}
-            ],
-        }
-        arguments = {
-            "callback_duplicates": 0,
-            "relay_ok": 8,
-            "relay_duplicate_ok": 0,
-            "relay_rejects": 0,
-            "relay_unknown_parents": 2,
-            "relay_generation_resets": 0,
-        }
-        self.assertIsNone(BENCHMARK.terminal_record_error(terminals, **arguments))
-        malformed = dict(terminals)
-        malformed["relay_unknown_parent_observations"] = ["not-an-object"]
-        self.assertIsNotNone(
-            BENCHMARK.terminal_record_error(malformed, **arguments)
-        )
-        mismatched = dict(arguments, relay_unknown_parents=1)
-        self.assertIsNotNone(
-            BENCHMARK.terminal_record_error(terminals, **mismatched)
-        )
-
     def test_long_rbf_preserves_the_precommitted_total_population_bound(self) -> None:
         scenario = BENCHMARK.parse_scenario("rbf_pairs,32768,32768,13,18")
         self.assertEqual(scenario["target"] + scenario["warm"], 65_536)
-        with self.assertRaisesRegex(ValueError, "invalid scenario"):
-            BENCHMARK.parse_scenario("rbf_pairs,32769,32768,13,18")
+        with self.assertRaisesRegex(ValueError, r"target \+ warm must be at most 65536"):
+            BENCHMARK.parse_scenario("rbf_pairs,32769,32769,13,18")
 
     def test_checkpoint_round_trip_and_attempt_ids_are_resume_authority(self) -> None:
         with tempfile.TemporaryDirectory(prefix="txpool-cross-checkpoint-") as raw:
@@ -587,21 +500,14 @@ class BuildProfileContractTest(unittest.TestCase):
                       transaction_bytes_blake2b="22" * 32, transaction_hashes_blake2b="33" * 32,
                       cycle_assignment_count=16, cycles_sum=160, script_preflight_count=1,
                       transaction_count=16)
-        terminals = dict(callback_duplicates=0, relay_duplicate_ok=0, relay_generation_resets=0,
-                         relay_ok=16, relay_rejects=0, relay_unknown_parent_observations=[])
         output = (
             "BENCH_BUILD profiling=false allocation_observation=false "
             "callback_observer=preallocated_atomic_slots_sharded_completion "
             "adapter=bounded_remote_batch debug_assertions=false "
             "measurement_window=terminal_completion_v3 comparison_contract=CONTRACT\n"
             f"{window_record('rbf_pairs', 1_000_000_000)}"
-            f"BENCH_CORPUS {json.dumps(corpus)}\nBENCH_TERMINALS {json.dumps(terminals)}\n{EMPTY_CAPTURE}"
-            "BENCH_RESULT scenario=rbf_pairs target=8 warm=8 workers=1 peers=1 "
-            "elapsed_ns=1000000000 throughput_tps=8.000 accepted=16 callback_duplicates=0 "
-            "relay_ok=16 relay_duplicate_ok=0 relay_rejects=0 relay_unknown_parents=0 "
-            "relay_generation_resets=0 p99_latency_ns=1 target_cpu_ns=1000000000 "
-            "allocation_calls=0 allocated_bytes=0 reorg_latency_ns=1 "
-            "reorg_overlap_callbacks=0 shutdown_latency_ns=1\n"
+            f"BENCH_CORPUS {json.dumps(corpus)}\n{EMPTY_CAPTURE}"
+            + record_output(completed_observation(scenario="rbf_pairs", warm=8))
         )
         with tempfile.TemporaryDirectory() as raw:
             root = Path(raw)
@@ -695,6 +601,15 @@ class MeasurementRepairTest(unittest.TestCase):
                       rejection_diagnostics_sha256="old")
         with mock.patch.object(BENCHMARK, "sha256", return_value="same"):
             with self.assertRaisesRegex(RuntimeError, "rejection diagnostic verifier changed"):
+                BENCHMARK.validate_frozen(record, {}, "same", {}, {})
+
+    def test_observation_parser_change_rejects_frozen_record(self):
+        record = dict(metric_scopes=BENCHMARK.METRIC_SCOPES,
+                      runner_sha256="same", build_runner_sha256="same", process_runner_sha256="same",
+                      measurement_window_sha256="same", rejection_diagnostics_sha256="same",
+                      scenario_parser_sha256="same", observation_parser_sha256="old")
+        with mock.patch.object(BENCHMARK, "sha256", return_value="same"):
+            with self.assertRaisesRegex(RuntimeError, "observation parser changed"):
                 BENCHMARK.validate_frozen(record, {}, "same", {}, {})
 
 

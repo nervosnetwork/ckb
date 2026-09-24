@@ -20,6 +20,7 @@ from typing import Any
 
 from benchmark_build import build_command as cargo_build_command, load_build, parse_cargo_artifact, validate_build
 from benchmark_scenario import validate_scenario
+from measurement_observation import SCENARIO_FIELDS, parse_observation as parse_workload_observation
 from measurement_process import run_process
 from measurement_window import parse_readiness, validate_measurement_window, wall_alignment
 from rejection_diagnostics import validate_success
@@ -34,14 +35,13 @@ WINDOW_SOURCE = SCRIPT_SOURCE.with_name("measurement_window.py")
 REJECTION_SOURCE = SCRIPT_SOURCE.with_name("rejection_diagnostics.py")
 BUILD_SOURCE = SCRIPT_SOURCE.with_name("benchmark_build.py")
 SCENARIO_SOURCE = SCRIPT_SOURCE.with_name("benchmark_scenario.py")
+OBSERVATION_SOURCE = SCRIPT_SOURCE.with_name("measurement_observation.py")
 REMAPPED_SOURCE_ROOT = "/ckb-txpool-profile-source"
 MARKER_PREFIX = "TX_POOL_PROFILE_WINDOW "
-OBSERVATION_PREFIX = "TX_POOL_PROFILE_OBSERVATION "
 ONE_SHOT_FEATURES = ("profiling",)
 PROFILE_SCHEMA_VERSION = 3
-OBSERVATION_SCHEMA_VERSION = 2
-MANIFEST_SCHEMA_VERSION = 11
-SUMMARY_SCHEMA_VERSION = 9
+MANIFEST_SCHEMA_VERSION = 12
+SUMMARY_SCHEMA_VERSION = 10
 FINAL_BUILD_PROFILE = "prod"
 ARTIFACT_SUFFIXES = {
     "profile": ".json.gz",
@@ -51,33 +51,6 @@ ARTIFACT_SUFFIXES = {
     "spans": ".spans.json",
     "span_stdout": ".span.stdout.log",
     "span_stderr": ".span.stderr.log",
-}
-SCENARIO_FIELDS = ("scenario", "target", "warm", "workers", "peers")
-OBSERVATION_INTEGER_FIELDS = (
-    "elapsed_nanos",
-    "accepted",
-    "callback_duplicates",
-    "p99_latency_nanos",
-    "target_cpu_nanos",
-    "target_user_cpu_nanos",
-    "target_system_cpu_nanos",
-    "allocation_calls",
-    "allocated_bytes",
-    "reorg_latency_nanos",
-    "reorg_overlap_callbacks",
-    "relay_ok",
-    "relay_duplicate_ok",
-    "relay_rejects",
-    "relay_unknown_parents",
-    "relay_generation_resets",
-    "shutdown_latency_nanos",
-)
-OBSERVATION_FIELDS = {
-    "schema_version",
-    *SCENARIO_FIELDS,
-    *OBSERVATION_INTEGER_FIELDS,
-    "throughput_tps",
-    "relay_unknown_parent_observations",
 }
 
 
@@ -362,82 +335,14 @@ def validate_capture(stdout: str, stderr: str) -> None:
 
 
 def parse_observation(stdout: str, expected: dict[str, Any]) -> dict[str, Any]:
-    observation = tagged_json(stdout, OBSERVATION_PREFIX, "profile observation")
-    if (
-        set(observation) != OBSERVATION_FIELDS
-        or observation["schema_version"] != OBSERVATION_SCHEMA_VERSION
-    ):
-        raise ProfileError("profile observation schema is unsupported")
-    identity = {name: observation[name] for name in SCENARIO_FIELDS}
-    if identity != expected:
-        raise ProfileError(f"profile observation drifted: {identity} != {expected}")
-    if any(
-        type(observation[name]) is not int or observation[name] < 0
-        for name in OBSERVATION_INTEGER_FIELDS
-    ):
-        raise ProfileError("profile observation has an invalid integer metric")
-    throughput = observation["throughput_tps"]
-    if (
-        not isinstance(throughput, (int, float))
-        or isinstance(throughput, bool)
-        or not math.isfinite(throughput)
-        or throughput <= 0
-    ):
-        raise ProfileError("profile observation throughput is invalid")
-    elapsed = observation["elapsed_nanos"]
     try:
-        parse_readiness(stdout, expected["scenario"], expected["target"], elapsed)
+        # This frontend builds only the current profiling adapter. Legacy
+        # victim-notice semantics belong to the paired runner's build identity.
+        observation = parse_workload_observation(stdout, expected, victim_notices=True)
+        parse_readiness(stdout, expected["scenario"], expected["target"], observation["elapsed_nanos"])
+        return observation
     except ValueError as error:
         raise ProfileError(str(error)) from error
-    if elapsed <= 0 or not math.isclose(throughput, expected["target"] * 1e9 / elapsed, rel_tol=1e-9):
-        raise ProfileError("profile throughput differs from target count and elapsed time")
-    if (
-        observation["target_user_cpu_nanos"]
-        + observation["target_system_cpu_nanos"]
-        != observation["target_cpu_nanos"]
-    ):
-        raise ProfileError("profile observation CPU components do not sum to total")
-    accepted = expected["target"] + expected["warm"]
-    if observation["accepted"] != accepted or observation["relay_ok"] != accepted:
-        raise ProfileError("profile observation did not complete the exact workload")
-    if (
-        # Reorg can legitimately reaccept the same owner; relay Ok remains
-        # unique. Match the one-shot executor and paired benchmark contract.
-        (observation["callback_duplicates"] and expected["scenario"] != "reorg_in_flight")
-        or observation["relay_duplicate_ok"]
-        or observation["relay_generation_resets"]
-    ):
-        raise ProfileError("profile observation contains duplicate or reset terminals")
-    expected_rejects = expected["warm"] if expected["scenario"] in {"rbf_pairs", "rbf_pairs_windowed"} else 0
-    if observation["relay_rejects"] != expected_rejects:
-        raise ProfileError("profile observation contains an unexpected reject terminal set")
-    if (observation["reorg_overlap_callbacks"] > 0) != (
-        expected["scenario"] == "reorg_in_flight"
-    ):
-        raise ProfileError("profile observation reorg overlap differs from its scenario")
-    unknown = observation["relay_unknown_parent_observations"]
-    if not isinstance(unknown, list):
-        raise ProfileError("profile observation unknown-parent evidence is invalid")
-    for row in unknown:
-        if (
-            not isinstance(row, dict)
-            or set(row) != {"peer", "parents", "count"}
-            or type(row["peer"]) is not int
-            or row["peer"] < 0
-            or type(row["count"]) is not int
-            or row["count"] <= 0
-            or not isinstance(row["parents"], list)
-            or not row["parents"]
-            or any(not isinstance(parent, str) or not parent for parent in row["parents"])
-        ):
-            raise ProfileError("profile observation unknown-parent evidence is invalid")
-    if sum(row["count"] for row in unknown) != observation["relay_unknown_parents"]:
-        raise ProfileError("profile observation unknown-parent count does not match evidence")
-    if observation["relay_unknown_parents"] and not expected["scenario"].endswith(
-        "_reverse"
-    ):
-        raise ProfileError("profile observation contains unknown-parent terminals")
-    return observation
 
 
 def validate_window_observation(window: dict[str, Any], observation: dict[str, Any]) -> None:
@@ -506,7 +411,7 @@ def file_identity(path: Path) -> dict[str, Any]:
 
 
 def harness_sources() -> list[Path]:
-    sources = {SCRIPT_SOURCE, PROCESS_SOURCE, WINDOW_SOURCE, REJECTION_SOURCE, BUILD_SOURCE, SCENARIO_SOURCE}
+    sources = {SCRIPT_SOURCE, PROCESS_SOURCE, WINDOW_SOURCE, REJECTION_SOURCE, BUILD_SOURCE, SCENARIO_SOURCE, OBSERVATION_SOURCE}
     sources.update(path for path in ONE_SHOT_SOURCE.parent.rglob("*.rs") if path.is_file())
     return sorted(sources)
 

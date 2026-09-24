@@ -23,26 +23,11 @@ import rejection_diagnostics
 from benchmark_build import (binary_record, build_binary, effective_features,
                              git_record, host_identity, load_build, sha256, validate_build)
 from benchmark_scenario import validate_scenario
+from measurement_observation import parse_observation
 from measurement_process import run_process
 from measurement_window import parse_measurement_window, parse_readiness, wall_alignment
 
 
-RESULT = re.compile(
-    r"^BENCH_RESULT scenario=(?P<scenario>\S+) target=(?P<target>\d+) "
-    r"warm=(?P<warm>\d+) workers=(?P<workers>\d+) peers=(?P<peers>\d+) "
-    r"elapsed_ns=(?P<elapsed_ns>\d+) throughput_tps=(?P<throughput>[0-9.]+) "
-    r"accepted=(?P<accepted>\d+) callback_duplicates=(?P<callback_duplicates>\d+) "
-    r"relay_ok=(?P<relay_ok>\d+) relay_duplicate_ok=(?P<relay_duplicate_ok>\d+) "
-    r"relay_rejects=(?P<relay_rejects>\d+) "
-    r"relay_unknown_parents=(?P<relay_unknown_parents>\d+) "
-    r"relay_generation_resets=(?P<relay_generation_resets>\d+) "
-    r"p99_latency_ns=(?P<p99_latency_ns>\d+) target_cpu_ns=(?P<target_cpu_ns>\d+) "
-    r"allocation_calls=(?P<allocation_calls>\d+) allocated_bytes=(?P<allocated_bytes>\d+) "
-    r"reorg_latency_ns=(?P<reorg_latency_ns>\d+) "
-    r"reorg_overlap_callbacks=(?P<reorg_overlap_callbacks>\d+) "
-    r"shutdown_latency_ns=(?P<shutdown_latency_ns>\d+)$",
-    re.MULTILINE,
-)
 RESOURCE_RESULT = re.compile(
     r"^RESOURCE_RESULT max_rss_bytes=(?P<max_rss_bytes>\d+) "
     r"voluntary_context_switches=(?P<voluntary_context_switches>\d+) "
@@ -59,8 +44,7 @@ BUILD = re.compile(
     re.MULTILINE,
 )
 CORPUS_PREFIX = "BENCH_CORPUS "
-TERMINALS_PREFIX = "BENCH_TERMINALS "
-SCHEMA_VERSION = 14
+SCHEMA_VERSION = 15
 PROTOCOL_CONTRACT = "protocol"
 CONSENSUS_LOCK_PACKAGES = ("ckb-vm", "ckb-vm-definitions")
 HEX_32 = re.compile(r"^[0-9a-f]{64}$")
@@ -73,14 +57,6 @@ CORPUS_KEYS = {
     "transaction_bytes_blake2b",
     "transaction_count",
     "transaction_hashes_blake2b",
-}
-TERMINAL_KEYS = {
-    "callback_duplicates",
-    "relay_duplicate_ok",
-    "relay_generation_resets",
-    "relay_ok",
-    "relay_rejects",
-    "relay_unknown_parent_observations",
 }
 SUM_METRICS = (
     "elapsed_ns",
@@ -270,79 +246,6 @@ def paired_corpus_error(baseline_corpus: object, candidate_corpus: object) -> st
     return None if baseline_corpus == candidate_corpus else "baseline and candidate corpus identities differ"
 
 
-def terminal_observation_error(
-    *,
-    scenario_name: str,
-    expected_accepted: int,
-    accepted: int,
-    callback_duplicates: int,
-    relay_ok: int,
-    relay_duplicate_ok: int,
-    relay_rejects: int,
-    relay_unknown_parents: int,
-    relay_generation_resets: int,
-    expected_relay_rejects: int,
-) -> str | None:
-    checks = (
-        (accepted != expected_accepted, f"accepted {accepted}, expected {expected_accepted}"),
-        (relay_ok != expected_accepted, f"relay Ok {relay_ok}, expected {expected_accepted}"),
-        (callback_duplicates != 0 and scenario_name != "reorg_in_flight", "unexpected duplicate callbacks"),
-        (relay_duplicate_ok != 0, "unexpected duplicate relay Ok results"),
-        (relay_rejects != expected_relay_rejects, f"relay rejects {relay_rejects}, expected {expected_relay_rejects}"),
-        (relay_generation_resets != 0, "unexpected relay generation resets"),
-        (relay_unknown_parents != 0 and not scenario_name.endswith("_reverse"), "unexpected unknown-parent relay results"),
-    )
-    return next((message for failed, message in checks if failed), None)
-
-
-def terminal_record_error(
-    terminals: object,
-    *,
-    callback_duplicates: int,
-    relay_ok: int,
-    relay_duplicate_ok: int,
-    relay_rejects: int,
-    relay_unknown_parents: int,
-    relay_generation_resets: int,
-) -> str | None:
-    if not isinstance(terminals, dict) or set(terminals) != TERMINAL_KEYS:
-        return "benchmark terminal identity has an unsupported shape"
-    expected = {
-        "callback_duplicates": callback_duplicates,
-        "relay_ok": relay_ok,
-        "relay_duplicate_ok": relay_duplicate_ok,
-        "relay_rejects": relay_rejects,
-        "relay_generation_resets": relay_generation_resets,
-    }
-    if any(terminals[field] != value for field, value in expected.items()):
-        return "benchmark terminal JSON differs from scalar evidence"
-    observations = terminals["relay_unknown_parent_observations"]
-    if not isinstance(observations, list):
-        return "benchmark unknown-parent multiset is unavailable"
-    normalized = []
-    for observation in observations:
-        if not isinstance(observation, dict) or set(observation) != {"peer", "parents", "count"}:
-            return "benchmark unknown-parent observation has an unsupported shape"
-        peer, parents, count = observation["peer"], observation["parents"], observation["count"]
-        if (
-            type(peer) is not int
-            or peer < 0
-            or type(count) is not int
-            or count <= 0
-            or not isinstance(parents, list)
-            or not parents
-            or parents != sorted(set(parents))
-            or any(not isinstance(parent, str) or HEX_32.fullmatch(parent) is None for parent in parents)
-        ):
-            return "benchmark unknown-parent observation is invalid"
-        normalized.append((peer, tuple(parents), count))
-    if normalized != sorted(normalized) or len(normalized) != len({row[:2] for row in normalized}):
-        return "benchmark unknown-parent multiset is not canonical"
-    if sum(row[2] for row in normalized) != relay_unknown_parents:
-        return "benchmark unknown-parent multiset differs from scalar evidence"
-    return None
-
-
 def timing_build_observation(
     output: str, spans: object, allocation_observation: str,
 ) -> tuple[dict[str, str] | None, str | None]:
@@ -430,73 +333,33 @@ def parse_attempt(output: str, spans: object, scenario: dict[str, object],
     if not isinstance(output, str):
         raise ValueError("benchmark output is not text")
     rejection_diagnostics.validate_success(output)
-    result = unique_match(RESULT, output, "BENCH_RESULT")
     resources = unique_match(RESOURCE_RESULT, output, "RESOURCE_RESULT")
     corpus = parse_json_record(output, CORPUS_PREFIX)
-    terminals = parse_json_record(output, TERMINALS_PREFIX)
     build, error = timing_build_observation(output, spans, allocation_observation)
     if error is not None or build is None:
         raise ValueError(error)
-    observed = {
-        "name": result["scenario"],
-        "target": int(result["target"]),
-        "warm": int(result["warm"]),
-        "workers": int(result["workers"]),
-        "peers": int(result["peers"]),
-    }
-    if observed != scenario:
-        raise ValueError(f"scenario drift: {observed} != {scenario}")
-    counts = {
-        name: int(result[name])
-        for name in (
-            "accepted",
-            "callback_duplicates",
-            "relay_ok",
-            "relay_duplicate_ok",
-            "relay_rejects",
-            "relay_unknown_parents",
-            "relay_generation_resets",
-        )
-    }
-    expected_accepted = int(scenario["target"]) + int(scenario["warm"])
-    expected_rejects = (
-        int(scenario["warm"])
-        if scenario["name"] in {"rbf_pairs", "rbf_pairs_windowed"} and build["adapter"] == "bounded_remote_batch"
-        else 0
-    )
-    error = terminal_observation_error(
-        scenario_name=str(scenario["name"]),
-        expected_accepted=expected_accepted,
-        expected_relay_rejects=expected_rejects,
-        **counts,
-    ) or corpus_observation_error(corpus, expected_accepted)
-    if error is None:
-        error = terminal_record_error(terminals, **{key: counts[key] for key in (
-            "callback_duplicates",
-            "relay_ok",
-            "relay_duplicate_ok",
-            "relay_rejects",
-            "relay_unknown_parents",
-            "relay_generation_resets",
-        )})
+    expected = {"scenario": scenario["name"], **{name: scenario[name] for name in ("target", "warm", "workers", "peers")}}
+    # Only a validated adapter identity may select legacy victim-notice semantics.
+    observation = parse_observation(output, expected, victim_notices=build["adapter"] == "bounded_remote_batch")
+    error = corpus_observation_error(corpus, scenario["target"] + scenario["warm"])
     if error is not None:
         raise ValueError(error)
-    elapsed_ns = int(result["elapsed_ns"])
+    elapsed_ns = observation["elapsed_nanos"]
     window = parse_measurement_window(output, str(scenario["name"]), elapsed_ns)
     readiness = parse_readiness(output, str(scenario["name"]), int(scenario["target"]), elapsed_ns)
     metrics = {
         "elapsed_ns": elapsed_ns,
-        "throughput_tps": float(result["throughput"]),
-        "target_cpu_ns": int(result["target_cpu_ns"]),
-        "p99_latency_ns": int(result["p99_latency_ns"]),
-        "allocation_calls": int(result["allocation_calls"]),
-        "allocated_bytes": int(result["allocated_bytes"]),
+        "throughput_tps": int(scenario["target"]) * 1e9 / elapsed_ns,
+        "target_cpu_ns": observation["target_cpu_nanos"],
+        "p99_latency_ns": observation["p99_latency_nanos"],
+        "allocation_calls": observation["allocation_calls"],
+        "allocated_bytes": observation["allocated_bytes"],
         "peak_rss_bytes": int(resources["max_rss_bytes"]),
         "voluntary_context_switches": int(resources["voluntary_context_switches"]),
         "involuntary_context_switches": int(resources["involuntary_context_switches"]),
-        "reorg_latency_ns": int(result["reorg_latency_ns"]),
-        "reorg_overlap_callbacks": int(result["reorg_overlap_callbacks"]),
-        "shutdown_latency_ns": int(result["shutdown_latency_ns"]),
+        "reorg_latency_ns": observation["reorg_latency_nanos"],
+        "reorg_overlap_callbacks": observation["reorg_overlap_callbacks"],
+        "shutdown_latency_ns": observation["shutdown_latency_nanos"],
     }
     positive = (
         "elapsed_ns",
@@ -509,25 +372,17 @@ def parse_attempt(output: str, spans: object, scenario: dict[str, object],
     )
     if any(not math.isfinite(metrics[name]) or metrics[name] <= 0 for name in positive):
         raise ValueError("benchmark emitted a non-positive required metric")
-    throughput = int(scenario["target"]) * 1e9 / elapsed_ns
-    if not math.isclose(metrics["throughput_tps"], throughput, rel_tol=1e-12, abs_tol=0.00051):
-        raise ValueError("throughput differs from target count and elapsed time")
-    metrics["throughput_tps"] = throughput
     allocations = metrics["allocation_calls"], metrics["allocated_bytes"]
     if allocation_observation == "enabled" and min(allocations) <= 0:
         raise ValueError("enabled allocation observation is empty")
     if allocation_observation == "disabled" and any(allocations):
         raise ValueError("timing binary emitted allocation counts")
-    if (scenario["name"] == "reorg_in_flight") != (metrics["reorg_overlap_callbacks"] > 0):
-        raise ValueError("reorg overlap differs from its scenario")
     return {
         "build": build,
         "window": window,
         "wall_alignment": wall_alignment(window),
         "readiness": readiness,
         "corpus": corpus,
-        "terminals": terminals,
-        "relay_unknown_parents": counts["relay_unknown_parents"],
         "metrics": metrics,
     }
 
@@ -1182,7 +1037,7 @@ def load_aa_evidence(record: dict[str, object]) -> dict[str, object]:
                 or aa_config.get("allocation_observation") != "disabled"):
             raise RuntimeError(f"{side} A/A evidence is incomplete or not a timing control")
         for field in ("runner_sha256", "build_runner_sha256", "process_runner_sha256",
-                      "harness_sha256", "measurement_window_sha256", "rejection_diagnostics_sha256", "scenario_parser_sha256",
+                      "harness_sha256", "measurement_window_sha256", "rejection_diagnostics_sha256", "scenario_parser_sha256", "observation_parser_sha256",
                       "host", "metric_scopes"):
             if control.get(field) != record[field]:
                 raise RuntimeError(f"{side} A/A {field} differs")
@@ -1273,6 +1128,8 @@ def validate_frozen(
         raise RuntimeError("rejection diagnostic verifier changed")
     if record.get("scenario_parser_sha256") != sha256(Path(__file__).with_name("benchmark_scenario.py")):
         raise RuntimeError("benchmark scenario parser changed")
+    if record.get("observation_parser_sha256") != sha256(Path(__file__).with_name("measurement_observation.py")):
+        raise RuntimeError("workload observation parser changed")
     if record.get("harness_sha256") != harness_hash or record.get("host") != host:
         raise RuntimeError("benchmark harness or host identity changed")
     recorded = record.get("sides")
@@ -1346,6 +1203,7 @@ def main() -> None:
             "schema": SCHEMA_VERSION,
             "runner_sha256": sha256(Path(__file__)),
             "scenario_parser_sha256": sha256(Path(__file__).with_name("benchmark_scenario.py")),
+            "observation_parser_sha256": sha256(Path(__file__).with_name("measurement_observation.py")),
             "build_runner_sha256": sha256(Path(__file__).with_name("benchmark_build.py")),
             "process_runner_sha256": sha256(Path(__file__).with_name("measurement_process.py")),
             "harness_sha256": harness_hash,

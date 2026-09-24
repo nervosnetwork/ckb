@@ -2389,8 +2389,8 @@ fn run() -> BenchResult<()> {
     let accepted = completion.accepted_count();
     let callback_duplicates = completion.duplicate_callbacks.load(Ordering::Acquire);
     let relay = relay_completion.observation();
-    let profile_observation = serde_json::json!({
-        "schema_version": 2,
+    let observation = serde_json::json!({
+        "schema_version": 3,
         "scenario": scenario,
         "target": target_count,
         "warm": warm_count,
@@ -2428,32 +2428,8 @@ fn run() -> BenchResult<()> {
             })
         );
     }
-    println!(
-        "BENCH_TERMINALS {}",
-        serde_json::json!({
-            "callback_duplicates": callback_duplicates,
-            "relay_ok": relay.ok,
-            "relay_duplicate_ok": relay.duplicate_ok,
-            "relay_rejects": relay.rejects,
-            "relay_unknown_parent_observations": relay.unknown_parent_observations,
-            "relay_generation_resets": relay.generation_resets,
-        })
-    );
-    println!(
-        "BENCH_RESULT scenario={scenario} target={target_count} warm={warm_count} workers={workers} peers={peers} elapsed_ns={} throughput_tps={throughput:.3} accepted={accepted} callback_duplicates={callback_duplicates} relay_ok={} relay_duplicate_ok={} relay_rejects={} relay_unknown_parents={} relay_generation_resets={} p99_latency_ns={p99_latency_ns} target_cpu_ns={target_cpu_ns} allocation_calls={allocation_calls} allocated_bytes={allocated_bytes} reorg_latency_ns={reorg_latency_ns} reorg_overlap_callbacks={reorg_overlap_callbacks} shutdown_latency_ns={shutdown_latency_ns}",
-        elapsed.as_nanos(),
-        relay.ok,
-        relay.duplicate_ok,
-        relay.rejects,
-        relay.unknown_parents,
-        relay.generation_resets,
-    );
-    println!("TX_POOL_PROFILE_OBSERVATION {profile_observation}");
+    println!("TX_POOL_PROFILE_OBSERVATION {observation}");
     println!("TX_POOL_PROFILE_WINDOW {profile_window}");
-    println!(
-        "PROFILE_WINDOW start_unix_ns={} end_unix_ns={}",
-        profile_window["start_unix_nanos"], profile_window["end_unix_nanos"]
-    );
     diagnostics.armed = false;
     Ok(())
 }
