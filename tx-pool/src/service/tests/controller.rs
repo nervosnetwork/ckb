@@ -167,6 +167,89 @@ fn full_controller() -> (TxPoolController, mpsc::Receiver<Message>) {
     (controller(sender), receiver)
 }
 
+#[tokio::test]
+async fn asynchronous_queries_use_the_reserved_lane_when_ordinary_admission_is_full() {
+    let (mut controller, mut ordinary) = full_controller();
+    let (query_sender, mut queries) = mpsc::channel(1);
+    controller.query_sender = query_sender;
+    let transaction = ckb_types::core::TransactionBuilder::default()
+        .version(7_003u32)
+        .build();
+    let proposal = transaction.proposal_short_id();
+    let hash = transaction.hash();
+
+    let request = controller.fresh_proposals_filter(vec![proposal.clone()]);
+    tokio::pin!(request);
+    assert!(request.as_mut().now_or_never().is_none());
+    let Message::FreshProposalsFilter(query) = queries.try_recv().unwrap() else {
+        panic!("fresh proposals must reach the query lane");
+    };
+    assert_eq!(query.arguments.into_vec(), vec![proposal.clone()]);
+    query.responder.send(Ok(vec![proposal.clone()])).unwrap();
+    assert_eq!(request.await.unwrap(), vec![proposal.clone()]);
+
+    let request = controller.fetch_txs(HashSet::from([proposal.clone()]));
+    tokio::pin!(request);
+    assert!(request.as_mut().now_or_never().is_none());
+    let Message::FetchTxs(query) = queries.try_recv().unwrap() else {
+        panic!("compact transactions must reach the query lane");
+    };
+    assert_eq!(query.arguments.into_vec(), vec![proposal.clone()]);
+    let transactions = HashMap::from([(proposal, transaction.clone())]);
+    query.responder.send(Ok(transactions.clone())).unwrap();
+    assert_eq!(request.await.unwrap(), transactions);
+
+    let request = controller.fetch_txs_with_cycles(HashSet::from([hash.clone()]));
+    tokio::pin!(request);
+    assert!(request.as_mut().now_or_never().is_none());
+    let Message::FetchTxsWithCycles(query) = queries.try_recv().unwrap() else {
+        panic!("transactions with cycles must reach the query lane");
+    };
+    assert_eq!(query.arguments.into_vec(), vec![hash]);
+    let transactions = vec![(transaction, 17)];
+    query.responder.send(Ok(transactions.clone())).unwrap();
+    assert_eq!(request.await.unwrap(), transactions);
+
+    assert!(matches!(ordinary.try_recv(), Ok(Message::NotifyTxs(_))));
+    assert!(matches!(
+        ordinary.try_recv(),
+        Err(mpsc::error::TryRecvError::Empty)
+    ));
+    assert!(matches!(
+        queries.try_recv(),
+        Err(mpsc::error::TryRecvError::Empty)
+    ));
+}
+
+#[test]
+fn asynchronous_queries_refuse_full_or_closed_reserved_lanes_without_using_ordinary_capacity() {
+    for closed in [false, true] {
+        let (sender, mut ordinary) = mpsc::channel(1);
+        let (query_sender, mut queries) = mpsc::channel(1);
+        let mut controller = controller(sender);
+        controller.query_sender = query_sender;
+        let expected = if closed {
+            queries.close();
+            "channel closed"
+        } else {
+            controller
+                .query_sender
+                .try_send(Message::NotifyTxs(
+                    NotifyTxBatch::try_new(Vec::new()).unwrap(),
+                ))
+                .unwrap();
+            "no available capacity"
+        };
+        assert_fast_error(controller.fresh_proposals_filter(Vec::new()), expected);
+        assert_fast_error(controller.fetch_txs(HashSet::new()), expected);
+        assert_fast_error(controller.fetch_txs_with_cycles(HashSet::new()), expected);
+        assert!(matches!(
+            ordinary.try_recv(),
+            Err(mpsc::error::TryRecvError::Empty)
+        ));
+    }
+}
+
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn block_template_deadline_includes_time_before_dispatch() {
     let (sender, mut receiver) = mpsc::channel(1);
@@ -634,23 +717,11 @@ where
 }
 
 #[test]
-fn asynchronous_network_calls_fail_fast_when_the_controller_channel_is_full() {
+fn asynchronous_notification_fails_fast_when_ordinary_admission_is_full() {
     let (controller, _receiver) = full_controller();
 
     assert_fast_error(
         controller.notify_txs_async(Vec::new()),
-        "no available capacity",
-    );
-    assert_fast_error(
-        controller.fresh_proposals_filter(Vec::new()),
-        "no available capacity",
-    );
-    assert_fast_error(
-        controller.fetch_txs(HashSet::new()),
-        "no available capacity",
-    );
-    assert_fast_error(
-        controller.fetch_txs_with_cycles(HashSet::new()),
         "no available capacity",
     );
 }

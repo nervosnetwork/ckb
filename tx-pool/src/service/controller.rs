@@ -356,9 +356,7 @@ impl TxPoolController {
     ) -> Result<Vec<ProposalShortId>, AnyError> {
         let (responder, response) = tokio::sync::oneshot::channel();
         let request = AsyncRequest::call(BoundedProposalIds::try_from_vec(proposals)?, responder);
-        self.query_sender
-            .try_send(Message::FreshProposalsFilter(request))
-            .map_err(handle_try_send_error)?;
+        self.enqueue(Message::FreshProposalsFilter(request))?;
         response.await.map_err(AnyError::from)?
     }
 
@@ -383,9 +381,7 @@ impl TxPoolController {
     ) -> Result<HashMap<ProposalShortId, TransactionView>, AnyError> {
         let (responder, response) = tokio::sync::oneshot::channel();
         let request = AsyncRequest::call(BoundedProposalIds::try_from_set(short_ids)?, responder);
-        self.query_sender
-            .try_send(Message::FetchTxs(request))
-            .map_err(handle_try_send_error)?;
+        self.enqueue(Message::FetchTxs(request))?;
         response.await.map_err(AnyError::from)?
     }
 
@@ -400,9 +396,7 @@ impl TxPoolController {
             BoundedTransactionHashes::try_from_set(tx_hashes)?,
             responder,
         );
-        self.query_sender
-            .try_send(Message::FetchTxsWithCycles(request))
-            .map_err(handle_try_send_error)?;
+        self.enqueue(Message::FetchTxsWithCycles(request))?;
         response.await.map_err(AnyError::from)?
     }
 
