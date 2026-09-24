@@ -12,7 +12,7 @@ service and validates exact callback/relay terminals.
 | Where is target CPU attributed? | [profile.py](../scripts/profile.py) + Samply | Sampled stacks cropped to the target window |
 | Which pool paths execute, and how often? | `profiling` + `TX_POOL_PROFILE_TRACE_PATH` | Entered-scope wall time and counts in a separate run |
 | Which tasks poll, wait or wake repeatedly? | `tokio-trace` + Tokio Console | Runtime scheduling events; busy time is not CPU time |
-| Does a change reduce allocation traffic? | `allocation-observation` through the comparison runner | Allocation calls and requested bytes inside the target window |
+| Does a change reduce allocation traffic? | `allocation-observation` through the comparison runner | Observed Rust allocation requests around the target window |
 | Which workload boundaries raise resident memory? | `TX_POOL_BENCH_RESOURCE_PHASES=1` on the finite executor | Resident bytes and cumulative lifetime high-water marks outside timing |
 | Does the change improve production behavior? | Uninstrumented A/A and A/B | Throughput, target process CPU and process-lifetime peak RSS |
 
@@ -245,10 +245,18 @@ prepared roots/scenarios as a comparison, a separate output file and
 `--allocation-observation enabled`. The runner builds with that feature. For a
 supplied build, first use `benchmark_build.py --allocation-observation enabled`
 and pass its build receipt; the receipt and runtime build must both match the
-requested mode. Only allocation calls/bytes may rank
-that experiment; the recorded timing and RSS remain diagnostic. Allocation bytes
-are traffic, not retained memory or a leak measurement. Compare source/destination
-sharing and lifetime against the [resource bounds](architecture/EXECUTION.md#resource-and-lifetime-bounds).
+requested mode. Only allocation calls/bytes may rank that experiment; the recorded
+timing and RSS remain diagnostic.
+
+The counter observes process-wide Rust `GlobalAlloc` requests, including unrelated
+threads, failed requests and full realloc sizes. Native-library allocations may
+bypass it. Closing disables counting without draining hooks already in progress.
+Calls and bytes are read separately, so concurrent boundary activity can be omitted
+or split between the totals; hooks spanning successive windows can cross their
+boundaries. Admission totals are approximate, with no recorded boundary-error
+bound. These are request traffic, not retained memory, RSS or a leak measurement.
+Compare source/destination sharing and lifetime against the
+[resource bounds](architecture/EXECUTION.md#resource-and-lifetime-bounds).
 
 The separate [template selection benchmark](BENCHMARK.md#measure-template-transaction-selection) calls the production packing algorithm directly. Its per-call windows, setup cost, selected fees and capacity utilization have a distinct contract from admission. Use its default-off `packing-bench` feature without tracing for timing; the admission profile analyzer does not consume packing markers.
 

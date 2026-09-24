@@ -159,7 +159,7 @@ monotonic throughput validity. Harness changes require rebuilding both binaries.
 | P99 | Maximum of per-attempt p99 values; not a pooled percentile |
 | Context switches | Process-lifetime counts, summed across replicates |
 | Reorg / stop latency | Separately observed operations, not additive target phases |
-| Allocation calls / bytes | Target-window traffic; only these metrics may rank an allocation-enabled study |
+| Allocation calls / bytes | Observed request traffic around the target window; only these metrics may rank an allocation-enabled study, subject to the [counter boundary](PROFILING.md#observe-allocations) |
 
 Shutdown latency includes releasing caller handles, joining runtime guards and
 the relay observer, network shutdown and persistence to an isolated temporary file.
@@ -427,8 +427,8 @@ and capture with `--observation allocation`. Both tools derive the same effectiv
 features; extra adapter features must match via the builder's `--features` and
 capture's `--build-features`. Fixture, source preparation and each
 selection have separate windows; output is `allocation_only` without templates/s.
-Counts cover process-wide `alloc`/`realloc` requests, including full realloc sizes,
-failed requests and other threads. They measure neither retained bytes nor RSS.
+The shared [allocation counter contract](PROFILING.md#observe-allocations) defines
+request coverage and concurrent window limits; counts measure neither retained bytes nor RSS.
 Result validation/destruction stays outside selection. Do not use these timings
 to rank production builds.
 
