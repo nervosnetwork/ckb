@@ -280,6 +280,58 @@ fn capacity_replacement_is_one_atomic_candidate_and_victim_change() {
 }
 
 #[test]
+fn capacity_trim_preserves_candidate_ancestry_and_reports_its_late_descendants() {
+    let parent = output_tx(10700);
+    let transaction = spend(10701, &[], &[OutPoint::new(parent.hash(), 0)]);
+    let child = spend(10702, &[], &[OutPoint::new(transaction.hash(), 0)]);
+    let victim = spend(10703, &[], &[point(224)]);
+    assert_eq!(
+        victim.data().serialized_size_in_block(),
+        transaction.data().serialized_size_in_block()
+    );
+    let parent_size = parent.data().serialized_size_in_block();
+    let candidate_size = transaction.data().serialized_size_in_block();
+    let child_size = child.data().serialized_size_in_block();
+    let config = TxPoolConfig {
+        max_tx_pool_size: parent_size + child_size + candidate_size,
+        ..config()
+    };
+    let store = Store::new(crate::test_support::genesis_snapshot(), &config).unwrap();
+    let parent = accept(&store, parent, 11, 3, Status::Pending);
+    let child = accept(&store, child, 2000, 5, Status::Pending);
+    accept(&store, victim, 1, 7, Status::Pending);
+    let candidate = entry(&store, transaction, Source::Local);
+    // Adding the candidate requires a full capture and removal of the victim.
+    // Its pre-existing child gains a parent; its own ancestors stay protected.
+    let (plan, reject) = admission(&store, &candidate, 1000, 13, Status::Pending, &config).unwrap();
+    assert!(reject.is_none());
+    let accepted = plan
+        .effects()
+        .iter()
+        .find_map(|effect| match effect.callback() {
+            Some(CallbackEvent::Pending(value)) if value.transaction.hash() == candidate.hash() => {
+                Some(value)
+            }
+            _ => None,
+        })
+        .unwrap();
+    assert_eq!(accepted.ancestors_count, 2);
+    assert_eq!(accepted.ancestors_size, parent_size + candidate_size);
+    assert_eq!(accepted.ancestors_cycles, 16);
+    assert_eq!(accepted.ancestors_fee.as_u64(), 1011);
+    assert_eq!(accepted.descendants_count, 2);
+    assert_eq!(accepted.descendants_size, candidate_size + child_size);
+    assert_eq!(accepted.descendants_cycles, 18);
+    assert_eq!(accepted.descendants_fee.as_u64(), 3000);
+    store.apply(plan).unwrap();
+    assert_eq!(
+        hashes(&store),
+        BTreeSet::from([parent, child, candidate.hash()])
+    );
+    assert_parents_match_transactions(&store);
+}
+
+#[test]
 fn capacity_skips_a_low_rank_family_too_large_for_one_mutation() {
     let parent = output_tx(90_100);
     let parent_point = OutPoint::new(parent.hash(), 0);
@@ -509,6 +561,49 @@ fn parent_limit_rejection_keeps_existing_ancestors_unchanged() {
     ));
     store.apply(plan).unwrap();
     assert_eq!(hashes(&store), before);
+}
+
+#[test]
+fn admission_counts_the_candidate_itself_against_a_zero_ancestor_limit() {
+    let store = store();
+    let candidate = entry(&store, output_tx(10710), Source::Local);
+    let config = TxPoolConfig {
+        max_ancestors_count: 0,
+        ..config()
+    };
+    let (plan, reject) = admission(&store, &candidate, 1, 1, Status::Pending, &config).unwrap();
+    assert!(matches!(
+        reject,
+        Some(Reject::ExceededMaximumAncestorsCount)
+    ));
+    store.apply(plan).unwrap();
+    assert!(hashes(&store).is_empty());
+}
+
+#[test]
+fn late_ancestor_limit_precedes_candidate_snapshot_fee_overflow() {
+    let store = store();
+    let parent = accept(&store, output_tx(10711), u64::MAX, 1, Status::Pending);
+    // Put candidate validation before its late child. Its ancestor fee overflow
+    // must still wait until every affected owner's ancestry has been validated.
+    let transaction =
+        spend(10712, &[], &[OutPoint::new(parent.clone(), 0)]).fake_hash(Byte32::new([1; 32]));
+    let child =
+        spend(10713, &[], &[OutPoint::new(transaction.hash(), 0)]).fake_hash(Byte32::new([2; 32]));
+    let child = accept(&store, child, 0, 1, Status::Pending);
+    let candidate = entry(&store, transaction, Source::Local);
+    let config = TxPoolConfig {
+        max_ancestors_count: 2,
+        ..config()
+    };
+    let (plan, reject) = admission(&store, &candidate, 1, 1, Status::Pending, &config).unwrap();
+    assert!(matches!(
+        reject,
+        Some(Reject::ExceededMaximumAncestorsCount)
+    ));
+    store.apply(plan).unwrap();
+    assert_eq!(hashes(&store), BTreeSet::from([parent, child]));
+    assert_parents_match_transactions(&store);
 }
 
 #[test]

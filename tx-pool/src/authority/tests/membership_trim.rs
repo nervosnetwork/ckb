@@ -52,6 +52,10 @@ fn trim_batch_updates_shared_ancestor_before_the_next_round() {
     let (store, original, [a, b, c, d, e, candidate]) = rank_fixture();
     let mut entries = original.clone();
     let mut removed = BTreeSet::new();
+    let admission = AdmissionCandidate {
+        entry: Arc::clone(entries.get(&candidate).unwrap()),
+        ancestors: BTreeSet::from([candidate.clone()]),
+    };
     // First remove b+c: their average rate is 5, below a's 27.5.
     // Then a's remaining average is 50, so e (45) must be selected next.
     trim_virtual(
@@ -60,7 +64,7 @@ fn trim_batch_updates_shared_ancestor_before_the_next_round() {
         &config(),
         &mut removed,
         &BTreeSet::new(),
-        &candidate,
+        &admission,
         item_limit(3),
     )
     .unwrap();
@@ -84,6 +88,10 @@ fn trim_late_protected_rejection_keeps_the_original_notification_graph() {
     let (store, original, [a, b, c, d, e, candidate]) = rank_fixture();
     let mut entries = original.clone();
     let mut removed = BTreeSet::new();
+    let admission = AdmissionCandidate {
+        entry: Arc::clone(entries.get(&candidate).unwrap()),
+        ancestors: BTreeSet::from([candidate.clone()]),
+    };
     let before = aggregates(&original, config().max_ancestors_count).unwrap();
     let result = trim_virtual(
         &mut entries,
@@ -91,7 +99,7 @@ fn trim_late_protected_rejection_keeps_the_original_notification_graph() {
         &config(),
         &mut removed,
         &BTreeSet::new(),
-        &candidate,
+        &admission,
         item_limit(0),
     );
     assert!(matches!(result, Err(Error::Rejected(Reject::Full(_)))));
@@ -114,18 +122,22 @@ fn trim_singleton_round_still_updates_its_surviving_ancestor() {
     let candidate = ranked_member(&store, 10614, 1000, &[]);
     let expected = BTreeSet::from([b.hash(), e.hash()]);
     let candidate_hash = candidate.hash();
-    let mut entries = [a, b, d, e, candidate]
+    let mut entries: Members = [a, b, d, e, candidate]
         .into_iter()
         .map(|entry| (entry.hash(), entry))
         .collect();
     let mut removed = BTreeSet::new();
+    let admission = AdmissionCandidate {
+        entry: Arc::clone(entries.get(&candidate_hash).unwrap()),
+        ancestors: BTreeSet::from([candidate_hash]),
+    };
     trim_virtual(
         &mut entries,
         &store.snapshot().1,
         &config(),
         &mut removed,
         &BTreeSet::new(),
-        &candidate_hash,
+        &admission,
         item_limit(3),
     )
     .unwrap();

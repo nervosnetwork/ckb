@@ -523,10 +523,17 @@ pub(super) fn admission(
     }
 }
 
+/// The candidate and its validated ancestors, including itself, stay together
+/// through capacity protection and the final accepted notification.
+struct AdmissionCandidate {
+    entry: Arc<Entry>,
+    ancestors: BTreeSet<Byte32>,
+}
+
 /// The observed successor population and its admission/removal classification.
 /// The plan emitter consumes it without rerunning policy over a changed graph.
 struct AdmissionDecision {
-    admitted: Arc<Entry>,
+    admitted: AdmissionCandidate,
     replaced: BTreeSet<Byte32>,
     removed: BTreeSet<Byte32>,
     late: BTreeSet<Byte32>,
@@ -568,6 +575,7 @@ impl AdmissionDecision {
         if let Some(hash) = late_descendants.intersection(&ancestors).next() {
             return Err(causal_cycle(hash));
         }
+        drop(ancestors);
         for hash in &late_descendants {
             graph.ancestors([hash.clone()], &removed, config.max_ancestors_count)?;
         }
@@ -584,18 +592,30 @@ impl AdmissionDecision {
         };
         let admitted = candidate.with_phase(Phase::Accepted(value));
         let mut observed_successors = apply_virtual(graph.observed(), &admitted, &late, &removed)?;
+        let candidate_hash = candidate.hash();
         let mut affected = late_descendants.clone();
-        affected.insert(candidate.hash());
+        affected.insert(candidate_hash.clone());
+        let mut ancestors = BTreeSet::new();
         for hash in &affected {
-            ancestor_hashes(&observed_successors, hash, config.max_ancestors_count)?;
+            let closure =
+                ancestor_hashes(&observed_successors, hash, config.max_ancestors_count)?;
+            // `affected` includes the candidate. Retain its closure at the same
+            // position in this ordered validation, preserving rejection order.
+            if hash == &candidate_hash {
+                ancestors = closure;
+            }
         }
+        let admitted = AdmissionCandidate {
+            entry: admitted,
+            ancestors,
+        };
         let mut released = Amount::default();
         for hash in &removed {
             released = released
                 .checked_add(owner_amount(graph.require(hash)?.as_ref())?)
                 .ok_or_else(overflow)?;
         }
-        let mut added = owner_amount(&admitted)?;
+        let mut added = owner_amount(&admitted.entry)?;
         // Existing late children gain only direct parent metadata. Count those
         // owner differences in the same reservation as candidate and all victims.
         for hash in &late {
@@ -609,18 +629,19 @@ impl AdmissionDecision {
             .checked_sub(released)
             .and_then(|usage| usage.checked_add(added));
         if optimistic.is_none_or(|usage| !usage.fits(graph.limits().accepted)) {
-            // This speculative map will be rebuilt from the full cut below.
-            // Release it before the full capture and replacement map overlap.
+            // Full capture must match the observed owners, preserving the
+            // candidate's closure. Release this map before rebuilding it.
             drop(observed_successors);
             graph.capture_accepted()?;
-            observed_successors = apply_virtual(graph.observed(), &admitted, &late, &removed)?;
+            observed_successors =
+                apply_virtual(graph.observed(), &admitted.entry, &late, &removed)?;
             trim_virtual(
                 &mut observed_successors,
                 snapshot,
                 config,
                 &mut removed,
                 &late_descendants,
-                &admitted.hash(),
+                &admitted,
                 graph.limits().accepted,
             )?;
         }
@@ -643,7 +664,10 @@ impl AdmissionDecision {
         retain_history: bool,
     ) -> Result<(), Error> {
         let Self {
-            admitted,
+            admitted: AdmissionCandidate {
+                entry: admitted,
+                ancestors,
+            },
             replaced,
             removed,
             late,
@@ -684,11 +708,6 @@ impl AdmissionDecision {
             let after = observed_successors.get(hash).cloned().ok_or(Error::Stale)?;
             graph.plan.edit(Some(old), Some(after), None)?;
         }
-        let ancestors = ancestor_hashes(
-            &observed_successors,
-            &admitted.hash(),
-            config.max_ancestors_count,
-        )?;
         let descendants = if late.is_empty() {
             Aggregate::one(accepted(&admitted)?)
         } else {
@@ -720,7 +739,7 @@ fn trim_virtual(
     config: &TxPoolConfig,
     removed: &mut BTreeSet<Byte32>,
     late: &BTreeSet<Byte32>,
-    candidate: &Byte32,
+    candidate: &AdmissionCandidate,
     limit: Amount,
 ) -> Result<(), Error> {
     let mut charge = total_charge(entries)?;
@@ -741,10 +760,9 @@ fn trim_virtual(
         )?);
     }
     let child_index = children(entries);
-    let protected = ancestor_hashes(entries, candidate, config.max_ancestors_count)?;
     let candidate_rate = EvictionRank::new(
-        entries.get(candidate).ok_or(Error::Stale)?,
-        Aggregate::one(accepted(entries.get(candidate).ok_or(Error::Stale)?)?),
+        &candidate.entry,
+        Aggregate::one(accepted(&candidate.entry)?),
         snapshot,
     )?
     .fee;
@@ -753,9 +771,9 @@ fn trim_virtual(
         // descendants move into `removed`, and the touched union never shrinks.
         let closure = loop {
             let root = ranks.pop_first().ok_or_else(component_limit)?;
-            // The protected set is the candidate's ancestor closure. Do not
-            // pass its rank to evict a more valuable independent owner.
-            if protected.contains(&root.hash) {
+            // Do not pass a protected ancestor's rank to evict a more valuable
+            // independent owner; removing any ancestor would remove the candidate.
+            if candidate.ancestors.contains(&root.hash) {
                 return Err(Reject::Full(format!(
                     "the fee_rate for this transaction is: {candidate_rate}"
                 ))
