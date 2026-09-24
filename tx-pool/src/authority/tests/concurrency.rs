@@ -73,7 +73,9 @@ fn a_missing_child_in_a_coherent_descendant_capture_is_a_fault() {
     assert_eq!(store.capture_descendants(&parent).unwrap().1.len(), 2);
     // Simulate a broken owner/index invariant, not a concurrent transition:
     // production Apply always retires both sides under these owner guards.
-    store.shards[store.owner_shard(&child)]
+    store
+        .shards
+        .at(store.owner_shard(&child))
         .write()
         .owners
         .remove(&child);
@@ -84,9 +86,9 @@ fn a_missing_child_in_a_coherent_descendant_capture_is_a_fault() {
 }
 
 // Independent ordered-map reference for lock-footprint selection in these tests.
-fn add_lock_request(footprint: &mut BTreeMap<usize, bool>, index: usize, write: bool) {
+fn add_lock_request(footprint: &mut BTreeMap<usize, bool>, index: ShardIndex, write: bool) {
     footprint
-        .entry(index)
+        .entry(index.position())
         .and_modify(|old| *old |= write)
         .or_insert(write);
 }
@@ -95,32 +97,55 @@ fn add_lock_request(footprint: &mut BTreeMap<usize, bool>, index: usize, write: 
 fn lock_footprint_preserves_order_and_monotone_write_requests() {
     let mut footprint = LockFootprint::default();
     let mut reference = BTreeMap::new();
-    let locks = std::array::from_fn(|_| RwLock::new(()));
+    let locks = Shards::new(|| RwLock::new(None));
     assert_eq!(footprint.len(), 0);
     assert!(footprint.iter().next().is_none());
-    assert!(acquire(&locks, &footprint).is_empty());
+    assert_eq!(locks.acquire(&footprint).iter().len(), 0);
     for pass in 0..3 {
-        for index in (0..SHARDS).rev() {
+        for (index, shard) in ShardIndex::all().enumerate().rev() {
+            assert_eq!(shard.position(), index);
             let write = pass == 1 && index % 3 == 0;
-            footprint.insert(index, write);
-            add_lock_request(&mut reference, index, write);
+            footprint.insert(shard, write);
+            add_lock_request(&mut reference, shard, write);
             assert_eq!(footprint.len(), reference.len());
             assert_eq!(
-                footprint.iter().collect::<Vec<_>>(),
+                footprint
+                    .iter()
+                    .map(|(index, write)| (index.position(), write))
+                    .collect::<Vec<_>>(),
                 reference.iter().map(|(i, w)| (*i, *w)).collect::<Vec<_>>()
             );
         }
     }
-    let guards = acquire(&locks, &footprint);
-    assert_eq!(guards.len(), reference.len());
-    for ((index, guard), (expected, write)) in guards.iter().zip(&reference) {
-        assert_eq!(index, expected);
-        assert_eq!(matches!(guard, Guard::Write(_)), *write);
-        assert_eq!(locks[*index].try_read().is_none(), *write);
-        assert!(locks[*index].try_write().is_none());
+    let mut guards = locks.acquire(&footprint);
+    assert_eq!(guards.iter().len(), reference.len());
+    assert_eq!(
+        guards
+            .writes()
+            .map(|(index, _)| index.position())
+            .collect::<Vec<_>>(),
+        reference
+            .iter()
+            .filter_map(|(index, write)| write.then_some(*index))
+            .collect::<Vec<_>>()
+    );
+    for (index, value) in guards.writes_mut() {
+        *value = Some(index.position());
+    }
+    for ((index, value), (expected, write)) in guards.iter().zip(&reference) {
+        assert_eq!(index.position(), *expected);
+        assert_eq!(*value, write.then_some(*expected));
+        assert_eq!(guards.get(index), Some(value));
+        assert_eq!(locks.at(index).try_read().is_none(), *write);
+        assert!(locks.at(index).try_write().is_none());
     }
     drop(guards);
-    assert!(locks.iter().all(|lock| lock.try_write().is_some()));
+    for (index, lock) in locks.iter().enumerate() {
+        assert_eq!(
+            *lock.try_write().unwrap(),
+            reference[&index].then_some(index)
+        );
+    }
 }
 
 #[test]
@@ -145,7 +170,9 @@ fn shard_identities(store: &Store) -> BTreeMap<usize, Byte32> {
         let mut bytes = [0; 32];
         bytes[..4].copy_from_slice(&nonce.to_be_bytes());
         let hash = Byte32::new(bytes);
-        identities.entry(store.owner_shard(&hash)).or_insert(hash);
+        identities
+            .entry(store.owner_shard(&hash).position())
+            .or_insert(hash);
         if identities.len() == SHARDS {
             return identities;
         }
@@ -295,7 +322,11 @@ fn owner_preflight_preserves_shard_order_between_collision_and_counter_errors() 
             None,
         )
         .unwrap();
-        store.shards[*exhausted.0].write().revision = u64::MAX;
+        store
+            .shards
+            .at(store.owner_shard(exhausted.1))
+            .write()
+            .revision = u64::MAX;
         let before = store.capture_all();
         let result = store.apply(plan);
         if collision_first {
@@ -1024,9 +1055,13 @@ fn remaining_counter_exhaustion_rejects_before_any_owner_or_notice_change() {
         insert(&store, waiting);
         match counter {
             "view counter" => store.view.write().revision = u64::MAX,
-            "owner revision" => store.shards[store.owner_shard(&hash)].write().revision = u64::MAX,
+            "owner revision" => {
+                store.shards.at(store.owner_shard(&hash)).write().revision = u64::MAX
+            }
             "accepted revision" => {
-                store.shards[store.owner_shard(&hash)]
+                store
+                    .shards
+                    .at(store.owner_shard(&hash))
                     .write()
                     .accepted_revision = u64::MAX
             }

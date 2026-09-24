@@ -324,7 +324,7 @@ fn assert_state(store: &Store, expected: &[Expected], wakes: &[DependencyKey]) {
     let mut actual_times = BTreeSet::new();
     let mut actual_waiting = 0;
     let mut actual_proposed = 0;
-    for shard in &store.shards {
+    for shard in store.shards.iter() {
         let shard = shard.read();
         for (hash, owner) in &shard.owners {
             assert!(
@@ -373,7 +373,7 @@ fn assert_state(store: &Store, expected: &[Expected], wakes: &[DependencyKey]) {
     );
     let mut actual_roles = BTreeMap::new();
     let mut actual_wakes = BTreeSet::new();
-    for collection in &store.relations {
+    for collection in store.relations.iter() {
         for (key, relation) in collection.lock().iter() {
             let relation = relation.lock();
             let mut members: BTreeMap<_, _> = relation

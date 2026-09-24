@@ -1,7 +1,7 @@
 //! A decision owns its original observations, intended owner edits and notices.
 //! Tracked reads extend that decision; only Store can inspect its private state
 //! while validating and committing it.
-use super::{Captured, Roles, SHARDS, Store, WakePage};
+use super::{Captured, Roles, Shards, Store, WakePage};
 use crate::{
     authority::{
         model::{DependencyKey, Entry, Error, RelationKey},
@@ -32,8 +32,8 @@ pub(in crate::authority) struct ReadSet {
     pub(super) relations: BTreeMap<RelationKey, Option<Weak<()>>>,
     pub(super) peers: BTreeMap<PeerIndex, Option<Weak<()>>>,
     // Keep full-capture vectors out of ordinary sparse transaction read sets.
-    pub(super) all: Option<Box<[u64; SHARDS]>>,
-    pub(super) accepted: Option<Box<[u64; SHARDS]>>,
+    pub(super) all: Option<Box<Shards<u64>>>,
+    pub(super) accepted: Option<Box<Shards<u64>>>,
 }
 pub(super) fn same_weak<T>(a: &Option<Weak<T>>, b: &Option<Weak<T>>) -> bool {
     match (a, b) {

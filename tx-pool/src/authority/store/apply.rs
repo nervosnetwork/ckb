@@ -3,7 +3,7 @@
 use super::plan::LifecycleWrite;
 use super::{
     COMMITTED_HASH_CACHE_CAPACITY, CommitLocks, Edit, Guard, Peer, Plan, Relation, RelationMember,
-    Roles, SHARDS, Shard, Store, View, Wake, WakePage, acquire, compact_dependency,
+    Roles, SHARDS, Shard, ShardGuards, ShardIndex, Store, View, Wake, WakePage, compact_dependency,
     compact_relation, proposal_key,
 };
 use crate::authority::{
@@ -32,6 +32,8 @@ struct MemberChange<T> {
 // Unique owner hashes in order, each paired with its membership transition.
 type MemberChanges<T> = Vec<(Byte32, MemberChange<T>)>;
 
+type OwnerEdit<'a> = (ShardIndex, &'a Byte32, &'a Edit);
+
 /// Payload displaced by a committed cut. Keep it alive until all authority
 /// guards are released; dropping an owner can run caller-owned destructors.
 #[derive(Default)]
@@ -57,11 +59,30 @@ struct Application<'a> {
 /// Derive each owner transition's routed edits, projection changes and wake keys
 /// together. Original read observations add their guards at the Apply boundary.
 struct OwnerChanges<'a> {
-    owner_edits: Vec<(usize, &'a Byte32, &'a Edit)>,
+    owner_edits: Vec<OwnerEdit<'a>>,
     locks: CommitLocks,
     relation_changes: BTreeMap<RelationKey, MemberChanges<Roles>>,
     peer_changes: BTreeMap<PeerIndex, MemberChanges<bool>>,
 }
+/// Both passes visit exactly the same shard-major groups, including empty
+/// lifecycle write shards. ShardGuards fixes the order; derive supplies one
+/// write request for every routed edit before either pass can start.
+fn owner_edit_groups<'a, 'entry, T>(
+    mut edits: &'a [OwnerEdit<'entry>],
+    mut shards: impl Iterator<Item = (ShardIndex, T)>,
+) -> impl Iterator<Item = (T, &'a [OwnerEdit<'entry>])> {
+    std::iter::from_fn(move || {
+        let Some((index, shard)) = shards.next() else {
+            debug_assert!(edits.is_empty(), "every owner edit has a write guard");
+            return None;
+        };
+        let (group, rest) =
+            edits.split_at(edits.partition_point(|(edit_index, _, _)| *edit_index == index));
+        edits = rest;
+        Some((shard, group))
+    })
+}
+
 impl<'a> OwnerChanges<'a> {
     fn derive(
         store: &Store,
@@ -158,18 +179,9 @@ impl<'a> OwnerChanges<'a> {
         &self,
         store: &Store,
         plan: &Plan,
-        owners: &[(usize, Guard<'_, Shard>)],
+        owners: &ShardGuards<'_, Shard>,
     ) -> Result<(), Error> {
-        let mut remaining_edits = self.owner_edits.as_slice();
-        for (index, guard) in owners {
-            // Every edited shard has a write guard; read guards have no edits.
-            let Guard::Write(shard) = guard else {
-                continue;
-            };
-            let (edits, remaining) = remaining_edits.split_at(
-                remaining_edits.partition_point(|(edit_index, _, _)| edit_index == index),
-            );
-            remaining_edits = remaining;
+        for (shard, edits) in owner_edit_groups(&self.owner_edits, owners.writes()) {
             let changes = edits.len() as u64;
             let accepted_changes = edits
                 .iter()
@@ -205,10 +217,6 @@ impl<'a> OwnerChanges<'a> {
                 }
             }
         }
-        debug_assert!(
-            remaining_edits.is_empty(),
-            "every edited shard has a write guard"
-        );
         // Point readers may update different members under compatible
         // dependency gates; check the affected rows before any mutation.
         for (key, changes) in &self.relation_changes {
@@ -258,7 +266,7 @@ impl<'a> OwnerChanges<'a> {
         self,
         store: &Store,
         plan: &Plan,
-        owners: &mut [(usize, Guard<'_, Shard>)],
+        owners: &mut ShardGuards<'_, Shard>,
         snapshot: &Snapshot,
     ) -> Retired {
         let Self {
@@ -483,14 +491,12 @@ impl LifecycleWrite {
         &self,
         store: &Store,
         view: &mut Guard<'_, View>,
-        owners: &mut [(usize, Guard<'_, Shard>)],
+        owners: &mut ShardGuards<'_, Shard>,
         retired: &mut Retired,
         committed: Vec<(ProposalShortId, Byte32)>,
     ) {
-        for (_, guard) in owners {
-            if let Some(shard) = guard.get_mut() {
-                shard.refresh_proposed(&self.snapshot);
-            }
+        for (_, shard) in owners.writes_mut() {
+            shard.refresh_proposed(&self.snapshot);
         }
         if let Some(view) = view.get_mut() {
             retired.snapshot = Some(std::mem::replace(
@@ -595,9 +601,9 @@ impl<'a> Application<'a> {
         } else {
             Guard::Read(store.view.read())
         };
-        let peer_guards = acquire(&store.peer_gates, &changes.locks.peers);
-        let dependency_guards = acquire(&store.dependency_gates, &changes.locks.dependencies);
-        let mut owners = acquire(&store.shards, &changes.locks.owners);
+        let peer_guards = store.peer_gates.acquire(&changes.locks.peers);
+        let dependency_guards = store.dependency_gates.acquire(&changes.locks.dependencies);
+        let mut owners = store.shards.acquire(&changes.locks.owners);
         #[cfg(feature = "profiling")]
         drop(acquire_span);
         store.validate_original_cut(plan, &view, &owners)?;
@@ -714,7 +720,7 @@ impl Store {
         &self,
         plan: &Plan,
         view: &Guard<'_, View>,
-        owners: &[(usize, Guard<'_, Shard>)],
+        owners: &ShardGuards<'_, Shard>,
     ) -> Result<(), Error> {
         let lifecycle_write = plan.lifecycle.is_some();
         if view.get().revision != plan.view {
@@ -736,7 +742,7 @@ impl Store {
                 || plan.edits.len()
                     != owners
                         .iter()
-                        .map(|(_, guard)| guard.get().owners.len())
+                        .map(|(_, shard)| shard.owners.len())
                         .sum::<usize>())
         {
             return Err(Error::Fault("incomplete generation replacement"));
@@ -750,7 +756,7 @@ impl Store {
         &self,
         plan: &Plan,
         changes: &OwnerChanges<'_>,
-        owners: &[(usize, Guard<'_, Shard>)],
+        owners: &ShardGuards<'_, Shard>,
     ) -> Result<Instant, Error> {
         let now = Instant::now();
         if let Some((peer, expected)) = plan.peer_access
@@ -795,7 +801,7 @@ impl Store {
 
     /// Replace every projection while the lifecycle writer owns all shards.
     /// Return the displaced generation for destruction after guard release.
-    fn retire_generation(&self, owners: &mut [(usize, Guard<'_, Shard>)]) -> Retired {
+    fn retire_generation(&self, owners: &mut ShardGuards<'_, Shard>) -> Retired {
         let mut retired = Retired {
             _committed: Some(std::mem::replace(
                 &mut *self.committed.lock(),
@@ -805,12 +811,10 @@ impl Store {
         };
         retired.shards.reserve_exact(SHARDS);
         retired.relations.reserve_exact(SHARDS);
-        for (_, guard) in owners {
-            if let Some(shard) = guard.get_mut() {
-                retired.shards.push(std::mem::take(shard));
-            }
+        for (_, shard) in owners.writes_mut() {
+            retired.shards.push(std::mem::take(shard));
         }
-        for relations in &self.relations {
+        for relations in self.relations.iter() {
             retired
                 .relations
                 .push(std::mem::take(&mut *relations.lock()));
@@ -824,28 +828,16 @@ impl Store {
     /// Apply all owner-local indexes in shard order using the validated edits.
     fn apply_owner_changes(
         &self,
-        owners: &mut [(usize, Guard<'_, Shard>)],
-        edits: &[(usize, &Byte32, &Edit)],
+        owners: &mut ShardGuards<'_, Shard>,
+        edits: &[OwnerEdit<'_>],
         snapshot: &Snapshot,
         retired: &mut Vec<Arc<Entry>>,
     ) {
-        let mut remaining_edits = edits;
-        for (index, guard) in owners {
-            let Some(shard) = guard.get_mut() else {
-                continue;
-            };
-            let (edits, remaining) = remaining_edits.split_at(
-                remaining_edits.partition_point(|(edit_index, _, _)| edit_index == index),
-            );
-            remaining_edits = remaining;
+        for (shard, edits) in owner_edit_groups(edits, owners.writes_mut()) {
             for (_, hash, edit) in edits.iter().copied() {
                 shard.apply_edit(hash, edit, snapshot, &self.queues, retired);
             }
         }
-        debug_assert!(
-            remaining_edits.is_empty(),
-            "preflight covered every owner edit"
-        );
     }
 
     /// Maintain peer membership and its observation marker as one projection.
@@ -890,10 +882,6 @@ impl Store {
             .or_insert(deadline);
     }
 
-    #[expect(
-        clippy::indexing_slicing,
-        reason = "Keyed routing modulo SHARDS indexes fixed arrays of exactly SHARDS buckets."
-    )]
     fn apply_relation(
         &self,
         key: RelationKey,
@@ -901,7 +889,7 @@ impl Store {
         edits: &BTreeMap<Byte32, Edit>,
         wake: &BTreeSet<DependencyKey>,
     ) {
-        let mut collection = self.relations[self.route(&key)].lock();
+        let mut collection = self.relations.at(self.route(&key)).lock();
         let row = collection
             .entry(key.clone())
             .or_insert_with(|| Arc::new(Mutex::new(Relation::default())));
@@ -974,13 +962,9 @@ impl Store {
             collection.remove(&key);
         }
     }
-    #[expect(
-        clippy::indexing_slicing,
-        reason = "Keyed routing modulo SHARDS indexes fixed arrays of exactly SHARDS buckets."
-    )]
     pub(super) fn start_wake(&self, key: &DependencyKey) {
         let relation_key = RelationKey::Dependency(key.clone());
-        let collection = self.relations[self.route(&relation_key)].lock();
+        let collection = self.relations.at(self.route(&relation_key)).lock();
         let Some(row) = collection.get(&relation_key) else {
             return;
         };
@@ -1011,13 +995,9 @@ impl Store {
             self.dirty.lock().insert(compact_dependency(key));
         }
     }
-    #[expect(
-        clippy::indexing_slicing,
-        reason = "Keyed routing modulo SHARDS indexes fixed arrays of exactly SHARDS buckets."
-    )]
     fn advance_wake(&self, page: &WakePage) {
         let key = RelationKey::Dependency(page.key.clone());
-        let mut collection = self.relations[self.route(&key)].lock();
+        let mut collection = self.relations.at(self.route(&key)).lock();
         let Some(row) = collection.get(&key) else {
             // Preflight validated the row; this commit retired its last member.
             return;

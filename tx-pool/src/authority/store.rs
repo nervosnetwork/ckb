@@ -3,9 +3,13 @@
 //! guard release and retirement together.
 mod apply;
 mod plan;
+mod shards;
 
 use plan::same_weak;
 pub(super) use plan::{Edit, Plan, ReadSet};
+use shards::{
+    Guard, LockFootprint, Routing, SHARDS, ShardGuards, ShardIndex, Shards, proposal_key,
+};
 
 use super::{
     budget::{Amount, Budget, Limits},
@@ -22,10 +26,10 @@ use ckb_types::{
     packed::{Byte32, OutPoint, ProposalShortId},
     prelude::*,
 };
-use ckb_util::parking_lot::{Mutex, RwLock, RwLockReadGuard, RwLockWriteGuard};
+use ckb_util::parking_lot::{Mutex, RwLock};
 use std::{
-    collections::{BTreeMap, BTreeSet, hash_map::RandomState},
-    hash::{BuildHasher, Hash, Hasher},
+    collections::{BTreeMap, BTreeSet},
+    hash::Hash,
     ops::Bound::{Excluded, Unbounded},
     sync::{
         Arc, Weak,
@@ -46,7 +50,6 @@ mod transition_tests;
 #[cfg(test)]
 type CommitObserver = Arc<dyn Fn(&Plan, bool) + Send + Sync>;
 
-pub(super) const SHARDS: usize = 256;
 const WAKE_PAGE: usize = 32;
 const COMMITTED_HASH_CACHE_CAPACITY: usize = 100_000;
 
@@ -254,15 +257,15 @@ pub(super) struct Store {
     #[cfg(test)]
     pub(super) admission_attempts: AtomicU64,
     view: RwLock<View>,
-    shards: [RwLock<Shard>; SHARDS],
-    relations: [Mutex<BTreeMap<RelationKey, Arc<Mutex<Relation>>>>; SHARDS],
-    dependency_gates: [RwLock<()>; SHARDS],
-    peer_gates: [RwLock<()>; SHARDS],
+    shards: Shards<RwLock<Shard>>,
+    relations: Shards<Mutex<BTreeMap<RelationKey, Arc<Mutex<Relation>>>>>,
+    dependency_gates: Shards<RwLock<()>>,
+    peer_gates: Shards<RwLock<()>>,
     peers: Mutex<BTreeMap<PeerIndex, Arc<Mutex<Peer>>>>,
     bans: Mutex<BTreeMap<PeerIndex, Instant>>,
     committed: Mutex<lru::LruCache<ProposalShortId, Byte32>>,
     dirty: Mutex<BTreeSet<DependencyKey>>,
-    routing: RandomState,
+    routing: Routing,
     arrival: AtomicU64,
     stopped: AtomicBool,
     chain_pending: AtomicBool,
@@ -287,71 +290,6 @@ impl Drop for ChainPause<'_> {
         self.0.changed.notify_waiters();
     }
 }
-enum Guard<'a, T> {
-    Read(RwLockReadGuard<'a, T>),
-    Write(RwLockWriteGuard<'a, T>),
-}
-impl<T> Guard<'_, T> {
-    fn get(&self) -> &T {
-        match self {
-            Self::Read(g) => g,
-            Self::Write(g) => g,
-        }
-    }
-    fn get_mut(&mut self) -> Option<&mut T> {
-        match self {
-            Self::Read(_) => None,
-            Self::Write(g) => Some(g),
-        }
-    }
-}
-/// Shard lock footprint: present bits select shards; write bits only upgrade.
-#[derive(Default)]
-struct LockFootprint {
-    present: [u64; SHARDS.div_ceil(64)],
-    write: [u64; SHARDS.div_ceil(64)],
-}
-impl LockFootprint {
-    #[expect(
-        clippy::indexing_slicing,
-        reason = "LockFootprint indices come only from keyed routing modulo SHARDS or the complete 0..SHARDS range."
-    )]
-    fn insert(&mut self, index: usize, write: bool) {
-        let bit = 1_u64 << (index % 64);
-        self.present[index / 64] |= bit;
-        if write {
-            self.write[index / 64] |= bit;
-        }
-    }
-    fn len(&self) -> usize {
-        self.present
-            .iter()
-            .map(|word| word.count_ones() as usize)
-            .sum()
-    }
-    #[expect(
-        clippy::arithmetic_side_effects,
-        reason = "Only a nonzero word is decremented; its bit is below 64 and the word offset is bounded by the fixed shard array."
-    )]
-    fn iter(&self) -> impl Iterator<Item = (usize, bool)> + '_ {
-        self.present
-            .iter()
-            .zip(&self.write)
-            .enumerate()
-            .flat_map(|(word, (&present, &write))| {
-                let mut remaining = present;
-                std::iter::from_fn(move || {
-                    if remaining == 0 {
-                        return None;
-                    }
-                    let bit = remaining.trailing_zeros() as usize;
-                    remaining &= remaining - 1;
-                    Some((word * 64 + bit, write & (1_u64 << bit) != 0))
-                })
-            })
-    }
-}
-
 /// Guard support for one decision. Tracked reads use the same routing in Apply
 /// and guarded publication; owner writes and lifecycle work extend Apply's
 /// footprint. Write requests only upgrade reads, and each family is acquired
@@ -383,7 +321,7 @@ impl CommitLocks {
             self.owners.insert(store.owner_shard(hash), false);
         }
         if all.is_some() || accepted.is_some() {
-            for index in 0..SHARDS {
+            for index in ShardIndex::all() {
                 self.owners.insert(index, false);
             }
         }
@@ -405,7 +343,7 @@ impl CommitLocks {
         if plan.lifecycle.is_some() {
             // The lifecycle writer already excludes ordinary commits. Refresh
             // proposal counts for unchanged owners in the same snapshot cut.
-            for index in 0..SHARDS {
+            for index in ShardIndex::all() {
                 self.owners.insert(index, true);
             }
         }
@@ -429,50 +367,6 @@ impl CommitLocks {
     }
 }
 
-/// Acquire each requested shard exactly once in ascending order; writes dominate
-/// reads. Both guarded lookup and Apply's shard-major edit passes rely on this
-/// order, which also prevents cycles within a lock family.
-#[expect(
-    clippy::indexing_slicing,
-    reason = "LockFootprint indices come only from keyed routing modulo SHARDS or the complete 0..SHARDS range."
-)]
-fn acquire<'a, T>(
-    locks: &'a [RwLock<T>; SHARDS],
-    footprint: &LockFootprint,
-) -> Vec<(usize, Guard<'a, T>)> {
-    let mut guards = Vec::with_capacity(footprint.len());
-    for (index, write) in footprint.iter() {
-        debug_assert!(guards.last().is_none_or(|(previous, _)| *previous < index));
-        guards.push((
-            index,
-            if write {
-                Guard::Write(locks[index].write())
-            } else {
-                Guard::Read(locks[index].read())
-            },
-        ));
-    }
-    guards
-}
-
-/// `acquire` returns guards in shard order, independent of the caller's key order.
-fn guarded_shard<'a>(guards: &'a [(usize, Guard<'_, Shard>)], index: usize) -> Option<&'a Shard> {
-    guards
-        .binary_search_by_key(&index, |(index, _)| *index)
-        .ok()
-        .and_then(|position| guards.get(position))
-        .map(|(_, guard)| guard.get())
-}
-
-#[expect(
-    clippy::expect_used,
-    reason = "A valid Byte32 has 32 bytes, so its 10-byte proposal prefix always exists."
-)]
-fn proposal_key(hash: &Byte32) -> &[u8; ProposalShortId::TOTAL_SIZE] {
-    hash.as_slice()
-        .first_chunk()
-        .expect("a transaction hash contains a proposal ID")
-}
 fn compact_dependency(key: &DependencyKey) -> DependencyKey {
     match key {
         DependencyKey::Cell(point) => DependencyKey::Cell(compact_packed(point)),
@@ -507,15 +401,15 @@ impl Store {
                 snapshot,
                 revision: 0,
             }),
-            shards: std::array::from_fn(|_| RwLock::new(Shard::default())),
-            relations: std::array::from_fn(|_| Mutex::new(BTreeMap::new())),
-            dependency_gates: std::array::from_fn(|_| RwLock::new(())),
-            peer_gates: std::array::from_fn(|_| RwLock::new(())),
+            shards: Shards::new(|| RwLock::new(Shard::default())),
+            relations: Shards::new(|| Mutex::new(BTreeMap::new())),
+            dependency_gates: Shards::new(|| RwLock::new(())),
+            peer_gates: Shards::new(|| RwLock::new(())),
             peers: Mutex::new(BTreeMap::new()),
             bans: Mutex::new(BTreeMap::new()),
             committed: Mutex::new(lru::LruCache::new(COMMITTED_HASH_CACHE_CAPACITY)),
             dirty: Mutex::new(BTreeSet::new()),
-            routing: RandomState::new(),
+            routing: Routing::default(),
             arrival: AtomicU64::new(0),
             stopped: AtomicBool::new(false),
             chain_pending: AtomicBool::new(false),
@@ -528,15 +422,13 @@ impl Store {
             work: Notify::new(),
         }))
     }
-    fn route<T: Hash + ?Sized>(&self, key: &T) -> usize {
-        (self.routing.hash_one(key) as usize) % SHARDS
+    fn route<T: Hash + ?Sized>(&self, key: &T) -> ShardIndex {
+        self.routing.key(key)
     }
-    fn owner_shard(&self, hash: &Byte32) -> usize {
-        // Packed ProposalShortId hashes raw bytes, without a slice-length prefix.
-        let mut hasher = self.routing.build_hasher();
-        hasher.write(proposal_key(hash));
-        (hasher.finish() as usize) % SHARDS
+    fn owner_shard(&self, hash: &Byte32) -> ShardIndex {
+        self.routing.owner(hash)
     }
+
     pub(super) fn begin_chain(&self) -> Result<ChainPause<'_>, Error> {
         self.chain_pending
             .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
@@ -580,9 +472,8 @@ impl Store {
         self.stopped.load(Ordering::Acquire)
     }
     #[expect(
-        clippy::indexing_slicing,
         clippy::arithmetic_side_effects,
-        reason = "The cursor is checked below SHARDS; counters advance only within the bounded scan."
+        reason = "The cursor and scan count advance only within the bounded scan."
     )]
     pub(super) fn next_missing(&self, cursor: &mut MissingCursor, maximum: usize) -> MissingPage {
         use std::ops::Bound::{Excluded, Unbounded};
@@ -591,8 +482,8 @@ impl Store {
             *cursor = MissingCursor::new(view.revision);
         }
         let mut scanned = 0;
-        while cursor.shard < SHARDS {
-            let shard = self.shards[cursor.shard].read();
+        while let Some(shard) = self.shards.at_position(cursor.shard) {
+            let shard = shard.read();
             let lower = cursor.after.as_ref().map_or(Unbounded, Excluded);
             for (hash, entry) in shard.owners.range((lower, Unbounded)) {
                 cursor.after = Some(hash.clone());
@@ -617,13 +508,9 @@ impl Store {
             .is_some_and(|until| *until > Instant::now())
     }
 
-    #[expect(
-        clippy::indexing_slicing,
-        reason = "Keyed routing modulo SHARDS indexes fixed arrays of exactly SHARDS buckets."
-    )]
     pub(super) fn point(&self, hash: &Byte32) -> (Arc<Snapshot>, Option<Arc<Entry>>) {
         let view = self.view.read();
-        let shard = self.shards[self.owner_shard(hash)].read();
+        let shard = self.shards.at(self.owner_shard(hash)).read();
         (Arc::clone(&view.snapshot), shard.owners.get(hash).cloned())
     }
 
@@ -633,11 +520,12 @@ impl Store {
             footprint.insert(self.owner_shard(hash), false);
         }
         let _view = self.view.read();
-        let owners = acquire(&self.shards, &footprint);
+        let owners = self.shards.acquire(&footprint);
         hashes
             .iter()
             .filter_map(|hash| {
-                guarded_shard(&owners, self.owner_shard(hash))
+                owners
+                    .get(self.owner_shard(hash))
                     .and_then(|shard| shard.owners.get(hash))
                     .cloned()
             })
@@ -655,9 +543,10 @@ impl Store {
             footprint.insert(self.route(id), false);
         }
         let _view = self.view.read();
-        let owners = acquire(&self.shards, &footprint);
+        let owners = self.shards.acquire(&footprint);
         ids.retain(|id| {
-            guarded_shard(&owners, self.route(id))
+            owners
+                .get(self.route(id))
                 .and_then(|shard| shard.proposal(id))
                 .is_none()
         });
@@ -681,12 +570,12 @@ impl Store {
             footprint.insert(self.route(id), false);
         }
         let view = self.view.read();
-        let owners = acquire(&self.shards, &footprint);
+        let owners = self.shards.acquire(&footprint);
         let mut live = Vec::with_capacity(ids.len());
         let mut committed = Vec::with_capacity(ids.len());
         let cache = self.committed.lock();
         for id in ids {
-            let shard = guarded_shard(&owners, self.route(id));
+            let shard = owners.get(self.route(id));
             if let Some(entry) = shard.and_then(|shard| shard.proposal(id)) {
                 live.push((id.clone(), Arc::clone(entry)));
             } else if let Some(hash) = cache.peek(id) {
@@ -696,10 +585,6 @@ impl Store {
         (Arc::clone(&view.snapshot), live, committed)
     }
 
-    #[expect(
-        clippy::indexing_slicing,
-        reason = "Keyed routing modulo SHARDS indexes fixed arrays of exactly SHARDS buckets."
-    )]
     pub(super) fn live_cell(
         &self,
         point: &OutPoint,
@@ -711,8 +596,8 @@ impl Store {
         };
         let view = self.view.read();
         let key = RelationKey::Dependency(DependencyKey::Cell(point.clone()));
-        let _dependency = self.dependency_gates[self.route(&key)].read();
-        let shard = self.shards[self.owner_shard(&point.tx_hash())].read();
+        let _dependency = self.dependency_gates.at(self.route(&key)).read();
+        let shard = self.shards.at(self.owner_shard(&point.tx_hash())).read();
         let snapshot = Arc::clone(&view.snapshot);
         if self
             .relation(&key)
@@ -747,17 +632,15 @@ impl Store {
         )
     }
 
-    #[expect(
-        clippy::indexing_slicing,
-        reason = "Keyed routing modulo SHARDS indexes fixed arrays of exactly SHARDS buckets."
-    )]
     pub(super) fn get(
         &self,
         hash: &Byte32,
         reads: &mut ReadSet,
     ) -> Result<Option<Arc<Entry>>, Error> {
         let _view = self.view.read();
-        let entry = self.shards[self.owner_shard(hash)]
+        let entry = self
+            .shards
+            .at(self.owner_shard(hash))
             .read()
             .owners
             .get(hash)
@@ -767,10 +650,6 @@ impl Store {
     }
     /// Copy one bounded pool cell while its producer still owns its complete
     /// payload charge. No provider or foreign code is called under this read.
-    #[expect(
-        clippy::indexing_slicing,
-        reason = "Keyed routing modulo SHARDS indexes fixed arrays of exactly SHARDS buckets."
-    )]
     pub(super) fn pool_cell(
         &self,
         point: &OutPoint,
@@ -779,7 +658,7 @@ impl Store {
     ) -> Result<Option<ckb_types::core::cell::CellMeta>, Error> {
         use ckb_types::{bytes::Bytes, core::cell::CellMetaBuilder};
         let _view = self.view.read();
-        let shard = self.shards[self.owner_shard(&point.tx_hash())].read();
+        let shard = self.shards.at(self.owner_shard(&point.tx_hash())).read();
         let owner = shard.owners.get(&point.tx_hash());
         reads.observe_owner(&point.tx_hash(), owner)?;
         let Some(owner) = owner.filter(|entry| entry.accepted().is_some()) else {
@@ -806,12 +685,8 @@ impl Store {
                 .build(),
         ))
     }
-    #[expect(
-        clippy::indexing_slicing,
-        reason = "Keyed routing modulo SHARDS indexes fixed arrays of exactly SHARDS buckets."
-    )]
     fn relation(&self, key: &RelationKey) -> Option<Arc<Mutex<Relation>>> {
-        self.relations[self.route(key)].lock().get(key).cloned()
+        self.relations.at(self.route(key)).lock().get(key).cloned()
     }
     pub(super) fn spender(
         &self,
@@ -903,8 +778,8 @@ impl Store {
             tracing::trace_span!(target: "ckb_tx_pool_profile", "tx_pool.authority.capture")
                 .entered();
         let view = self.view.read();
-        let guards = self.shards.each_ref().map(RwLock::read);
-        let versions = guards.each_ref().map(|shard| {
+        let guards = self.shards.read_all();
+        let versions = guards.map(|shard| {
             if accepted_only {
                 shard.accepted_revision
             } else {
@@ -939,18 +814,18 @@ impl Store {
     /// membership update holds an owner writer, so these read guards stabilize
     /// the existing relation rows too. Caller owns a bounded read/capture slot.
     #[expect(
-        clippy::indexing_slicing,
         clippy::arithmetic_side_effects,
-        reason = "Keyed routing indexes SHARDS guards; the cursor visits each captured owner once and cannot exceed the bounded Vec length."
+        reason = "The cursor visits each captured owner once and cannot exceed the bounded Vec length."
     )]
     pub(super) fn capture_descendants(
         &self,
         hash: &Byte32,
     ) -> Result<(Arc<Snapshot>, Vec<Arc<Entry>>), Error> {
         let view = self.view.read();
-        let guards = self.shards.each_ref().map(RwLock::read);
+        let guards = self.shards.read_all();
         let snapshot = Arc::clone(&view.snapshot);
-        let Some(root) = guards[self.owner_shard(hash)]
+        let Some(root) = guards
+            .at(self.owner_shard(hash))
             .owners
             .get(hash)
             .filter(|entry| entry.accepted().is_some())
@@ -965,7 +840,8 @@ impl Store {
                 let row = row.lock();
                 for (hash, member) in &row.members {
                     if member.roles.intersects(Roles::CHILD) && seen.insert(hash.clone()) {
-                        let child = guards[self.owner_shard(hash)]
+                        let child = guards
+                            .at(self.owner_shard(hash))
                             .owners
                             .get(hash)
                             .filter(|entry| entry.accepted().is_some())
@@ -986,7 +862,7 @@ impl Store {
             tracing::trace_span!(target: "ckb_tx_pool_profile", "tx_pool.authority.capture")
                 .entered();
         let view = self.view.read();
-        let guards = self.shards.each_ref().map(RwLock::read);
+        let guards = self.shards.read_all();
         Summary {
             snapshot: Arc::clone(&view.snapshot),
             accepted: self.budget.accepted_usage(),
@@ -1017,8 +893,8 @@ impl Store {
         }
         let locks = CommitLocks::for_reads(self, reads);
         let current = self.view.read();
-        let _dependencies = acquire(&self.dependency_gates, &locks.dependencies);
-        let owners = acquire(&self.shards, &locks.owners);
+        let _dependencies = self.dependency_gates.acquire(&locks.dependencies);
+        let owners = self.shards.acquire(&locks.owners);
         if self.is_faulted() {
             return Err(Error::Fault("closed generation"));
         }
@@ -1098,7 +974,7 @@ impl Store {
         }
         let _view = self.view.read();
         let mut result = Vec::new();
-        for shard in &self.shards {
+        for shard in self.shards.iter() {
             let shard = shard.read();
             for (_, hash) in shard.deadlines.iter().take_while(|(at, _)| *at <= now) {
                 if let Some(entry) = shard.owners.get(hash) {
@@ -1124,14 +1000,10 @@ impl Store {
         result
     }
 
-    #[expect(
-        clippy::indexing_slicing,
-        reason = "Guard indices originate from the same SHARDS-sized routing as revision arrays."
-    )]
     fn validate_reads(
         &self,
         reads: &ReadSet,
-        guards: &[(usize, Guard<'_, Shard>)],
+        guards: &ShardGuards<'_, Shard>,
     ) -> Result<(), Error> {
         let ReadSet {
             owners,
@@ -1142,19 +1014,20 @@ impl Store {
             accepted,
         } = reads;
         for (hash, expected) in owners {
-            let shard = guarded_shard(guards, self.owner_shard(hash))
+            let shard = guards
+                .get(self.owner_shard(hash))
                 .ok_or(Error::Fault("owner read support"))?;
             if !same_weak(expected, &shard.owners.get(hash).map(Arc::downgrade)) {
                 return Err(Error::Stale);
             }
         }
-        for (index, shard) in guards {
+        for (index, shard) in guards.iter() {
             if all
                 .as_ref()
-                .is_some_and(|versions| versions[*index] != shard.get().revision)
+                .is_some_and(|versions| *versions.at(index) != shard.revision)
                 || accepted
                     .as_ref()
-                    .is_some_and(|versions| versions[*index] != shard.get().accepted_revision)
+                    .is_some_and(|versions| *versions.at(index) != shard.accepted_revision)
             {
                 return Err(Error::Stale);
             }
