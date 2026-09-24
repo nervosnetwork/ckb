@@ -12,7 +12,7 @@ use super::{
     notice::{Batch, Class, Effect},
     packing::Selection,
     query,
-    queue::WorkStage,
+    queue::{WorkSelection, WorkStage},
     relay::production_authority_relay_mailbox,
     store::{Captured, Plan, ReadSet, Store},
     template::Driver,

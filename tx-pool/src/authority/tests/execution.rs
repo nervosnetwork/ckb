@@ -1361,7 +1361,11 @@ async fn claimed_worker_retains_rejection_under_remote_notice_pressure_while_tru
     pool.store
         .apply(ingress::prepare(&pool.store, Arc::new(remote.clone()), source).unwrap())
         .unwrap();
-    let mut job = pool.store.pop(WorkStage::Resolve, false).unwrap().unwrap();
+    let mut job = pool
+        .store
+        .pop(WorkStage::Resolve, WorkSelection::Any)
+        .unwrap()
+        .unwrap();
     let owner = Arc::clone(&job.entry);
     let mut reservations = Vec::new();
     for _ in 0..crate::constants::EFFECT_JOURNAL_REMOTE_MAX_BATCHES {
@@ -1529,12 +1533,21 @@ async fn selected_resolution_requeues_once_when_only_the_view_changes() {
     let (pool, _, _, _) = fixture();
     let original = entry(&pool.store, tx(4094), Source::Local);
     insert(&pool.store, Arc::clone(&original));
-    let mut selected = pool.store.pop(WorkStage::Resolve, false).unwrap().unwrap();
+    let mut selected = pool
+        .store
+        .pop(WorkStage::Resolve, WorkSelection::Any)
+        .unwrap()
+        .unwrap();
     let mut lifecycle = Plan::new(pool.store.snapshot().0, Class::Critical, Default::default());
     lifecycle.reset(pool.store.snapshot().1);
     pool.store.apply(lifecycle).unwrap();
     assert!(selected.current());
-    assert!(pool.store.pop(WorkStage::Resolve, false).unwrap().is_none());
+    assert!(
+        pool.store
+            .pop(WorkStage::Resolve, WorkSelection::Any)
+            .unwrap()
+            .is_none()
+    );
     let mut stale = Plan::new(selected.view, Class::Trusted, Default::default());
     stale
         .edit(Some(Arc::clone(&selected.entry)), None, None)
@@ -1542,10 +1555,19 @@ async fn selected_resolution_requeues_once_when_only_the_view_changes() {
     assert!(matches!(pool.store.apply(stale), Err(Error::Stale)));
     within(pool.requeue(&selected)).await.unwrap();
     selected.mark_handled();
-    let successor = pool.store.pop(WorkStage::Resolve, false).unwrap().unwrap();
+    let successor = pool
+        .store
+        .pop(WorkStage::Resolve, WorkSelection::Any)
+        .unwrap()
+        .unwrap();
     assert!(!Arc::ptr_eq(&successor.entry, &original));
     assert_eq!(successor.view, pool.store.snapshot().0);
-    assert!(pool.store.pop(WorkStage::Resolve, false).unwrap().is_none());
+    assert!(
+        pool.store
+            .pop(WorkStage::Resolve, WorkSelection::Any)
+            .unwrap()
+            .is_none()
+    );
     pool.store
         .apply(chain::clear(&pool.store, None, ClearScope::All).unwrap())
         .unwrap();
@@ -1560,7 +1582,11 @@ async fn requeue_retries_concurrent_chain_changes_even_during_stop() {
         let (pool, _, _, _) = fixture();
         let original = entry(&pool.store, tx(4095), remote(1, 1));
         insert(&pool.store, Arc::clone(&original));
-        let mut selected = pool.store.pop(WorkStage::Resolve, false).unwrap().unwrap();
+        let mut selected = pool
+            .store
+            .pop(WorkStage::Resolve, WorkSelection::Any)
+            .unwrap()
+            .unwrap();
         let applying = Arc::downgrade(&pool);
         let hash = original.hash();
         let attempts = std::sync::atomic::AtomicUsize::new(0);
@@ -1609,7 +1635,11 @@ async fn requeue_preserves_a_concurrent_successor_or_removal() {
         let (pool, _, _, _) = fixture();
         let original = entry(&pool.store, tx(4096), remote(1, 1));
         insert(&pool.store, Arc::clone(&original));
-        let mut selected = pool.store.pop(WorkStage::Resolve, false).unwrap().unwrap();
+        let mut selected = pool
+            .store
+            .pop(WorkStage::Resolve, WorkSelection::Any)
+            .unwrap()
+            .unwrap();
         let successor = if remove {
             None
         } else {
@@ -1944,7 +1974,11 @@ async fn missing_parent_wait_and_request_commit_together_after_notice_pressure()
     pool.store
         .apply(ingress::prepare(&pool.store, Arc::new(transaction.clone()), source).unwrap())
         .unwrap();
-    let mut job = pool.store.pop(WorkStage::Resolve, false).unwrap().unwrap();
+    let mut job = pool
+        .store
+        .pop(WorkStage::Resolve, WorkSelection::Any)
+        .unwrap()
+        .unwrap();
     let working = Arc::clone(&job.entry);
     let reservations: Vec<_> = (0..crate::constants::EFFECT_JOURNAL_REMOTE_MAX_BATCHES)
         .map(|_| {
@@ -2327,7 +2361,11 @@ async fn optional_history_pressure_preserves_local_and_owned_job_admission() {
         } else {
             let queued = candidate.with_phase(Phase::Verify(Arc::clone(verified.resolved())));
             insert(&pool.store, Arc::clone(&queued));
-            let mut job = pool.store.pop(WorkStage::Verify, false).unwrap().unwrap();
+            let mut job = pool
+                .store
+                .pop(WorkStage::Verify, WorkSelection::Any)
+                .unwrap()
+                .unwrap();
             assert!(Arc::ptr_eq(&job.entry, &queued));
             within(pool.accept_job(&job, &verified)).await.unwrap();
             job.mark_handled();
@@ -2427,7 +2465,11 @@ async fn public_queries_expose_acceptance_and_count_remaining_verification_work(
         Phase::Verify(Arc::clone(verified.resolved())),
     );
     assert_eq!(pool.pool_info().await.unwrap().verify_queue_size, 1);
-    let mut job = pool.store.pop(WorkStage::Verify, false).unwrap().unwrap();
+    let mut job = pool
+        .store
+        .pop(WorkStage::Verify, WorkSelection::Any)
+        .unwrap()
+        .unwrap();
     assert!(Arc::ptr_eq(&job.entry, &queued));
     assert_eq!(pool.pool_info().await.unwrap().verify_queue_size, 0);
     assert_eq!(

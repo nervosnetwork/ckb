@@ -490,7 +490,11 @@ fn active_peer_ban_survives_both_full_and_pipeline_clear() {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn proposal_promotion_reuses_exact_resolution_and_rechecks_original_producers() {
-    use super::super::{jobs, queue::WorkStage, store::Store};
+    use super::super::{
+        jobs,
+        queue::{WorkSelection, WorkStage},
+        store::Store,
+    };
     use crate::verification::ComputeMode;
     use ckb_script::ChunkCommand;
     use ckb_verification::cache::init_cache;
@@ -511,7 +515,10 @@ async fn proposal_promotion_reuses_exact_resolution_and_rechecks_original_produc
             panic!("funded transaction resolves");
         };
         let verifying = replace(&store, before, Phase::Verify(Arc::clone(&resolved)));
-        let active = store.pop(WorkStage::Verify, false).unwrap().unwrap();
+        let active = store
+            .pop(WorkStage::Verify, WorkSelection::Any)
+            .unwrap()
+            .unwrap();
         assert!(active.current());
         let obsolete_rejection = ingress::rejection(
             &store,
@@ -557,7 +564,10 @@ async fn proposal_promotion_reuses_exact_resolution_and_rechecks_original_produc
         drop(active);
         assert!(matches!(store.apply(obsolete_rejection), Err(Error::Stale)));
         assert!(!store.peer_banned(92.into()));
-        let mut next = store.pop(WorkStage::Verify, false).unwrap().unwrap();
+        let mut next = store
+            .pop(WorkStage::Verify, WorkSelection::Any)
+            .unwrap()
+            .unwrap();
         assert!(Arc::ptr_eq(&next.entry, &promoted));
         let (_sender, mut commands) = watch::channel(ChunkCommand::Resume);
         let result = jobs::verify(

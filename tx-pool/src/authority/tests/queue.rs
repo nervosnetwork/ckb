@@ -1,4 +1,4 @@
-use super::{Queues, WorkStage};
+use super::{Queues, WorkSelection, WorkStage};
 use crate::authority::{
     model::{Phase, RemoteOrigin, Source, Status},
     tests::common::{
@@ -32,12 +32,20 @@ fn each_queue_progresses_while_the_other_lane_is_held() {
             let store = &store;
             let task = scope.spawn(move || {
                 queues.insert(&queued);
-                let (selected, memory) = queues.pop(stage, false, &store.budget).unwrap().unwrap();
+                let (selected, memory) = queues
+                    .pop(stage, WorkSelection::Any, &store.budget)
+                    .unwrap()
+                    .unwrap();
                 assert!(Arc::ptr_eq(&selected, &queued));
                 drop(memory);
                 queues.insert(&queued);
                 queues.remove(&queued);
-                assert!(queues.pop(stage, false, &store.budget).unwrap().is_none());
+                assert!(
+                    queues
+                        .pop(stage, WorkSelection::Any, &store.budget)
+                        .unwrap()
+                        .is_none()
+                );
                 finished.send(()).unwrap();
             });
             // Completion while the other lane is still held establishes the
@@ -67,14 +75,24 @@ fn clearing_detaches_both_queues_and_allows_fresh_work() {
     assert_eq!(queues.queued_len(), 0);
     assert_eq!(retired.queued_len(), 2);
     for stage in [WorkStage::Resolve, WorkStage::Verify] {
-        assert!(queues.pop(stage, false, &store.budget).unwrap().is_none());
-        assert!(retired.pop(stage, false, &store.budget).unwrap().is_some());
+        assert!(
+            queues
+                .pop(stage, WorkSelection::Any, &store.budget)
+                .unwrap()
+                .is_none()
+        );
+        assert!(
+            retired
+                .pop(stage, WorkSelection::Any, &store.budget)
+                .unwrap()
+                .is_some()
+        );
     }
     assert_eq!(retired.queued_len(), 0);
     queues.insert(&resolving);
     assert_eq!(queues.queued_len(), 1);
     let (fresh, _) = queues
-        .pop(WorkStage::Resolve, false, &store.budget)
+        .pop(WorkStage::Resolve, WorkSelection::Any, &store.budget)
         .unwrap()
         .unwrap();
     assert!(Arc::ptr_eq(&fresh, &resolving));
@@ -116,10 +134,15 @@ fn both_phases_use_the_same_declared_cycle_boundary() {
                     original
                 };
                 queues.insert(&queued);
-                let small = queues.pop(stage, true, &store.budget).unwrap();
+                let small = queues
+                    .pop(stage, WorkSelection::SmallOnly, &store.budget)
+                    .unwrap();
                 assert_eq!(small.is_none(), large);
                 if large {
-                    let (selected, _) = queues.pop(stage, false, &store.budget).unwrap().unwrap();
+                    let (selected, _) = queues
+                        .pop(stage, WorkSelection::Any, &store.budget)
+                        .unwrap()
+                        .unwrap();
                     assert!(Arc::ptr_eq(&selected, &queued));
                 } else {
                     assert!(Arc::ptr_eq(&small.unwrap().0, &queued));
@@ -142,7 +165,7 @@ fn verification_queue_preserves_configured_arrival_and_fee_ordering() {
         queues.insert(&first);
         queues.insert(&second);
         let (selected, _) = queues
-            .pop(WorkStage::Verify, false, &store.budget)
+            .pop(WorkStage::Verify, WorkSelection::Any, &store.budget)
             .unwrap()
             .unwrap();
         assert_eq!(selected.hash(), tx(expected).hash());
@@ -162,7 +185,7 @@ fn fair_peer_selection_skips_an_ineligible_peer_and_preserves_the_small_lane() {
     assert_eq!(queues.queued_len(), 3);
     let _occupied = store.budget.active(remote(1, 1)).unwrap();
     let (selected, memory) = queues
-        .pop(WorkStage::Verify, true, &store.budget)
+        .pop(WorkStage::Verify, WorkSelection::SmallOnly, &store.budget)
         .unwrap()
         .unwrap();
     assert!(Arc::ptr_eq(&selected, &small));
@@ -170,13 +193,13 @@ fn fair_peer_selection_skips_an_ineligible_peer_and_preserves_the_small_lane() {
     drop(memory);
     assert!(
         queues
-            .pop(WorkStage::Verify, true, &store.budget)
+            .pop(WorkStage::Verify, WorkSelection::SmallOnly, &store.budget)
             .unwrap()
             .is_none()
     );
     assert_eq!(queues.queued_len(), 2);
     let (selected, _) = queues
-        .pop(WorkStage::Verify, false, &store.budget)
+        .pop(WorkStage::Verify, WorkSelection::Any, &store.budget)
         .unwrap()
         .unwrap();
     assert!(Arc::ptr_eq(&selected, &large));
@@ -207,7 +230,10 @@ fn queue_count_follows_exact_replacement_removal_and_stale_collection() {
         assert_eq!(queues.queued_len(), 1);
         queues.remove(&original);
         assert_eq!(queues.queued_len(), 1);
-        let (selected, memory) = queues.pop(stage, false, &store.budget).unwrap().unwrap();
+        let (selected, memory) = queues
+            .pop(stage, WorkSelection::Any, &store.budget)
+            .unwrap()
+            .unwrap();
         assert!(Arc::ptr_eq(&selected, &successor));
         assert_eq!(queues.queued_len(), 0);
         drop(memory);
@@ -221,7 +247,12 @@ fn queue_count_follows_exact_replacement_removal_and_stale_collection() {
         queues.insert(&stale);
         drop(stale);
         assert_eq!(queues.queued_len(), 1);
-        assert!(queues.pop(stage, false, &store.budget).unwrap().is_none());
+        assert!(
+            queues
+                .pop(stage, WorkSelection::Any, &store.budget)
+                .unwrap()
+                .is_none()
+        );
         assert_eq!(queues.queued_len(), 0);
         assert!(!store.budget.faulted());
     }
@@ -247,7 +278,10 @@ async fn global_active_refusal_preserves_both_queues_and_observes_an_early_relea
         }
         // Establish nonempty fairness cursors before filling shared capacity.
         for stage in [WorkStage::Resolve, WorkStage::Verify] {
-            let (selected, permit) = queues.pop(stage, false, &store.budget).unwrap().unwrap();
+            let (selected, permit) = queues
+                .pop(stage, WorkSelection::Any, &store.budget)
+                .unwrap()
+                .unwrap();
             queues.insert(&selected);
             drop(permit);
         }
@@ -263,7 +297,7 @@ async fn global_active_refusal_preserves_both_queues_and_observes_an_early_relea
         let changed = store.budget.changed.notified();
         for stage in [WorkStage::Resolve, WorkStage::Verify] {
             assert!(matches!(
-                queues.pop(stage, false, &store.budget),
+                queues.pop(stage, WorkSelection::Any, &store.budget),
                 Err(Error::Full(FullReason::Active))
             ));
         }
@@ -278,7 +312,10 @@ async fn global_active_refusal_preserves_both_queues_and_observes_an_early_relea
             .await
             .unwrap();
         for stage in [WorkStage::Resolve, WorkStage::Verify] {
-            let (selected, permit) = queues.pop(stage, false, &store.budget).unwrap().unwrap();
+            let (selected, permit) = queues
+                .pop(stage, WorkSelection::Any, &store.budget)
+                .unwrap()
+                .unwrap();
             assert!(owners.iter().any(|owner| Arc::ptr_eq(owner, &selected)));
             drop(permit);
         }

@@ -31,6 +31,19 @@ impl WorkStage {
     }
 }
 
+/// A worker's selection range. `Any` compares both queues by their normal key.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum WorkSelection {
+    SmallOnly,
+    Any,
+}
+
+#[derive(Clone, Copy)]
+enum SizeClass {
+    Small,
+    Large,
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
 enum WorkOwner {
     Trusted,
@@ -71,6 +84,22 @@ struct OwnerQueue {
     small: BTreeMap<Key, Weak<Entry>>,
     large: BTreeMap<Key, Weak<Entry>>,
 }
+impl OwnerQueue {
+    fn entries_mut(&mut self, size: SizeClass) -> &mut BTreeMap<Key, Weak<Entry>> {
+        match size {
+            SizeClass::Small => &mut self.small,
+            SizeClass::Large => &mut self.large,
+        }
+    }
+}
+
+struct Placement {
+    stage: WorkStage,
+    size: SizeClass,
+    owner: WorkOwner,
+    key: Key,
+}
+
 #[derive(Default)]
 struct Lane {
     owners: BTreeMap<WorkOwner, OwnerQueue>,
@@ -86,15 +115,17 @@ impl Lane {
         clippy::arithmetic_side_effects,
         reason = "Each successful removal owns one entry already included in the lane count."
     )]
-    fn remove(&mut self, owner: WorkOwner, large: bool, key: &Key, expected: Option<&Arc<Entry>>) {
+    fn remove(
+        &mut self,
+        owner: WorkOwner,
+        size: SizeClass,
+        key: &Key,
+        expected: Option<&Arc<Entry>>,
+    ) {
         let Some(queue) = self.owners.get_mut(&owner) else {
             return;
         };
-        let entries = if large {
-            &mut queue.large
-        } else {
-            &mut queue.small
-        };
+        let entries = queue.entries_mut(size);
         let matches = expected.is_none_or(|entry| {
             entries
                 .get(key)
@@ -150,7 +181,7 @@ impl Queues {
             WorkStage::Verify => &self.verify,
         }
     }
-    fn key(&self, entry: &Entry) -> Option<(WorkStage, bool, WorkOwner, Key)> {
+    fn placement(&self, entry: &Entry) -> Option<Placement> {
         let stage = WorkStage::for_phase(&entry.phase)?;
         let fee_and_size = match (&entry.phase, self.order) {
             (Phase::Verify(resolved), VerifyOrdering::FeeRate) => Some((
@@ -159,59 +190,72 @@ impl Queues {
             )),
             _ => None,
         };
-        let large = entry
+        let size = if entry
             .source
             .declared_cycles()
-            .is_some_and(|cycles| cycles > self.large_threshold);
+            .is_some_and(|cycles| cycles > self.large_threshold)
+        {
+            SizeClass::Large
+        } else {
+            SizeClass::Small
+        };
         let owner = entry
             .source
             .compute_peer()
             .map_or(WorkOwner::Trusted, WorkOwner::Peer);
-        Some((
+        Some(Placement {
             stage,
-            large,
+            size,
             owner,
-            Key {
+            key: Key {
                 source_priority: entry.source.priority(),
                 fee_and_size,
                 arrival: entry.arrival,
                 hash: entry.hash(),
             },
-        ))
+        })
     }
     #[expect(
         clippy::arithmetic_side_effects,
         reason = "The count grows only for a newly allocated map entry; live entries cannot exceed usize."
     )]
     pub(super) fn insert(&self, entry: &Arc<Entry>) {
-        let Some((stage, large, owner, key)) = self.key(entry) else {
+        let Some(Placement {
+            stage,
+            size,
+            owner,
+            key,
+        }) = self.placement(entry)
+        else {
             return;
         };
         let mut lane = self.lane(stage).lock();
         let queue = lane.owners.entry(owner).or_default();
-        let entries = if large {
-            &mut queue.large
-        } else {
-            &mut queue.small
-        };
+        let entries = queue.entries_mut(size);
         if entries.insert(key, Arc::downgrade(entry)).is_none() {
             lane.len += 1;
         }
     }
     pub(super) fn remove(&self, entry: &Arc<Entry>) {
-        let Some((stage, large, owner, key)) = self.key(entry) else {
+        let Some(Placement {
+            stage,
+            size,
+            owner,
+            key,
+        }) = self.placement(entry)
+        else {
             return;
         };
         self.lane(stage)
             .lock()
-            .remove(owner, large, &key, Some(entry));
+            .remove(owner, size, &key, Some(entry));
     }
     /// Active memory/peer capacity is reserved before removing the exact item.
     /// Neither this queue nor the budget mutex ever waits for an owner lock.
     pub(super) fn pop(
         &self,
         stage: WorkStage,
-        small_only: bool,
+        selection: WorkSelection,
         budget: &Arc<Budget>,
     ) -> Result<Option<(Arc<Entry>, ActivePermit)>, Error> {
         let mut lane = self.lane(stage).lock();
@@ -232,18 +276,19 @@ impl Queues {
                 let small = queue
                     .small
                     .first_key_value()
-                    .map(|(key, entry)| (false, key, entry));
-                let large = (!small_only)
-                    .then(|| queue.large.first_key_value())
-                    .flatten()
-                    .map(|(key, entry)| (true, key, entry));
+                    .map(|(key, entry)| (SizeClass::Small, key, entry));
+                let large = match selection {
+                    WorkSelection::SmallOnly => None,
+                    WorkSelection::Any => queue.large.first_key_value(),
+                }
+                .map(|(key, entry)| (SizeClass::Large, key, entry));
                 small
                     .into_iter()
                     .chain(large)
-                    .min_by(|a, b| a.1.cmp(b.1))
-                    .map(|(large, key, entry)| (large, key.clone(), entry.upgrade()))
+                    .min_by(|(_, a, _), (_, b, _)| a.cmp(b))
+                    .map(|(size, key, entry)| (size, key.clone(), entry.upgrade()))
             });
-            let Some((large, key, entry)) = selected else {
+            let Some((size, key, entry)) = selected else {
                 continue;
             };
             let selected = match entry {
@@ -256,7 +301,7 @@ impl Queues {
                 },
                 None => None,
             };
-            lane.remove(owner, large, &key, None);
+            lane.remove(owner, size, &key, None);
             if let Some(selected) = selected {
                 lane.cursor = Some(owner);
                 return Ok(Some(selected));

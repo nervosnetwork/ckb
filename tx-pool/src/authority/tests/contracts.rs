@@ -6,7 +6,7 @@ use super::super::{
         Resolved, Source, Status,
     },
     notice::Class,
-    queue::WorkStage,
+    queue::{WorkSelection, WorkStage},
     store::{Captured, Plan, ReadSet, Roles, Store},
 };
 use super::common::*;
@@ -410,14 +410,20 @@ fn uncompleted_current_job_faults_but_stale_job_cancellation_is_clean() {
     let store = store();
     let owner = entry(&store, tx(13), Source::Local);
     insert(&store, owner);
-    let job = store.pop(WorkStage::Resolve, false).unwrap().unwrap();
+    let job = store
+        .pop(WorkStage::Resolve, WorkSelection::Any)
+        .unwrap()
+        .unwrap();
     store
         .apply(chain::clear(&store, None, ClearScope::All).unwrap())
         .unwrap();
     drop(job);
     assert!(!store.is_faulted());
     insert(&store, entry(&store, tx(14), Source::Local));
-    let job = store.pop(WorkStage::Resolve, false).unwrap().unwrap();
+    let job = store
+        .pop(WorkStage::Resolve, WorkSelection::Any)
+        .unwrap()
+        .unwrap();
     drop(job);
     assert!(store.is_faulted());
 }
@@ -427,7 +433,10 @@ fn selected_job_cannot_consume_promoted_work() {
     let store = store();
     let owner = entry(&store, tx(15), remote(1, 1));
     insert(&store, Arc::clone(&owner));
-    let selected = store.pop(WorkStage::Resolve, false).unwrap().unwrap();
+    let selected = store
+        .pop(WorkStage::Resolve, WorkSelection::Any)
+        .unwrap()
+        .unwrap();
     let promoted = Arc::new(Entry {
         source: Source::Recovery,
         ..owner.as_ref().clone()
@@ -437,9 +446,17 @@ fn selected_job_cannot_consume_promoted_work() {
         .unwrap();
     store.apply(plan).unwrap();
     assert!(!selected.current());
-    let successor = store.pop(WorkStage::Resolve, false).unwrap().unwrap();
+    let successor = store
+        .pop(WorkStage::Resolve, WorkSelection::Any)
+        .unwrap()
+        .unwrap();
     assert!(Arc::ptr_eq(&successor.entry, &promoted));
-    assert!(store.pop(WorkStage::Resolve, false).unwrap().is_none());
+    assert!(
+        store
+            .pop(WorkStage::Resolve, WorkSelection::Any)
+            .unwrap()
+            .is_none()
+    );
     store.apply(delete(&store, promoted)).unwrap();
     drop((selected, successor));
     assert!(!store.is_faulted());
@@ -456,11 +473,24 @@ fn selection_and_identical_owner_edits_preserve_one_job_without_rewriting_facts(
         .edit(Some(Arc::clone(&owner)), Some(Arc::clone(&owner)), None)
         .unwrap();
     store.apply(unchanged.clone()).unwrap();
-    let job = store.pop(WorkStage::Resolve, false).unwrap().unwrap();
+    let job = store
+        .pop(WorkStage::Resolve, WorkSelection::Any)
+        .unwrap()
+        .unwrap();
     assert!(Arc::ptr_eq(&job.entry, &owner));
-    assert!(store.pop(WorkStage::Resolve, false).unwrap().is_none());
+    assert!(
+        store
+            .pop(WorkStage::Resolve, WorkSelection::Any)
+            .unwrap()
+            .is_none()
+    );
     store.apply(unchanged).unwrap();
-    assert!(store.pop(WorkStage::Resolve, false).unwrap().is_none());
+    assert!(
+        store
+            .pop(WorkStage::Resolve, WorkSelection::Any)
+            .unwrap()
+            .is_none()
+    );
     assert!(store.read_selected(view, &reads, || ()).is_ok());
     store.apply(delete(&store, owner)).unwrap();
     drop(job);
@@ -479,7 +509,10 @@ fn identical_owner_edit_still_rejects_a_stale_observation() {
         .unwrap();
     let successor = replace(&store, owner, Phase::Resolve);
     assert!(matches!(store.apply(unchanged), Err(Error::Stale)));
-    let selected = store.pop(WorkStage::Resolve, false).unwrap().unwrap();
+    let selected = store
+        .pop(WorkStage::Resolve, WorkSelection::Any)
+        .unwrap()
+        .unwrap();
     assert!(Arc::ptr_eq(&selected.entry, &successor));
     store.apply(delete(&store, successor)).unwrap();
     drop(selected);
@@ -511,7 +544,12 @@ fn chain_preparation_pauses_claims_and_owner_changes_until_release() {
     let store = store();
     insert(&store, entry(&store, tx(35), Source::Local));
     let pause = store.begin_chain().unwrap();
-    assert!(store.pop(WorkStage::Resolve, false).unwrap().is_none());
+    assert!(
+        store
+            .pop(WorkStage::Resolve, WorkSelection::Any)
+            .unwrap()
+            .is_none()
+    );
     let mut plan = Plan::new(store.snapshot().0, Class::Trusted, Default::default());
     plan.edit(None, Some(entry(&store, tx(36), Source::Local)), None)
         .unwrap();
@@ -520,7 +558,10 @@ fn chain_preparation_pauses_claims_and_owner_changes_until_release() {
         Err(Error::Full(FullReason::ChainTransition))
     ));
     drop(pause);
-    let mut selected = store.pop(WorkStage::Resolve, false).unwrap().unwrap();
+    let mut selected = store
+        .pop(WorkStage::Resolve, WorkSelection::Any)
+        .unwrap()
+        .unwrap();
     selected.mark_handled();
 }
 
@@ -612,7 +653,10 @@ fn worker_notifications_require_queued_work_or_returned_capacity() {
 
     let mut work = std::pin::pin!(store.work.notified());
     work.as_mut().enable();
-    let mut job = store.pop(WorkStage::Resolve, false).unwrap().unwrap();
+    let mut job = store
+        .pop(WorkStage::Resolve, WorkSelection::Any)
+        .unwrap()
+        .unwrap();
     assert!(work.as_mut().poll(&mut context).is_pending());
     assert!(capacity.as_mut().poll(&mut context).is_pending());
     assert!(maintenance.as_mut().poll(&mut context).is_pending());

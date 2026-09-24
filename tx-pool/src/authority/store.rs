@@ -16,7 +16,7 @@ use super::{
     jobs::Job,
     model::{DependencyKey, Entry, Error, FullReason, RelationKey},
     notice::Outbox,
-    queue::{Queues, WorkStage},
+    queue::{Queues, WorkSelection, WorkStage},
 };
 use crate::util::compact_packed;
 use ckb_app_config::TxPoolConfig;
@@ -920,7 +920,7 @@ impl Store {
     pub(super) fn pop(
         self: &Arc<Self>,
         stage: WorkStage,
-        small_only: bool,
+        selection: WorkSelection,
     ) -> Result<Option<Job>, Error> {
         if self.is_stopped() {
             return Ok(None);
@@ -928,7 +928,7 @@ impl Store {
         if self.chain_pending.load(Ordering::Acquire) {
             return Ok(None);
         }
-        let Some((entry, memory)) = self.queues.pop(stage, small_only, &self.budget)? else {
+        let Some((entry, memory)) = self.queues.pop(stage, selection, &self.budget)? else {
             return Ok(None);
         };
         // Pop released the lane. A concurrent successor owns its own queue

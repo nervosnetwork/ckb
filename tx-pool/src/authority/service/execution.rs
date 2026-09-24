@@ -144,13 +144,18 @@ impl Pool {
                     Err(Error::Closed) => return Ok(()),
                     Err(error) => return Err(error),
                 };
-                let small_only = primary_stage == WorkStage::Verify
+                let selection = if primary_stage == WorkStage::Verify
                     && index == 0
-                    && self.store.budget.limits.workers > 1;
+                    && self.store.budget.limits.workers > 1
+                {
+                    WorkSelection::SmallOnly
+                } else {
+                    WorkSelection::Any
+                };
                 let selected = match primary_stage {
-                    WorkStage::Resolve => self.store.pop(WorkStage::Resolve, false),
-                    WorkStage::Verify => match self.store.pop(WorkStage::Verify, small_only) {
-                        Ok(None) => self.store.pop(WorkStage::Resolve, small_only),
+                    WorkStage::Resolve => self.store.pop(WorkStage::Resolve, WorkSelection::Any),
+                    WorkStage::Verify => match self.store.pop(WorkStage::Verify, selection) {
+                        Ok(None) => self.store.pop(WorkStage::Resolve, selection),
                         selected => selected,
                     },
                 };
