@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.1.3](https://github.com/nervosnetwork/ckb/compare/ckb-chain-spec-v1.1.2...ckb-chain-spec-v1.1.3) - 2026-09-24
+
+### Fixed
+
+- prevent overflow in various calculations and add validation  (#5325) (by @chenyukang)
+
+### Contributors
+
+- @chenyukang
+
 ## [1.1.2](https://github.com/nervosnetwork/ckb/compare/ckb-chain-spec-v1.1.1...ckb-chain-spec-v1.1.2) - 2026-07-28
 
 ### Fixed
