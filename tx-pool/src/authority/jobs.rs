@@ -21,12 +21,11 @@ use ckb_types::{
         DepType, TransactionView,
         cell::{
             CellMeta, CellProvider, CellStatus, HeaderChecker, ResolvedDep, SYSTEM_CELL,
-            resolve_transaction,
+            parse_dep_group_data, resolve_transaction,
         },
         error::OutPointError,
     },
-    packed::{OutPoint, OutPointVec},
-    prelude::*,
+    packed::OutPoint,
 };
 use ckb_verification::{
     TxVerifyEnv,
@@ -381,11 +380,8 @@ fn missing(
             .mem_cell_data
             .as_ref()
             .ok_or_else(|| Reject::Resolve(OutPointError::InvalidDepGroup(point.clone())))?;
-        let members = OutPointVec::from_slice(data)
-            .map_err(|_| Reject::Resolve(OutPointError::InvalidDepGroup(point.clone())))?;
-        if members.is_empty() {
-            return Err(Reject::Resolve(OutPointError::InvalidDepGroup(point)));
-        }
+        let members = parse_dep_group_data(data)
+            .map_err(|_| Reject::Resolve(OutPointError::InvalidDepGroup(point)))?;
         edges = edges
             .checked_add(members.len())
             .filter(|count| *count <= provider.max_edges)

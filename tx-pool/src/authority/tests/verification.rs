@@ -7,6 +7,7 @@ use ckb_types::{
     bytes::Bytes,
     core::{Capacity, cell::ResolvedTransaction},
     packed::{CellDep, CellOutput, OutPoint, OutPointVec},
+    prelude::*,
 };
 use ckb_verification::cache::init_cache;
 
