@@ -180,7 +180,10 @@ fn accepted_partition_wins_a_defensive_recovery_duplicate() {
     .prepare_replay()
     .expect("replay input is prepared");
 
-    assert_eq!(transactions, vec![accepted, recovery_only]);
+    assert_eq!(
+        transactions.into_iter().collect::<Vec<_>>(),
+        vec![accepted, recovery_only]
+    );
 }
 
 #[test]
@@ -207,7 +210,10 @@ fn persistence_orders_legacy_and_recovery_bodies_without_reordering_accepted() {
         let prepared = load_persistence_snapshot(&config(&base))
             .and_then(PersistenceSnapshot::prepare_replay)
             .unwrap();
-        assert_eq!(&prepared[..2], &[parent.clone(), child.clone()]);
+        assert_eq!(
+            prepared.into_iter().take(2).collect::<Vec<_>>(),
+            vec![parent.clone(), child.clone()]
+        );
     }
     for snapshot in [
         PersistenceSnapshot {
@@ -223,6 +229,9 @@ fn persistence_orders_legacy_and_recovery_bodies_without_reordering_accepted() {
         let prepared = load_persistence_snapshot(&config(&base))
             .and_then(PersistenceSnapshot::prepare_replay)
             .unwrap();
-        assert_eq!(&prepared[..2], &[parent.clone(), child.clone()]);
+        assert_eq!(
+            prepared.into_iter().take(2).collect::<Vec<_>>(),
+            vec![parent.clone(), child.clone()]
+        );
     }
 }

@@ -8,6 +8,7 @@ use crate::{
         MESSAGE_CONCURRENCY_MULTIPLIER, PIPELINE_SHUTDOWN_TIMEOUT_SECONDS, SECONDS_PER_DAY,
     },
     network::{TxPoolNetwork, TxPoolNetworkHandle},
+    persisted::PreparedReplay,
     service::{
         AdministrationGate, CHAIN_CONTROL_CHANNEL_SIZE, ChainControl, ChainReorgPayloadLimit,
         DEFAULT_CHANNEL_SIZE, Message, TxPoolController, TxVerificationResultReceiver, process,
@@ -223,7 +224,7 @@ impl TxPoolServiceBuilder {
             Ok(Ok(snapshot)) => snapshot,
             Ok(Err(error)) => {
                 error!("failed to prepare tx-pool persistence: {error}");
-                Vec::new()
+                PreparedReplay::default()
             }
             Err(error) => {
                 error!("persistence loader failed to join: {error}");

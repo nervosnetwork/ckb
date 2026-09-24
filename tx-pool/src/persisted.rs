@@ -26,13 +26,27 @@ pub(crate) struct PersistenceSnapshot {
     pub(crate) recovery: Vec<TransactionView>,
 }
 
+/// Accepted-first replay input whose recovery partition has been ordered and
+/// deduplicated. Default represents no persisted input; replay consumes it once.
+#[derive(Default)]
+pub(crate) struct PreparedReplay(Vec<TransactionView>);
+
+impl IntoIterator for PreparedReplay {
+    type Item = TransactionView;
+    type IntoIter = std::vec::IntoIter<TransactionView>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        self.0.into_iter()
+    }
+}
+
 impl PersistenceSnapshot {
     /// Startup validates every persisted payload again. Accepted ownership
     /// wins a defensive full-hash duplicate. Recovery includes mid-reorg work
     /// and retained replacement history; neither bypasses admission on restart.
     /// Finish fallible input preparation before starting pool workers. A failed
     /// recovery attempt can then be discarded without faulting a live pool.
-    pub(crate) fn prepare_replay(mut self) -> Result<Vec<TransactionView>, AnyError> {
+    pub(crate) fn prepare_replay(mut self) -> Result<PreparedReplay, AnyError> {
         crate::dependency_sort::sort_transactions(&mut self.recovery)?;
         let mut seen = self
             .accepted
@@ -44,7 +58,7 @@ impl PersistenceSnapshot {
                 .into_iter()
                 .filter_map(|tx| seen.insert(tx.hash()).then_some(tx)),
         );
-        Ok(self.accepted)
+        Ok(PreparedReplay(self.accepted))
     }
 }
 

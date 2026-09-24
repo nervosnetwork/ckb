@@ -23,7 +23,7 @@ use crate::{
     block_assembler::{BlockAssembler, BoundedCandidateUncle},
     component::recent_reject::RecentReject,
     error::Reject,
-    persisted::{PersistenceSnapshot, write_snapshot},
+    persisted::{PersistenceSnapshot, PreparedReplay, write_snapshot},
     service::{
         BoundedTransaction, ChainControl, ChainReorgArgs, LocalRemovalCompetingProgress, Request,
         TxVerificationResult, respond,
@@ -758,7 +758,7 @@ impl Pool {
     )]
     pub(crate) async fn replay(
         &self,
-        transactions: Vec<TransactionView>,
+        transactions: PreparedReplay,
     ) -> Result<(usize, usize), AnyError> {
         let mut loaded = 0;
         let mut rejected = 0;
