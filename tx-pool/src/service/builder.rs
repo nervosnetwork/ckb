@@ -1,6 +1,6 @@
 //! Construction and joined ownership of the pool's fixed task population.
 use crate::{
-    authority::service::{Endpoints, Pool, RelaySink},
+    authority::service::{Endpoints, Error, Pool, RelaySink},
     block_assembler::{BlockAssembler, BoundedCandidateUncle},
     callback::{Callbacks, PendingCallback, ProposedCallback, RejectCallback},
     component::recent_reject::RecentReject,
@@ -31,7 +31,7 @@ use std::{
 };
 use tokio::{
     sync::{RwLock, mpsc},
-    task::JoinSet,
+    task::{JoinHandle, JoinSet},
 };
 use tokio_util::sync::CancellationToken;
 
@@ -245,9 +245,8 @@ impl TxPoolServiceBuilder {
             recent_reject,
             estimator,
         );
-        let (mut background, mut publisher) =
-            pool.start_background(&handle, endpoints, chain_receiver);
-        let mut publisher_joined = false;
+        let (mut background, publisher) = pool.start_background(&handle, endpoints, chain_receiver);
+        let mut publisher = Some(publisher);
         let mut queries = JoinSet::new();
         let startup_complete = {
             let replay = pool.replay(persisted);
@@ -276,8 +275,7 @@ impl TxPoolServiceBuilder {
                         pool.fault();
                         break false;
                     },
-                    result = &mut publisher => {
-                        publisher_joined = true;
+                    result = publisher_wait(&mut publisher) => {
                         error!("tx-pool publisher exited during replay: {result:?}");
                         pool.fault();
                         break false;
@@ -305,8 +303,7 @@ impl TxPoolServiceBuilder {
             loop {
                 tokio::select! {
                     _ = signal.cancelled() => break,
-                    result = &mut publisher, if !publisher_joined => {
-                        publisher_joined = true;
+                    result = publisher_wait(&mut publisher) => {
                         error!("tx-pool publisher exited before drain: {result:?}");
                         pool.fault();
                         break;
@@ -383,8 +380,8 @@ impl TxPoolServiceBuilder {
             while background.join_next().await.is_some() {}
         }
         pool.close_outbox();
-        if !publisher_joined {
-            match tokio::time::timeout(timeout, &mut publisher).await {
+        if publisher.is_some() {
+            match tokio::time::timeout(timeout, publisher_wait(&mut publisher)).await {
                 Ok(Ok(Ok(()))) => {}
                 Ok(result) => {
                     error!("tx-pool publisher failed while draining: {result:?}");
@@ -392,8 +389,10 @@ impl TxPoolServiceBuilder {
                 }
                 Err(_) => {
                     pool.fault();
-                    publisher.abort();
-                    let _ = publisher.await;
+                    if let Some(publisher) = &publisher {
+                        publisher.abort();
+                    }
+                    let _ = publisher_wait(&mut publisher).await;
                 }
             }
         }
@@ -407,5 +406,43 @@ impl TxPoolServiceBuilder {
             );
         }
         info!("TxPool service exited");
+    }
+}
+
+/// Never take the handle before awaiting: select/timeout cancellation must
+/// retain the join capability. Completion and clearing its slot cannot suspend.
+async fn publisher_wait(
+    publisher: &mut Option<JoinHandle<Result<(), Error>>>,
+) -> Result<Result<(), Error>, tokio::task::JoinError> {
+    let result = match publisher.as_mut() {
+        Some(handle) => handle.await,
+        None => std::future::pending().await,
+    };
+    *publisher = None;
+    result
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn cancelling_a_publisher_wait_preserves_its_join() {
+        let (release, held) = tokio::sync::oneshot::channel();
+        let mut publisher = Some(tokio::spawn(async move {
+            held.await.unwrap();
+            Ok(())
+        }));
+        {
+            let wait = publisher_wait(&mut publisher);
+            tokio::pin!(wait);
+            assert!(futures_util::poll!(wait).is_pending());
+        }
+        release.send(()).unwrap();
+        tokio::time::timeout(Duration::from_secs(5), publisher_wait(&mut publisher))
+            .await
+            .expect("the cancelled wait must leave a joinable publisher")
+            .unwrap()
+            .unwrap();
     }
 }
