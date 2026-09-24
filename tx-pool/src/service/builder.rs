@@ -22,6 +22,7 @@ use ckb_logger::{error, info, warn};
 use ckb_snapshot::Snapshot;
 use ckb_stop_handler::new_tokio_exit_rx;
 use ckb_verification::cache::TxVerificationCache;
+use futures_util::FutureExt;
 use std::{
     sync::{
         Arc,
@@ -248,68 +249,42 @@ impl TxPoolServiceBuilder {
         let (mut background, publisher) = pool.start_background(&handle, endpoints, chain_receiver);
         let mut publisher = Some(publisher);
         let mut queries = JoinSet::new();
-        let startup_complete = {
-            let replay = pool.replay(persisted);
+        let mut handlers = JoinSet::new();
+        let mut startup_complete = false;
+        {
+            // Completion releases replay immediately; leaving this scope on
+            // cancellation also drops its remaining payloads before draining.
+            let replay = pool.replay(persisted).fuse();
             tokio::pin!(replay);
-            // Replayed admissions publish callbacks too. Serve their bounded
-            // read channel while replay is waiting for those callbacks.
+            // Reserved reads remain live for replay's callbacks. Ordinary
+            // requests start only after replay has completed successfully.
             loop {
                 tokio::select! {
-                    result = &mut replay => {
-                        break match result {
+                    result = &mut replay, if !startup_complete => {
+                        match result {
                             Ok((loaded, rejected)) => {
                                 info!("Persistent tx-pool data loaded: {loaded} accepted, {rejected} rejected");
-                                true
+                                startup_complete = true;
+                                if signal.is_cancelled() || pool.is_faulted() {
+                                    break;
+                                }
+                                started.store(true, Ordering::Release);
                             }
                             Err(error) => {
                                 error!("tx-pool persistence replay failed: {error}");
                                 pool.fault();
-                                false
+                                break;
                             }
-                        };
-                    },
-                    _ = signal.cancelled() => break false,
-                    result = background.join_next() => {
-                        crate::metrics::record_failure(crate::metrics::FailureBoundary::WorkerExit);
-                        error!("tx-pool background task exited during replay: {result:?}");
-                        pool.fault();
-                        break false;
-                    },
-                    result = publisher_wait(&mut publisher) => {
-                        error!("tx-pool publisher exited during replay: {result:?}");
-                        pool.fault();
-                        break false;
-                    },
-                    result = queries.join_next(), if !queries.is_empty() => {
-                        if !matches!(result, Some(Ok(Ok(())))) {
-                            crate::metrics::record_failure(crate::metrics::FailureBoundary::HandlerUnwind);
-                            error!("tx-pool read handler failed during replay: {result:?}");
-                            pool.fault();
-                            break false;
                         }
                     },
-                    message = query_receiver.recv(), if queries.len() < READ_HANDLERS => match message {
-                        Some(message) => {
-                            queries.spawn(process(Arc::clone(&pool), message));
-                        },
-                        None => break false,
-                    },
-                }
-            }
-        };
-        let mut handlers = JoinSet::new();
-        if startup_complete && !signal.is_cancelled() && !pool.is_faulted() {
-            started.store(true, Ordering::Release);
-            loop {
-                tokio::select! {
                     _ = signal.cancelled() => break,
                     result = publisher_wait(&mut publisher) => {
                         error!("tx-pool publisher exited before drain: {result:?}");
                         pool.fault();
                         break;
                     },
-                    result = background.join_next(), if !background.is_empty() => {
-                        if !pool.is_stopped() {
+                    result = background.join_next() => {
+                        if !startup_complete || !pool.is_stopped() {
                             crate::metrics::record_failure(crate::metrics::FailureBoundary::WorkerExit);
                             error!("tx-pool background task exited: {result:?}");
                             pool.fault();
@@ -334,7 +309,7 @@ impl TxPoolServiceBuilder {
                             break;
                         }
                     },
-                    message = receiver.recv(), if handlers.len() < handler_limit => match message {
+                    message = receiver.recv(), if startup_complete && handlers.len() < handler_limit => match message {
                         Some(message) => {
                             handlers.spawn(process(Arc::clone(&pool), message));
                         },
