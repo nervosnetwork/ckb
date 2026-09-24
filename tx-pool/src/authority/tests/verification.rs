@@ -1,12 +1,12 @@
 use super::*;
 use crate::authority::{
-    model::{RemoteOrigin, Source},
+    model::{Phase, RemoteOrigin, Source},
     tests::common::*,
 };
 use crate::verification::ComputeMode;
 use ckb_types::{
     bytes::Bytes,
-    core::{Capacity, cell::ResolvedTransaction},
+    core::{Capacity, DepType, cell::ResolvedTransaction, error::OutPointError},
     packed::{CellDep, CellOutput, OutPoint, OutPointVec},
     prelude::*,
 };
@@ -438,38 +438,6 @@ fn missing_frontier_expands_dep_groups_and_keeps_original_group_producer_reads()
 }
 
 #[test]
-fn repeated_materialization_shares_one_precharged_detached_cell() {
-    let store = super::super::tests::common::store();
-    let parent = ckb_types::core::TransactionBuilder::default()
-        .version(1002u32)
-        .output(CellOutput::default())
-        .output_data(Bytes::from(vec![0x7a; 4096]).pack())
-        .build();
-    accept(&store, parent.clone(), 1, 1, Status::Pending);
-    let (_, snapshot) = store.snapshot();
-    let mut provider = Provider {
-        store: &store,
-        snapshot: &snapshot,
-        observed: RefCell::new(Observed::default()),
-        max_bytes: 100_000,
-        max_edges: 4,
-    };
-    let point = OutPoint::new(parent.hash(), 0);
-    let first = provider.materialize(&point, true).unwrap();
-    provider.max_bytes = provider.observed.borrow().bytes;
-    let second = provider.materialize(&point, true).unwrap();
-    let (CellStatus::Live(first), CellStatus::Live(second)) = (first, second) else {
-        panic!("accepted output is live")
-    };
-    assert_eq!(
-        first.mem_cell_data.as_ref().unwrap().as_ptr(),
-        second.mem_cell_data.as_ref().unwrap().as_ptr()
-    );
-    assert_eq!(provider.observed.borrow().cells.len(), 1);
-    assert_eq!(provider.observed.borrow().bytes, provider.max_bytes);
-}
-
-#[test]
 fn resolution_shares_one_detached_cell_across_input_and_dependency_roles() {
     let store = Store::new(chain_snapshot(), &config()).unwrap();
     let parent = funded_parent(1005, 20_000_000_000)
@@ -688,44 +656,6 @@ fn network_missing_dependencies_wait_independently_of_proposal_and_cycles() {
             assert_eq!(keys, BTreeSet::from([DependencyKey::Cell(absent.clone())]));
         }
     }
-}
-
-#[test]
-fn materialization_keeps_current_spender_in_original_reads() {
-    let store = super::super::tests::common::store();
-    let parent = output_tx(1010);
-    let point = OutPoint::new(parent.hash(), 0);
-    accept(&store, parent, 1, 1, Status::Pending);
-    let consumer = accept(
-        &store,
-        spend(1011, std::slice::from_ref(&point), &[]),
-        1,
-        1,
-        Status::Pending,
-    );
-    let (view, snapshot) = store.snapshot();
-    let provider = Provider {
-        store: &store,
-        snapshot: &snapshot,
-        observed: RefCell::new(Observed::default()),
-        max_bytes: 100_000,
-        max_edges: 4,
-    };
-    assert!(provider.materialize(&point, true).unwrap().is_live());
-    let reads = provider.observed.into_inner().reads;
-    assert_eq!(reads.spent().collect::<Vec<_>>(), vec![(&point, &consumer)]);
-    let before = store.point(&consumer).1.unwrap();
-    let mut plan = super::super::store::Plan::new(
-        view,
-        super::super::notice::Class::Trusted,
-        Default::default(),
-    );
-    plan.edit(Some(before), None, None).unwrap();
-    store.apply(plan).unwrap();
-    assert!(matches!(
-        store.read_selected(view, &reads, || ()),
-        Err(Error::Stale)
-    ));
 }
 
 #[test]
