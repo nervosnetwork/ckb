@@ -514,16 +514,15 @@ pub(super) fn admission(
     );
     plan.observe_owner(&candidate.hash(), before.as_ref())?;
     let mut graph = Graph::new(store, &mut plan);
-    let outcome = AdmissionDecision::prepare(&mut graph, &snapshot, candidate, verified, config)
-        .and_then(|decision| {
-            decision.append_to_plan(
-                &mut graph,
-                &snapshot,
-                before.clone(),
-                config,
-                retain_history,
-            )
-        });
+    let outcome = prepare_admission(
+        &mut graph,
+        &snapshot,
+        candidate,
+        before.as_ref(),
+        verified,
+        config,
+        retain_history,
+    );
     match outcome {
         Ok(()) => Ok((plan, None)),
         Err(Error::Rejected(reject)) => {
@@ -549,212 +548,186 @@ struct AdmissionCandidate {
     ancestors: BTreeSet<Byte32>,
 }
 
-/// The observed successor population and its admission/removal classification.
-/// The plan emitter consumes it without rerunning policy over a changed graph.
-struct AdmissionDecision {
-    admitted: AdmissionCandidate,
-    replaced: BTreeSet<Byte32>,
-    removed: BTreeSet<Byte32>,
-    late: BTreeSet<Byte32>,
-    observed_successors: Members,
-}
-
-impl AdmissionDecision {
-    fn prepare(
-        graph: &mut Graph<'_>,
-        snapshot: &Snapshot,
-        candidate: &Arc<Entry>,
-        verified: &Verified,
-        config: &TxPoolConfig,
-    ) -> Result<Self, Error> {
-        // RBF determines replacement victims once. Capacity trimming can only add
-        // other removals, so their reasons need no separately maintained index.
-        let replaced = rbf(graph, candidate, verified, config)?;
-        let mut removed = replaced.clone();
-        validate_backing(verified, &removed)?;
-        let parents = candidate_parents(graph, candidate, verified, &removed)?;
-        let ancestors = graph.ancestors(
-            parents.iter().cloned(),
-            &removed,
-            config.max_ancestors_count.saturating_sub(1),
-        )?;
-        let mut late = BTreeSet::new();
-        for point in candidate.transaction.output_pts_iter() {
-            for child in graph.readers(point)? {
-                if !removed.contains(&child) {
-                    late.insert(child);
-                }
+/// Validate the virtual successor population, then append its edits and notices
+/// to the same observed plan without repeating membership policy.
+fn prepare_admission(
+    graph: &mut Graph<'_>,
+    snapshot: &Snapshot,
+    candidate: &Arc<Entry>,
+    before: Option<&Arc<Entry>>,
+    verified: &Verified,
+    config: &TxPoolConfig,
+    retain_history: bool,
+) -> Result<(), Error> {
+    // RBF determines replacement victims once. Capacity trimming can only add
+    // other removals, so their reasons need no separately maintained index.
+    let replaced = rbf(graph, candidate, verified, config)?;
+    let mut removed = replaced.clone();
+    validate_backing(verified, &removed)?;
+    let parents = candidate_parents(graph, candidate, verified, &removed)?;
+    let ancestors = graph.ancestors(
+        parents.iter().cloned(),
+        &removed,
+        config.max_ancestors_count.saturating_sub(1),
+    )?;
+    let mut late = BTreeSet::new();
+    for point in candidate.transaction.output_pts_iter() {
+        for child in graph.readers(point)? {
+            if !removed.contains(&child) {
+                late.insert(child);
             }
         }
-        let late_descendants = graph.descendants(
-            late.iter().cloned(),
-            &removed,
-            MAX_POOL_MUTATION_CANDIDATES.saturating_sub(removed.len()),
-        )?;
-        if let Some(hash) = late_descendants.intersection(&ancestors).next() {
-            return Err(causal_cycle(hash));
-        }
-        drop(ancestors);
-        // Capture original parent chains before applying the late-parent edges;
-        // these observations remain premises even though only validation is used.
-        for hash in &late_descendants {
-            graph.ancestors([hash.clone()], &removed, config.max_ancestors_count)?;
-        }
-        let value = Accepted {
-            transaction: residency::accepted_resolution(&verified.resolved().transaction),
-            cycles: verified.cycles(),
-            fee: verified.resolved().fee,
-            size: verified.serialized_size(),
-            timestamp: verified.timestamp(),
-            parents,
-            context_sensitive: transaction_depends_on_time(&verified.resolved().transaction),
-            #[cfg(any(test, feature = "internal"))]
-            forced_status: verified.forced_status(),
-        };
-        let admitted = candidate.with_phase(Phase::Accepted(value));
-        let mut observed_successors = apply_virtual(graph.observed(), &admitted, &late, &removed)?;
-        let candidate_hash = candidate.hash();
-        let mut affected = late_descendants.clone();
-        affected.insert(candidate_hash.clone());
-        let mut ancestors = BTreeSet::new();
-        for hash in &affected {
-            let closure = ancestor_hashes(&observed_successors, hash, config.max_ancestors_count)?;
-            // `affected` includes the candidate. Retain its closure at the same
-            // position in this ordered validation, preserving rejection order.
-            if hash == &candidate_hash {
-                ancestors = closure;
-            }
-        }
-        let admitted = AdmissionCandidate {
-            entry: admitted,
-            ancestors,
-        };
-        let mut released = Amount::default();
-        for hash in &removed {
-            released = released
-                .checked_add(owner_amount(graph.require(hash)?.as_ref())?)
-                .ok_or_else(overflow)?;
-        }
-        let mut added = owner_amount(&admitted.entry)?;
-        // Existing late children gain only direct parent metadata. Count those
-        // owner differences in the same reservation as candidate and all victims.
-        for hash in &late {
-            let old = owner_amount(graph.require(hash)?.as_ref())?;
-            let new = owner_amount(observed_successors.get(hash).ok_or(Error::Stale)?)?;
-            released = released.checked_add(old).ok_or_else(overflow)?;
-            added = added.checked_add(new).ok_or_else(overflow)?;
-        }
-        let optimistic = graph
-            .accepted_usage()
-            .checked_sub(released)
-            .and_then(|usage| usage.checked_add(added));
-        if optimistic.is_none_or(|usage| !usage.fits(graph.limits().accepted)) {
-            // Original observations stay in the Plan across this full capture;
-            // changed ancestors cannot pass commit validation. Release this
-            // map before rebuilding it.
-            drop(observed_successors);
-            graph.capture_accepted()?;
-            observed_successors =
-                apply_virtual(graph.observed(), &admitted.entry, &late, &removed)?;
-            trim_virtual(
-                &mut observed_successors,
-                snapshot,
-                config,
-                &mut removed,
-                &late_descendants,
-                &admitted,
-                graph.limits().accepted,
-            )?;
-        }
-        validate_backing(verified, &removed)?;
-        Ok(Self {
-            admitted,
-            replaced,
-            removed,
-            late,
-            observed_successors,
-        })
     }
-
-    fn append_to_plan(
-        self,
-        graph: &mut Graph<'_>,
-        snapshot: &Snapshot,
-        before: Option<Arc<Entry>>,
-        config: &TxPoolConfig,
-        retain_history: bool,
-    ) -> Result<(), Error> {
-        let Self {
-            admitted:
-                AdmissionCandidate {
-                    entry: admitted,
-                    ancestors,
-                },
-            replaced,
-            removed,
-            late,
-            observed_successors,
-        } = self;
-        let order = removal_order(graph.observed(), &removed)?;
-        let removed_totals = if order.len() > 1 {
-            Some(graph.removal_totals(&order, config.max_ancestors_count)?)
+    let late_descendants = graph.descendants(
+        late.iter().cloned(),
+        &removed,
+        MAX_POOL_MUTATION_CANDIDATES.saturating_sub(removed.len()),
+    )?;
+    if let Some(hash) = late_descendants.intersection(&ancestors).next() {
+        return Err(causal_cycle(hash));
+    }
+    drop(ancestors);
+    // Capture original parent chains before applying the late-parent edges;
+    // these observations remain premises even though only validation is used.
+    for hash in &late_descendants {
+        graph.ancestors([hash.clone()], &removed, config.max_ancestors_count)?;
+    }
+    let value = Accepted {
+        transaction: residency::accepted_resolution(&verified.resolved().transaction),
+        cycles: verified.cycles(),
+        fee: verified.resolved().fee,
+        size: verified.serialized_size(),
+        timestamp: verified.timestamp(),
+        parents,
+        context_sensitive: transaction_depends_on_time(&verified.resolved().transaction),
+        #[cfg(any(test, feature = "internal"))]
+        forced_status: verified.forced_status(),
+    };
+    let admitted = candidate.with_phase(Phase::Accepted(value));
+    let mut observed_successors = apply_virtual(graph.observed(), &admitted, &late, &removed)?;
+    let candidate_hash = candidate.hash();
+    let mut affected = late_descendants.clone();
+    affected.insert(candidate_hash.clone());
+    let mut ancestors = BTreeSet::new();
+    for hash in &affected {
+        let closure = ancestor_hashes(&observed_successors, hash, config.max_ancestors_count)?;
+        // `affected` includes the candidate. Retain its closure at the same
+        // position in this ordered validation, preserving rejection order.
+        if hash == &candidate_hash {
+            ancestors = closure;
+        }
+    }
+    let admitted = AdmissionCandidate {
+        entry: admitted,
+        ancestors,
+    };
+    let mut released = Amount::default();
+    for hash in &removed {
+        released = released
+            .checked_add(owner_amount(graph.require(hash)?.as_ref())?)
+            .ok_or_else(overflow)?;
+    }
+    let mut added = owner_amount(&admitted.entry)?;
+    // Existing late children gain only direct parent metadata. Count those
+    // owner differences in the same reservation as candidate and all victims.
+    for hash in &late {
+        let old = owner_amount(graph.require(hash)?.as_ref())?;
+        let new = owner_amount(observed_successors.get(hash).ok_or(Error::Stale)?)?;
+        released = released.checked_add(old).ok_or_else(overflow)?;
+        added = added.checked_add(new).ok_or_else(overflow)?;
+    }
+    let optimistic = graph
+        .accepted_usage()
+        .checked_sub(released)
+        .and_then(|usage| usage.checked_add(added));
+    if optimistic.is_none_or(|usage| !usage.fits(graph.limits().accepted)) {
+        // Original observations stay in the Plan across this full capture;
+        // changed ancestors cannot pass commit validation. Release this
+        // map before rebuilding it.
+        drop(observed_successors);
+        graph.capture_accepted()?;
+        observed_successors = apply_virtual(graph.observed(), &admitted.entry, &late, &removed)?;
+        trim_virtual(
+            &mut observed_successors,
+            snapshot,
+            config,
+            &mut removed,
+            &late_descendants,
+            &admitted,
+            graph.limits().accepted,
+        )?;
+    }
+    validate_backing(verified, &removed)?;
+    // Validation scratch is no longer needed while removal snapshots are built.
+    drop(late_descendants);
+    drop(affected);
+    drop(candidate_hash);
+    let AdmissionCandidate {
+        entry: admitted,
+        ancestors,
+    } = admitted;
+    let order = removal_order(graph.observed(), &removed)?;
+    let removed_totals = if order.len() > 1 {
+        Some(graph.removal_totals(&order, config.max_ancestors_count)?)
+    } else {
+        None
+    };
+    let inputs = admitted.transaction.input_pts_iter().collect();
+    for hash in order {
+        let old = graph.require(&hash)?;
+        let old_snapshot = if let Some(totals) = &removed_totals {
+            entry_snapshot(&old, *totals.get(&hash).ok_or(Error::Stale)?)?
+        } else {
+            graph.entry_snapshot(&hash, config.max_ancestors_count)?
+        };
+        let reason = if replaced.contains(&hash) {
+            Reject::RBFRejected(format!("replaced by tx {}", admitted.hash()))
+        } else {
+            Reject::Full(format!(
+                "the fee_rate for this transaction is: {}",
+                EvictionRank::new(&old, Aggregate::one(accepted(&old)?), snapshot)?.fee
+            ))
+        };
+        let effect = Effect::removed(&old, reason, Some(old_snapshot))?;
+        let history = if retain_history {
+            history(&old, &inputs, &removed, graph)?
         } else {
             None
         };
-        let inputs = admitted.transaction.input_pts_iter().collect();
-        for hash in order {
-            let old = graph.require(&hash)?;
-            let old_snapshot = if let Some(totals) = &removed_totals {
-                entry_snapshot(&old, *totals.get(&hash).ok_or(Error::Stale)?)?
-            } else {
-                graph.entry_snapshot(&hash, config.max_ancestors_count)?
-            };
-            let reason = if replaced.contains(&hash) {
-                Reject::RBFRejected(format!("replaced by tx {}", admitted.hash()))
-            } else {
-                Reject::Full(format!(
-                    "the fee_rate for this transaction is: {}",
-                    EvictionRank::new(&old, Aggregate::one(accepted(&old)?), snapshot)?.fee
-                ))
-            };
-            let effect = Effect::removed(&old, reason, Some(old_snapshot))?;
-            let history = if retain_history {
-                history(&old, &inputs, &removed, graph)?
-            } else {
-                None
-            };
-            graph.plan.edit(Some(old), history, Some(effect))?;
-        }
-        for hash in late.difference(&removed) {
-            let old = graph.require(hash)?;
-            let after = observed_successors.get(hash).cloned().ok_or(Error::Stale)?;
-            graph.plan.edit(Some(old), Some(after), None)?;
-        }
-        let descendants = if late.is_empty() {
-            Aggregate::one(accepted(&admitted)?)
-        } else {
-            let descendants = descendant_hashes(
-                &children(&observed_successors),
-                [admitted.hash()],
-                graph.limits().accepted.items,
-            )?;
-            aggregate(&observed_successors, &descendants)?
-        };
-        let accepted_snapshot = entry_snapshot(
-            &admitted,
-            NeighborhoodTotals {
-                ancestors: aggregate(&observed_successors, &ancestors)?,
-                descendants,
-            },
-        )?;
-        let effect = Effect::accepted(
-            accepted_snapshot,
-            accepted(&admitted)?.status(snapshot),
-            admitted.source.residency_peer(),
-        );
-        graph.plan.edit(before, Some(admitted), Some(effect))
+        graph.plan.edit(Some(old), history, Some(effect))?;
     }
+    for hash in late.difference(&removed) {
+        let old = graph.require(hash)?;
+        let after = observed_successors.get(hash).cloned().ok_or(Error::Stale)?;
+        graph.plan.edit(Some(old), Some(after), None)?;
+    }
+    let descendants = if late.is_empty() {
+        Aggregate::one(accepted(&admitted)?)
+    } else {
+        let descendants = descendant_hashes(
+            &children(&observed_successors),
+            [admitted.hash()],
+            graph.limits().accepted.items,
+        )?;
+        aggregate(&observed_successors, &descendants)?
+    };
+    let accepted_snapshot = entry_snapshot(
+        &admitted,
+        NeighborhoodTotals {
+            ancestors: aggregate(&observed_successors, &ancestors)?,
+            descendants,
+        },
+    )?;
+    let effect = Effect::accepted(
+        accepted_snapshot,
+        accepted(&admitted)?.status(snapshot),
+        admitted.source.residency_peer(),
+    );
+    graph
+        .plan
+        .edit(before.cloned(), Some(admitted), Some(effect))
 }
+
 fn trim_virtual(
     entries: &mut Members,
     snapshot: &Snapshot,
