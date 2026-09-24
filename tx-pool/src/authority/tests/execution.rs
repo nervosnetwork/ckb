@@ -1216,6 +1216,85 @@ async fn persistence_replay_serves_a_callback_query_before_startup_can_complete(
     assert!(pool.persistence_eligible());
 }
 
+#[cfg(feature = "internal")]
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn replay_query_unwind_is_counted_before_startup_and_faults_the_generation() {
+    ckb_metrics::METRICS_SERVICE_ENABLED.set(true).unwrap();
+    let failures = &ckb_metrics::handle().unwrap().ckb_tx_pool_pipeline_failures;
+    let before = failures.handler_unwind.get();
+    let directory = tempfile::tempdir().unwrap();
+    let configuration = TxPoolConfig {
+        persisted_data: directory.path().join("pool"),
+        recent_reject: Default::default(),
+        ..config()
+    };
+    let handle = Handle::new(tokio::runtime::Handle::current(), None);
+    let (mut builder, controller, _relay) = crate::service::TxPoolServiceBuilder::new(
+        configuration.clone(),
+        chain_snapshot(),
+        None,
+        Arc::new(RwLock::new(init_cache())),
+        &handle,
+        FeeEstimator::new_dummy(),
+    )
+    .unwrap();
+    let pool = builder.pool_for_test();
+    let replayed = fund(&pool, 9_015);
+    let preview = fund(&pool, 9_016);
+    crate::persisted::write_snapshot(
+        &configuration.persisted_data,
+        PersistenceSnapshot {
+            accepted: vec![replayed.clone()],
+            recovery: Vec::new(),
+        },
+    )
+    .unwrap();
+    let path = configuration.persisted_data.with_extension("v2");
+    let persisted = std::fs::read(&path).unwrap();
+    let preview_hash = preview.hash();
+    *pool.store.commit_observer.lock() = Some(Arc::new(move |plan, locked| {
+        if !locked && plan.edits().contains_key(&preview_hash) {
+            // Only the public preview handler unwinds. No Job or authority
+            // guard is owned here, so the supervisor is the fault producer.
+            panic!("injected replay query unwind");
+        }
+    }));
+    let target = replayed.hash();
+    let query = controller.clone();
+    let (sent, mut received) = mpsc::unbounded_channel();
+    let (release, held) = std::sync::mpsc::sync_channel(1);
+    let held = Mutex::new(held);
+    builder.register_pending(Box::new(move |entry| {
+        if entry.transaction.hash() == target {
+            assert!(!query.service_started());
+            let result = query.test_accept_tx(preview.clone());
+            sent.send(result).unwrap();
+            // Replay cannot finish before its callback returns. Hold this
+            // event until the test observes the replay supervisor's fault.
+            held.lock().recv_timeout(Duration::from_secs(10)).unwrap();
+        }
+    }));
+    let generation = builder.start_with_handle(DummyTxPoolNetwork);
+    assert!(within(received.recv()).await.unwrap().is_err());
+    within(async {
+        while !pool.is_faulted() {
+            assert!(!controller.service_started());
+            tokio::task::yield_now().await;
+        }
+    })
+    .await;
+    release.send(()).unwrap();
+    within(generation).await.unwrap();
+
+    assert_eq!(failures.handler_unwind.get(), before + 1);
+    assert!(pool.is_stopped());
+    assert!(!controller.service_started());
+    assert!(controller.sender.is_closed());
+    assert!(controller.query_sender.is_closed());
+    assert!(!pool.persistence_eligible());
+    assert_eq!(std::fs::read(path).unwrap(), persisted);
+}
+
 #[tokio::test]
 async fn pool_configuration_rejects_a_current_thread_runtime_before_spawning() {
     let handle = Handle::new(tokio::runtime::Handle::current(), None);

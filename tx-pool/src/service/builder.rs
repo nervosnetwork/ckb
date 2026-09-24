@@ -276,6 +276,7 @@ impl TxPoolServiceBuilder {
                     },
                     result = queries.join_next(), if !queries.is_empty() => {
                         if !matches!(result, Some(Ok(Ok(())))) {
+                            crate::metrics::record_failure(crate::metrics::FailureBoundary::HandlerUnwind);
                             error!("tx-pool read handler failed during replay: {result:?}");
                             pool.fault();
                             break false;
