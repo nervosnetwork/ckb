@@ -23,12 +23,11 @@ pub struct RecentReject {
     ttl: i32,
     shard_num: NonZeroU32,
     count_limit: u64,
-    /// Approximate key count across all shards.  Incremented inside the DB
-    /// guard critical section (see `put`), so the estimate stays totally
-    /// ordered with `shrink`'s drop-estimate and cannot drift monotonically.
-    /// Still approximate by design: two concurrent puts of the *same* new
-    /// key can both count (the read guard does not exclude them), and the
-    /// shard drop-estimate itself is a RocksDB approximation.
+    /// Approximate key count across all shards. Puts increment it inside the DB
+    /// guard, and shrink reconciles it with all existing shards under the write
+    /// guard. Concurrent puts of the same new key can both count; TTL compaction
+    /// can remove keys without updating it. Reconciliation clears that history
+    /// without overwriting concurrent put increments.
     total_keys_num: AtomicU64,
     /// The `RwLock` protects the **Rust-side** `BTreeMap<String, ColumnFamily>`
     /// inside `DBWithTTL`, not RocksDB itself (the C API is already
@@ -44,8 +43,8 @@ pub struct RecentReject {
 impl RecentReject {
     fn increment_approximate_count(&self) {
         // The counter is intentionally approximate, but wrapping to zero would
-        // disable the shrink trigger. Saturation preserves the conservative
-        // upper-bound behavior at the representational limit.
+        // disable the shrink trigger. Saturation keeps the trigger active at
+        // the representational limit.
         let _ = self
             .total_keys_num
             .fetch_update(Ordering::SeqCst, Ordering::SeqCst, |count| {
@@ -76,14 +75,9 @@ impl RecentReject {
     {
         let shard_num = NonZeroU32::new(shard_num)
             .ok_or_else(|| OtherError::new("recent-reject shard count must be non-zero"))?;
-        let cf_names: Vec<_> = (0..shard_num.get()).map(|c| c.to_string()).collect();
-        let db = DBWithTTL::open_cf(path, cf_names.clone(), ttl)?;
-        let estimate_keys_num = cf_names
-            .iter()
-            .map(|cf| db.estimate_num_keys_cf(cf))
-            .collect::<Result<Vec<_>, _>>()?;
-
-        let total_keys_num = Self::checked_estimate_sum(&estimate_keys_num)?;
+        let cf_names = (0..shard_num.get()).map(|c| c.to_string());
+        let db = DBWithTTL::open_cf(path, cf_names, ttl)?;
+        let total_keys_num = Self::estimate_total_keys_num(&db, shard_num)?;
 
         Ok(RecentReject {
             shard_num,
@@ -125,7 +119,7 @@ impl RecentReject {
             db.put(&shard, hash_slice, json_bytes)?;
             if !existed {
                 // Count newly inserted keys inside the DB critical section,
-                // ordered with `shrink`'s drop-estimate. Overwrites do not
+                // ordered with `shrink`'s reconciliation. Overwrites do not
                 // inflate the approximate counter.
                 self.increment_approximate_count();
             }
@@ -201,20 +195,34 @@ impl RecentReject {
     /// Returns the approximate total number of stored rejection entries.
     ///
     /// This is a best-effort counter updated with sequentially-consistent
-    /// ordering; it may still briefly differ from the exact number of keys in
+    /// ordering; it may still differ from the exact number of keys in
     /// the database because it is an estimate rather than an exact count.
     pub fn get_estimate_total_keys_num(&self) -> u64 {
         self.total_keys_num.load(Ordering::SeqCst)
     }
 
-    fn checked_estimate_sum(estimate_keys_num: &[Option<u64>]) -> Result<u64, OtherError> {
-        estimate_keys_num.iter().try_fold(0u64, |total, num| {
-            let keys_num = num.unwrap_or(0);
+    fn estimate_total_keys_num(db: &DBWithTTL, shard_num: NonZeroU32) -> Result<u64, AnyError> {
+        Self::checked_estimate_sum((0..shard_num.get()).map(|shard| {
+            let shard = shard.to_string();
+            if db.has_cf(&shard) {
+                db.estimate_num_keys_cf(&shard).map_err(AnyError::from)
+            } else {
+                Ok(None)
+            }
+        }))
+    }
+
+    fn checked_estimate_sum(
+        estimate_keys_num: impl IntoIterator<Item = Result<Option<u64>, AnyError>>,
+    ) -> Result<u64, AnyError> {
+        estimate_keys_num.into_iter().try_fold(0u64, |total, num| {
+            let keys_num = num?.unwrap_or(0);
             total.checked_add(keys_num).ok_or_else(|| {
                 OtherError::new(format!(
                     "recent reject estimated keys count overflows: {} + {}",
                     total, keys_num
                 ))
+                .into()
             })
         })
     }
@@ -228,44 +236,38 @@ impl RecentReject {
         // drop and recreate a column family.  This is a very cold path
         // (triggered only when key count exceeds `count_limit`), so brief
         // contention is acceptable.
-        let (dropped_estimate, create_result) = block_offload(|| {
+        block_offload(|| {
             let mut db = self
                 .db
                 .write()
                 .map_err(|e| OtherError::new(e.to_string()))?;
 
-            // Estimate the keys in this shard before dropping it, then
-            // decrement the atomic counter by that amount.  Using a bounded
-            // subtraction instead of `store(estimate_total_keys_num())`
-            // prevents the counter from being overwritten by a stale estimate
-            // while other threads are concurrently calling `put`.
-            let dropped_estimate = db.estimate_num_keys_cf(&shard)?.unwrap_or(0);
-            db.drop_cf(&shard)?;
-            // The shard's data is gone either way now; a recreate failure
-            // must not swallow the decrement (later puts recreate the column
-            // family on demand via the slow path).
-            let create_result = db
-                .create_cf_with_ttl(&shard, self.ttl)
-                .map_err(AnyError::from);
-            Ok::<(u64, Result<(), AnyError>), AnyError>((dropped_estimate, create_result))
-        })?;
-        if let Err(e) = create_result {
-            error!("failed to recreate recent_reject shard {shard}: {e}");
-        }
-
-        // Saturating decrement to avoid underflow if the estimate overshoots
-        // the actual counter.
-        loop {
-            let current = self.total_keys_num.load(Ordering::SeqCst);
-            let new = current.saturating_sub(dropped_estimate);
-            if self
-                .total_keys_num
-                .compare_exchange_weak(current, new, Ordering::SeqCst, Ordering::SeqCst)
-                .is_ok()
-            {
-                return Ok(new);
+            // TTL compaction, duplicate puts or an earlier shrink can make the
+            // trigger stale. Reconcile before deciding whether to discard data.
+            let total = Self::estimate_total_keys_num(&db, self.shard_num)?;
+            self.total_keys_num.store(total, Ordering::SeqCst);
+            if total <= self.count_limit {
+                return Ok(total);
             }
-        }
+            if db.has_cf(&shard) {
+                db.drop_cf(&shard)?;
+            }
+            let create_result = db.create_cf_with_ttl(&shard, self.ttl);
+
+            // A failed recreation leaves an empty, missing shard. Count every
+            // remaining shard regardless. If estimation fails, keep the last
+            // complete estimate and report the error instead of storing a
+            // partial sum. Both stores share the guard with every put increment.
+            let remaining = Self::estimate_total_keys_num(&db, self.shard_num);
+            if let Ok(total) = &remaining {
+                self.total_keys_num.store(*total, Ordering::SeqCst);
+            }
+            drop(db);
+            if let Err(e) = create_result {
+                error!("failed to recreate recent_reject shard {shard}: {e}");
+            }
+            remaining
+        })
     }
 
     fn get_shard(&self, hash: &Byte32) -> u32 {

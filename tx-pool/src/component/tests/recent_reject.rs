@@ -122,6 +122,42 @@ fn missing_shard_reads_as_cache_miss_and_recovers_on_write() {
     );
 }
 
+#[test]
+fn shrink_reestimates_removed_keys_before_evicting_new_rejections() {
+    let tmp_dir = tempfile::tempdir().unwrap();
+    let recent = RecentReject::build(tmp_dir.path(), 1, 3, -1).unwrap();
+    for byte in 0..3 {
+        recent
+            .put(&Byte32::new([byte; 32]), Reject::Full("old".to_owned()))
+            .unwrap();
+    }
+    assert_eq!(recent.get_estimate_total_keys_num(), 3);
+
+    // Remove real database contents without changing the cached count. This
+    // deterministically models the historical overestimate left when TTL
+    // compaction removes keys, and also exercises on-demand CF recreation.
+    let old = Byte32::new([0; 32]);
+    recent.drop_hash_shard_for_test(&old);
+    assert!(recent.get(&old).unwrap().is_none());
+    assert_eq!(recent.get_estimate_total_keys_num(), 3);
+
+    let fresh = Byte32::new([3; 32]);
+    recent
+        .put(&fresh, Reject::Full("fresh".to_owned()))
+        .unwrap();
+    assert!(
+        recent.get(&fresh).unwrap().is_some(),
+        "historical overestimates must not evict the only current rejection"
+    );
+    assert_eq!(recent.get_estimate_total_keys_num(), 1);
+
+    recent
+        .put(&fresh, Reject::Full("updated".to_owned()))
+        .unwrap();
+    assert!(recent.get(&fresh).unwrap().is_some());
+    assert_eq!(recent.get_estimate_total_keys_num(), 1);
+}
+
 /// Concurrent puts racing with shard drops must not make the approximate
 /// counter drift monotonically: increments happen inside the same critical
 /// section as the DB write, so `shrink`'s estimate and the counter stay
