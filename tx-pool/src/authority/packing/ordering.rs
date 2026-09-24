@@ -36,19 +36,16 @@ impl Precedence {
         package: &mut Vec<usize>,
     ) -> Result<Option<PackageAggregate>, PackingError> {
         package.clear();
-        traversal.begin()?;
-        traversal.stack.push(index);
+        let mut pass = traversal.begin()?;
+        pass.stack.push(index);
         let mut aggregate = PackageAggregate::default();
-        while let Some(member) = traversal.stack.pop() {
-            if states[member] == CandidatePackingState::Selected
-                || traversal.marks[member] == traversal.generation
-            {
+        while let Some(member) = pass.stack.pop() {
+            if states[member] == CandidatePackingState::Selected || !pass.visit(member) {
                 continue;
             }
             if states[member] == CandidatePackingState::Ineligible {
                 return Ok(None);
             }
-            traversal.marks[member] = traversal.generation;
             aggregate = aggregate
                 .checked_add(PackageAggregate::one(&selection.candidates[member]))
                 .ok_or(PackingError::Arithmetic)?;
@@ -56,7 +53,7 @@ impl Precedence {
                 return Ok(None);
             }
             package.push(member);
-            traversal.stack.extend(&self.parents[member]);
+            pass.stack.extend(&self.parents[member]);
         }
         package.sort_unstable_by_key(|member| self.positions[*member]);
         Ok(Some(aggregate))

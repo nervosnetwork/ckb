@@ -3,6 +3,7 @@
 
 mod graph;
 mod ordering;
+mod traversal;
 
 use super::{
     membership::{Aggregate, EvictionRank},
@@ -26,6 +27,7 @@ use std::{
     collections::{BTreeSet, BinaryHeap},
     sync::{Arc, Weak},
 };
+use traversal::Traversal;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) enum PackingError {
@@ -166,17 +168,16 @@ impl<'a> Selection<'a> {
         let mut traversal = Traversal::new(self.candidates.len());
         for (index, candidate) in self.candidates.iter().enumerate() {
             let own = Aggregate::one(candidate.accepted);
-            traversal.begin()?;
-            traversal.stack.push(index);
-            while let Some(ancestor) = traversal.stack.pop() {
-                if traversal.marks[ancestor] == traversal.generation {
+            let mut pass = traversal.begin()?;
+            pass.stack.push(index);
+            while let Some(ancestor) = pass.stack.pop() {
+                if !pass.visit(ancestor) {
                     continue;
                 }
-                traversal.marks[ancestor] = traversal.generation;
                 totals[ancestor] = totals[ancestor]
                     .add(own)
                     .map_err(|_| PackingError::Arithmetic)?;
-                traversal.stack.extend(&self.graph.parents[ancestor]);
+                pass.stack.extend(&self.graph.parents[ancestor]);
             }
         }
         Ok(self
@@ -348,30 +349,6 @@ impl CandidatePackingState {
     }
     fn needed(self) -> bool {
         self.queued() || self == Self::Examining
-    }
-}
-
-/// Reusable ordinal marks and DFS storage for one selection.
-struct Traversal {
-    marks: Vec<usize>,
-    generation: usize,
-    stack: Vec<usize>,
-}
-impl Traversal {
-    fn new(len: usize) -> Self {
-        Self {
-            marks: vec![0; len],
-            generation: 0,
-            stack: Vec::new(),
-        }
-    }
-    fn begin(&mut self) -> Result<(), PackingError> {
-        self.stack.clear();
-        self.generation = self
-            .generation
-            .checked_add(1)
-            .ok_or(PackingError::Arithmetic)?;
-        Ok(())
     }
 }
 
@@ -634,19 +611,15 @@ impl<'selection, 'owner> PackingRun<'selection, 'owner> {
     fn reprice_descendants(&mut self) -> Result<(), PackingError> {
         for &member in &self.package {
             let delta = PackageAggregate::one(&self.selection.candidates[member]);
-            self.traversal.begin()?;
-            self.traversal
-                .stack
-                .extend(&self.selection.graph.children[member]);
-            while let Some(descendant) = self.traversal.stack.pop() {
+            let mut pass = self.traversal.begin()?;
+            pass.stack.extend(&self.selection.graph.children[member]);
+            while let Some(descendant) = pass.stack.pop() {
                 if (!self.states[descendant].needed() && self.live_children[descendant] == 0)
-                    || self.traversal.marks[descendant] == self.traversal.generation
+                    || !pass.visit(descendant)
                 {
                     continue;
                 }
-                self.traversal.marks[descendant] = self.traversal.generation;
-                self.traversal
-                    .stack
+                pass.stack
                     .extend(&self.selection.graph.children[descendant]);
                 if self.states[descendant].queued() {
                     if self.adjustments[descendant].entries == 0 {
