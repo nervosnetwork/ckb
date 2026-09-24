@@ -732,15 +732,7 @@ impl Store {
         let key = RelationKey::Dependency(DependencyKey::Cell(point.clone()));
         let row = self.relation(&key);
         let spender = row.as_ref().and_then(|row| row.lock().spender.clone());
-        if let Some(old) = reads.spenders.get(point) {
-            if old != &spender {
-                return Err(Error::Stale);
-            }
-        } else {
-            reads
-                .spenders
-                .insert(compact_packed(point), spender.clone());
-        }
+        reads.observe_spender(point, &spender)?;
         Ok(spender)
     }
 
@@ -769,13 +761,7 @@ impl Store {
             }
             (Some(Arc::downgrade(&row.accepted_version)), members)
         });
-        if let Some(old) = reads.relations.get(key) {
-            if !same_weak(old, &version) {
-                return Err(Error::Stale);
-            }
-        } else {
-            reads.relations.insert(compact_relation(key), version);
-        }
+        reads.observe_relation(key, version)?;
         Ok(members)
     }
 
@@ -792,14 +778,7 @@ impl Store {
                 row.members.iter().cloned().collect(),
             )
         });
-        if reads
-            .peers
-            .get(&peer)
-            .is_some_and(|old| !same_weak(old, &version))
-        {
-            return Err(Error::Stale);
-        }
-        reads.peers.entry(peer).or_insert(version);
+        reads.observe_peer(peer, version)?;
         Ok(hashes)
     }
 

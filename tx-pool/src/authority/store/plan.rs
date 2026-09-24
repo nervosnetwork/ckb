@@ -1,7 +1,7 @@
 //! A decision owns its original observations, intended owner edits and notices.
 //! Tracked reads extend that decision; only Store can inspect its private state
 //! while validating and committing it.
-use super::{Captured, Roles, Shards, Store, WakePage, compact_dependency};
+use super::{Captured, Roles, Shards, Store, WakePage, compact_dependency, compact_relation};
 use crate::{
     authority::{
         model::{DependencyKey, Entry, Error, RelationKey},
@@ -25,6 +25,7 @@ use std::{
 /// Every decision read is kept, including negative owner/spender observations.
 /// Successful resolution keeps producer identities and point spender facts;
 /// membership separately observes complete reader and descendant relations.
+/// Recording and merging observations both reject a change to the original fact.
 #[derive(Clone, Debug, Default)]
 pub(in crate::authority) struct ReadSet {
     pub(super) owners: BTreeMap<Byte32, Option<Weak<Entry>>>,
@@ -43,6 +44,22 @@ pub(super) fn same_weak<T>(a: &Option<Weak<T>>, b: &Option<Weak<T>>) -> bool {
     }
 }
 
+/// Whether to retain a new fact, preserving the original on every reread.
+fn first_observation<V>(
+    original: Option<&V>,
+    incoming: &V,
+    same: impl FnOnce(&V, &V) -> bool,
+) -> Result<bool, Error> {
+    let Some(original) = original else {
+        return Ok(true);
+    };
+    if same(original, incoming) {
+        Ok(false)
+    } else {
+        Err(Error::Stale)
+    }
+}
+
 /// Preserve the first observation of each key, rejecting a different reread.
 fn merge_observations<K: Ord + Clone, V: Clone>(
     own: &mut BTreeMap<K, V>,
@@ -50,11 +67,7 @@ fn merge_observations<K: Ord + Clone, V: Clone>(
     same: impl Fn(&V, &V) -> bool,
 ) -> Result<(), Error> {
     for (key, value) in incoming {
-        if let Some(original) = own.get(key) {
-            if !same(original, value) {
-                return Err(Error::Stale);
-            }
-        } else {
+        if first_observation(own.get(key), value, &same)? {
             own.insert(key.clone(), value.clone());
         }
     }
@@ -72,12 +85,41 @@ impl ReadSet {
         entry: Option<&Arc<Entry>>,
     ) -> Result<(), Error> {
         let observed = entry.map(Arc::downgrade);
-        if let Some(old) = self.owners.get(hash) {
-            if !same_weak(old, &observed) {
-                return Err(Error::Stale);
-            }
-        } else {
+        if first_observation(self.owners.get(hash), &observed, same_weak)? {
             self.owners.insert(compact_packed(hash), observed);
+        }
+        Ok(())
+    }
+
+    pub(super) fn observe_spender(
+        &mut self,
+        point: &OutPoint,
+        spender: &Option<Byte32>,
+    ) -> Result<(), Error> {
+        if first_observation(self.spenders.get(point), spender, PartialEq::eq)? {
+            self.spenders.insert(compact_packed(point), spender.clone());
+        }
+        Ok(())
+    }
+
+    pub(super) fn observe_relation(
+        &mut self,
+        key: &RelationKey,
+        version: Option<Weak<()>>,
+    ) -> Result<(), Error> {
+        if first_observation(self.relations.get(key), &version, same_weak)? {
+            self.relations.insert(compact_relation(key), version);
+        }
+        Ok(())
+    }
+
+    pub(super) fn observe_peer(
+        &mut self,
+        peer: PeerIndex,
+        version: Option<Weak<()>>,
+    ) -> Result<(), Error> {
+        if first_observation(self.peers.get(&peer), &version, same_weak)? {
+            self.peers.insert(peer, version);
         }
         Ok(())
     }
@@ -96,13 +138,10 @@ impl ReadSet {
         merge_observations(&mut self.relations, relations, same_weak)?;
         merge_observations(&mut self.peers, peers, same_weak)?;
         for (own, incoming) in [(&mut self.all, all), (&mut self.accepted, accepted)] {
-            if let Some(incoming) = incoming {
-                if own.as_ref().is_some_and(|old| old != incoming) {
-                    return Err(Error::Stale);
-                }
-                if own.is_none() {
-                    *own = Some(incoming.clone());
-                }
+            if let Some(incoming) = incoming
+                && first_observation(own.as_ref(), incoming, PartialEq::eq)?
+            {
+                *own = Some(incoming.clone());
             }
         }
         Ok(())

@@ -173,6 +173,10 @@ fn merging_observations_preserves_the_original_missing_spender() {
         store.spender(&point, &mut fresh).unwrap(),
         Some(hash.clone())
     );
+    assert!(matches!(
+        store.spender(&point, &mut original),
+        Err(Error::Stale)
+    ));
     assert!(matches!(original.merge(&fresh), Err(Error::Stale)));
     assert!(matches!(
         store.read_selected(store.snapshot().0, &original, || ()),
@@ -184,12 +188,77 @@ fn merging_observations_preserves_the_original_missing_spender() {
         .unwrap();
     let mut absent_again = ReadSet::default();
     assert!(store.spender(&point, &mut absent_again).unwrap().is_none());
+    assert!(store.spender(&point, &mut original).unwrap().is_none());
     original.merge(&absent_again).unwrap();
     assert!(
         store
             .read_selected(store.snapshot().0, &original, || ())
             .is_ok()
     );
+}
+
+#[test]
+fn repeated_relation_and_peer_reads_preserve_the_first_membership() {
+    let store = store();
+    let point = OutPoint::new(tx(7820).hash(), 0);
+    let peer = 1.into();
+    let mut absent_relation = Plan::new(store.snapshot().0, Class::Trusted, ReadSet::default());
+    let mut absent_peer = Plan::new(store.snapshot().0, Class::Trusted, ReadSet::default());
+    for _ in 0..2 {
+        assert!(
+            absent_relation
+                .readers(&store, point.clone())
+                .unwrap()
+                .is_empty()
+        );
+        assert!(absent_peer.peer_members(&store, peer).unwrap().is_empty());
+    }
+    let reader = accept(
+        &store,
+        spend(7821, &[], std::slice::from_ref(&point)),
+        1,
+        1,
+        Status::Pending,
+    );
+    let remote_owner = entry(&store, tx(7822), remote(1, 1));
+    insert(&store, Arc::clone(&remote_owner));
+    assert!(matches!(
+        absent_relation.readers(&store, point.clone()),
+        Err(Error::Stale)
+    ));
+    assert!(matches!(
+        absent_peer.peer_members(&store, peer),
+        Err(Error::Stale)
+    ));
+    assert!(matches!(store.apply(absent_relation), Err(Error::Stale)));
+    assert!(matches!(store.apply(absent_peer), Err(Error::Stale)));
+
+    let mut present_relation = Plan::new(store.snapshot().0, Class::Trusted, ReadSet::default());
+    let mut present_peer = Plan::new(store.snapshot().0, Class::Trusted, ReadSet::default());
+    for _ in 0..2 {
+        assert_eq!(
+            present_relation.readers(&store, point.clone()).unwrap(),
+            vec![reader.clone()]
+        );
+        assert_eq!(
+            present_peer.peer_members(&store, peer).unwrap(),
+            vec![remote_owner.hash()]
+        );
+    }
+    store
+        .apply(delete(&store, store.point(&reader).1.unwrap()))
+        .unwrap();
+    store.apply(delete(&store, remote_owner)).unwrap();
+    assert!(matches!(
+        present_relation.readers(&store, point),
+        Err(Error::Stale)
+    ));
+    assert!(matches!(
+        present_peer.peer_members(&store, peer),
+        Err(Error::Stale)
+    ));
+    assert!(matches!(store.apply(present_relation), Err(Error::Stale)));
+    assert!(matches!(store.apply(present_peer), Err(Error::Stale)));
 }
 
 #[test]
