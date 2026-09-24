@@ -69,18 +69,15 @@ impl Job {
     pub(super) fn mark_handled(&mut self) {
         self.handled = true;
     }
-    pub(super) fn current(&self) -> Result<bool, Error> {
-        Ok(self
-            .store
-            .get(&self.entry.hash(), &mut ReadSet::default())?
-            .is_some_and(|entry| Arc::ptr_eq(&entry, &self.entry)))
+    pub(super) fn current(&self) -> bool {
+        self.store.is_current(&self.entry)
     }
 }
 impl Drop for Job {
     fn drop(&mut self) {
         // Selection removed the queue item. Abandoning its still-current owner
         // would strand that work; a successor already owns its own scheduling.
-        if !self.handled && self.current().unwrap_or(true) {
+        if !self.handled && self.current() {
             self.store.fault();
         }
     }

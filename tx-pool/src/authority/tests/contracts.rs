@@ -436,7 +436,7 @@ fn selected_job_cannot_consume_promoted_work() {
     plan.edit(Some(owner), Some(Arc::clone(&promoted)), None)
         .unwrap();
     store.apply(plan).unwrap();
-    assert!(!selected.current().unwrap());
+    assert!(!selected.current());
     let successor = store.pop(WorkStage::Resolve, false).unwrap().unwrap();
     assert!(Arc::ptr_eq(&successor.entry, &promoted));
     assert!(store.pop(WorkStage::Resolve, false).unwrap().is_none());

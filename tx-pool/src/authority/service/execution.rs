@@ -7,7 +7,7 @@ impl Pool {
     pub(super) async fn requeue(&self, job: &Job) -> Result<(), Error> {
         // A stale view does not retire the selected owner. Its queue item was
         // consumed, so settlement must commit a successor or observe retirement.
-        while job.current()? {
+        while job.current() {
             let result = self
                 .commit(|| {
                     let (view, _) = self.store.snapshot();
@@ -97,7 +97,7 @@ impl Pool {
             AdmissionMode::Commit,
         );
         loop {
-            if !job.current()? {
+            if !job.current() {
                 return Ok(());
             }
             if self.store.is_stopped() {

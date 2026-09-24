@@ -512,7 +512,7 @@ async fn proposal_promotion_reuses_exact_resolution_and_rechecks_original_produc
         };
         let verifying = replace(&store, before, Phase::Verify(Arc::clone(&resolved)));
         let active = store.pop(WorkStage::Verify, false).unwrap().unwrap();
-        assert!(active.current().unwrap());
+        assert!(active.current());
         let obsolete_rejection = ingress::rejection(
             &store,
             Plan::new(
@@ -553,7 +553,7 @@ async fn proposal_promotion_reuses_exact_resolution_and_rechecks_original_produc
         assert_eq!(promoted.source.deadline(), source.deadline());
         assert_eq!(promoted.source.compute_peer(), None);
         assert_eq!(promoted.source.declared_cycles(), None);
-        assert!(!active.current().unwrap());
+        assert!(!active.current());
         drop(active);
         assert!(matches!(store.apply(obsolete_rejection), Err(Error::Stale)));
         assert!(!store.peer_banned(92.into()));

@@ -514,6 +514,18 @@ impl Store {
         (Arc::clone(&view.snapshot), shard.owners.get(hash).cloned())
     }
 
+    /// Instantaneous identity check after queue selection. Prepared decisions
+    /// still need their original ReadSet validated at commit.
+    pub(super) fn is_current(&self, entry: &Arc<Entry>) -> bool {
+        let hash = entry.hash();
+        let _view = self.view.read();
+        let shard = self.shards.at(self.owner_shard(&hash)).read();
+        shard
+            .owners
+            .get(&hash)
+            .is_some_and(|current| Arc::ptr_eq(current, entry))
+    }
+
     pub(super) fn points(&self, hashes: &[Byte32]) -> Vec<Arc<Entry>> {
         let mut footprint = LockFootprint::default();
         for hash in hashes {
@@ -922,11 +934,7 @@ impl Store {
         // Pop released the lane. A concurrent successor owns its own queue
         // item; discard this old selection without touching that projection.
         let (view, _) = self.snapshot();
-        if self
-            .get(&entry.hash(), &mut ReadSet::default())?
-            .as_ref()
-            .is_some_and(|current| Arc::ptr_eq(current, &entry))
-        {
+        if self.is_current(&entry) {
             Ok(Some(Job::new(Arc::clone(self), entry, view, memory)))
         } else {
             Ok(None)

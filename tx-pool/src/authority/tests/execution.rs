@@ -1533,7 +1533,7 @@ async fn selected_resolution_requeues_once_when_only_the_view_changes() {
     let mut lifecycle = Plan::new(pool.store.snapshot().0, Class::Critical, Default::default());
     lifecycle.reset(pool.store.snapshot().1);
     pool.store.apply(lifecycle).unwrap();
-    assert!(selected.current().unwrap());
+    assert!(selected.current());
     assert!(pool.store.pop(WorkStage::Resolve, false).unwrap().is_none());
     let mut stale = Plan::new(selected.view, Class::Trusted, Default::default());
     stale
@@ -1588,7 +1588,7 @@ async fn requeue_retries_concurrent_chain_changes_even_during_stop() {
 
         within(pool.requeue(&selected)).await.unwrap();
         *pool.store.commit_observer.lock() = None;
-        assert!(!selected.current().unwrap());
+        assert!(!selected.current());
         assert_eq!(pool.store.snapshot().0, selected.view + 3);
         let successor = pool.store.point(&original.hash()).1.unwrap();
         assert!(matches!(successor.phase, Phase::Resolve));
@@ -1633,7 +1633,7 @@ async fn requeue_preserves_a_concurrent_successor_or_removal() {
         }));
 
         within(pool.requeue(&selected)).await.unwrap();
-        assert!(!selected.current().unwrap());
+        assert!(!selected.current());
         if let Some(successor) = successor {
             let current = pool.store.point(&successor.hash()).1.unwrap();
             assert!(Arc::ptr_eq(&current, &successor));
