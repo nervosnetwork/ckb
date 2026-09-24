@@ -114,13 +114,16 @@ impl<'a> Graph<'a> {
         &mut self,
         hashes: &[Byte32],
         max_ancestors: usize,
-    ) -> Result<BTreeMap<Byte32, (Aggregate, Aggregate)>, Error> {
+    ) -> Result<BTreeMap<Byte32, NeighborhoodTotals>, Error> {
         let mut totals = BTreeMap::new();
         for hash in hashes {
             let ancestors = self.ancestors([hash.clone()], &BTreeSet::new(), max_ancestors)?;
             totals.insert(
                 compact_packed(hash),
-                (aggregate(&self.observed, &ancestors)?, Aggregate::default()),
+                NeighborhoodTotals {
+                    ancestors: aggregate(&self.observed, &ancestors)?,
+                    descendants: Aggregate::default(),
+                },
             );
         }
         let descendants = self.descendants(
@@ -140,8 +143,8 @@ impl<'a> Graph<'a> {
                 if !descendants.contains(&parent) || !seen.insert(parent.clone()) {
                     continue;
                 }
-                if let Some((_, total)) = totals.get_mut(&parent) {
-                    *total = total.add(own)?;
+                if let Some(total) = totals.get_mut(&parent) {
+                    total.descendants = total.descendants.add(own)?;
                 }
                 let entry = self
                     .observed
@@ -164,10 +167,12 @@ impl<'a> Graph<'a> {
             &BTreeSet::new(),
             self.store.budget.limits.accepted.items,
         )?;
-        snapshot(
+        super::entry_snapshot(
             &entry,
-            aggregate(&self.observed, &ancestors)?,
-            aggregate(&self.observed, &descendants)?,
+            NeighborhoodTotals {
+                ancestors: aggregate(&self.observed, &ancestors)?,
+                descendants: aggregate(&self.observed, &descendants)?,
+            },
         )
     }
 }

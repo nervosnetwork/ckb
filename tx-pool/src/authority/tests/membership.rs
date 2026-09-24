@@ -854,9 +854,8 @@ fn batched_removal_totals_match_individual_snapshots_with_shared_ancestors_and_d
         let mut reference = membership::Graph::new(&store, &mut reference_plan);
         for hash in selected {
             let old = graph.require(hash).unwrap();
-            let (ancestors, descendants) = totals.get(hash).unwrap();
             assert_eq!(
-                membership::snapshot(&old, *ancestors, *descendants).unwrap(),
+                membership::entry_snapshot(&old, *totals.get(hash).unwrap()).unwrap(),
                 reference
                     .entry_snapshot(hash, config().max_ancestors_count)
                     .unwrap(),

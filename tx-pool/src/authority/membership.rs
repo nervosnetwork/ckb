@@ -36,6 +36,14 @@ pub(super) struct Aggregate {
     pub(super) cycles: u64,
     pub(super) fee: u128,
 }
+
+/// Both neighborhoods include the accepted owner itself.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub(super) struct NeighborhoodTotals {
+    pub(super) ancestors: Aggregate,
+    pub(super) descendants: Aggregate,
+}
+
 fn overflow() -> Error {
     Reject::Full("accepted pool aggregate capacity overflow".into()).into()
 }
@@ -161,10 +169,10 @@ pub(super) fn aggregate(members: &Members, hashes: &BTreeSet<Byte32>) -> Result<
 pub(super) fn aggregates(
     members: &Members,
     max_ancestors: usize,
-) -> Result<BTreeMap<Byte32, (Aggregate, Aggregate)>, Error> {
+) -> Result<BTreeMap<Byte32, NeighborhoodTotals>, Error> {
     let mut totals: BTreeMap<_, _> = members
         .keys()
-        .map(|hash| (hash.clone(), (Aggregate::default(), Aggregate::default())))
+        .map(|hash| (hash.clone(), NeighborhoodTotals::default()))
         .collect();
     let entries: Vec<_> = members.iter().collect();
     let positions: std::collections::HashMap<_, _> = members
@@ -203,25 +211,28 @@ pub(super) fn aggregates(
         if ancestors.len() > max_ancestors {
             return Err(Reject::ExceededMaximumAncestorsCount.into());
         }
-        rows[root].0 = ancestors
+        rows[root].ancestors = ancestors
             .iter()
             .try_fold(Aggregate::default(), |sum, index| {
                 sum.add(Aggregate::one(accepted(entries[*index].1)?))
             })?;
         let own = Aggregate::one(own);
         for index in &ancestors {
-            rows[*index].1 = rows[*index].1.add(own)?;
+            rows[*index].descendants = rows[*index].descendants.add(own)?;
         }
     }
     Ok(totals)
 }
 
-pub(super) fn snapshot(
+pub(super) fn entry_snapshot(
     entry: &Entry,
-    ancestors: Aggregate,
-    descendants: Aggregate,
+    totals: NeighborhoodTotals,
 ) -> Result<TxEntrySnapshot, Error> {
     let accepted = accepted(entry)?;
+    let NeighborhoodTotals {
+        ancestors,
+        descendants,
+    } = totals;
     let ancestors_fee = u64::try_from(ancestors.fee)
         .map(Capacity::shannons)
         .map_err(|_| overflow())?;
@@ -648,8 +659,7 @@ impl AdmissionDecision {
         for hash in order {
             let old = graph.require(&hash)?;
             let old_snapshot = if let Some(totals) = &removed_totals {
-                let (ancestors, descendants) = totals.get(&hash).ok_or(Error::Stale)?;
-                self::snapshot(&old, *ancestors, *descendants)?
+                entry_snapshot(&old, *totals.get(&hash).ok_or(Error::Stale)?)?
             } else {
                 graph.entry_snapshot(&hash, config.max_ancestors_count)?
             };
@@ -689,10 +699,12 @@ impl AdmissionDecision {
             )?;
             aggregate(&observed_successors, &descendants)?
         };
-        let accepted_snapshot = self::snapshot(
+        let accepted_snapshot = entry_snapshot(
             &admitted,
-            aggregate(&observed_successors, &ancestors)?,
-            descendants,
+            NeighborhoodTotals {
+                ancestors: aggregate(&observed_successors, &ancestors)?,
+                descendants,
+            },
         )?;
         let effect = Effect::accepted(
             accepted_snapshot,
@@ -718,7 +730,7 @@ fn trim_virtual(
     let totals = aggregates(entries, config.max_ancestors_count)?;
     let mut descendants: BTreeMap<_, _> = totals
         .into_iter()
-        .map(|(hash, (_, total))| (hash, total))
+        .map(|(hash, totals)| (hash, totals.descendants))
         .collect();
     let mut ranks = BTreeSet::new();
     for (hash, entry) in entries.iter() {
@@ -933,8 +945,7 @@ pub(super) fn removal(
             let old = graph.require(&hash)?;
             let effect = if let Some(reason) = &reason {
                 let snapshot = if let Some(totals) = &removed_totals {
-                    let (ancestors, descendants) = totals.get(&hash).ok_or(Error::Stale)?;
-                    self::snapshot(&old, *ancestors, *descendants)?
+                    entry_snapshot(&old, *totals.get(&hash).ok_or(Error::Stale)?)?
                 } else {
                     graph.entry_snapshot(&hash, config.max_ancestors_count)?
                 };

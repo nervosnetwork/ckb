@@ -1,7 +1,7 @@
 //! Public values derived from coherent immutable owners. Full projections are
 //! called only while a service read slot owns their bounded scratch lifetime.
 use super::{
-    membership::{self, Members},
+    membership::{self, Members, NeighborhoodTotals},
     model::{Entry, Error, Phase, Status},
     packing::Selection,
     store::{Captured, ReadSet, Store},
@@ -224,7 +224,10 @@ pub(super) fn entry_info(store: &Store, config: &TxPoolConfig) -> Result<TxPoolE
     let totals = membership::aggregates(&members, config.max_ancestors_count)?;
     for (hash, entry) in members {
         let value = entry.accepted().ok_or(Error::Stale)?;
-        let (ancestors, descendants) = totals.get(&hash).ok_or(Error::Stale)?;
+        let NeighborhoodTotals {
+            ancestors,
+            descendants,
+        } = totals.get(&hash).ok_or(Error::Stale)?;
         let info = TxEntryInfo {
             cycles: value.cycles,
             size: value.size as u64,
@@ -266,7 +269,10 @@ pub(super) fn detail(
     };
     let value = entry.accepted().ok_or(Error::Stale)?;
     let totals = membership::aggregates(&members, config.max_ancestors_count)?;
-    let (ancestors, descendants) = totals.get(hash).ok_or(Error::Stale)?;
+    let NeighborhoodTotals {
+        ancestors,
+        descendants,
+    } = totals.get(hash).ok_or(Error::Stale)?;
     let target = TransactionPriority {
         score: score(value, *ancestors)?,
         arrival: entry.arrival,
@@ -283,9 +289,9 @@ pub(super) fn detail(
             continue;
         }
         pending_count += 1;
-        let (candidate_ancestors, _) = totals.get(candidate_hash).ok_or(Error::Stale)?;
+        let candidate_ancestors = totals.get(candidate_hash).ok_or(Error::Stale)?.ancestors;
         let candidate = TransactionPriority {
-            score: score(candidate_value, *candidate_ancestors)?,
+            score: score(candidate_value, candidate_ancestors)?,
             arrival: candidate.arrival,
             hash: candidate_hash,
         };

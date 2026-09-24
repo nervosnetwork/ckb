@@ -34,8 +34,7 @@ fn callback_effect(nonce: u32) -> Effect {
     let store = store();
     let hash = accept(&store, output_tx(nonce), 1, 1, Status::Pending);
     let owner = store.point(&hash).1.unwrap();
-    let selected =
-        super::super::membership::snapshot(&owner, Default::default(), Default::default()).unwrap();
+    let selected = super::super::membership::entry_snapshot(&owner, Default::default()).unwrap();
     Effect {
         callback: Some(CallbackEvent::Pending(selected)),
         ..effect(nonce)
@@ -98,8 +97,7 @@ fn removal_notices_follow_owner_phase_and_origin() {
                 },
             };
             let snapshot = was_accepted.then(|| {
-                super::super::membership::snapshot(&owner, Default::default(), Default::default())
-                    .unwrap()
+                super::super::membership::entry_snapshot(&owner, Default::default()).unwrap()
             });
             let effect = Effect::removed(&owner, Reject::Expiry(0), snapshot).unwrap();
             assert_eq!(effect.relay.is_some(), was_accepted || remote, "{source:?}");
@@ -308,8 +306,7 @@ async fn callback_failure_disables_all_callback_kinds_while_later_relay_drains()
     let store = store();
     let owner = accept(&store, output_tx(33), 1, 1, Status::Pending);
     let owner = store.point(&owner).1.unwrap();
-    let selected =
-        super::super::membership::snapshot(&owner, Default::default(), Default::default()).unwrap();
+    let selected = super::super::membership::entry_snapshot(&owner, Default::default()).unwrap();
     for nonce in 1..=2 {
         let mut event = effect(nonce);
         event.callback = Some(CallbackEvent::Pending(selected.clone()));
@@ -546,8 +543,7 @@ async fn rbf_candidate_diagnostic_preserves_victim_callback_and_both_recent_outc
     let store = store();
     let victim = accept(&store, output_tx(805), 1, 1, Status::Pending);
     let owner = store.point(&victim).1.unwrap();
-    let snapshot =
-        super::super::membership::snapshot(&owner, Default::default(), Default::default()).unwrap();
+    let snapshot = super::super::membership::entry_snapshot(&owner, Default::default()).unwrap();
     let candidate = tx(806).hash();
     let reason = Reject::RBFRejected("replacement policy".into());
     let rejected = Arc::new(Mutex::new(Vec::new()));
@@ -669,8 +665,7 @@ fn largest_admission_and_missing_parent_notice_shapes_fit_their_reserved_regions
     let outbox = &store.outbox;
     let hash = accept(&store, output_tx(801), 1000, 1, Status::Pending);
     let owner = store.point(&hash).1.unwrap();
-    let selected =
-        super::super::membership::snapshot(&owner, Default::default(), Default::default()).unwrap();
+    let selected = super::super::membership::entry_snapshot(&owner, Default::default()).unwrap();
     let mut events = Vec::with_capacity(outbox.remote_batch.effects);
     for _ in 1..outbox.remote_batch.effects {
         events.push(
@@ -733,8 +728,7 @@ async fn publisher_abort_keeps_a_running_callback_and_its_batch_owned_until_retu
     let store = store();
     let hash = accept(&store, output_tx(803), 1000, 1, Status::Pending);
     let owner = store.point(&hash).1.unwrap();
-    let selected =
-        super::super::membership::snapshot(&owner, Default::default(), Default::default()).unwrap();
+    let selected = super::super::membership::entry_snapshot(&owner, Default::default()).unwrap();
     let batch = append(
         &outbox,
         vec![Effect::accepted(selected, Status::Pending, None)],
@@ -765,8 +759,7 @@ async fn unregistered_callbacks_do_not_cross_the_blocking_boundary() {
     let store = store();
     let hash = accept(&store, output_tx(804), 1, 1, Status::Pending);
     let owner = store.point(&hash).1.unwrap();
-    let selected =
-        super::super::membership::snapshot(&owner, Default::default(), Default::default()).unwrap();
+    let selected = super::super::membership::entry_snapshot(&owner, Default::default()).unwrap();
     // Tokio forbids block_in_place inside a LocalSet, even on this multi-thread runtime.
     tokio::task::LocalSet::new()
         .run_until(async {

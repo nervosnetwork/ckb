@@ -636,7 +636,7 @@ fn detail_rank_preserves_ordering_equivalence_arrival_hash_and_status() {
     let totals = membership::aggregates(&members, config().max_ancestors_count).unwrap();
     let keys: Vec<_> = children
         .iter()
-        .map(|hash| score(members[hash].accepted().unwrap(), totals[hash].0).unwrap())
+        .map(|hash| score(members[hash].accepted().unwrap(), totals[hash].ancestors).unwrap())
         .collect();
     assert_ne!(keys[0], keys[1]);
     assert_eq!(keys[0].cmp(&keys[1]), std::cmp::Ordering::Equal);

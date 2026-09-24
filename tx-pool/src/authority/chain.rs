@@ -506,11 +506,11 @@ pub(super) fn reconcile(
                         config.max_ancestors_count,
                     )?);
                 }
-                let (ancestors, descendants) = old_totals
+                let totals = old_totals
                     .as_ref()
                     .and_then(|totals| totals.get(hash))
                     .ok_or(Error::Stale)?;
-                Some(membership::snapshot(old, *ancestors, *descendants)?)
+                Some(membership::entry_snapshot(old, *totals)?)
             } else {
                 None
             };
@@ -552,11 +552,11 @@ pub(super) fn reconcile(
                 config.max_ancestors_count,
             )?);
         }
-        let (ancestors, descendants) = final_totals
+        let totals = final_totals
             .as_ref()
             .and_then(|totals| totals.get(hash))
             .ok_or(Error::Stale)?;
-        let value = membership::snapshot(entry, *ancestors, *descendants)?;
+        let value = membership::entry_snapshot(entry, *totals)?;
         plan.notify(Effect::projected(value, status));
     }
     for block in attached_blocks.iter().chain(detached_blocks) {

@@ -70,14 +70,13 @@ fn trim_batch_updates_shared_ancestor_before_the_next_round() {
         BTreeSet::from([a.clone(), d, candidate])
     );
     let old_totals = aggregates(&original, config().max_ancestors_count).unwrap();
-    let (old_ancestors, old_descendants) = old_totals.get(&a).unwrap();
     let old_snapshot =
-        snapshot(original.get(&a).unwrap(), *old_ancestors, *old_descendants).unwrap();
+        entry_snapshot(original.get(&a).unwrap(), *old_totals.get(&a).unwrap()).unwrap();
     assert_eq!(old_snapshot.descendants_count, 4);
     assert_eq!(old_snapshot.descendants_fee.as_u64(), 110);
     let totals = aggregates(&entries, config().max_ancestors_count).unwrap();
-    assert_eq!(totals.get(&a).unwrap().1.count, 2);
-    assert_eq!(totals.get(&a).unwrap().1.fee, 100);
+    assert_eq!(totals.get(&a).unwrap().descendants.count, 2);
+    assert_eq!(totals.get(&a).unwrap().descendants.fee, 100);
 }
 
 #[test]

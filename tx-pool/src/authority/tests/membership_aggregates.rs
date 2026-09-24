@@ -1,6 +1,6 @@
 //! Full-graph totals agree with independent per-owner closure calculations.
 use super::super::{
-    membership::{self, Aggregate, Members},
+    membership::{self, Members, NeighborhoodTotals},
     model::{Accepted, Entry, Error, Phase, Source, Status},
 };
 use super::common::spend;
@@ -50,7 +50,7 @@ fn fixture(parents: &[Vec<usize>]) -> Members {
         .collect()
 }
 
-fn reference(members: &Members, max_ancestors: usize) -> BTreeMap<Byte32, (Aggregate, Aggregate)> {
+fn reference(members: &Members, max_ancestors: usize) -> BTreeMap<Byte32, NeighborhoodTotals> {
     let children = membership::children(members);
     members
         .keys()
@@ -60,10 +60,10 @@ fn reference(members: &Members, max_ancestors: usize) -> BTreeMap<Byte32, (Aggre
                 membership::descendant_hashes(&children, [hash.clone()], members.len()).unwrap();
             (
                 hash.clone(),
-                (
-                    membership::aggregate(members, &ancestors).unwrap(),
-                    membership::aggregate(members, &descendants).unwrap(),
-                ),
+                NeighborhoodTotals {
+                    ancestors: membership::aggregate(members, &ancestors).unwrap(),
+                    descendants: membership::aggregate(members, &descendants).unwrap(),
+                },
             )
         })
         .collect()
@@ -174,8 +174,11 @@ fn complete_totals_keep_wide_fees_and_reject_byte_or_cycle_overflow() {
     }
     let totals = membership::aggregates(&fees, 2).unwrap();
     assert_eq!(totals, reference(&fees, 2));
-    assert_eq!(totals[&parent].1.fee, u128::from(u64::MAX) * 2);
-    assert_eq!(totals[&parent].1.fee(), Capacity::shannons(u64::MAX));
+    assert_eq!(totals[&parent].descendants.fee, u128::from(u64::MAX) * 2);
+    assert_eq!(
+        totals[&parent].descendants.fee(),
+        Capacity::shannons(u64::MAX)
+    );
     let mut bytes = members.clone();
     change(&mut bytes, &parent, |value| value.size = usize::MAX);
     assert!(matches!(
