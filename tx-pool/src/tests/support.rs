@@ -24,19 +24,7 @@ pub(crate) fn genesis_snapshot() -> Arc<Snapshot> {
 }
 
 pub(crate) fn build_tx(inputs: Vec<(&Byte32, u32)>, outputs_len: usize) -> TransactionView {
-    TransactionBuilder::default()
-        .inputs(
-            inputs
-                .into_iter()
-                .map(|(txid, index)| CellInput::new(OutPoint::new(txid.to_owned(), index), 0)),
-        )
-        .outputs((0..outputs_len).map(|i| {
-            CellOutput::new_builder()
-                .capacity(Capacity::bytes(i + 1).unwrap())
-                .build()
-        }))
-        .outputs_data((0..outputs_len).map(|_| packed::Bytes::default()))
-        .build()
+    build_tx_with_dep(inputs, Vec::new(), outputs_len)
 }
 
 pub(crate) fn build_tx_with_dep(
