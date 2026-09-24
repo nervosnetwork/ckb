@@ -18,7 +18,7 @@ pub(crate) const MAX_PER_HEIGHT: usize = 10;
 /// every later chain change advances the independent chain source. Accepted
 /// insertions and explicit removals do advance this version.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
-pub(crate) struct CandidateUncleSourceReceipt(u64);
+struct CandidateUncleSourceReceipt(u64);
 
 impl CandidateUncleSourceReceipt {
     const INITIAL: Self = Self(0);
@@ -96,15 +96,15 @@ pub struct CandidateUncles {
 pub(crate) struct PreparedUncles {
     selected: Vec<UncleBlockView>,
     prune: CandidateUnclePrune,
-    source: CandidateUncleSourceReceipt,
 }
 
 /// Sealed cleanup capability produced only by uncle preparation.
 ///
-/// It contains candidates proven stale by the same chain facts used for the
-/// read receipt. Applying it cannot remove a candidate selected by that read.
+/// It pairs candidates proven stale on the preparation's chain cut with the
+/// candidate-cache source that must still match at publication.
 pub(crate) struct CandidateUnclePrune {
     stale: Vec<UncleBlockView>,
+    source: CandidateUncleSourceReceipt,
 }
 
 /// Fallibly captured, read-only candidate population.  The live map remains
@@ -116,14 +116,8 @@ pub(crate) struct CandidateUncleSnapshot {
 }
 
 impl PreparedUncles {
-    pub(crate) fn into_parts(
-        self,
-    ) -> (
-        Vec<UncleBlockView>,
-        CandidateUnclePrune,
-        CandidateUncleSourceReceipt,
-    ) {
-        (self.selected, self.prune, self.source)
+    pub(crate) fn into_parts(self) -> (Vec<UncleBlockView>, CandidateUnclePrune) {
+        (self.selected, self.prune)
     }
 }
 
@@ -134,14 +128,6 @@ impl CandidateUncles {
             map: BTreeMap::new(),
             source_version: CandidateUncleSourceReceipt::INITIAL,
         }
-    }
-
-    /// Read the exact monotonic candidate source without preparing a template.
-    /// Publication checks this receipt under the cache lock so a prepared
-    /// template cannot commit after its candidate source changes. The receipt
-    /// itself carries no mutation authority.
-    pub(crate) fn source_receipt(&self) -> CandidateUncleSourceReceipt {
-        self.source_version
     }
 
     /// insert new candidate uncles
@@ -270,7 +256,7 @@ impl CandidateUncles {
         candidates.extend(self.values().cloned());
         Ok(CandidateUncleSnapshot {
             candidates,
-            source: self.source_receipt(),
+            source: self.source_version,
         })
     }
 
@@ -330,14 +316,21 @@ impl CandidateUncles {
             .prepare_uncles(snapshot, current_epoch_ext)
     }
 
-    /// Apply stale-candidate cleanup from a plan whose template publication
-    /// token is still current. Removal is idempotent because another committed
-    /// update may already have pruned the same bounded candidates.
-    pub(crate) fn prune(&mut self, plan: CandidateUnclePrune) -> Vec<UncleBlockView> {
+    /// Apply cleanup only while its candidate source is current. The caller
+    /// separately validates the chain cut and publishes under the same guards.
+    /// Return payloads on success or source mismatch for destruction after
+    /// guards open. Version-neutral removal keeps equivalent plans valid.
+    pub(crate) fn try_prune(
+        &mut self,
+        plan: CandidateUnclePrune,
+    ) -> Result<Vec<UncleBlockView>, CandidateUnclePrune> {
+        if self.source_version != plan.source {
+            return Err(plan);
+        }
         for uncle in &plan.stale {
             self.remove_without_version(uncle);
         }
-        plan.stale
+        Ok(plan.stale)
     }
 
     /// Exercise the complete successful-publication behavior from a
@@ -350,11 +343,11 @@ impl CandidateUncles {
         snapshot: &Snapshot,
         current_epoch_ext: &EpochExt,
     ) -> Option<Vec<UncleBlockView>> {
-        let (selected, prune, _source) = self
+        let (selected, prune) = self
             .prepare_uncles(snapshot, current_epoch_ext)
             .ok()?
             .into_parts();
-        self.prune(prune);
+        self.try_prune(prune).ok()?;
         Some(selected)
     }
 }
@@ -368,8 +361,10 @@ impl CandidateUncleSnapshot {
         let Some(candidate_number) = snapshot.tip_number().checked_add(1) else {
             return Ok(PreparedUncles {
                 selected: Vec::new(),
-                prune: CandidateUnclePrune { stale: Vec::new() },
-                source: self.source,
+                prune: CandidateUnclePrune {
+                    stale: Vec::new(),
+                    source: self.source,
+                },
             });
         };
         let epoch_number = current_epoch_ext.number();
@@ -410,8 +405,10 @@ impl CandidateUncleSnapshot {
 
         Ok(PreparedUncles {
             selected: uncles,
-            prune: CandidateUnclePrune { stale: removed },
-            source: self.source,
+            prune: CandidateUnclePrune {
+                stale: removed,
+                source: self.source,
+            },
         })
     }
 }

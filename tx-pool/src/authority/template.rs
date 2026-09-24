@@ -7,10 +7,7 @@ use super::{
     store::{Captured, ReadSet, Store},
 };
 use crate::{
-    block_assembler::{
-        BlockAssembler, BlockTemplate, CandidateUnclePrune, CandidateUncleSourceReceipt,
-        CurrentTemplate,
-    },
+    block_assembler::{BlockAssembler, BlockTemplate, CandidateUnclePrune, CurrentTemplate},
     error::BlockAssemblerError,
     util::block_offload,
 };
@@ -41,7 +38,6 @@ pub(crate) struct TemplateSource {
 struct PreparedTemplate {
     current: Arc<CurrentTemplate>,
     prune: CandidateUnclePrune,
-    uncle_source: CandidateUncleSourceReceipt,
 }
 
 /// Pool(Stale) yields and retries; Pool(Fault) faults the generation. Other
@@ -156,7 +152,7 @@ impl Driver {
             .next_epoch_ext(snapshot.tip_header(), &snapshot.borrow_as_data_loader())
             .ok_or(BlockAssemblerError::MissingTipEpoch)?
             .epoch();
-        let (prepared, prune, uncle_source) = self
+        let (prepared, prune) = self
             .assembler
             .prepare_uncles(&snapshot, &epoch)
             .map_err(|error| {
@@ -257,7 +253,6 @@ impl Driver {
                 source: Some(TemplateSource { view, reads }),
             }),
             prune,
-            uncle_source,
         })
     }
     fn rebuild(&self, packing: &mut Cache) -> Result<(), BuildError> {
@@ -265,30 +260,25 @@ impl Driver {
         Ok(())
     }
     fn publish(&self, prepared: PreparedTemplate) -> Result<(), Error> {
-        let PreparedTemplate {
-            current,
-            prune,
-            uncle_source,
-        } = prepared;
+        let PreparedTemplate { current, prune } = prepared;
         let source = current
             .source
             .as_ref()
             .ok_or(Error::Fault("template source"))?;
-        let retired = self.store.read_selected(source.view, &source.reads, || {
-            let mut uncles = self.assembler.candidate_uncles.lock();
-            if uncles.source_receipt() != uncle_source {
-                // Uncle delivery has its own lock and can change this source
-                // while the captured lifecycle and selected owners stay valid.
-                return Err(Error::Stale);
-            }
-            // Cache pruning and output replacement are both internal bounded
-            // synchronous mutations. Payload destruction follows guard release.
-            let pruned = uncles.prune(prune);
-            Ok((
-                pruned,
-                std::mem::replace(&mut *self.assembler.current.write(), Arc::clone(&current)),
-            ))
-        })??;
+        let retired: Result<_, CandidateUnclePrune> =
+            self.store.read_selected(source.view, &source.reads, || {
+                let mut uncles = self.assembler.candidate_uncles.lock();
+                let pruned = uncles.try_prune(prune)?;
+                // Cache pruning and output replacement are both internal bounded
+                // synchronous mutations. Payload destruction follows guard release.
+                Ok((
+                    pruned,
+                    std::mem::replace(&mut *self.assembler.current.write(), Arc::clone(&current)),
+                ))
+            })?;
+        // A stale plan also owns uncle payloads; discard it only after the
+        // selected-source guards have opened.
+        let retired = retired.map_err(|_stale| Error::Stale)?;
         drop(retired);
         self.notification.notify_one();
         Ok(())

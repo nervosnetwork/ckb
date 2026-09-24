@@ -11,7 +11,6 @@ mod tests;
 
 use crate::error::BlockAssemblerError;
 use crate::util::block_offload;
-pub(crate) use candidate_uncles::CandidateUncleSourceReceipt;
 pub use candidate_uncles::CandidateUncles;
 use candidate_uncles::PreparedUncles;
 pub(crate) use candidate_uncles::{

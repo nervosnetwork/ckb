@@ -317,26 +317,20 @@ fn candidate_uncle_receipt_is_exact_and_committed_stale_prune_is_version_neutral
     let prepared = candidate_uncles
         .prepare_uncles(&snapshot, &epoch_ext)
         .expect("bounded candidate fixture snapshot is allocatable");
-    let (uncles, stale, captured_source) = prepared.into_parts();
-    let current_source = candidate_uncles
+    let (uncles, stale) = prepared.into_parts();
+    let equivalent = candidate_uncles
         .prepare_uncles(&snapshot, &epoch_ext)
         .expect("bounded candidate fixture snapshot is allocatable")
         .into_parts()
-        .2;
-    assert_eq!(captured_source, current_source);
+        .1;
 
     assert!(
         candidate_uncles.contains(&genesis_uncle),
         "read-only preparation cannot prune before publication"
     );
-    candidate_uncles.prune(stale);
-    assert_eq!(
-        candidate_uncles
-            .prepare_uncles(&snapshot, &epoch_ext)
-            .expect("bounded candidate fixture snapshot is allocatable")
-            .into_parts()
-            .2,
-        captured_source,
+    assert!(candidate_uncles.try_prune(stale).is_ok());
+    assert!(
+        candidate_uncles.try_prune(equivalent).is_ok(),
         "pruning candidates proven absent from this chain cut cannot dirty an equivalent template source"
     );
 

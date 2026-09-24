@@ -90,6 +90,29 @@ fn candidate_uncle_source_version_exhaustion_is_typed_and_mutation_free() {
 }
 
 #[test]
+fn changed_source_returns_the_original_cleanup_plan_without_removing_candidates() {
+    let mut candidates = CandidateUncles::new();
+    let stale = uncle(0, 0);
+    assert!(candidates.insert(stale.clone()));
+    let plan = CandidateUnclePrune {
+        stale: vec![stale.clone()],
+        source: candidates.source_version,
+    };
+    let allocation = plan.stale.as_ptr();
+    assert!(candidates.insert(uncle(1, 1)));
+    let changed_source = candidates.source_version;
+
+    let Err(returned) = candidates.try_prune(plan) else {
+        panic!("a changed candidate source must reject cleanup");
+    };
+    assert_eq!(returned.stale.as_ptr(), allocation);
+    assert_eq!(returned.stale, vec![stale.clone()]);
+    assert!(candidates.contains(&stale));
+    assert_eq!(candidates.len(), 2);
+    assert_eq!(candidates.source_version, changed_source);
+}
+
+#[test]
 fn keeps_the_highest_bounded_candidates() {
     let mut candidates = CandidateUncles::new();
     let blocks = (0..(MAX_CANDIDATE_UNCLES + 3))
