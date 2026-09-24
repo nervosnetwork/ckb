@@ -209,6 +209,7 @@ impl Selection<'_> {
         strongest: bool,
         package_children: &Links,
     ) -> Result<usize, PackingError> {
+        debug_assert!(component.is_sorted(), "SCC membership uses binary search");
         // The stored package graph is acyclic even when conditional ordering
         // is not. Drop a package leaf within this SCC so its ancestors remain;
         // the bounded fallback retains a package root for the same reason.
@@ -297,7 +298,8 @@ fn topological_active_order<K: Ord>(
 }
 
 /// Iterative Kosaraju traversal; template input is attacker-shaped, so no
-/// recursive stack growth is permitted.
+/// recursive stack growth is permitted. Each component has sorted, unique
+/// indices so cycle_representative can test package edges by binary search.
 #[expect(
     clippy::indexing_slicing,
     reason = "Links validates every endpoint; the activity mask is checked against its node count before traversal."

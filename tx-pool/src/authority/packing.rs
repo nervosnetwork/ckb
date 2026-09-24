@@ -199,18 +199,17 @@ impl<'a> Selection<'a> {
         &self.candidates
     }
 
-    #[expect(
-        clippy::indexing_slicing,
-        reason = "Candidates and aggregates have the same checked graph indices."
-    )]
     fn priority(&self, status: Option<Status>) -> BinaryHeap<PackageOrderKey<'_>> {
         BinaryHeap::from(
             self.candidates
                 .iter()
+                .zip(&self.graph.ancestors)
                 .enumerate()
-                .filter(|(_, candidate)| status.is_none_or(|status| candidate.status == status))
-                .map(|(index, candidate)| {
-                    package_order_key(index, candidate, self.graph.ancestors[index])
+                .filter(|(_, (candidate, _))| {
+                    status.is_none_or(|status| candidate.status == status)
+                })
+                .map(|(index, (candidate, &ancestors))| {
+                    package_order_key(index, candidate, ancestors)
                 })
                 .collect::<Vec<_>>(),
         )

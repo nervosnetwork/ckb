@@ -46,10 +46,6 @@ pub(crate) fn sort_transactions(
 /// read-before-spend precedence carried by a legacy snapshot. A cyclic input
 /// keeps its original order; callers still revalidate every transaction during
 /// replay. All fallible preparation finishes before the items are permuted.
-#[expect(
-    clippy::indexing_slicing,
-    reason = "Every ready index belongs to items and is emitted once. A complete topological order is a permutation of the item indices."
-)]
 pub(crate) fn sort_by_dependencies<T>(
     items: &mut [T],
     transaction: impl Fn(&T) -> &TransactionView,
@@ -162,6 +158,10 @@ pub(crate) fn sort_by_dependencies<T>(
     // placing that source and marking the destination complete as we go. The
     // final source is already in place after the preceding swaps. No item is
     // cloned, dropped or temporarily removed from the caller's slice.
+    #[expect(
+        clippy::indexing_slicing,
+        reason = "A complete topological order is a permutation of the item indices, each emitted once."
+    )]
     for start in 0..sorted.len() {
         let mut destination = start;
         loop {
