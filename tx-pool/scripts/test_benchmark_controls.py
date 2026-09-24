@@ -62,7 +62,7 @@ class ControlEvidenceTests(unittest.TestCase):
             sides={side: copy.deepcopy(self.context) for side in ("baseline", "candidate")},
             summary={self.key: {"status": "forged summary must be ignored"}})
         for name in ("runner_sha256", "build_runner_sha256", "process_runner_sha256", "harness_sha256",
-                     "measurement_window_sha256", "rejection_diagnostics_sha256"):
+                     "measurement_window_sha256", "rejection_diagnostics_sha256", "scenario_parser_sha256"):
             self.control[name] = "same"
         attempts = [(side, f"{self.key}/pilot/{side}") for side in ("candidate", "baseline")]
         for pair, block in enumerate(self.config["schedule"][self.key], 1):

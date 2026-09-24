@@ -78,7 +78,10 @@ Other useful workloads are `always_success`, `secp256k1`, `dependent`,
 `dependent_reverse`, `dependent_forest_10`, `fanout`, `fanout_ready_64_reverse`,
 `reorg_in_flight` and `always_success_callback_500us`. Reverse workloads require
 `warm=0`, except independent fanout cohorts, whose target and warm counts must
-each be multiples of 65; RBF requires equal warm and target counts. Single-parent
+each be multiples of 65; RBF requires equal warm and target counts. Every entry
+point bounds target + warm at 65,536; forward forests require each phase to
+contain whole chains. The native fixture also checks its actual funding capacity
+before allocation. Single-parent
 fanout supports at most 5,752 transactions. `fanout_reverse` is a capacity stress
 with a separate result contract and is not accepted by the profile analyzer.
 The [benchmark guide](BENCHMARK.md#workload-integrity)
@@ -102,7 +105,8 @@ bundle can move and no longer needs the capture binary. Preserve the analyzer
 and its [process helper](../scripts/measurement_process.py),
 [window parser](../scripts/measurement_window.py) and
 [rejection verifier](../scripts/rejection_diagnostics.py) and
-[build verifier](../scripts/benchmark_build.py) with an immutable study.
+[build verifier](../scripts/benchmark_build.py) and
+[scenario validator](../scripts/benchmark_scenario.py) with an immutable study.
 Use the matching analyzer for each bundle schema. Current manifest/summary/window
 schemas are 11/9/3, and current span output is schema 4. Schema 10 bundles retain
 their original analyzer and provenance; they are not upgraded into verified

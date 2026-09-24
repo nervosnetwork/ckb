@@ -4,7 +4,9 @@ mod allocation_observation;
 #[cfg(not(feature = "cross-version-legacy-bench-adapter"))]
 mod rbf_pressure;
 mod rejection_diagnostics;
+mod scenario;
 use allocation_observation::{begin_allocation_window, end_allocation_window};
+use scenario::{BenchmarkScenario, FANOUT_COHORT_SIZE, SubmissionOrder, Workload};
 
 #[cfg(all(feature = "tokio-trace", not(tokio_unstable)))]
 compile_error!("the `tokio-trace` benchmark requires RUSTFLAGS=\"--cfg tokio_unstable\"");
@@ -13,7 +15,7 @@ use ckb_app_config::{NetworkConfig, TxPoolConfig};
 use ckb_async_runtime::{Handle, new_global_runtime};
 use ckb_chain_spec::consensus::{Consensus, ConsensusBuilder};
 use ckb_crypto::secp::Privkey;
-use ckb_dao_utils::genesis_dao_data;
+use ckb_dao_utils::{extract_dao_data, genesis_dao_data};
 use ckb_fee_estimator::FeeEstimator;
 use ckb_network::{
     Flags, NetworkController, NetworkService, NetworkState, PeerIndex, network::TransportType,
@@ -60,7 +62,7 @@ use tokio::sync::{Notify, RwLock};
 const MAX_TX_VERIFY_CYCLES: u64 = 70_000_000;
 const ISSUE_CAPACITY_BYTES: usize = 500_000;
 const FANOUT_OUTPUT_CAPACITY_BYTES: usize = 100;
-const FANOUT_COHORT_SIZE: usize = fanout_readiness::CHILDREN + 1;
+const _: () = assert!(FANOUT_COHORT_SIZE == fanout_readiness::CHILDREN + 1);
 const COMPLETION_COUNTER_SHARDS: usize = 64;
 const SECP_PRIVKEY: H256 =
     h256!("0xb2b3324cece882bca684eaf202667bb56ed8e8c2fd4b4dc71f615ebd6d9055a5");
@@ -1028,8 +1030,8 @@ fn always_success_dep() -> CellDep {
         .build()
 }
 
-fn genesis_consensus(transactions: Vec<TransactionView>) -> Consensus {
-    let dao = genesis_dao_data(transactions.iter().collect()).expect("valid genesis DAO");
+fn genesis_consensus(transactions: Vec<TransactionView>) -> BenchResult<Consensus> {
+    let dao = genesis_dao_data(transactions.iter().collect())?;
     let genesis = transactions
         .into_iter()
         .fold(
@@ -1040,10 +1042,10 @@ fn genesis_consensus(transactions: Vec<TransactionView>) -> Consensus {
             |builder, transaction| builder.transaction(transaction),
         )
         .build();
-    ConsensusBuilder::default()
+    Ok(ConsensusBuilder::default()
         .genesis_block(genesis)
         .cellbase_maturity(EpochNumberWithFraction::new(0, 0, 1))
-        .build()
+        .build())
 }
 
 fn issue_transaction(lock: Script, capacity: Capacity, outputs: usize) -> TransactionView {
@@ -1058,17 +1060,66 @@ fn issue_transaction(lock: Script, capacity: Capacity, outputs: usize) -> Transa
         .build()
 }
 
-fn test_consensus(issue_outputs: usize) -> (Consensus, TransactionView) {
-    test_consensus_with_capacity(
-        issue_outputs,
-        Capacity::bytes(ISSUE_CAPACITY_BYTES).expect("valid issue capacity"),
-    )
+/// Derive the large funding fixture's limits from one real output. This keeps
+/// system-cell sizes, initial DAO issuance and Molecule offsets at their producer.
+fn funded_genesis(
+    system_tx: TransactionView,
+    lock: Script,
+    capacity: Capacity,
+    outputs: usize,
+) -> BenchResult<(Consensus, TransactionView)> {
+    let added_outputs = outputs
+        .checked_sub(1)
+        .ok_or_else(|| bench_error("funding fixture requires at least one output"))?;
+    let sample = issue_transaction(lock.clone(), capacity, 1);
+    let sample_genesis = genesis_consensus(vec![system_tx.clone(), sample.clone()])?;
+    let (_, total_capacity, _, occupied_capacity) =
+        extract_dao_data(sample_genesis.genesis_block().dao());
+    let output = sample
+        .output(0)
+        .ok_or_else(|| bench_error("funding sample has no output"))?;
+    let output_occupied = output.occupied_capacity(Capacity::zero())?;
+    for (total, each) in [
+        (total_capacity, capacity),
+        (occupied_capacity, output_occupied),
+    ] {
+        each.safe_mul(added_outputs as u64)
+            .and_then(|added| total.safe_add(added))
+            .map_err(|_| bench_error("funding fixture exceeds DAO capacity range"))?;
+    }
+    let empty = issue_transaction(lock.clone(), capacity, 0);
+    let bytes_per_output = sample.data().total_size() - empty.data().total_size();
+    let encoded_size = bytes_per_output
+        .checked_mul(added_outputs)
+        .and_then(|added| {
+            sample_genesis
+                .genesis_block()
+                .data()
+                .total_size()
+                .checked_add(added)
+        })
+        .filter(|&size| u32::try_from(size).is_ok())
+        .ok_or_else(|| bench_error("funding fixture exceeds Molecule's u32 size limit"))?;
+    if added_outputs == 0 {
+        return Ok((sample_genesis, sample));
+    }
+    let issue_tx = issue_transaction(lock, capacity, outputs);
+    let consensus = genesis_consensus(vec![system_tx, issue_tx.clone()])?;
+    require(
+        consensus.genesis_block().data().total_size() == encoded_size,
+        "funding fixture differs from its size preflight",
+    )?;
+    Ok((consensus, issue_tx))
+}
+
+fn test_consensus(issue_outputs: usize) -> BenchResult<(Consensus, TransactionView)> {
+    test_consensus_with_capacity(issue_outputs, Capacity::bytes(ISSUE_CAPACITY_BYTES)?)
 }
 
 fn test_consensus_with_capacity(
     issue_outputs: usize,
     capacity: Capacity,
-) -> (Consensus, TransactionView) {
+) -> BenchResult<(Consensus, TransactionView)> {
     let (always_success_cell, always_success_data, always_success_script) = always_success_cell();
     let always_success_tx = TransactionBuilder::default()
         .input(CellInput::new(OutPoint::null(), 0))
@@ -1076,10 +1127,11 @@ fn test_consensus_with_capacity(
         .output_data(always_success_data.clone())
         .witness(always_success_script.clone().into_witness())
         .build();
-    let issue_tx = issue_transaction(always_success_script.clone(), capacity, issue_outputs);
-    (
-        genesis_consensus(vec![always_success_tx, issue_tx.clone()]),
-        issue_tx,
+    funded_genesis(
+        always_success_tx,
+        always_success_script.clone(),
+        capacity,
+        issue_outputs,
     )
 }
 
@@ -1245,7 +1297,9 @@ fn bundled_cell(key: &str) -> (CellOutput, Bytes) {
     (cell, data)
 }
 
-fn secp_test_consensus(issue_outputs: usize) -> (Consensus, TransactionView, Vec<CellDep>) {
+fn secp_test_consensus(
+    issue_outputs: usize,
+) -> BenchResult<(Consensus, TransactionView, Vec<CellDep>)> {
     let (code_cell, code_data) = bundled_cell("specs/cells/secp256k1_blake160_sighash_all");
     let (data_cell, data_data) = bundled_cell("specs/cells/secp256k1_data");
     let system_tx = TransactionBuilder::default()
@@ -1262,16 +1316,13 @@ fn secp_test_consensus(issue_outputs: usize) -> (Consensus, TransactionView, Vec
             .out_point(OutPoint::new(system_tx.hash(), 1))
             .build(),
     ];
-    let issue_tx = issue_transaction(
+    let (consensus, issue_tx) = funded_genesis(
+        system_tx,
         secp_script(),
         Capacity::shannons(SECP_ISSUE_CAPACITY),
         issue_outputs,
-    );
-    (
-        genesis_consensus(vec![system_tx, issue_tx.clone()]),
-        issue_tx,
-        cell_deps,
-    )
+    )?;
+    Ok((consensus, issue_tx, cell_deps))
 }
 
 fn build_secp_tx(input: OutPoint, cell_deps: &[CellDep], output_capacity: u64) -> TransactionView {
@@ -1323,62 +1374,60 @@ fn build_chain(mut input: OutPoint, count: usize) -> Vec<TransactionView> {
 }
 
 fn build_workload(
-    scenario: &str,
+    workload: Workload,
     transaction_count: usize,
 ) -> BenchResult<(Consensus, Vec<TransactionView>)> {
-    if let Some(depth_spec) = scenario.strip_prefix("dependent_forest_") {
-        let (depth, reverse) = match depth_spec.strip_suffix("_reverse") {
-            Some(depth) => (depth, true),
-            None => (depth_spec, false),
-        };
-        let depth: usize = depth.parse()?;
-        require(depth != 0, "dependency depth must be non-zero")?;
-        let chain_count = transaction_count.div_ceil(depth);
-        let (consensus, issue_tx) = test_consensus(chain_count);
-        let mut transactions = (0..chain_count)
-            .flat_map(|chain| {
-                build_chain(
-                    OutPoint::new(
-                        issue_tx.hash(),
-                        u32::try_from(chain).expect("bounded index"),
-                    ),
-                    depth.min(transaction_count - chain * depth),
-                )
-            })
-            .collect::<Vec<_>>();
-        if reverse {
-            transactions.reverse();
-        }
-        return Ok((consensus, transactions));
-    }
-    if let Some(fan_in) = scenario.strip_prefix("always_success_fanin_") {
-        let fan_in: usize = fan_in.parse()?;
-        require(fan_in != 0, "fan-in must be non-zero")?;
-        let issue_outputs = transaction_count
-            .checked_mul(fan_in)
-            .ok_or_else(|| bench_error("fan-in workload size overflow"))?;
-        let (consensus, issue_tx) = test_consensus(issue_outputs);
-        let transactions = (0..transaction_count)
-            .map(|transaction_index| {
-                let first = transaction_index * fan_in;
-                build_multi_input_tx((first..first + fan_in).map(|index| {
-                    OutPoint::new(
-                        issue_tx.hash(),
-                        u32::try_from(index).expect("bounded index"),
+    match workload {
+        Workload::Forest { depth, reverse } => {
+            let chain_count = transaction_count.div_ceil(depth);
+            let (consensus, issue_tx) = test_consensus(chain_count)?;
+            let mut transactions = (0..chain_count)
+                .flat_map(|chain| {
+                    build_chain(
+                        OutPoint::new(
+                            issue_tx.hash(),
+                            u32::try_from(chain).expect("bounded index"),
+                        ),
+                        depth.min(transaction_count - chain * depth),
                     )
-                }))
-            })
-            .collect();
-        return Ok((consensus, transactions));
-    }
-    match scenario {
-        "rbf_pairs" => {
+                })
+                .collect::<Vec<_>>();
+            if reverse {
+                transactions.reverse();
+            }
+            Ok((consensus, transactions))
+        }
+        Workload::FanIn(fan_in) => {
+            // Check the parsed size model against bounded fixtures before funding
+            // or allocating the requested population.
+            let size = |inputs| {
+                build_multi_input_tx(std::iter::repeat_n(OutPoint::null(), inputs))
+                    .data()
+                    .serialized_size_in_block()
+            };
             require(
-                transaction_count.is_multiple_of(2),
-                "RBF workload requires equal victim and replacement halves",
+                size(0) == scenario::FANIN_BASE_BYTES
+                    && size(1) == scenario::FANIN_BASE_BYTES + scenario::INPUT_BYTES,
+                "fan-in fixture differs from its size model",
             )?;
+            let issue_outputs = transaction_count * fan_in;
+            let (consensus, issue_tx) = test_consensus(issue_outputs)?;
+            let transactions = (0..transaction_count)
+                .map(|transaction_index| {
+                    let first = transaction_index * fan_in;
+                    build_multi_input_tx((first..first + fan_in).map(|index| {
+                        OutPoint::new(
+                            issue_tx.hash(),
+                            u32::try_from(index).expect("bounded index"),
+                        )
+                    }))
+                })
+                .collect();
+            Ok((consensus, transactions))
+        }
+        Workload::RbfPairs { .. } => {
             let pair_count = transaction_count / 2;
-            let (consensus, issue_tx) = test_consensus(pair_count);
+            let (consensus, issue_tx) = test_consensus(pair_count)?;
             let (mut victims, replacements): (Vec<_>, Vec<_>) = (0..pair_count)
                 .map(|index| {
                     let input = OutPoint::new(
@@ -1394,15 +1443,15 @@ fn build_workload(
             victims.extend(replacements);
             Ok((consensus, victims))
         }
-        "always_success" => {
-            let (consensus, issue_tx) = test_consensus(transaction_count);
+        Workload::AlwaysSuccess => {
+            let (consensus, issue_tx) = test_consensus(transaction_count)?;
             let transactions = (0..transaction_count)
                 .map(|index| build_tx(OutPoint::new(issue_tx.hash(), index as u32)))
                 .collect();
             Ok((consensus, transactions))
         }
-        "secp256k1" => {
-            let (consensus, issue_tx, cell_deps) = secp_test_consensus(transaction_count);
+        Workload::Secp256k1 => {
+            let (consensus, issue_tx, cell_deps) = secp_test_consensus(transaction_count)?;
             let transactions = (0..transaction_count)
                 .map(|index| {
                     build_secp_tx(
@@ -1414,23 +1463,19 @@ fn build_workload(
                 .collect();
             Ok((consensus, transactions))
         }
-        "dependent" | "dependent_reverse" => {
-            let (consensus, issue_tx) = test_consensus(1);
+        Workload::Chain { reverse } => {
+            let (consensus, issue_tx) = test_consensus(1)?;
             let mut transactions =
                 build_chain(OutPoint::new(issue_tx.hash(), 0), transaction_count);
-            if scenario.ends_with("_reverse") {
+            if reverse {
                 transactions.reverse();
             }
             Ok((consensus, transactions))
         }
-        "fanout_ready_64_reverse" => {
-            require(
-                transaction_count != 0 && transaction_count.is_multiple_of(FANOUT_COHORT_SIZE),
-                "fanout cohorts require a positive multiple of 65 transactions",
-            )?;
+        Workload::FanoutCohorts => {
             let cohort_count = transaction_count / FANOUT_COHORT_SIZE;
             let (consensus, issue_tx) =
-                test_consensus_with_capacity(cohort_count, Capacity::bytes(ISSUE_CAPACITY_BYTES)?);
+                test_consensus_with_capacity(cohort_count, Capacity::bytes(ISSUE_CAPACITY_BYTES)?)?;
             let mut transactions = Vec::with_capacity(transaction_count);
             for cohort in 0..cohort_count {
                 let parent = build_fanout_parent(
@@ -1450,11 +1495,7 @@ fn build_workload(
             }
             Ok((consensus, transactions))
         }
-        "fanout" | "fanout_reverse" => {
-            require(
-                transaction_count >= 2,
-                "fanout requires a parent and a child",
-            )?;
+        Workload::Fanout { reverse } => {
             let child_count = transaction_count - 1;
             // Derive the encoded size from this fixture's actual shape before
             // allocating the full output vector. Each output and empty data item
@@ -1466,6 +1507,10 @@ fn build_workload(
             };
             let base_size = parent_size(0);
             let output_size = parent_size(1) - base_size;
+            require(
+                base_size == scenario::FANOUT_BASE_BYTES && output_size == scenario::OUTPUT_BYTES,
+                "fanout fixture differs from its size model",
+            )?;
             let size = output_size
                 .checked_mul(child_count)
                 .and_then(|outputs| base_size.checked_add(outputs))
@@ -1479,7 +1524,7 @@ fn build_workload(
                 .ok_or_else(|| bench_error("fanout capacity overflow"))?
                 .max(ISSUE_CAPACITY_BYTES);
             let (consensus, issue_tx) =
-                test_consensus_with_capacity(1, Capacity::bytes(capacity_bytes)?);
+                test_consensus_with_capacity(1, Capacity::bytes(capacity_bytes)?)?;
             let parent = build_fanout_parent(OutPoint::new(issue_tx.hash(), 0), child_count);
             require(
                 parent.data().serialized_size_in_block() == size,
@@ -1488,7 +1533,7 @@ fn build_workload(
             let mut children = (0..child_count)
                 .map(|index| build_tx(OutPoint::new(parent.hash(), index as u32)))
                 .collect::<Vec<_>>();
-            if scenario == "fanout_reverse" {
+            if reverse {
                 children.reverse();
                 children.push(parent);
             } else {
@@ -1496,7 +1541,6 @@ fn build_workload(
             }
             Ok((consensus, children))
         }
-        _ => Err(bench_error(format!("unknown scenario: {scenario}"))),
     }
 }
 
@@ -1641,10 +1685,7 @@ async fn submit_dependency_forest(
     peers: usize,
     mut expected_total: usize,
 ) -> BenchResult<()> {
-    require(
-        depth != 0 && transactions.len().is_multiple_of(depth),
-        "dependency-forest batch must contain complete non-empty chains",
-    )?;
+    debug_assert!(depth != 0 && transactions.len().is_multiple_of(depth));
     let chain_count = transactions.len() / depth;
     for level in 0..depth {
         let indexes = (0..chain_count).map(|chain| chain * depth + level);
@@ -1665,15 +1706,6 @@ async fn submit_dependency_forest(
         .await?;
     }
     Ok(())
-}
-
-#[derive(Clone, Copy)]
-enum SubmissionOrder {
-    Concurrent,
-    WindowedRbf,
-    Forest(usize),
-    ParentFirst,
-    ReverseFanoutCohorts,
 }
 
 async fn submit_workload(
@@ -1711,10 +1743,7 @@ async fn submit_workload(
             }
         }
         SubmissionOrder::ReverseFanoutCohorts => {
-            require(
-                transactions.len().is_multiple_of(FANOUT_COHORT_SIZE),
-                "incomplete fanout cohort",
-            )?;
+            debug_assert!(transactions.len().is_multiple_of(FANOUT_COHORT_SIZE));
             for (cohort, (transactions, cycles)) in transactions
                 .chunks_exact(FANOUT_COHORT_SIZE)
                 .zip(cycles.chunks_exact(FANOUT_COHORT_SIZE))
@@ -1891,125 +1920,6 @@ fn main() -> BenchResult<()> {
     Ok(())
 }
 
-/// Validated workload identity and counts, before constructing any pool or VM
-/// state. The measured scenario and its transaction fixture may differ.
-struct BenchmarkScenario {
-    name: String,
-    target_count: usize,
-    warm_count: usize,
-    workers: usize,
-    peers: usize,
-    callback_delay_us: Option<u64>,
-    reorg_in_flight: bool,
-}
-
-impl BenchmarkScenario {
-    fn workload(&self) -> &str {
-        if matches!(self.name.as_str(), "rbf_pressure" | "rbf_pairs_windowed") {
-            "rbf_pairs"
-        } else if self.callback_delay_us.is_some() || self.reorg_in_flight {
-            "always_success"
-        } else {
-            &self.name
-        }
-    }
-
-    fn is_reverse(&self) -> bool {
-        self.workload().ends_with("_reverse")
-    }
-
-    fn is_rbf_pairs(&self) -> bool {
-        self.workload() == "rbf_pairs"
-    }
-
-    fn submission_orders(&self) -> BenchResult<(SubmissionOrder, SubmissionOrder)> {
-        let workload = self.workload();
-        let order = workload
-            .strip_prefix("dependent_forest_")
-            .filter(|depth| !depth.ends_with("_reverse"))
-            .map(str::parse::<usize>)
-            .transpose()?
-            .map_or(SubmissionOrder::Concurrent, SubmissionOrder::Forest);
-        let order = if self.name == "rbf_pairs_windowed" {
-            SubmissionOrder::WindowedRbf
-        } else if workload == "fanout_ready_64_reverse" {
-            SubmissionOrder::ReverseFanoutCohorts
-        } else {
-            order
-        };
-        let warm = if workload == "fanout" && self.warm_count != 0 {
-            SubmissionOrder::ParentFirst
-        } else {
-            order
-        };
-        let target = if workload == "fanout" && self.warm_count == 0 {
-            SubmissionOrder::ParentFirst
-        } else {
-            order
-        };
-        Ok((warm, target))
-    }
-
-    fn parse() -> BenchResult<Self> {
-        let mut args = std::env::args().skip(1);
-        let name = args.next().unwrap_or_else(|| "always_success".to_owned());
-        let mut number = |default| match args.next() {
-            Some(value) => value.parse::<usize>().map_err(bench_error),
-            None => Ok(default),
-        };
-        let target_count = number(1_000)?;
-        let warm_count = number(100)?;
-        let workers = number(8)?;
-        let peers = number(8)?;
-        require(
-            target_count != 0 && workers != 0 && peers != 0,
-            "target, workers and peers must be non-zero",
-        )?;
-        let callback_delay_us = name
-            .strip_prefix("always_success_callback_")
-            .and_then(|value| value.strip_suffix("us"))
-            .map(str::parse::<u64>)
-            .transpose()?
-            .or_else(|| (name == "reorg_in_flight").then_some(500));
-        let reorg_in_flight = name == "reorg_in_flight";
-        require(
-            name != "rbf_pressure" || !cfg!(feature = "cross-version-legacy-bench-adapter"),
-            "RBF pressure diagnostics require the current public controller",
-        )?;
-        let scenario = Self {
-            name,
-            target_count,
-            warm_count,
-            workers,
-            peers,
-            callback_delay_us,
-            reorg_in_flight,
-        };
-        let workload = scenario.workload();
-        require(
-            !scenario.is_rbf_pairs() || warm_count == target_count,
-            "RBF workload requires equal warm and target counts",
-        )?;
-        require(
-            !scenario.is_reverse() || workload == "fanout_ready_64_reverse" || warm_count == 0,
-            "reverse dependency workloads require warm=0",
-        )?;
-        require(
-            workload != "fanout_ready_64_reverse"
-                || (target_count.is_multiple_of(FANOUT_COHORT_SIZE)
-                    && warm_count.is_multiple_of(FANOUT_COHORT_SIZE)),
-            "fanout cohort target and warm counts must each be multiples of 65",
-        )?;
-        // Do not silently run a former diagnostic under the protocol contract.
-        match std::env::var("TX_POOL_BENCH_COMPARISON_CONTRACT") {
-            Ok(value) if value == "protocol" => {}
-            Err(std::env::VarError::NotPresent) => {}
-            _ => return Err(bench_error("unsupported benchmark comparison contract")),
-        };
-        Ok(scenario)
-    }
-}
-
 /// Determine declared cycles before the target window without warming the
 /// measured script cache for secp transactions.
 fn preflight_cycles(
@@ -2017,9 +1927,9 @@ fn preflight_cycles(
     transactions: &[TransactionView],
     snapshot: &Arc<Snapshot>,
     consensus: &Arc<Consensus>,
-    workload: &str,
+    workload: Workload,
 ) -> BenchResult<(Vec<u64>, usize)> {
-    if workload == "secp256k1" {
+    if workload == Workload::Secp256k1 {
         // test_accept_tx may publish a cache proof on some pool versions.
         // Canonical verification keeps the measured target transactions cold.
         let environment = Arc::new(TxVerifyEnv::new_submit(snapshot.tip_header()));
@@ -2045,7 +1955,7 @@ fn preflight_cycles(
         let script_preflight_count = cycles.len();
         Ok((cycles, script_preflight_count))
     } else {
-        let sample = if workload.ends_with("_reverse") {
+        let sample = if workload.is_reverse() {
             transactions.last()
         } else {
             transactions.first()
@@ -2066,9 +1976,19 @@ fn run() -> BenchResult<()> {
     resource_phases
         .capture("process_start")
         .map_err(bench_error)?;
-    let options = BenchmarkScenario::parse()?;
+    let options = BenchmarkScenario::parse(std::env::args().skip(1)).map_err(bench_error)?;
+    require(
+        options.name != "rbf_pressure" || !cfg!(feature = "cross-version-legacy-bench-adapter"),
+        "RBF pressure diagnostics require the current public controller",
+    )?;
+    // Do not silently run a former diagnostic under the protocol contract.
+    match std::env::var("TX_POOL_BENCH_COMPARISON_CONTRACT") {
+        Ok(value) if value == "protocol" => {}
+        Err(std::env::VarError::NotPresent) => {}
+        _ => return Err(bench_error("unsupported benchmark comparison contract")),
+    };
     let scenario = options.name.as_str();
-    let workload_scenario = options.workload();
+    let workload = options.workload;
     let target_count = options.target_count;
     let warm_count = options.warm_count;
     let workers = options.workers;
@@ -2087,14 +2007,12 @@ fn run() -> BenchResult<()> {
         adapter,
         cfg!(debug_assertions),
     );
-    let transaction_count = target_count
-        .checked_add(warm_count)
-        .ok_or_else(|| bench_error("target and warm transaction count overflow"))?;
+    let transaction_count = target_count + warm_count;
     // Task creation must be observed, including long-lived pool background
     // tasks. Install the composed subscriber before constructing the runtime.
     #[cfg(feature = "profiling")]
     let mut observability = init_observability().map_err(std::io::Error::other)?;
-    let (consensus, transactions) = build_workload(workload_scenario, transaction_count)?;
+    let (consensus, transactions) = build_workload(workload, transaction_count)?;
     resource_phases
         .capture("fixture_ready")
         .map_err(bench_error)?;
@@ -2105,7 +2023,7 @@ fn run() -> BenchResult<()> {
     let (network_directory, network) = start_network(&consensus, &handle)?;
     let config = TxPoolConfig {
         persisted_data: network_directory.path().join("tx-pool.data"),
-        ..tx_pool_config(workers, options.is_rbf_pairs())
+        ..tx_pool_config(workers, workload.is_rbf_pairs())
     };
     #[cfg(feature = "cross-version-legacy-bench-adapter")]
     let (mut builder, controller, relay_receiver) = {
@@ -2167,13 +2085,8 @@ fn run() -> BenchResult<()> {
     resource_phases
         .capture("service_ready")
         .map_err(bench_error)?;
-    let (cycles, script_preflight_count) = preflight_cycles(
-        &controller,
-        &transactions,
-        &snapshot,
-        &consensus,
-        workload_scenario,
-    )?;
+    let (cycles, script_preflight_count) =
+        preflight_cycles(&controller, &transactions, &snapshot, &consensus, workload)?;
     let corpus = corpus_observation(&consensus, &transactions, &cycles, script_preflight_count)?;
     // Preserve the complete input identity even if submission or settlement fails.
     println!("BENCH_CORPUS {corpus}");
@@ -2186,7 +2099,7 @@ fn run() -> BenchResult<()> {
     let warm_cycles = Arc::new(cycles[..warm_count].to_vec());
     let target_cycles = Arc::new(cycles[warm_count..].to_vec());
 
-    let (warm_order, target_order) = options.submission_orders()?;
+    let (warm_order, target_order) = options.submission_orders();
     let warm_expected_relay = expected_relay_batch(&warm, warm_order, peers);
     let target_expected_relay = expected_relay_batch(&target, target_order, peers);
     let mut all_expected_relay = warm_expected_relay.clone();
@@ -2195,7 +2108,7 @@ fn run() -> BenchResult<()> {
     let all_expected_relay = &diagnostics.expected_relay;
     let warm_expected_rejects = RelayRejectSet::new();
     let all_expected_rejects =
-        if options.is_rbf_pairs() && !cfg!(feature = "cross-version-legacy-bench-adapter") {
+        if workload.is_rbf_pairs() && !cfg!(feature = "cross-version-legacy-bench-adapter") {
             warm.iter().map(TransactionView::hash).collect()
         } else {
             RelayRejectSet::new()
@@ -2204,7 +2117,7 @@ fn run() -> BenchResult<()> {
         .iter()
         .map(TransactionView::hash)
         .collect::<HashSet<_>>();
-    let (allowed_unknown, warm_allowed_unknown) = if options.is_reverse() {
+    let (allowed_unknown, warm_allowed_unknown) = if workload.is_reverse() {
         (
             expected_unknown_parents(&transactions, all_expected_relay, &corpus_hashes),
             expected_unknown_parents(
@@ -2217,7 +2130,7 @@ fn run() -> BenchResult<()> {
         (HashMap::new(), HashMap::new())
     };
     relay_completion.reserve(transactions.len(), all_expected_rejects.len())?;
-    if workload_scenario == "fanout_reverse" {
+    if workload == (Workload::Fanout { reverse: true }) {
         // Capacity stress has a different terminal contract from throughput:
         // legacy orphan eviction is an observable rejection, not a hang.
         completion.begin_target(Instant::now());
@@ -2298,7 +2211,7 @@ fn run() -> BenchResult<()> {
     relay_completion.validate(
         &warm_expected_relay,
         &warm_expected_rejects,
-        options.is_reverse().then_some(&warm_allowed_unknown),
+        workload.is_reverse().then_some(&warm_allowed_unknown),
     )?;
     completion.validate(warm_count, false)?;
     resource_phases
@@ -2331,8 +2244,7 @@ fn run() -> BenchResult<()> {
     let started = Instant::now();
     completion.begin_target(started);
     let mut target_readiness = fanout_readiness::Readiness::default();
-    let (reorg_latency_ns, reorg_overlap_callbacks) = if reorg_in_flight {
-        let reorg_snapshot = reorg_snapshot.expect("reorg snapshot follows scenario identity");
+    let (reorg_latency_ns, reorg_overlap_callbacks) = if let Some(reorg_snapshot) = reorg_snapshot {
         runtime.block_on(async {
             let submission = submit_batch(
                 &controller,
@@ -2406,7 +2318,7 @@ fn run() -> BenchResult<()> {
     relay_completion.validate(
         all_expected_relay,
         &all_expected_rejects,
-        options.is_reverse().then_some(&allowed_unknown),
+        workload.is_reverse().then_some(&allowed_unknown),
     )?;
     completion.validate(transactions.len(), reorg_in_flight)?;
     let p99_latency_ns = completion.end_target();

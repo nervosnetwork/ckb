@@ -81,6 +81,10 @@ name = "measurement_clock"
 path = "benches/measurement_clock/mod.rs"
 
 [[test]]
+name = "benchmark_scenario"
+path = "benches/scenario/mod.rs"
+
+[[test]]
 name = "fanout_readiness"
 path = "benches/fanout_readiness/mod.rs"
 

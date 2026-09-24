@@ -22,6 +22,7 @@ from pathlib import Path
 import rejection_diagnostics
 from benchmark_build import (binary_record, build_binary, effective_features,
                              git_record, host_identity, load_build, sha256, validate_build)
+from benchmark_scenario import validate_scenario
 from measurement_process import run_process
 from measurement_window import parse_measurement_window, parse_readiness, wall_alignment
 
@@ -59,8 +60,7 @@ BUILD = re.compile(
 )
 CORPUS_PREFIX = "BENCH_CORPUS "
 TERMINALS_PREFIX = "BENCH_TERMINALS "
-MAX_SCENARIO_TRANSACTIONS = 65_536
-SCHEMA_VERSION = 13
+SCHEMA_VERSION = 14
 PROTOCOL_CONTRACT = "protocol"
 CONSENSUS_LOCK_PACKAGES = ("ckb-vm", "ckb-vm-definitions")
 HEX_32 = re.compile(r"^[0-9a-f]{64}$")
@@ -216,16 +216,10 @@ def parse_scenario(value: str) -> dict[str, object]:
         numbers = [int(field) for field in fields[1:]]
     except ValueError as error:
         raise ValueError(f"invalid scenario: {value}") from error
-    target, warm, workers, peers = numbers
-    if (
-        not fields[0]
-        or target <= 0
-        or warm < 0
-        or workers <= 0
-        or peers <= 0
-        or target + warm > MAX_SCENARIO_TRANSACTIONS
-    ):
-        raise ValueError(f"invalid scenario: {value}")
+    try:
+        validate_scenario(fields[0], *numbers)
+    except ValueError as error:
+        raise ValueError(f"invalid scenario: {value}: {error}") from error
     return dict(zip(("name", "target", "warm", "workers", "peers"), [fields[0], *numbers]))
 
 
@@ -1188,7 +1182,7 @@ def load_aa_evidence(record: dict[str, object]) -> dict[str, object]:
                 or aa_config.get("allocation_observation") != "disabled"):
             raise RuntimeError(f"{side} A/A evidence is incomplete or not a timing control")
         for field in ("runner_sha256", "build_runner_sha256", "process_runner_sha256",
-                      "harness_sha256", "measurement_window_sha256", "rejection_diagnostics_sha256",
+                      "harness_sha256", "measurement_window_sha256", "rejection_diagnostics_sha256", "scenario_parser_sha256",
                       "host", "metric_scopes"):
             if control.get(field) != record[field]:
                 raise RuntimeError(f"{side} A/A {field} differs")
@@ -1277,6 +1271,8 @@ def validate_frozen(
         raise RuntimeError("measurement window parser changed")
     if record.get("rejection_diagnostics_sha256") != sha256(Path(__file__).with_name("rejection_diagnostics.py")):
         raise RuntimeError("rejection diagnostic verifier changed")
+    if record.get("scenario_parser_sha256") != sha256(Path(__file__).with_name("benchmark_scenario.py")):
+        raise RuntimeError("benchmark scenario parser changed")
     if record.get("harness_sha256") != harness_hash or record.get("host") != host:
         raise RuntimeError("benchmark harness or host identity changed")
     recorded = record.get("sides")
@@ -1349,6 +1345,7 @@ def main() -> None:
         record = {
             "schema": SCHEMA_VERSION,
             "runner_sha256": sha256(Path(__file__)),
+            "scenario_parser_sha256": sha256(Path(__file__).with_name("benchmark_scenario.py")),
             "build_runner_sha256": sha256(Path(__file__).with_name("benchmark_build.py")),
             "process_runner_sha256": sha256(Path(__file__).with_name("measurement_process.py")),
             "harness_sha256": harness_hash,

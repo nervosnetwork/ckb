@@ -18,7 +18,9 @@ Both checkouts need identical Rust harness sources under `benches/` and matching
 CKB-VM packages, checksums and features. An older pool also needs a reviewed,
 committed `cross-version-legacy-bench-adapter`; preserve its production basis and
 patch. The runner does not create the adapter. It freezes the complete harness,
-process runner, window parser and rejection verifier.
+process runner, window parser, rejection verifier and scenario validator.
+Current comparison records use schema 14; schema 13 evidence retains its original
+runner and source attribution.
 
 Edit the two checkout paths and run:
 
@@ -111,7 +113,7 @@ and runtime consensus. Measured attempts use randomized, balanced AB/BA blocks.
 `--order-seed` and the complete resulting schedule are part of the frozen
 configuration; changing either requires a new study.
 
-Schema 13 `attempts[]` retains commands, raw output, source side, attempt ID,
+Schema 14 `attempts[]` retains commands, raw output, source side, attempt ID,
 corpus, terminals, window and metrics. Start/outcome checkpoints are atomic;
 completion rechecks source and binary identity. Host-load snapshots accompany
 every outcome but cannot certify isolation. Host identity includes node name and
@@ -225,6 +227,21 @@ per-transaction ingress. Both sides require the same prepared workload bundle.
 Warm and target phases validate exact callback/relay terminal sets. Unexpected
 rejects, duplicates, missing terminals, corpus drift and invalid windows fail the
 attempt; permitted reacceptance/unknown-parent cases are scenario-specific.
+
+The native executor parses each scenario into one workload shape used by fixture
+construction, cycle preflight and submission policy. Both Python entry points
+share the same CLI gates: target + warm ≤ 65,536, positive target/workers/peers,
+nonnegative warm, complete forward-forest chains in each phase, and the reverse,
+RBF and fanout rules below. A reverse forest may retain an incomplete final chain.
+Fan-in must be positive and its transaction must fit 512,000 bytes (at most
+11,631 inputs with this fixture). Small native fixtures verify the encoded size
+model before constructing the requested population.
+
+Funding limits belong to the native fixture producer: one real funding output
+establishes its initial DAO capacity and encoded genesis size; checked growth
+rejects overflow before allocating the full output vector. This uses the actual
+system cells and initial issuance, which the Python validator does not duplicate.
+It is an encoding/capacity check, not a guarantee against allocation failure.
 
 Single-parent fanout supports 2–5,752 transactions; its largest parent is 511,992
 bytes, below the 512,000-byte limit. Forward fanout waits for parent acceptance.

@@ -19,6 +19,7 @@ from pathlib import Path
 from typing import Any
 
 from benchmark_build import build_command as cargo_build_command, load_build, validate_build
+from benchmark_scenario import validate_scenario
 from measurement_process import run_process
 from measurement_window import parse_measurement_window, parse_readiness, wall_alignment
 from rejection_diagnostics import validate_success
@@ -32,6 +33,7 @@ PROCESS_SOURCE = SCRIPT_SOURCE.with_name("measurement_process.py")
 WINDOW_SOURCE = SCRIPT_SOURCE.with_name("measurement_window.py")
 REJECTION_SOURCE = SCRIPT_SOURCE.with_name("rejection_diagnostics.py")
 BUILD_SOURCE = SCRIPT_SOURCE.with_name("benchmark_build.py")
+SCENARIO_SOURCE = SCRIPT_SOURCE.with_name("benchmark_scenario.py")
 REMAPPED_SOURCE_ROOT = "/ckb-txpool-profile-source"
 MARKER_PREFIX = "TX_POOL_PROFILE_WINDOW "
 OBSERVATION_PREFIX = "TX_POOL_PROFILE_OBSERVATION "
@@ -122,6 +124,10 @@ def parse_args() -> argparse.Namespace:
     analyze.add_argument("--manifest", type=Path, required=True)
     args = parser.parse_args()
     if args.action == "capture":
+        try:
+            validate_scenario(args.scenario, args.target, args.warm, args.workers, args.peers)
+        except ValueError as error:
+            parser.error(str(error))
         if args.binary is None and args.binary_profile is not None and args.build_receipt is None:
             parser.error("--binary-profile requires --binary")
         if args.binary_profile is not None or (args.binary is not None and args.build_receipt is None):
@@ -511,7 +517,7 @@ def file_identity(path: Path) -> dict[str, Any]:
 
 
 def harness_sources() -> list[Path]:
-    sources = {SCRIPT_SOURCE, PROCESS_SOURCE, WINDOW_SOURCE, REJECTION_SOURCE, BUILD_SOURCE}
+    sources = {SCRIPT_SOURCE, PROCESS_SOURCE, WINDOW_SOURCE, REJECTION_SOURCE, BUILD_SOURCE, SCENARIO_SOURCE}
     sources.update(path for path in ONE_SHOT_SOURCE.parent.rglob("*.rs") if path.is_file())
     return sorted(sources)
 

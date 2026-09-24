@@ -152,7 +152,7 @@ class BuildProfileContractTest(unittest.TestCase):
         source = {"root": "/fixed-source", "commit": "before"}
         contexts = {"baseline": {"source": source, "consensus": {}}}
         record = {"runner_sha256": "same", "build_runner_sha256": "same", "process_runner_sha256": "same", "measurement_window_sha256": "same",
-                  "rejection_diagnostics_sha256": "same",
+                  "rejection_diagnostics_sha256": "same", "scenario_parser_sha256": "same",
                   "harness_sha256": "same", "host": {}, "sides": contexts,
                   "metric_scopes": BENCHMARK.METRIC_SCOPES}
         with mock.patch.object(BENCHMARK, "sha256", return_value="same"), mock.patch.object(
