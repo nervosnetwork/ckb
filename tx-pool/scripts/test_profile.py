@@ -5,6 +5,8 @@ from __future__ import annotations
 
 import importlib.util
 import argparse
+import copy
+import hashlib
 import json
 import shutil
 import sys
@@ -13,9 +15,10 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
-
 SCRIPT = Path(__file__).resolve().with_name("profile.py")
 sys.path.insert(0, str(SCRIPT.parent))
+import benchmark_build
+
 SPEC = importlib.util.spec_from_file_location("txpool_profile", SCRIPT)
 if SPEC is None or SPEC.loader is None:
     raise RuntimeError("cannot import profile.py")
@@ -183,6 +186,7 @@ class ProfileAnalyzerTests(unittest.TestCase):
         sources = PROFILE.harness_sources()
         manifest = {
             "schema_version": PROFILE.MANIFEST_SCHEMA_VERSION,
+            "build": {"kind": "unverified_supplied"},
             "harness": "profile_one_shot",
             "features": list(PROFILE.ONE_SHOT_FEATURES),
             "scenario": scenario,
@@ -226,11 +230,117 @@ class ProfileAnalyzerTests(unittest.TestCase):
         }
         completed = mock.Mock(stdout=json.dumps(message), stderr="")
         with mock.patch.object(PROFILE, "run_process", return_value=completed):
-            binary, command, _ = PROFILE.build_binary(
+            binary, command, _, artifact = PROFILE.build_binary(
                 self.root / "target", "profile_one_shot", ("profiling",)
             )
         self.assertEqual(binary, executable.resolve())
         self.assertEqual(command[command.index("--profile") + 1], "prod")
+        self.assertEqual(artifact["executable"], str(binary))
+
+    def receipt_bundle(self, name):
+        path = self.bundle(name, absolute_time=True)
+        manifest = PROFILE.read_json(path)
+        binary = self.root / f"{name}-binary"
+        binary.write_bytes(b"fixture executable")
+        binary.chmod(0o700)
+        empty = hashlib.sha256(b"").hexdigest()
+        manifest["capture_git"] = dict(revision="a" * 40, tracked_diff_sha256=empty,
+                                       status_sha256=empty, untracked_files_sha256=empty)
+        manifest["inputs"].update(binary=PROFILE.file_identity(binary), cargo_lock_sha256="b" * 64,
+                                  workspace_manifest_sha256="c" * 64, tx_pool_manifest_sha256="d" * 64)
+        source = dict(root=str(PROFILE.WORKSPACE_ROOT), commit="a" * 40, cargo_lock_sha256="b" * 64,
+                      cargo_manifest_sha256="c" * 64, tx_pool_manifest_sha256="d" * 64)
+        receipt = dict(schema=1, kind="tx_pool_benchmark_build", source=source,
+                       bench="profile_one_shot", features="ckb-tx-pool/profiling", profile="prod",
+                       toolchain=dict(cargo="fixture", rustc="fixture"),
+                       command=benchmark_build.build_command("profile_one_shot", "ckb-tx-pool/profiling"),
+                       binary=benchmark_build.binary_record(binary),
+                       cargo_artifact=dict(reason="compiler-artifact", executable=str(binary.resolve()),
+                                           target=dict(name="profile_one_shot", kind=["bench"])))
+        manifest["build"] = dict(kind="receipt", receipt=receipt)
+        self.write_json(path, manifest)
+        return path, manifest, binary
+
+    def test_receipt_attribution_replays_without_binary_and_rejects_drift(self):
+        path, manifest, binary = self.receipt_bundle("receipt")
+        binary.unlink()
+        summary = PROFILE.read_json(PROFILE.analyze_manifest(path))
+        self.assertEqual(summary["source_attribution"], dict(verified=True, basis="receipt"))
+        for field, value in (("profile", "bench"), ("features", ""),
+                             ("source", {"commit": "another source"}),
+                             ("binary", {"sha256": "0" * 64, "size": 18, "path": str(binary)})):
+            with self.subTest(field=field):
+                changed = copy.deepcopy(manifest)
+                changed["build"]["receipt"][field] = value
+                self.write_json(path, changed)
+                with self.assertRaisesRegex(PROFILE.ProfileError, "source attribution is invalid"):
+                    PROFILE.analyze_manifest(path)
+        for malformed in (None, [], {"kind": "receipt", "receipt": None},
+                          {"kind": "captured_build", "cargo_artifact": None}):
+            with self.subTest(build=malformed):
+                changed = dict(manifest, build=malformed)
+                self.write_json(path, changed)
+                with self.assertRaisesRegex(PROFILE.ProfileError, "source attribution is invalid"):
+                    PROFILE.analyze_manifest(path)
+
+    def test_supplied_receipt_checks_producer_before_capture_and_allows_a_copy(self):
+        _, manifest, binary = self.receipt_bundle("supplied")
+        receipt = manifest["build"]["receipt"]
+        copied = self.root / "copied-binary"
+        shutil.copy2(binary, copied)
+        path = self.root / "build.json"
+        args = argparse.Namespace(**self.scenario(), output_prefix=self.root / "capture", force=True,
+                                  binary=copied, build_receipt=path, binary_profile=None,
+                                  rate=1000, timeout_seconds=30)
+        frozen = {"git": manifest["capture_git"], "inputs": manifest["inputs"]}
+        with mock.patch.object(PROFILE, "capture_source_identity", return_value=frozen), mock.patch.object(
+                benchmark_build, "git_record", return_value=receipt["source"]):
+            invalid_receipts = [None, []]
+            invalid_receipts.extend(
+                receipt | {field: value}
+                for field, value in (("profile", "bench"), ("features", ""),
+                                     ("source", {"commit": "wrong"}),
+                                     ("binary", {"sha256": "wrong", "size": 1}),
+                                     ("cargo_artifact", None), ("toolchain", None))
+            )
+            for invalid_receipt in invalid_receipts:
+                self.write_json(path, invalid_receipt)
+                with self.subTest(receipt=invalid_receipt), mock.patch.object(PROFILE, "run") as run:
+                    with self.assertRaisesRegex(PROFILE.ProfileError, "build receipt is invalid"):
+                        PROFILE.capture(args)
+                    run.assert_not_called()
+            self.write_json(path, receipt)
+            with mock.patch.object(PROFILE, "run", side_effect=RuntimeError("capture reached")) as run:
+                with self.assertRaisesRegex(RuntimeError, "capture reached"):
+                    PROFILE.capture(args)
+                self.assertEqual(run.call_args.args[0][0], "samply")
+                self.assertIn(str(copied.resolve()), run.call_args.args[0])
+
+    def test_dirty_self_build_remains_attributable_and_supplied_attestation_does_not(self):
+        path, manifest, _ = self.receipt_bundle("dirty-build")
+        receipt = manifest["build"]["receipt"]
+        manifest["build"] = dict(kind="captured_build", cargo_artifact=receipt["cargo_artifact"])
+        manifest["capture"]["build_command"] = receipt["command"]
+        manifest["capture_git"].update(tracked_diff_sha256="e" * 64, status_sha256="f" * 64)
+        self.write_json(path, manifest)
+        summary = PROFILE.read_json(PROFILE.analyze_manifest(path))
+        self.assertEqual(summary["source_attribution"], dict(verified=True, basis="captured_build"))
+        manifest["build"] = dict(kind="unverified_supplied")
+        self.write_json(path, manifest)
+        summary = PROFILE.read_json(PROFILE.analyze_manifest(path))
+        self.assertEqual(summary["source_attribution"], dict(verified=False, basis="unverified_supplied"))
+        manifest["schema_version"] = 10
+        self.write_json(path, manifest)
+        with self.assertRaisesRegex(PROFILE.ProfileError, "schema is unsupported"):
+            PROFILE.analyze_manifest(path)
+
+    def test_receipt_option_preserves_existing_supplied_binary_cli(self):
+        command = [str(SCRIPT), "capture", "--output-prefix", str(self.root / "cli"),
+                   "--scenario", "always_success", "--target", "8", "--warm", "0",
+                   "--workers", "1", "--peers", "1", "--binary", "/fixture/binary"]
+        for extra in (["--binary-profile", "prod"], ["--build-receipt", "/fixture/receipt"]):
+            with mock.patch.object(sys, "argv", command + extra):
+                self.assertEqual(PROFILE.parse_args().binary, Path("/fixture/binary"))
 
     def test_all_harness_and_clock_helpers_are_frozen(self) -> None:
         sources = PROFILE.harness_sources()
@@ -238,6 +348,7 @@ class ProfileAnalyzerTests(unittest.TestCase):
                     for directory in ("profile_spans", "relay_batches", "measurement_clock", "resource_phases")]
         expected.append(PROFILE.WINDOW_SOURCE)
         expected.append(PROFILE.REJECTION_SOURCE)
+        expected.append(PROFILE.BUILD_SOURCE)
         self.assertTrue(set(expected).issubset(sources))
         manifest_path = self.bundle("helper-drift", absolute_time=True)
         original_read = Path.read_bytes
@@ -286,11 +397,41 @@ class ProfileAnalyzerTests(unittest.TestCase):
         args = argparse.Namespace(**self.scenario(), output_prefix=self.root / "source-drift",
                                   force=False, binary=None, target_dir=self.root / "target")
         with mock.patch.object(PROFILE, "capture_source_identity", side_effect=[{"git": "before"}, {"git": "after"}]), mock.patch.object(
-            PROFILE, "build_binary", return_value=(self.root / "binary", [], {})
+            PROFILE, "build_binary", return_value=(self.root / "binary", [], {}, {})
         ), mock.patch.object(PROFILE, "run") as run:
             with self.assertRaisesRegex(PROFILE.ProfileError, "source changed during build"):
                 PROFILE.capture(args)
         run.assert_not_called()
+
+    def test_dirty_build_freezes_untracked_contents_outside_the_harness(self):
+        source = self.root / "tx-pool/src/authority/new source\nmodule.rs"
+        source.parent.mkdir(parents=True)
+        source.write_text("before")
+        relative = source.relative_to(self.root).as_posix()
+
+        def git(command, **_):
+            self.assertEqual(command[0], "git")
+            text = {"diff": "", "status": f"?? {relative}\n", "ls-files": relative + "\0",
+                    "rev-parse": "a" * 40}[command[1]]
+            return mock.Mock(stdout=text)
+
+        def build(*_):
+            source.write_text("after")
+            return self.root / "binary", [], {}, {}
+
+        args = argparse.Namespace(**self.scenario(), output_prefix=self.root / "capture",
+                                  force=False, binary=None, target_dir=self.root / "target")
+        with mock.patch.object(PROFILE, "WORKSPACE_ROOT", self.root), mock.patch.object(
+                PROFILE, "run", side_effect=git):
+            before = PROFILE.git_identity()
+            with mock.patch.object(PROFILE, "capture_source_identity", side_effect=lambda _: {"git": PROFILE.git_identity()}), mock.patch.object(
+                    PROFILE, "build_binary", side_effect=build):
+                with self.assertRaisesRegex(PROFILE.ProfileError, "source changed during build"):
+                    PROFILE.capture(args)
+            after = PROFILE.git_identity()
+        self.assertEqual(before["status_sha256"], after["status_sha256"])
+        self.assertEqual(before["tracked_diff_sha256"], after["tracked_diff_sha256"])
+        self.assertNotEqual(before["untracked_files_sha256"], after["untracked_files_sha256"])
 
     def test_absolute_and_delta_coordinates_have_identical_hotspots(self) -> None:
         absolute = PROFILE.read_json(

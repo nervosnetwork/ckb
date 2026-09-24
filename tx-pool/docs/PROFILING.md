@@ -41,11 +41,38 @@ samply load "$capture_dir/rbf.json.gz"
 ```
 
 The command builds a `prod` binary with `profiling`, captures a CPU run and then
-an independent span run, verifies them and writes a deterministic summary. A
-reused binary requires both `--binary /absolute/path/to/binary` and
-`--binary-profile prod`. This flag is an explicit attestation, not a way to turn
-a debug binary into a production build. `--target-dir` changes the isolated build
-directory; the capture CLI has no arbitrary build-feature option.
+an independent span run, verifies them and writes a deterministic summary.
+Self-builds support a dirty development checkout: the manifest records its
+revision, tracked changes and nonignored untracked file names and contents,
+the Cargo artifact and the executable. These identities are checked before and
+after build and capture. They do not claim a hermetic build: Cargo's environment,
+external inputs and generated files are not replaced with a sealed source tree.
+`--target-dir` changes
+the isolated build directory; the capture CLI has no arbitrary build-feature
+option.
+
+For a reusable binary whose producer can be verified, build a receipt from a
+clean checkout:
+
+```sh
+python3 tx-pool/scripts/benchmark_build.py --root "$PWD" --bench profile_one_shot \
+  --target-dir /tmp/txpool-profile-target --features profiling \
+  --output /tmp/txpool-profile-build.json
+```
+
+Then pass
+`--build-receipt /tmp/txpool-profile-build.json` to capture. An optional
+`--binary /path/to/copied/binary` may relocate the executable; its bytes must
+still match the receipt. Source, Cargo artifact, `prod` profile and the exact
+profiling feature set are checked before capture and recorded for replay.
+
+The existing `--binary /absolute/path/to/binary --binary-profile prod` flow
+remains available for diagnostics without a receipt. The manifest records
+`build.kind=unverified_supplied`; the summary reports
+`source_attribution.verified=false`. The profile's captured checkout is not
+evidence of that executable's producer. The `capture_git` field
+always describes the checkout used by the capture tool; build provenance decides
+whether it also describes the binary's source.
 
 Other useful workloads are `always_success`, `secp256k1`, `dependent`,
 `dependent_reverse`, `dependent_forest_10`, `fanout`, `fanout_ready_64_reverse`,
@@ -74,9 +101,12 @@ Analysis verifies artifact paths, sizes and SHA-256 before consuming them. The
 bundle can move and no longer needs the capture binary. Preserve the analyzer
 and its [process helper](../scripts/measurement_process.py),
 [window parser](../scripts/measurement_window.py) and
-[rejection verifier](../scripts/rejection_diagnostics.py) with an immutable study.
+[rejection verifier](../scripts/rejection_diagnostics.py) and
+[build verifier](../scripts/benchmark_build.py) with an immutable study.
 Use the matching analyzer for each bundle schema. Current manifest/summary/window
-schemas are 10/8/3, and current span output is schema 4. All Rust harness modules
+schemas are 11/9/3, and current span output is schema 4. Schema 10 bundles retain
+their original analyzer and provenance; they are not upgraded into verified
+build evidence. All Rust harness modules
 are included in source identity. Reanalysis is not a new
 timing run.
 

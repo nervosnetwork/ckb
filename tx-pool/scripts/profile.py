@@ -18,6 +18,7 @@ from collections import Counter
 from pathlib import Path
 from typing import Any
 
+from benchmark_build import build_command as cargo_build_command, load_build, validate_build
 from measurement_process import run_process
 from measurement_window import parse_measurement_window, parse_readiness, wall_alignment
 from rejection_diagnostics import validate_success
@@ -30,14 +31,15 @@ SCRIPT_SOURCE = Path(__file__).resolve()
 PROCESS_SOURCE = SCRIPT_SOURCE.with_name("measurement_process.py")
 WINDOW_SOURCE = SCRIPT_SOURCE.with_name("measurement_window.py")
 REJECTION_SOURCE = SCRIPT_SOURCE.with_name("rejection_diagnostics.py")
+BUILD_SOURCE = SCRIPT_SOURCE.with_name("benchmark_build.py")
 REMAPPED_SOURCE_ROOT = "/ckb-txpool-profile-source"
 MARKER_PREFIX = "TX_POOL_PROFILE_WINDOW "
 OBSERVATION_PREFIX = "TX_POOL_PROFILE_OBSERVATION "
 ONE_SHOT_FEATURES = ("profiling",)
 PROFILE_SCHEMA_VERSION = 3
 OBSERVATION_SCHEMA_VERSION = 2
-MANIFEST_SCHEMA_VERSION = 10
-SUMMARY_SCHEMA_VERSION = 8
+MANIFEST_SCHEMA_VERSION = 11
+SUMMARY_SCHEMA_VERSION = 9
 FINAL_BUILD_PROFILE = "prod"
 ARTIFACT_SUFFIXES = {
     "profile": ".json.gz",
@@ -102,6 +104,7 @@ def parse_args() -> argparse.Namespace:
     capture.add_argument("--output-prefix", type=Path, required=True)
     capture.add_argument("--binary", type=Path)
     capture.add_argument("--binary-profile")
+    capture.add_argument("--build-receipt", type=Path)
     capture.add_argument(
         "--target-dir",
         type=Path,
@@ -119,9 +122,9 @@ def parse_args() -> argparse.Namespace:
     analyze.add_argument("--manifest", type=Path, required=True)
     args = parser.parse_args()
     if args.action == "capture":
-        if args.binary is None and args.binary_profile is not None:
+        if args.binary is None and args.binary_profile is not None and args.build_receipt is None:
             parser.error("--binary-profile requires --binary")
-        if args.binary is not None:
+        if args.binary_profile is not None or (args.binary is not None and args.build_receipt is None):
             try:
                 require_final_build_profile(args.binary_profile)
             except ValueError as error:
@@ -306,26 +309,11 @@ def build_environment(target_dir: Path) -> dict[str, str]:
 
 def build_binary(
     target_dir: Path, bench_name: str, features: tuple[str, ...]
-) -> tuple[Path, list[str], dict[str, str]]:
-    command = [
-        "cargo",
-        "bench",
-        "-p",
-        "ckb-tx-pool",
-        "--features",
-        ",".join(features),
-        "--bench",
-        bench_name,
-        "--no-run",
-        "--locked",
-        "--profile",
-        FINAL_BUILD_PROFILE,
-        "--message-format",
-        "json",
-    ]
+) -> tuple[Path, list[str], dict[str, str], dict[str, Any]]:
+    command = cargo_build_command(bench_name, ",".join(f"ckb-tx-pool/{feature}" for feature in features))
     env = build_environment(target_dir)
     completed = run(command, env=env, label="profile binary build", timeout=3600)
-    executables = []
+    artifacts = []
     for line in completed.stdout.splitlines():
         try:
             message = json.loads(line)
@@ -338,11 +326,11 @@ def build_binary(
             and "bench" in target.get("kind", [])
             and message.get("executable")
         ):
-            executables.append(Path(message["executable"]).resolve())
-    unique = sorted(set(executables))
-    if len(unique) != 1 or not unique[0].is_file():
-        raise ProfileError(f"Cargo reported {len(unique)} {bench_name} executables")
-    return unique[0], command, env
+            artifacts.append(message)
+    if len(artifacts) != 1:
+        raise ProfileError(f"Cargo reported {len(artifacts)} {bench_name} executables")
+    binary = Path(artifacts[0]["executable"]).resolve(strict=True)
+    return binary, command, env, artifacts[0] | {"executable": str(binary)}
 
 
 def tagged_json(stdout: str, prefix: str, label: str) -> dict[str, Any]:
@@ -475,10 +463,17 @@ def git_identity() -> dict[str, str]:
         ["git", "status", "--porcelain=v1", "--untracked-files=all"],
         label="git status",
     ).stdout.encode()
+    untracked = run(
+        ["git", "ls-files", "--others", "--exclude-standard", "-z"],
+        label="untracked source files",
+    ).stdout
     return {
         "revision": command_output(["git", "rev-parse", "HEAD"]),
         "tracked_diff_sha256": hashlib.sha256(tracked).hexdigest(),
         "status_sha256": hashlib.sha256(status).hexdigest(),
+        "untracked_files_sha256": files_sha256(sorted(
+            WORKSPACE_ROOT / path for path in untracked.split("\0") if path
+        )),
     }
 
 
@@ -516,7 +511,7 @@ def file_identity(path: Path) -> dict[str, Any]:
 
 
 def harness_sources() -> list[Path]:
-    sources = {SCRIPT_SOURCE, PROCESS_SOURCE, WINDOW_SOURCE, REJECTION_SOURCE}
+    sources = {SCRIPT_SOURCE, PROCESS_SOURCE, WINDOW_SOURCE, REJECTION_SOURCE, BUILD_SOURCE}
     sources.update(path for path in ONE_SHOT_SOURCE.parent.rglob("*.rs") if path.is_file())
     return sorted(sources)
 
@@ -546,19 +541,31 @@ def capture(args: argparse.Namespace) -> Path:
     runtime_env = os.environ.copy()
     runtime_env.pop("TX_POOL_PROFILE_TRACE_PATH", None)
     runtime_env["TX_POOL_BENCH_COMPARISON_CONTRACT"] = "protocol"
-    if args.binary is None:
-        binary, build_command, build_env = build_binary(
+    receipt_path = getattr(args, "build_receipt", None)
+    if receipt_path is not None:
+        try:
+            identity, receipt = load_build(receipt_path, WORKSPACE_ROOT, "profile_one_shot",
+                                           "ckb-tx-pool/profiling", args.binary)
+        except (AttributeError, OSError, ValueError, KeyError, TypeError, RuntimeError) as error:
+            raise ProfileError(f"profile build receipt is invalid: {error}") from error
+        binary = Path(identity["path"])
+        build_command, build_env = receipt["command"], os.environ.copy()
+        build = {"kind": "receipt", "receipt": receipt}
+    elif args.binary is None:
+        binary, build_command, build_env, cargo_artifact = build_binary(
             args.target_dir, "profile_one_shot", ONE_SHOT_FEATURES
         )
+        build = {"kind": "captured_build", "cargo_artifact": cargo_artifact}
     else:
         require_final_build_profile(args.binary_profile)
         binary = args.binary.expanduser().resolve(strict=True)
-        if not binary.is_file() or not os.access(binary, os.X_OK):
-            raise ProfileError(f"profile binary is not executable: {binary}")
         build_command, build_env = [], os.environ.copy()
+        build = {"kind": "unverified_supplied"}
 
     if capture_source_identity(sources) != frozen_source:
         raise ProfileError("profile source changed during build")
+    if not binary.is_file() or not os.access(binary, os.X_OK):
+        raise ProfileError(f"profile binary is not executable: {binary}")
     frozen_binary = file_identity(binary)
 
     command = [
@@ -602,7 +609,8 @@ def capture(args: argparse.Namespace) -> Path:
 
     manifest = {
         "schema_version": MANIFEST_SCHEMA_VERSION,
-        "git": frozen_source["git"],
+        "capture_git": frozen_source["git"],
+        "build": build,
         "harness": "profile_one_shot",
         "features": list(ONE_SHOT_FEATURES),
         "scenario": scenario,
@@ -968,6 +976,48 @@ def analyze_profile(manifest: dict[str, Any], bundle_dir: Path) -> dict[str, Any
     }
 
 
+def source_attribution(manifest: dict[str, Any]) -> dict[str, Any]:
+    """Capture checkout identity is a producer claim only with a matching build."""
+    build = manifest.get("build", {})
+    if not isinstance(build, dict):
+        raise ProfileError("profile source attribution is invalid: build must be an object")
+    kind = build.get("kind")
+    if kind == "unverified_supplied":
+        return {"verified": False, "basis": kind}
+    try:
+        captured = manifest["capture_git"]
+        inputs = manifest["inputs"]
+        binary = inputs["binary"]
+        if kind == "captured_build":
+            artifact = build["cargo_artifact"]
+            if (manifest["capture"]["build_command"] != cargo_build_command("profile_one_shot", "ckb-tx-pool/profiling")
+                    or artifact.get("reason") != "compiler-artifact"
+                    or artifact.get("target", {}).get("name") != "profile_one_shot"
+                    or "bench" not in artifact.get("target", {}).get("kind", [])
+                    or artifact.get("executable") != binary["path_at_capture"]):
+                raise ValueError("captured build does not match its Cargo artifact")
+        elif kind == "receipt":
+            receipt = build["receipt"]
+            empty = hashlib.sha256(b"").hexdigest()
+            if any(captured[field] != empty for field in (
+                    "tracked_diff_sha256", "status_sha256", "untracked_files_sha256")):
+                raise ValueError("receipt attribution requires the clean captured source")
+            source = {"root": receipt["source"]["root"], "commit": captured["revision"],
+                      "cargo_lock_sha256": inputs["cargo_lock_sha256"],
+                      "cargo_manifest_sha256": inputs["workspace_manifest_sha256"],
+                      "tx_pool_manifest_sha256": inputs["tx_pool_manifest_sha256"]}
+            validate_build(receipt, source, "profile_one_shot", "ckb-tx-pool/profiling",
+                           {"sha256": binary["sha256"], "size": binary["size_bytes"]})
+        else:
+            raise ValueError("unsupported profile build provenance")
+        if not all(isinstance(captured.get(field), str) and captured[field]
+                   for field in ("revision", "tracked_diff_sha256", "status_sha256", "untracked_files_sha256")):
+            raise ValueError("captured source identity is incomplete")
+    except (AttributeError, KeyError, TypeError, ValueError, RuntimeError) as error:
+        raise ProfileError(f"profile source attribution is invalid: {error}") from error
+    return {"verified": True, "basis": kind}
+
+
 def analyze_manifest(manifest_path: Path) -> Path:
     absolute = manifest_path.expanduser().resolve(strict=True)
     manifest = read_json(absolute)
@@ -1002,7 +1052,8 @@ def analyze_manifest(manifest_path: Path) -> Path:
     summary_path = (absolute.parent / relative).resolve()
     if absolute.parent.resolve() not in summary_path.parents:
         raise ProfileError("summary path escapes its bundle")
-    write_json(summary_path, analyze_profile(manifest, absolute.parent))
+    attribution = source_attribution(manifest)
+    write_json(summary_path, analyze_profile(manifest, absolute.parent) | {"source_attribution": attribution})
     return summary_path
 
 
