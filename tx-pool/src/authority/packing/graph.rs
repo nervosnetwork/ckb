@@ -61,19 +61,28 @@ impl Links {
     /// rows are already sorted because source indices are visited in order.
     #[expect(
         clippy::indexing_slicing,
-        clippy::arithmetic_side_effects,
-        reason = "Links validates endpoints and this method checks the mask length. Every count, prefix sum and cursor is bounded by the existing edge array's length; offsets already have len + 1 elements."
+        reason = "Links supplies checked indices and this method checks the mask length."
     )]
     pub(super) fn reversed(&self, active: &[bool]) -> Result<Self, PackingError> {
         let len = self.len();
         if active.len() != len {
             return Err(PackingError::Projection);
         }
+        Ok(self.reverse_where(|index| active[index]))
+    }
+
+    #[expect(
+        clippy::indexing_slicing,
+        clippy::arithmetic_side_effects,
+        reason = "Links validates endpoints. Counts and cursors are bounded by the existing edge array; offsets have len + 1 elements."
+    )]
+    fn reverse_where(&self, active: impl Fn(usize) -> bool) -> Self {
+        let len = self.len();
         let mut offsets = vec![0usize; len + 1];
         for (parent, children) in self.iter().enumerate() {
-            if active[parent] {
+            if active(parent) {
                 for &child in children {
-                    if active[child] {
+                    if active(child) {
                         offsets[child + 1] += 1;
                     }
                 }
@@ -85,16 +94,16 @@ impl Links {
         let mut cursors = offsets[..len].to_vec();
         let mut edges = vec![0; offsets[len]];
         for (parent, children) in self.iter().enumerate() {
-            if active[parent] {
+            if active(parent) {
                 for &child in children {
-                    if active[child] {
+                    if active(child) {
                         edges[cursors[child]] = parent;
                         cursors[child] += 1;
                     }
                 }
             }
         }
-        Ok(Self { offsets, edges })
+        Self { offsets, edges }
     }
 
     #[expect(
@@ -144,7 +153,7 @@ pub(super) struct Graph {
 impl Graph {
     #[expect(
         clippy::indexing_slicing,
-        reason = "Unique captured owners define every index. Edges are checked at construction, and only topologically completed parents supply aggregates."
+        reason = "Unique captured owners define every index. Parent lookup checks endpoints before constructing both edge directions."
     )]
     pub(super) fn new(candidates: &[Candidate<'_>], max_ancestors: usize) -> Result<Self, Error> {
         let len = candidates.len();
@@ -158,24 +167,22 @@ impl Graph {
                 .checked_add(candidate.accepted.parents.len())
                 .ok_or(PackingError::Arithmetic)?;
         }
+        let mut offsets = Vec::with_capacity(len.saturating_add(1));
+        offsets.push(0);
         let mut edges = Vec::with_capacity(edge_count);
         let mut indegree = Vec::with_capacity(len);
-        for (child, candidate) in candidates.iter().enumerate() {
+        for candidate in candidates {
             indegree.push(candidate.accepted.parents.len());
             for parent in &candidate.accepted.parents {
-                edges.push((
-                    *positions.get(parent).ok_or(PackingError::Projection)?,
-                    child,
-                ));
+                edges.push(*positions.get(parent).ok_or(PackingError::Projection)?);
             }
+            offsets.push(edges.len());
         }
-        let children = Links::from_edges(len, &edges)?;
-        for (parent, child) in &mut edges {
-            std::mem::swap(parent, child);
-        }
-        let parents = Links::from_edges(len, &edges)?;
-        drop(edges);
         drop(positions);
+        // Parent rows retain accepted.parents' hash order. Transposition visits
+        // children by candidate index, matching the original child row order.
+        let parents = Links { offsets, edges };
+        let children = parents.reverse_where(|_| true);
 
         let mut ready: Vec<_> = indegree
             .iter()
@@ -199,79 +206,10 @@ impl Graph {
         if topological.len() != len {
             return Err(PackingError::CausalCycle.into());
         }
-        drop(indegree);
+        // Release topology work buffers before allocating ancestor evaluation.
         drop(ready);
-
-        let mut ancestors = vec![PackageAggregate::default(); len];
-        let mut marks = vec![usize::MAX; len];
-        let mut stack = Vec::with_capacity(max_ancestors.min(len));
-        // Marks describe exactly one completed ancestor closure. A child can
-        // extend it without revisiting shared ancestors; other merges start a
-        // fresh generation. No per-entry ancestor sets survive this traversal.
-        let mut marked = None;
-        for &index in &topological {
-            let own = PackageAggregate::one(&candidates[index]);
-            let incoming = &parents[index];
-            let aggregate = match incoming {
-                [] => {
-                    marks[index] = index;
-                    marked = Some(index);
-                    own
-                }
-                [parent] => {
-                    if ancestors[*parent].entries >= max_ancestors {
-                        return Err(Reject::ExceededMaximumAncestorsCount.into());
-                    }
-                    if marked == Some(*parent) {
-                        marks[index] = marks[*parent];
-                        marked = Some(index);
-                    }
-                    ancestors[*parent]
-                        .checked_add(own)
-                        .ok_or(PackingError::Arithmetic)?
-                }
-                _ => {
-                    // A merge needs a set union; summing parent aggregates
-                    // would count their shared ancestors more than once.
-                    let (mut aggregate, generation) =
-                        match marked.filter(|parent| incoming.contains(parent)) {
-                            Some(parent) => {
-                                if ancestors[parent].entries >= max_ancestors {
-                                    return Err(Reject::ExceededMaximumAncestorsCount.into());
-                                }
-                                (
-                                    ancestors[parent]
-                                        .checked_add(own)
-                                        .ok_or(PackingError::Arithmetic)?,
-                                    marks[parent],
-                                )
-                            }
-                            None => (own, index),
-                        };
-                    marks[index] = generation;
-                    stack.extend(incoming);
-                    while let Some(parent) = stack.pop() {
-                        if marks[parent] == generation {
-                            continue;
-                        }
-                        if aggregate.entries >= max_ancestors {
-                            return Err(Reject::ExceededMaximumAncestorsCount.into());
-                        }
-                        marks[parent] = generation;
-                        aggregate = aggregate
-                            .checked_add(PackageAggregate::one(&candidates[parent]))
-                            .ok_or(PackingError::Arithmetic)?;
-                        stack.extend(&parents[parent]);
-                    }
-                    marked = Some(index);
-                    aggregate
-                }
-            };
-            if aggregate.entries > max_ancestors {
-                return Err(Reject::ExceededMaximumAncestorsCount.into());
-            }
-            ancestors[index] = aggregate;
-        }
+        drop(indegree);
+        let ancestors = ancestor_totals(candidates, &parents, &topological, max_ancestors)?;
         Ok(Self {
             parents,
             children,
@@ -279,4 +217,75 @@ impl Graph {
             ancestors,
         })
     }
+}
+
+/// Evaluate totals after the whole causal graph has passed its cycle check.
+/// One marked closure can survive unrelated single-parent evaluations, allowing
+/// a later merge to reuse it without retaining every candidate's ancestor set.
+#[expect(
+    clippy::indexing_slicing,
+    reason = "Graph construction validates every index and completes all parents before evaluating their child's totals."
+)]
+fn ancestor_totals(
+    candidates: &[Candidate<'_>],
+    parents: &Links,
+    topological: &[usize],
+    limit: usize,
+) -> Result<Vec<PackageAggregate>, Error> {
+    let len = candidates.len();
+    let mut totals = vec![PackageAggregate::default(); len];
+    let mut marks = vec![usize::MAX; len];
+    let mut cached: Option<usize> = None;
+    let mut stack = Vec::with_capacity(limit.min(len));
+    // Every nonempty DAG starts with a root, so zero cannot admit its first
+    // member. With a positive limit, singleton seeds fit the count bound.
+    if limit == 0 && !topological.is_empty() {
+        return Err(Reject::ExceededMaximumAncestorsCount.into());
+    }
+    // Each addition is one distinct member. Count precedes amount arithmetic.
+    let include = |total: PackageAggregate, index: usize| -> Result<PackageAggregate, Error> {
+        if total.entries >= limit {
+            return Err(Reject::ExceededMaximumAncestorsCount.into());
+        }
+        total
+            .checked_add(PackageAggregate::one(&candidates[index]))
+            .ok_or_else(|| PackingError::Arithmetic.into())
+    };
+    for &index in topological {
+        totals[index] = match parents[index] {
+            [] => {
+                marks[index] = index;
+                cached = Some(index);
+                PackageAggregate::one(&candidates[index])
+            }
+            [parent] => {
+                let total = include(totals[parent], index)?;
+                if cached == Some(parent) {
+                    marks[index] = marks[parent];
+                    cached = Some(index);
+                }
+                total
+            }
+            _ => {
+                let (mut total, generation) =
+                    match cached.filter(|tip| parents[index].contains(tip)) {
+                        Some(tip) => (include(totals[tip], index)?, marks[tip]),
+                        None => (PackageAggregate::one(&candidates[index]), index),
+                    };
+                marks[index] = generation;
+                stack.extend(&parents[index]);
+                while let Some(parent) = stack.pop() {
+                    if marks[parent] == generation {
+                        continue;
+                    }
+                    total = include(total, parent)?;
+                    marks[parent] = generation;
+                    stack.extend(&parents[parent]);
+                }
+                cached = Some(index);
+                total
+            }
+        };
+    }
+    Ok(totals)
 }

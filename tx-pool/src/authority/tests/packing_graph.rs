@@ -254,13 +254,15 @@ fn packed(selection: &Selection<'_>, limits: TemplatePackingLimits, bound: usize
 fn assert_graph(owners: &[Arc<Entry>], selection: &Selection<'_>) {
     let parents = semantic_parents(owners);
     for (index, incoming) in parents.iter().enumerate() {
-        assert_eq!(
-            selection.graph.parents[index]
-                .iter()
-                .copied()
-                .collect::<BTreeSet<_>>(),
-            incoming.iter().copied().collect()
-        );
+        let mut ordered_parents = incoming.clone();
+        ordered_parents.sort_unstable_by_key(|parent| owners[*parent].hash());
+        assert_eq!(&selection.graph.parents[index], ordered_parents.as_slice());
+        let children: Vec<_> = parents
+            .iter()
+            .enumerate()
+            .filter_map(|(child, incoming)| incoming.contains(&index).then_some(child))
+            .collect();
+        assert_eq!(&selection.graph.children[index], children.as_slice());
         let expected = closure(index, &parents);
         let (bytes, cycles, fee) = totals(owners, &expected);
         let actual = selection.graph.ancestors[index];
@@ -865,6 +867,61 @@ fn compiled_graph_checks_limits_sources_cycles_and_arithmetic() {
         });
         assert!(matches!(
             Selection::new(&overflow, &snapshot, 64),
+            Err(Error::Full(_))
+        ));
+    }
+}
+
+#[test]
+fn causal_evaluation_finishes_the_last_ready_branch_first() {
+    let snapshot = crate::test_support::genesis_snapshot();
+    let owners = fixture(
+        &[vec![], vec![0], vec![0], vec![], vec![1, 2, 3]],
+        |_, _| (1, 1, 0),
+    );
+    let selection = Selection::new(&owners, &snapshot, 5).unwrap();
+    // Root 3 precedes root 0; after 0 makes both children ready, child 2
+    // precedes child 1. This order also determines cyclic replay's fallback.
+    assert_eq!(selection.graph.topological, vec![3, 0, 2, 1, 4]);
+}
+
+#[test]
+fn graph_structure_errors_precede_ancestor_limits_and_amounts_in_other_branches() {
+    let snapshot = crate::test_support::genesis_snapshot();
+    let mut owners = fixture(&[vec![], vec![0], vec![], vec![2]], |index, _| {
+        (if index == 0 { u64::MAX } else { 1 }, 1, 0)
+    });
+    let child = owners[3].hash();
+    change(&mut owners, 2, |value| {
+        value.parents.insert(child);
+    });
+    for _ in 0..2 {
+        for limit in [0, 1, 4] {
+            assert!(matches!(
+                Selection::new(&owners, &snapshot, limit),
+                Err(Error::Fault("template graph"))
+            ));
+        }
+        owners.reverse();
+    }
+}
+
+#[test]
+fn ancestor_count_precedes_arithmetic_only_when_the_next_member_exceeds_it() {
+    let snapshot = crate::test_support::genesis_snapshot();
+    for parents in [vec![vec![], vec![0]], vec![vec![], vec![], vec![0, 1]]] {
+        let owners = fixture(&parents, |index, _| {
+            (if index == 0 { u64::MAX } else { 1 }, 1, 0)
+        });
+        assert!(matches!(
+            Selection::new(&owners, &snapshot, 1),
+            Err(Error::Rejected(Reject::ExceededMaximumAncestorsCount))
+        ));
+        // The merge can still encounter amount overflow before discovering a
+        // later distinct ancestor beyond this bound. Preserve that evaluation
+        // precedence rather than counting the entire closure in a new pass.
+        assert!(matches!(
+            Selection::new(&owners, &snapshot, 2),
             Err(Error::Full(_))
         ));
     }
