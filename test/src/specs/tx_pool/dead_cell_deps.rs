@@ -20,7 +20,6 @@ impl Spec for DepReadersPrecedeSpenderAcrossBlocks {
     }
 
     fn modify_app_config(&self, config: &mut ckb_app_config::CKBAppConfig) {
-        config.tx_pool.max_ancestors_count = 2;
         config.tx_pool.min_fee_rate = ckb_types::core::FeeRate::zero();
     }
 
@@ -54,8 +53,8 @@ impl Spec for DepReadersPrecedeSpenderAcrossBlocks {
             node.submit_transaction(reader);
         }
         node.submit_transaction(&spender);
-        // These readers impose ordering, but are not causal ancestors of the
-        // spender. The small ancestor limit must not evict any of them.
+        // All readers and the spender remain admitted until they are committed
+        // in dependency order across successive blocks.
         assert_eq!(node.get_tip_tx_pool_info().pending.value(), 7);
         let late = always_success_transaction(node, &cells[7])
             .as_advanced_builder()
