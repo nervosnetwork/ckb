@@ -10,9 +10,12 @@ use ckb_types::{
     packed::{CellDep, CellInput, CellOutput, OutPoint},
     prelude::*,
 };
-use std::{cmp::Ordering, collections::BTreeMap};
+use std::{
+    cmp::Ordering,
+    collections::{BTreeMap, BTreeSet},
+};
 
-fn fixture(
+pub(super) fn fixture(
     parents: &[Vec<usize>],
     metrics: impl Fn(usize, usize) -> (u64, u64, u64),
 ) -> Vec<Arc<Entry>> {
@@ -62,7 +65,7 @@ fn fixture(
     owners
 }
 
-fn dag(len: usize, mask: usize) -> Vec<Vec<usize>> {
+pub(super) fn dag(len: usize, mask: usize) -> Vec<Vec<usize>> {
     let mut bit = 0;
     (0..len)
         .map(|child| {
@@ -102,7 +105,7 @@ fn semantic_parents(owners: &[Arc<Entry>]) -> Vec<Vec<usize>> {
         .collect()
 }
 
-fn closure(index: usize, edges: &[Vec<usize>]) -> BTreeSet<usize> {
+pub(super) fn closure(index: usize, edges: &[Vec<usize>]) -> BTreeSet<usize> {
     let mut seen = BTreeSet::new();
     let mut pending = vec![index];
     while let Some(index) = pending.pop() {
@@ -161,7 +164,7 @@ fn preference(
         .then_with(|| owners[right.0].hash().cmp(&owners[left.0].hash()))
 }
 
-fn reference_order(owners: &[Arc<Entry>], parents: &[Vec<usize>]) -> Vec<usize> {
+pub(super) fn reference_order(owners: &[Arc<Entry>], parents: &[Vec<usize>]) -> Vec<usize> {
     let mut ordered = Vec::new();
     let mut visited = BTreeSet::new();
     while visited.len() < owners.len() {
@@ -347,109 +350,6 @@ fn already_selected_ancestors_still_determine_local_package_order() {
 }
 
 #[test]
-fn residual_packages_preserve_full_closure_order_and_failed_ancestors() {
-    let snapshot = crate::test_support::genesis_snapshot();
-    for mask in 0..(1 << 6) {
-        let parents = dag(4, mask);
-        let owners = fixture(&parents, |index, _| {
-            ([1, 100_000, 60_000, 1_000_000][index], 1, index as u64)
-        });
-        let selection = Selection::new(&owners, &snapshot, 4).unwrap();
-        let precedence = selection.precedence().unwrap();
-        let ordered = reference_order(&owners, &parents);
-        for selected in 0..(1 << 4) {
-            // Production selection is ancestor-closed. Include Failed states:
-            // a previously non-fitting ancestor can still be pulled by a child.
-            if (0..4).any(|index| {
-                selected & (1 << index) != 0
-                    && parents[index]
-                        .iter()
-                        .any(|parent| selected & (1 << parent) == 0)
-            }) {
-                continue;
-            }
-            let states: Vec<_> = (0..4)
-                .map(|index| {
-                    if selected & (1 << index) != 0 {
-                        CandidatePackingState::Selected
-                    } else if index % 2 == 0 {
-                        CandidatePackingState::Failed
-                    } else {
-                        CandidatePackingState::Original
-                    }
-                })
-                .collect();
-            for index in 0..4 {
-                if states[index] == CandidatePackingState::Selected {
-                    continue;
-                }
-                let mut package = Vec::new();
-                let actual = precedence
-                    .collect_package(
-                        &selection,
-                        index,
-                        &states,
-                        TemplatePackingLimits::new(usize::MAX, u64::MAX),
-                        &mut Traversal::new(4),
-                        &mut package,
-                    )
-                    .unwrap()
-                    .unwrap();
-                let required = closure(index, &parents);
-                let expected: Vec<_> = ordered
-                    .iter()
-                    .copied()
-                    .filter(|member| {
-                        required.contains(member)
-                            && states[*member] != CandidatePackingState::Selected
-                    })
-                    .collect();
-                assert_eq!(
-                    package, expected,
-                    "mask={mask} selected={selected} index={index}"
-                );
-                assert_eq!(actual.entries, expected.len());
-            }
-        }
-    }
-}
-
-#[test]
-fn residual_chain_omits_a_large_selected_shared_prefix() {
-    let mut parents = vec![vec![]];
-    for index in 1..500 {
-        parents.push(vec![index - 1]);
-    }
-    for _ in 0..8 {
-        parents.push(vec![499]);
-        parents.push(vec![parents.len() - 1]);
-    }
-    let owners = fixture(&parents, |index, _| (index as u64 + 1, 1, index as u64));
-    let snapshot = crate::test_support::genesis_snapshot();
-    let selection = Selection::new(&owners, &snapshot, 1000).unwrap();
-    let mut states = vec![CandidatePackingState::Selected; 500];
-    states.resize(owners.len(), CandidatePackingState::Original);
-    let mut package = Vec::new();
-    for index in (501..owners.len()).step_by(2) {
-        let aggregate = selection
-            .precedence()
-            .unwrap()
-            .collect_package(
-                &selection,
-                index,
-                &states,
-                TemplatePackingLimits::new(usize::MAX, u64::MAX),
-                &mut Traversal::new(owners.len()),
-                &mut package,
-            )
-            .unwrap()
-            .unwrap();
-        assert_eq!(aggregate.entries, 2);
-        assert_eq!(package, [index - 1, index]);
-    }
-}
-
-#[test]
 fn descendant_updates_cross_selected_intermediates_with_live_consumers() {
     let owners = fixture(&[vec![], vec![0], vec![1], vec![1], vec![]], |index, _| {
         ([1, 1, 1_000_000, 100_000, 60_000][index], 1, index as u64)
@@ -549,86 +449,6 @@ fn overlapping_ancestor_closures_preserve_the_thousand_entry_boundary() {
         Selection::new(&gap, &snapshot, 1000),
         Err(Error::Rejected(Reject::ExceededMaximumAncestorsCount))
     ));
-}
-
-#[test]
-fn retired_child_counts_match_fresh_reachability_in_every_four_node_dag() {
-    let mut orders = Vec::new();
-    for a in 0..4 {
-        for b in 0..4 {
-            for c in 0..4 {
-                for d in 0..4 {
-                    if BTreeSet::from([a, b, c, d]).len() == 4 {
-                        orders.push([a, b, c, d]);
-                    }
-                }
-            }
-        }
-    }
-    for mask in 0..(1 << 6) {
-        let parents = dag(4, mask);
-        let links = Links::from_lists(parents.clone()).unwrap();
-        let children: Vec<Vec<usize>> = (0..4)
-            .map(|parent| {
-                (0..4)
-                    .filter(|child| parents[*child].contains(&parent))
-                    .collect()
-            })
-            .collect();
-        let reference = |states: &[CandidatePackingState]| -> Vec<usize> {
-            children
-                .iter()
-                .map(|children_of_parent| {
-                    children_of_parent
-                        .iter()
-                        .filter(|child| {
-                            closure(**child, &children).iter().any(|index| {
-                                matches!(
-                                    states[*index],
-                                    CandidatePackingState::Original
-                                        | CandidatePackingState::Modified
-                                        | CandidatePackingState::Examining
-                                )
-                            })
-                        })
-                        .count()
-                })
-                .collect()
-        };
-        for queued in 0..16 {
-            for order in &orders {
-                let mut states: Vec<_> = (0..4)
-                    .map(|index| {
-                        if queued & (1 << index) == 0 {
-                            CandidatePackingState::Ineligible
-                        } else if index % 2 == 0 {
-                            CandidatePackingState::Original
-                        } else {
-                            CandidatePackingState::Examining
-                        }
-                    })
-                    .collect();
-                let mut live = reference(&states);
-                let mut stack = Vec::new();
-                for &index in order {
-                    if queued & (1 << index) != 0 {
-                        states[index] = if index % 2 == 0 {
-                            CandidatePackingState::Selected
-                        } else {
-                            CandidatePackingState::Failed
-                        };
-                        retire_candidate(index, &states, &mut live, &links, &mut stack).unwrap();
-                        assert_eq!(
-                            live,
-                            reference(&states),
-                            "mask={mask} queued={queued} order={order:?} index={index}"
-                        );
-                    }
-                }
-                assert_eq!(live, vec![0; 4]);
-            }
-        }
-    }
 }
 
 fn change(owners: &mut [Arc<Entry>], index: usize, update: impl FnOnce(&mut Accepted)) {

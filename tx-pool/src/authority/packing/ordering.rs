@@ -1,9 +1,6 @@
 //! Complete read-before-spend prerequisites for block selection and replay.
 
-use super::{
-    CandidatePackingState, EvictionRank, Links, PackageAggregate, PackingError, Selection, Status,
-    TemplatePackingLimits, Traversal, package_order_key,
-};
+use super::{EvictionRank, Links, PackingError, Selection, Status, package_order_key};
 use ckb_types::{core::TransactionView, prelude::*};
 use std::{
     cmp::Reverse,
@@ -19,44 +16,16 @@ pub(super) struct Precedence {
 }
 
 impl Precedence {
-    /// Expand only a block-sized prefix of the complete prerequisite closure.
-    /// Unselected readers are mandatory for spending, but are not added to the
-    /// stored causal ancestry or its fee aggregates.
+    pub(super) fn prerequisites(&self, index: usize) -> &[usize] {
+        &self.parents[index]
+    }
+
     #[expect(
         clippy::indexing_slicing,
-        reason = "The compiled precedence graph supplies checked candidate indices and their topological positions."
+        reason = "The packing run collects only indices of this precedence graph."
     )]
-    pub(super) fn collect_package(
-        &self,
-        selection: &Selection<'_>,
-        index: usize,
-        states: &[CandidatePackingState],
-        limits: TemplatePackingLimits,
-        traversal: &mut Traversal,
-        package: &mut Vec<usize>,
-    ) -> Result<Option<PackageAggregate>, PackingError> {
-        package.clear();
-        let mut pass = traversal.begin()?;
-        pass.stack.push(index);
-        let mut aggregate = PackageAggregate::default();
-        while let Some(member) = pass.stack.pop() {
-            if states[member] == CandidatePackingState::Selected || !pass.visit(member) {
-                continue;
-            }
-            if states[member] == CandidatePackingState::Ineligible {
-                return Ok(None);
-            }
-            aggregate = aggregate
-                .checked_add(PackageAggregate::one(&selection.candidates[member]))
-                .ok_or(PackingError::Arithmetic)?;
-            if !aggregate.fits(limits) {
-                return Ok(None);
-            }
-            package.push(member);
-            pass.stack.extend(&self.parents[member]);
-        }
+    pub(super) fn order_package(&self, package: &mut [usize]) {
         package.sort_unstable_by_key(|member| self.positions[*member]);
-        Ok(Some(aggregate))
     }
 }
 
@@ -134,29 +103,11 @@ impl Selection<'_> {
                 return Err(PackingError::Projection);
             }
             cycle_round = cycle_round.checked_add(1).ok_or(PackingError::Arithmetic)?;
-            let bounded_fallback = cycle_round > MAX_CONDITIONAL_CYCLE_ROUNDS;
             let eviction = match &eviction {
                 Some(ranks) => ranks,
                 None => eviction.insert(self.eviction_ranks()?),
             };
-            let mut roots = vec![false; active.len()];
-            for component in cyclic {
-                let chosen = Self::cycle_representative(
-                    eviction,
-                    &component,
-                    bounded_fallback,
-                    &self.graph.children,
-                )?;
-                if bounded_fallback {
-                    for index in component {
-                        if index != chosen {
-                            roots[index] = true;
-                        }
-                    }
-                } else {
-                    roots[chosen] = true;
-                }
-            }
+            let roots = self.cycle_drop_roots(eviction, cyclic, cycle_round)?;
             drop_package_descendants(&mut active, roots, &self.graph.children)?;
         }
     }
@@ -200,45 +151,62 @@ impl Selection<'_> {
         clippy::indexing_slicing,
         reason = "SCC members and eviction ranks belong to the same graph; binary_search returns a position in this component."
     )]
-    fn cycle_representative(
+    fn cycle_drop_roots(
+        &self,
         eviction: &[EvictionRank],
-        component: &[usize],
-        strongest: bool,
-        package_children: &Links,
-    ) -> Result<usize, PackingError> {
-        debug_assert!(component.is_sorted(), "SCC membership uses binary search");
+        components: Vec<Vec<usize>>,
+        round: usize,
+    ) -> Result<Vec<bool>, PackingError> {
+        let bounded_fallback = round > MAX_CONDITIONAL_CYCLE_ROUNDS;
+        let mut dropped = vec![false; self.candidates.len()];
         // The stored package graph is acyclic even when conditional ordering
         // is not. Drop a package leaf within this SCC so its ancestors remain;
         // the bounded fallback retains a package root for the same reason.
         // SCC members are sorted by strongly_connected_active. A package path
         // between two members cannot leave the SCC, so direct edges suffice.
-        let mut eligible = vec![true; component.len()];
-        for (position, parent) in component.iter().enumerate() {
-            for child in &package_children[*parent] {
-                if let Ok(child_position) = component.binary_search(child) {
-                    eligible[if strongest { child_position } else { position }] = false;
+        for component in components {
+            debug_assert!(component.is_sorted(), "SCC membership uses binary search");
+            let mut eligible = vec![true; component.len()];
+            for (position, parent) in component.iter().enumerate() {
+                for child in &self.graph.children[*parent] {
+                    if let Ok(child_position) = component.binary_search(child) {
+                        eligible[if bounded_fallback {
+                            child_position
+                        } else {
+                            position
+                        }] = false;
+                    }
                 }
             }
-        }
-        let mut choices = component
-            .iter()
-            .copied()
-            .zip(eligible)
-            .filter_map(|(index, eligible)| eligible.then_some(index));
-        let mut selected = choices.next().ok_or(PackingError::Projection)?;
-        for candidate in choices {
-            let selected_order = &eviction[selected];
-            let candidate_order = &eviction[candidate];
-            let replace = if strongest {
-                candidate_order > selected_order
+            let mut choices = component
+                .iter()
+                .copied()
+                .zip(eligible)
+                .filter_map(|(index, eligible)| eligible.then_some(index));
+            let mut selected = choices.next().ok_or(PackingError::Projection)?;
+            for candidate in choices {
+                let selected_order = &eviction[selected];
+                let candidate_order = &eviction[candidate];
+                let replace = if bounded_fallback {
+                    candidate_order > selected_order
+                } else {
+                    candidate_order < selected_order
+                };
+                if replace {
+                    selected = candidate;
+                }
+            }
+            if bounded_fallback {
+                for index in component {
+                    if index != selected {
+                        dropped[index] = true;
+                    }
+                }
             } else {
-                candidate_order < selected_order
-            };
-            if replace {
-                selected = candidate;
+                dropped[selected] = true;
             }
         }
-        Ok(selected)
+        Ok(dropped)
     }
 }
 
@@ -296,7 +264,7 @@ fn topological_active_order<K: Ord>(
 
 /// Iterative Kosaraju traversal; template input is attacker-shaped, so no
 /// recursive stack growth is permitted. Each component has sorted, unique
-/// indices so cycle_representative can test package edges by binary search.
+/// indices so cycle_drop_roots can test package edges by binary search.
 #[expect(
     clippy::indexing_slicing,
     reason = "Links validates every endpoint; the activity mask is checked against its node count before traversal."
