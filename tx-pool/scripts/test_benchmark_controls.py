@@ -16,11 +16,12 @@ from benchmark_build import build_command
 from test_measurement_observation import completed_observation, record_output
 
 
-def output(elapsed=1_000_000_000, cpu=1_000_000_000, rss=1_000_000):
+def output(elapsed=1_000_000_000, cpu=1_000_000_000, rss=1_000_000, *,
+           scenario="always_success", **observation):
     corpus = dict(consensus_blake2b="00" * 32, cycles_blake2b="11" * 32,
                   transaction_bytes_blake2b="22" * 32, transaction_hashes_blake2b="33" * 32,
                   cycle_assignment_count=8, cycles_sum=80, script_preflight_count=1, transaction_count=8)
-    window = dict(schema_version=3, scenario="always_success", start_unix_nanos=1_000_000_000,
+    window = dict(schema_version=3, scenario=scenario, start_unix_nanos=1_000_000_000,
                   end_unix_nanos=1_000_000_000 + elapsed, elapsed_nanos=elapsed,
                   start_clock_uncertainty_nanos=0, end_clock_uncertainty_nanos=0,
                   observed_end_unix_nanos=1_000_000_000 + elapsed)
@@ -31,7 +32,7 @@ def output(elapsed=1_000_000_000, cpu=1_000_000_000, rss=1_000_000):
             + "TX_POOL_PROFILE_WINDOW " + json.dumps(window) + "\n"
             + "BENCH_REJECTION_CAPTURE " + json.dumps(dict(schema=1, logger="rejections_and_warnings_v1",
                 records=0, service_records=0, write_failed=False)) + "\n"
-            + record_output(completed_observation(elapsed=elapsed, cpu=cpu))
+            + record_output(completed_observation(scenario=scenario, elapsed=elapsed, cpu=cpu, **observation))
             + f"RESOURCE_RESULT max_rss_bytes={rss} voluntary_context_switches=0 involuntary_context_switches=0\n")
 
 

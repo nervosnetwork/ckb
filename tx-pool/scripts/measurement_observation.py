@@ -8,6 +8,8 @@ import json
 import math
 import re
 
+from benchmark_scenario import permits_unknown_parents
+
 PREFIX = "TX_POOL_PROFILE_OBSERVATION "
 SCHEMA_VERSION = 3
 SCENARIO_FIELDS = ("scenario", "target", "warm", "workers", "peers")
@@ -84,6 +86,6 @@ def parse_observation(output: str, expected: dict[str, object], *, victim_notice
         raise ValueError("workload observation unknown-parent multiset is not canonical")
     if count != observation["relay_unknown_parents"]:
         raise ValueError("workload observation unknown-parent count does not match evidence")
-    if count and not name.endswith("_reverse"):
+    if count and not permits_unknown_parents(name):
         raise ValueError("workload observation contains unknown-parent terminals")
     return observation

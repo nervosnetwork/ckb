@@ -16,6 +16,12 @@ INPUT_BYTES, OUTPUT_BYTES = 44, 89
 FANIN_BASE_BYTES, FANOUT_BASE_BYTES = 198, 153
 
 
+def permits_unknown_parents(name: str) -> bool:
+    """Notification policy for an already validated scenario, not vector order."""
+    return name in {"dependent", "dependent_reverse", "fanout_reverse", "fanout_ready_64_reverse"} or (
+        name.startswith("dependent_forest_") and name.endswith("_reverse"))
+
+
 def suffix_number(value: str, label: str, maximum: int) -> int:
     if re.fullmatch(r"\+?[0-9]+", value) is None or int(value) > maximum:
         raise ValueError(f"invalid {label}: {value}")

@@ -255,6 +255,20 @@ Fan-in must be positive and its transaction must fit 512,000 bytes (at most
 11,631 inputs with this fixture). Small native fixtures verify the encoded size
 model before constructing the requested population.
 
+`dependent` submits its forward chain concurrently within each warm/target phase;
+vector order does not guarantee parent acceptance before a child is resolved.
+It permits missing-parent notices, as do reverse chain/forest/fanout workloads
+and the readiness-gated fanout cohorts. Each notice must still name actual
+in-corpus input parents for transactions supplied by that original peer.
+Forward forests wait for each accepted layer and forward fanout waits for its
+parent, so both require zero missing-parent notices. Large concurrent chains can
+hit an arm's waiting-pool capacity even below the ancestor limit; preserve that
+refusal rather than adding barriers or changing pool policy to complete a run.
+
+This permission correction retains observation schema 3 and all field meanings.
+Use a newly frozen harness, runner and receipts; prior failed captures remain
+bound to their original tools and must not be reinterpreted as successful samples.
+
 Funding limits belong to the native fixture producer: one real funding output
 establishes its initial DAO capacity and encoded genesis size; checked growth
 rejects overflow before allocating the full output vector. This uses the actual

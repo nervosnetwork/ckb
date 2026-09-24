@@ -118,6 +118,15 @@ class ObservationContractTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "unknown-parent terminals"):
             self.parse(reverse | {"scenario": "always_success"})
 
+    def test_concurrent_forward_chain_can_wait_in_warm_and_target_phases(self):
+        record = completed_observation(scenario="dependent", warm=2, relay_unknown_parents=2,
+            relay_unknown_parent_observations=[dict(peer=1, parents=["00" * 32], count=2)])
+        expected = {name: record[name] for name in observation.SCENARIO_FIELDS}
+        self.assertEqual(self.parse(record, expected=expected), record)
+        for name in ("dependent_forest_2", "fanout"):
+            with self.subTest(name=name), self.assertRaisesRegex(ValueError, "unknown-parent terminals"):
+                self.parse(record | dict(scenario=name), expected=expected | dict(scenario=name))
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -24,6 +24,23 @@ pub(crate) enum Workload {
 }
 
 impl Workload {
+    /// Concurrent chains may resolve children before their parents are accepted,
+    /// even when their submitted vector is in forward order.
+    pub(crate) fn permits_unknown_parents(self) -> bool {
+        match self {
+            Self::Chain { .. }
+            | Self::Forest { reverse: true, .. }
+            | Self::Fanout { reverse: true }
+            | Self::FanoutCohorts => true,
+            Self::AlwaysSuccess
+            | Self::FanIn(_)
+            | Self::Secp256k1
+            | Self::Forest { reverse: false, .. }
+            | Self::Fanout { reverse: false }
+            | Self::RbfPairs { .. } => false,
+        }
+    }
+
     pub(crate) fn is_reverse(self) -> bool {
         matches!(
             self,
@@ -249,6 +266,12 @@ mod tests {
             forest.submission_orders(),
             (SubmissionOrder::Forest(10), SubmissionOrder::Forest(10))
         );
+        for name in ["dependent", "dependent_reverse"] {
+            assert_eq!(
+                parse(name, "0").submission_orders(),
+                (SubmissionOrder::Concurrent, SubmissionOrder::Concurrent)
+            );
+        }
         assert_eq!(
             parse("fanout", "0").submission_orders(),
             (SubmissionOrder::Concurrent, SubmissionOrder::ParentFirst)
@@ -271,5 +294,41 @@ mod tests {
         let callback = parse("always_success_callback_0us", "0");
         assert_eq!(callback.workload, Workload::AlwaysSuccess);
         assert_eq!(callback.callback_delay_us, Some(0));
+    }
+
+    #[test]
+    fn missing_parent_permission_follows_readiness_not_vector_direction() {
+        use super::BenchmarkScenario;
+
+        for (name, target, warm, permitted) in [
+            ("dependent", "8", "2", true),
+            ("dependent_reverse", "8", "0", true),
+            ("dependent_forest_4_reverse", "8", "0", true),
+            ("fanout_reverse", "8", "0", true),
+            ("fanout_ready_64_reverse", "130", "65", true),
+            ("dependent_forest_4", "8", "4", false),
+            ("fanout", "8", "0", false),
+            ("fanout", "8", "2", false),
+            ("always_success", "8", "0", false),
+            ("always_success_fanin_2", "8", "0", false),
+            ("always_success_callback_500us", "8", "0", false),
+            ("secp256k1", "8", "0", false),
+            ("rbf_pairs", "8", "8", false),
+            ("rbf_pairs_windowed", "8", "8", false),
+            ("rbf_pressure", "8", "8", false),
+            ("reorg_in_flight", "8", "0", false),
+        ] {
+            let scenario = BenchmarkScenario::parse(
+                [name, target, warm, "2", "2"]
+                    .map(str::to_owned)
+                    .into_iter(),
+            )
+            .unwrap();
+            assert_eq!(
+                scenario.workload.permits_unknown_parents(),
+                permitted,
+                "{name}"
+            );
+        }
     }
 }

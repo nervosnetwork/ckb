@@ -1922,7 +1922,7 @@ fn expected_relay_batch(
     expected
 }
 
-/// The reverse fixture may only request actual in-corpus input parents from
+/// A missing-parent notice may only request actual in-corpus input parents from
 /// the peer that supplied that child. Notification multiplicity is not fixed.
 fn expected_unknown_parents(
     transactions: &[TransactionView],
@@ -2153,7 +2153,7 @@ fn run() -> BenchResult<()> {
         .iter()
         .map(TransactionView::hash)
         .collect::<HashSet<_>>();
-    let (allowed_unknown, warm_allowed_unknown) = if workload.is_reverse() {
+    let (allowed_unknown, warm_allowed_unknown) = if workload.permits_unknown_parents() {
         (
             expected_unknown_parents(&transactions, all_expected_relay, &corpus_hashes),
             expected_unknown_parents(
@@ -2237,7 +2237,9 @@ fn run() -> BenchResult<()> {
     relay_completion.validate(
         &warm_expected_relay,
         &warm_expected_rejects,
-        workload.is_reverse().then_some(&warm_allowed_unknown),
+        workload
+            .permits_unknown_parents()
+            .then_some(&warm_allowed_unknown),
     )?;
     completion.validate(warm_count, false)?;
     resource_phases
@@ -2344,7 +2346,9 @@ fn run() -> BenchResult<()> {
     relay_completion.validate(
         all_expected_relay,
         &all_expected_rejects,
-        workload.is_reverse().then_some(&allowed_unknown),
+        workload
+            .permits_unknown_parents()
+            .then_some(&allowed_unknown),
     )?;
     let p99_latency_ns = completion.target_p99(reorg_in_flight)?;
     resource_phases.capture("validated").map_err(bench_error)?;
@@ -2436,6 +2440,86 @@ fn run() -> BenchResult<()> {
 
 #[cfg(test)]
 mod terminal_tests {
+    #[test]
+    fn concurrent_chain_notifications_keep_parent_peer_and_terminal_guards() {
+        use super::*;
+
+        let transactions = build_chain(OutPoint::null(), 4);
+        let hashes = transactions.iter().map(TransactionView::hash).collect();
+        let expected = expected_relay_batch(&transactions, SubmissionOrder::Concurrent, 2);
+        let allowed = expected_unknown_parents(&transactions, &expected, &hashes);
+        let completed = |expected: &RelayOkSet| {
+            let relay = RelayCompletion::default();
+            for (tx_hash, original_peer) in expected {
+                relay.record(TxVerificationResult::Ok {
+                    original_peer: *original_peer,
+                    tx_hash: tx_hash.clone(),
+                });
+            }
+            relay
+        };
+        let rejects = RelayRejectSet::new();
+        let relay = completed(&expected);
+        for _ in 0..2 {
+            relay.record_unknown_parents(1.into(), HashSet::from([transactions[0].hash()]));
+        }
+        relay.validate(&expected, &rejects, Some(&allowed)).unwrap();
+        assert_eq!(relay.observation().unknown_parents, 2);
+        assert!(relay.validate(&expected, &rejects, None).is_err());
+
+        for (peer, parents) in [
+            // The first child belongs to peer 1, not peer 2.
+            (2.into(), HashSet::from([transactions[0].hash()])),
+            // A corpus leaf is not an input parent of any offered transaction.
+            (1.into(), HashSet::from([transactions[3].hash()])),
+            (1.into(), HashSet::from([OutPoint::null().tx_hash()])),
+            (1.into(), HashSet::new()),
+        ] {
+            let relay = completed(&expected);
+            relay.record_unknown_parents(peer, parents);
+            assert!(relay.validate(&expected, &rejects, Some(&allowed)).is_err());
+        }
+
+        let relay = completed(&expected);
+        let (tx_hash, original_peer) = expected.iter().next().unwrap();
+        relay.record(TxVerificationResult::Ok {
+            original_peer: *original_peer,
+            tx_hash: tx_hash.clone(),
+        });
+        assert!(relay.validate(&expected, &rejects, Some(&allowed)).is_err());
+
+        let relay = completed(&expected);
+        let rejected = Byte32::new([255; 32]);
+        for _ in 0..2 {
+            relay.record(TxVerificationResult::Reject {
+                tx_hash: rejected.clone(),
+            });
+        }
+        assert!(
+            relay
+                .validate(&expected, &HashSet::from([rejected]), Some(&allowed))
+                .is_err()
+        );
+
+        #[cfg(not(feature = "cross-version-legacy-bench-adapter"))]
+        {
+            let relay = completed(&expected);
+            relay.record(TxVerificationResult::GenerationReset);
+            assert!(relay.validate(&expected, &rejects, Some(&allowed)).is_err());
+        }
+
+        // Warm validation derives its own suppliers and cannot authorize a
+        // target-only dependency merely because it occurs in the full corpus.
+        let warm = &transactions[..2];
+        let expected = expected_relay_batch(warm, SubmissionOrder::Concurrent, 2);
+        let allowed = expected_unknown_parents(warm, &expected, &hashes);
+        let relay = completed(&expected);
+        relay.record_unknown_parents(2.into(), HashSet::from([transactions[0].hash()]));
+        relay.validate(&expected, &rejects, Some(&allowed)).unwrap();
+        relay.record_unknown_parents(2.into(), HashSet::from([transactions[2].hash()]));
+        assert!(relay.validate(&expected, &rejects, Some(&allowed)).is_err());
+    }
+
     #[test]
     fn failed_operation_joins_relay_observer_while_producer_is_alive() {
         use super::*;
