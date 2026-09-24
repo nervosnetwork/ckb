@@ -5,7 +5,7 @@ mod allocation_observation;
 mod rbf_pressure;
 mod rejection_diagnostics;
 mod scenario;
-use allocation_observation::{begin_allocation_window, end_allocation_window};
+use allocation_observation::AllocationWindow;
 use scenario::{BenchmarkScenario, FANOUT_COHORT_SIZE, SubmissionOrder, Workload};
 
 #[cfg(all(feature = "tokio-trace", not(tokio_unstable)))]
@@ -2233,7 +2233,7 @@ fn run() -> BenchResult<()> {
         return Ok(());
     }
     let start_anchor = measurement_clock::ClockAnchor::capture().map_err(bench_error)?;
-    begin_allocation_window();
+    let allocations = AllocationWindow::begin();
     #[cfg(feature = "profiling")]
     if let Some(recorder) = observability.recorder.as_ref() {
         recorder
@@ -2291,7 +2291,7 @@ fn run() -> BenchResult<()> {
     // and latency sorting remain mandatory, but are harness post-processing.
     let ended = Instant::now();
     let (target_user_cpu_ended, target_system_cpu_ended) = process_cpu_nanos()?;
-    let (allocation_calls, allocated_bytes) = end_allocation_window();
+    let (allocation_calls, allocated_bytes) = allocations.finish();
     let end_anchor = measurement_clock::ClockAnchor::capture().map_err(bench_error)?;
     resource_phases
         .capture("target_complete")

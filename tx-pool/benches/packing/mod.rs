@@ -2,7 +2,7 @@
 //! Fees/cycles are controlled accepted metadata: this does not run admission,
 //! script verification, DAO calculation, or final block serialization.
 
-use crate::allocation_observation::{begin_allocation_window, end_allocation_window};
+use crate::allocation_observation::AllocationWindow;
 use ckb_chain_spec::consensus::ConsensusBuilder;
 use ckb_hash::blake2b_256;
 use ckb_proposal_table::ProposalView;
@@ -400,12 +400,12 @@ fn allocation_record((calls, requested_bytes): (u64, u64)) -> Value {
 
 pub(crate) fn run(args: &[String]) -> Result<(), String> {
     let parameters = Parameters::parse(args)?;
-    begin_allocation_window();
+    let allocations = AllocationWindow::begin();
     let fixture_started = Instant::now();
     let fixture = Fixture::new(&parameters);
     let fixture_ns = fixture_started.elapsed().as_nanos();
-    let fixture_allocation = allocation_record(end_allocation_window());
-    begin_allocation_window();
+    let fixture_allocation = allocation_record(allocations.finish());
+    let allocations = AllocationWindow::begin();
     let setup_started = Instant::now();
     let source = PackingSource::new(
         &fixture.entries,
@@ -413,7 +413,7 @@ pub(crate) fn run(args: &[String]) -> Result<(), String> {
         MAX_ANCESTORS,
     );
     let setup_ns = setup_started.elapsed().as_nanos();
-    let setup_allocation = allocation_record(end_allocation_window());
+    let setup_allocation = allocation_record(allocations.finish());
     let source = source?;
     let limits = fixture.limits(&parameters.limit);
     let all = source.select(fixture.total_bytes, fixture.total_cycles)?;
@@ -455,11 +455,11 @@ pub(crate) fn run(args: &[String]) -> Result<(), String> {
     );
     for repeat in 0..parameters.repeats {
         let anchor = crate::measurement_clock::ClockAnchor::capture()?;
-        begin_allocation_window();
+        let allocations = AllocationWindow::begin();
         let started = Instant::now();
         let selected = black_box(source.select(black_box(limits.0), black_box(limits.1)));
         let ended = Instant::now();
-        let allocation = allocation_record(end_allocation_window());
+        let allocation = allocation_record(allocations.finish());
         let endpoint = crate::measurement_clock::ClockAnchor::capture()?;
         let selected = selected?;
         let result = fixture.validate(&selected, limits)?;

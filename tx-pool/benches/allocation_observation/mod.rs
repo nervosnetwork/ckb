@@ -48,26 +48,59 @@ unsafe impl GlobalAlloc for CountingAllocator {
     }
 }
 
-#[cfg(feature = "allocation-observation")]
-pub(crate) fn begin_allocation_window() {
-    ALLOCATION_CALLS.store(0, Ordering::Release);
-    ALLOCATION_BYTES.store(0, Ordering::Release);
-    ALLOCATION_WINDOW_ACTIVE.store(true, Ordering::Release);
+/// Owns the lifetime of one non-overlapping process-wide observation window. Dropping an
+/// unfinished window stops counting without publishing a successful sample.
+pub(crate) struct AllocationWindow {
+    _private: (),
 }
 
-#[cfg(not(feature = "allocation-observation"))]
-pub(crate) fn begin_allocation_window() {}
+impl AllocationWindow {
+    pub(crate) fn begin() -> Self {
+        #[cfg(feature = "allocation-observation")]
+        {
+            ALLOCATION_CALLS.store(0, Ordering::Release);
+            ALLOCATION_BYTES.store(0, Ordering::Release);
+            ALLOCATION_WINDOW_ACTIVE.store(true, Ordering::Release);
+        }
+        Self { _private: () }
+    }
 
-#[cfg(feature = "allocation-observation")]
-pub(crate) fn end_allocation_window() -> (u64, u64) {
-    ALLOCATION_WINDOW_ACTIVE.store(false, Ordering::Release);
-    (
-        ALLOCATION_CALLS.load(Ordering::Acquire),
-        ALLOCATION_BYTES.load(Ordering::Acquire),
-    )
+    pub(crate) fn finish(self) -> (u64, u64) {
+        drop(self);
+        #[cfg(feature = "allocation-observation")]
+        {
+            (
+                ALLOCATION_CALLS.load(Ordering::Acquire),
+                ALLOCATION_BYTES.load(Ordering::Acquire),
+            )
+        }
+        #[cfg(not(feature = "allocation-observation"))]
+        (0, 0)
+    }
 }
 
-#[cfg(not(feature = "allocation-observation"))]
-pub(crate) fn end_allocation_window() -> (u64, u64) {
-    (0, 0)
+impl Drop for AllocationWindow {
+    fn drop(&mut self) {
+        #[cfg(feature = "allocation-observation")]
+        ALLOCATION_WINDOW_ACTIVE.store(false, Ordering::Release);
+    }
+}
+
+#[cfg(all(test, feature = "allocation-observation"))]
+mod tests {
+    #[test]
+    fn failed_work_disables_its_allocation_window() {
+        use super::*;
+
+        let failed = || -> Result<(), ()> {
+            let _window = AllocationWindow::begin();
+            assert!(ALLOCATION_WINDOW_ACTIVE.load(Ordering::Acquire));
+            Err(())
+        };
+        assert!(failed().is_err());
+        assert!(!ALLOCATION_WINDOW_ACTIVE.load(Ordering::Acquire));
+        let window = AllocationWindow::begin();
+        let _totals = window.finish();
+        assert!(!ALLOCATION_WINDOW_ACTIVE.load(Ordering::Acquire));
+    }
 }
