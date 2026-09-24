@@ -694,7 +694,7 @@ impl Pool {
         }
         self.recent
             .as_ref()
-            .map(|recent| block_offload(|| recent.get(hash)))
+            .map(|recent| recent.get(hash))
             .transpose()
             .map(Option::flatten)
     }
@@ -733,7 +733,7 @@ impl Pool {
     pub(crate) fn recent_count(&self) -> Option<u64> {
         self.recent
             .as_ref()
-            .map(|recent| block_offload(|| recent.get_estimate_total_keys_num()))
+            .map(|recent| recent.get_estimate_total_keys_num())
     }
 
     pub(crate) async fn estimate_fee(

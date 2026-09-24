@@ -35,8 +35,8 @@ pub struct RecentReject {
     /// `shrink` acquires a *write* lock (exclusive) to drop and recreate a
     /// column family.
     ///
-    /// All DB access goes through [`block_offload`], which moves the blocking I/O
-    /// off the async executor when a tokio runtime is available.
+    /// Blocking entry points own [`block_offload`] for the whole DB operation,
+    /// including shard recovery and shrinking, on multi-threaded Tokio runtimes.
     db: RwLock<DBWithTTL>,
 }
 
@@ -75,16 +75,18 @@ impl RecentReject {
     {
         let shard_num = NonZeroU32::new(shard_num)
             .ok_or_else(|| OtherError::new("recent-reject shard count must be non-zero"))?;
-        let cf_names = (0..shard_num.get()).map(|c| c.to_string());
-        let db = DBWithTTL::open_cf(path, cf_names, ttl)?;
-        let total_keys_num = Self::estimate_total_keys_num(&db, shard_num)?;
+        block_offload(|| {
+            let cf_names = (0..shard_num.get()).map(|c| c.to_string());
+            let db = DBWithTTL::open_cf(path, cf_names, ttl)?;
+            let total_keys_num = Self::estimate_total_keys_num(&db, shard_num)?;
 
-        Ok(RecentReject {
-            shard_num,
-            count_limit,
-            ttl,
-            db: RwLock::new(db),
-            total_keys_num: AtomicU64::new(total_keys_num),
+            Ok(RecentReject {
+                shard_num,
+                count_limit,
+                ttl,
+                db: RwLock::new(db),
+                total_keys_num: AtomicU64::new(total_keys_num),
+            })
         })
     }
 
@@ -108,53 +110,47 @@ impl RecentReject {
         let shard = self.get_shard(hash).to_string();
         let json_bytes = json_string.as_bytes();
 
-        // Fast path: hold the read lock across the DB write so that `shrink`
-        // cannot drop the column family while we are writing to it.
-        let written = block_offload(|| {
-            let db = self.db.read().map_err(|e| OtherError::new(e.to_string()))?;
-            if !db.has_cf(&shard) {
-                return Ok(false);
-            }
-            let existed = db.get_pinned(&shard, hash_slice)?.is_some();
-            db.put(&shard, hash_slice, json_bytes)?;
-            if !existed {
-                // Count newly inserted keys inside the DB critical section,
-                // ordered with `shrink`'s reconciliation. Overwrites do not
-                // inflate the approximate counter.
+        block_offload(|| {
+            // Fast path: hold the read lock across the DB write so that
+            // `shrink` cannot drop the column family while we write to it.
+            let written = {
+                let db = self.db.read().map_err(|e| OtherError::new(e.to_string()))?;
+                if db.has_cf(&shard) {
+                    let existed = db.get_pinned(&shard, hash_slice)?.is_some();
+                    db.put(&shard, hash_slice, json_bytes)?;
+                    if !existed {
+                        // Count newly inserted keys inside the DB critical
+                        // section, ordered with `shrink`'s reconciliation.
+                        // Overwrites do not inflate the approximate counter.
+                        self.increment_approximate_count();
+                    }
+                    true
+                } else {
+                    false
+                }
+            };
+
+            if !written {
+                // Slow path: recreate a missing shard under the write lock,
+                // after releasing the fast path's read guard.
+                let mut db = self
+                    .db
+                    .write()
+                    .map_err(|e| OtherError::new(e.to_string()))?;
+                // Another writer may have recreated the shard while this call
+                // released its read guard and waited for the write guard.
+                if !db.has_cf(&shard) {
+                    db.create_cf_with_ttl(&shard, self.ttl)?;
+                }
+                db.put(&shard, hash_slice, json_bytes)?;
+                // The shard was missing a moment ago, so count this write as
+                // a new key. Concurrent puts of the same key can double-count;
+                // that is inside the counter's approximate tolerance.
                 self.increment_approximate_count();
             }
-            Ok::<_, AnyError>(true)
-        })?;
-
-        if written {
             self.maybe_shrink();
-            return Ok(());
-        }
-
-        // Slow path: the shard column family is missing (e.g. `shrink`
-        // dropped it but failed to recreate it).  Upgrade to a write lock,
-        // create the column family on demand, and perform the write.
-        block_offload(|| {
-            let mut db = self
-                .db
-                .write()
-                .map_err(|e| OtherError::new(e.to_string()))?;
-            // Another writer may have recreated the shard while this call
-            // released its read guard and waited for the write guard.
-            if !db.has_cf(&shard) {
-                db.create_cf_with_ttl(&shard, self.ttl)?;
-            }
-            db.put(&shard, hash_slice, json_bytes)?;
-            // Reaching the slow path means the column family was missing a
-            // moment ago (either dropped by `shrink` or never created), so
-            // count this write as a new key. Concurrent puts of the same key
-            // can double-count; that is inside the declared approximate
-            // tolerance of the counter.
-            self.increment_approximate_count();
-            Ok::<(), AnyError>(())
-        })?;
-        self.maybe_shrink();
-        Ok(())
+            Ok(())
+        })
     }
 
     /// Check the approximate counter (already incremented by `put` inside
@@ -236,38 +232,36 @@ impl RecentReject {
         // drop and recreate a column family.  This is a very cold path
         // (triggered only when key count exceeds `count_limit`), so brief
         // contention is acceptable.
-        block_offload(|| {
-            let mut db = self
-                .db
-                .write()
-                .map_err(|e| OtherError::new(e.to_string()))?;
+        let mut db = self
+            .db
+            .write()
+            .map_err(|e| OtherError::new(e.to_string()))?;
 
-            // TTL compaction, duplicate puts or an earlier shrink can make the
-            // trigger stale. Reconcile before deciding whether to discard data.
-            let total = Self::estimate_total_keys_num(&db, self.shard_num)?;
-            self.total_keys_num.store(total, Ordering::SeqCst);
-            if total <= self.count_limit {
-                return Ok(total);
-            }
-            if db.has_cf(&shard) {
-                db.drop_cf(&shard)?;
-            }
-            let create_result = db.create_cf_with_ttl(&shard, self.ttl);
+        // TTL compaction, duplicate puts or an earlier shrink can make the
+        // trigger stale. Reconcile before deciding whether to discard data.
+        let total = Self::estimate_total_keys_num(&db, self.shard_num)?;
+        self.total_keys_num.store(total, Ordering::SeqCst);
+        if total <= self.count_limit {
+            return Ok(total);
+        }
+        if db.has_cf(&shard) {
+            db.drop_cf(&shard)?;
+        }
+        let create_result = db.create_cf_with_ttl(&shard, self.ttl);
 
-            // A failed recreation leaves an empty, missing shard. Count every
-            // remaining shard regardless. If estimation fails, keep the last
-            // complete estimate and report the error instead of storing a
-            // partial sum. Both stores share the guard with every put increment.
-            let remaining = Self::estimate_total_keys_num(&db, self.shard_num);
-            if let Ok(total) = &remaining {
-                self.total_keys_num.store(*total, Ordering::SeqCst);
-            }
-            drop(db);
-            if let Err(e) = create_result {
-                error!("failed to recreate recent_reject shard {shard}: {e}");
-            }
-            remaining
-        })
+        // A failed recreation leaves an empty, missing shard. Count every
+        // remaining shard regardless. If estimation fails, keep the last
+        // complete estimate and report the error instead of storing a
+        // partial sum. Both stores share the guard with every put increment.
+        let remaining = Self::estimate_total_keys_num(&db, self.shard_num);
+        if let Ok(total) = &remaining {
+            self.total_keys_num.store(*total, Ordering::SeqCst);
+        }
+        drop(db);
+        if let Err(e) = create_result {
+            error!("failed to recreate recent_reject shard {shard}: {e}");
+        }
+        remaining
     }
 
     fn get_shard(&self, hash: &Byte32) -> u32 {
