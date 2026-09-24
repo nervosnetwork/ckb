@@ -342,13 +342,26 @@ impl Plan {
     ) -> Result<Option<Byte32>, Error> {
         store.spender(point, &mut self.reads)
     }
-    pub(in crate::authority) fn members(
+    /// Complete accepted input/dep readers, including an empty relation.
+    /// Waiting membership has a separate wake protocol and is not observed here.
+    pub(in crate::authority) fn readers(
         &mut self,
         store: &Store,
-        key: &RelationKey,
-        roles: Roles,
+        point: OutPoint,
     ) -> Result<Vec<Byte32>, Error> {
-        store.members(key, roles, &mut self.reads)
+        store.members(
+            &RelationKey::Dependency(DependencyKey::Cell(point)),
+            Roles::READERS,
+            &mut self.reads,
+        )
+    }
+    /// Complete accepted children of one transaction.
+    pub(in crate::authority) fn children(
+        &mut self,
+        store: &Store,
+        hash: Byte32,
+    ) -> Result<Vec<Byte32>, Error> {
+        store.members(&RelationKey::Children(hash), Roles::CHILD, &mut self.reads)
     }
     pub(in crate::authority) fn peer_members(
         &mut self,

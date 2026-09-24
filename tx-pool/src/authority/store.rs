@@ -721,7 +721,7 @@ impl Store {
     }
     /// Owners holding any selected role, including the separately stored spender.
     /// The observation tracks accepted membership, not changes to waiting owners.
-    pub(super) fn members(
+    fn members(
         &self,
         key: &RelationKey,
         roles: Roles,

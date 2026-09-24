@@ -2,12 +2,12 @@ use super::super::{
     budget::{OwnerDelta, owner_amount},
     chain::{self, ClearScope},
     model::{
-        Accepted, DependencyKey, Entry, Error, FullReason, Phase, RecoveryTriggers, RelationKey,
-        Resolved, Source, Status,
+        Accepted, DependencyKey, Entry, Error, FullReason, Phase, RecoveryTriggers, Resolved,
+        Source, Status,
     },
     notice::Class,
     queue::{WorkSelection, WorkStage},
-    store::{Captured, Plan, ReadSet, Roles, Store},
+    store::{Captured, Plan, ReadSet, Store},
 };
 use super::common::*;
 use ckb_types::{
@@ -523,19 +523,9 @@ fn identical_owner_edit_still_rejects_a_stale_observation() {
 fn complete_dependency_observation_detects_late_readers() {
     let store = store();
     let point = OutPoint::new(Byte32::new([7; 32]), 0);
-    let mut reads = ReadSet::default();
-    assert!(
-        store
-            .members(
-                &RelationKey::Dependency(DependencyKey::Cell(point.clone())),
-                Roles::DEPENDENCY,
-                &mut reads,
-            )
-            .unwrap()
-            .is_empty()
-    );
+    let mut plan = Plan::new(store.snapshot().0, Class::Trusted, Default::default());
+    assert!(plan.readers(&store, point.clone()).unwrap().is_empty());
     accept(&store, spend(24, &[], &[point]), 1, 1, Status::Pending);
-    let plan = Plan::new(store.snapshot().0, Class::Trusted, reads);
     assert!(matches!(store.apply(plan), Err(Error::Stale)));
 }
 

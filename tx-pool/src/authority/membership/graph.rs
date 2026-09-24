@@ -1,7 +1,7 @@
 //! Tracked membership observations. Policy can read the graph and build its
 //! borrowed Plan, but cannot replace the read set or access the raw Store.
 use super::*;
-use crate::authority::{budget::Limits, model::RelationKey, store::Roles};
+use crate::authority::budget::Limits;
 
 pub(in crate::authority) struct Graph<'a> {
     store: &'a Store,
@@ -32,11 +32,7 @@ impl<'a> Graph<'a> {
     /// Observe the complete input/dep relation, including an empty result.
     /// New readers of an output must be included when its producer is admitted.
     pub(super) fn readers(&mut self, point: OutPoint) -> Result<Vec<Byte32>, Error> {
-        self.plan.members(
-            self.store,
-            &RelationKey::Dependency(DependencyKey::Cell(point)),
-            Roles::READERS,
-        )
+        self.plan.readers(self.store, point)
     }
     pub(super) fn capture_accepted(&mut self) -> Result<(), Error> {
         self.observed = self
@@ -80,11 +76,7 @@ impl<'a> Graph<'a> {
                 return Err(component_limit());
             }
             self.require(&hash)?;
-            stack.extend(self.plan.members(
-                self.store,
-                &RelationKey::Children(hash),
-                Roles::CHILD,
-            )?);
+            stack.extend(self.plan.children(self.store, hash)?);
         }
         Ok(result)
     }
