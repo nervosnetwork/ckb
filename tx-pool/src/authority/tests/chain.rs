@@ -116,7 +116,7 @@ fn retained_replacement_history_survives_age_and_unrelated_chain_until_wake_or_c
         store.apply(plan).unwrap();
         let history = store.point(&old).1.unwrap();
         assert_eq!(history.source, Source::Recovery);
-        assert!(matches!(history.phase, Phase::Replaced { .. }));
+        assert!(matches!(history.phase, Phase::Replaced(_)));
         let expired = store.expired(std::time::Instant::now(), u64::MAX, 32);
         assert!(expired.iter().any(|entry| entry.hash() == parent));
         assert!(!expired.iter().any(|entry| entry.hash() == old));

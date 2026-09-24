@@ -63,69 +63,64 @@ pub(super) fn wake(
     // The page shares one trigger. Its first observation stays in the Plan
     // and is validated for every waiter when the whole plan commits.
     let mut trigger_ready = None;
+    let mut ready = |key: &DependencyKey, plan: &mut Plan| {
+        if key != &page.key {
+            return available(store, &snapshot, key, plan);
+        }
+        if let Some(ready) = trigger_ready {
+            return Ok(ready);
+        }
+        let ready = available(store, &snapshot, key, plan)?;
+        trigger_ready = Some(ready);
+        Ok(ready)
+    };
     for hash in &page.hashes {
         let Some(entry) = plan.get(store, hash)? else {
             continue;
         };
-        let (keys, require_all, history) = match &entry.phase {
-            Phase::Waiting(keys) => (keys, true, false),
-            Phase::Replaced {
-                triggers,
-                require_all,
-            } => (triggers, *require_all, true),
-            _ => continue,
-        };
-        let mut any_ready = false;
-        let mut all_ready = true;
-        let mut lost = None;
-        for key in keys {
-            let ready = if key == &page.key {
-                match trigger_ready {
-                    Some(ready) => ready,
-                    None => {
-                        let ready = available(store, &snapshot, key, &mut plan)?;
-                        trigger_ready = Some(ready);
-                        ready
+        match &entry.phase {
+            Phase::Waiting(keys) => {
+                let mut all_ready = true;
+                let mut lost = None;
+                for key in keys {
+                    if ready(key, &mut plan)? {
+                        continue;
                     }
+                    all_ready = false;
+                    if !entry.source.requires_known_producer() {
+                        break;
+                    }
+                    if let DependencyKey::Cell(point) = key
+                        && !pending_producer(plan.get(store, &point.tx_hash())?.as_deref(), point)
+                    {
+                        lost = Some(point.clone());
+                        break;
+                    }
+                    // Trusted waiting must still find a terminal missing
+                    // producer on later keys, even if this one can wait.
                 }
-            } else {
-                available(store, &snapshot, key, &mut plan)?
-            };
-            any_ready |= ready;
-            all_ready &= ready;
-            if !ready
-                && !history
-                && entry.source.requires_known_producer()
-                && let DependencyKey::Cell(point) = key
-                && !pending_producer(plan.get(store, &point.tx_hash())?.as_deref(), point)
-            {
-                lost = Some(point.clone());
-                break;
+                if let Some(point) = lost {
+                    let effect = Effect::removed(
+                        &entry,
+                        Reject::Resolve(OutPointError::Unknown(point)),
+                        None,
+                    )?;
+                    plan.edit(Some(entry), None, Some(effect))?;
+                } else if all_ready {
+                    let after = entry.with_phase(Phase::Resolve);
+                    plan.edit(Some(entry), Some(after), None)?;
+                }
             }
-            // Trusted waiting must still find a terminal missing producer on
-            // later keys. Other decisions need only their first decisive key.
-            if (history || !entry.source.requires_known_producer())
-                && ((require_all && !ready) || (!require_all && ready))
-            {
-                break;
-            }
-        }
-        if let Some(point) = lost {
-            let effect =
-                Effect::removed(&entry, Reject::Resolve(OutPointError::Unknown(point)), None)?;
-            plan.edit(Some(entry), None, Some(effect))?;
-        } else if (require_all && all_ready) || (!require_all && any_ready) {
-            let after = if history {
-                Arc::new(Entry {
+            Phase::Replaced(triggers) if triggers.is_ready(|key| ready(key, &mut plan))? => {
+                let after = Arc::new(Entry {
                     transaction: Arc::clone(&entry.transaction),
                     arrival: entry.arrival,
                     source: Source::Recovery,
                     phase: Phase::Resolve,
-                })
-            } else {
-                entry.with_phase(Phase::Resolve)
-            };
-            plan.edit(Some(entry), Some(after), None)?;
+                });
+                plan.edit(Some(entry), Some(after), None)?;
+            }
+            _ => {}
         }
     }
     plan.advance(page);

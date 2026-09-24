@@ -314,8 +314,13 @@ fn visit_roles(entry: &Entry, mut add: impl FnMut(RelationKey, Roles)) {
                 add(RelationKey::Children(hash.clone()), Roles::CHILD);
             }
         }
-        Phase::Waiting(keys) | Phase::Replaced { triggers: keys, .. } => {
+        Phase::Waiting(keys) => {
             for key in keys {
+                add(RelationKey::Dependency(key.clone()), Roles::WAITING);
+            }
+        }
+        Phase::Replaced(triggers) => {
+            for key in triggers.keys() {
                 add(RelationKey::Dependency(key.clone()), Roles::WAITING);
             }
         }
@@ -532,7 +537,7 @@ impl<'a> Application<'a> {
                         && edit
                             .after
                             .as_ref()
-                            .is_some_and(|new| matches!(new.phase, Phase::Replaced { .. }))
+                            .is_some_and(|new| matches!(new.phase, Phase::Replaced(_)))
                     {
                         edit.after = None;
                     }
@@ -927,11 +932,8 @@ impl Store {
                         .and_then(|edit| edit.after.as_ref())
                         .is_some_and(|entry| {
                             matches!(
-                                entry.phase,
-                                Phase::Replaced {
-                                    require_all,
-                                    ..
-                                } if !require_all || spent
+                                &entry.phase,
+                                Phase::Replaced(triggers) if triggers.defer_creation_event(spent)
                             )
                         });
                 let wait_after_pass = match row.next_pass.checked_add(u64::from(deferred)) {

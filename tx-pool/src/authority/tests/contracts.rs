@@ -2,8 +2,8 @@ use super::super::{
     budget::{OwnerDelta, owner_amount},
     chain::{self, ClearScope},
     model::{
-        Accepted, DependencyKey, Entry, Error, FullReason, Phase, RelationKey, Resolved, Source,
-        Status,
+        Accepted, DependencyKey, Entry, Error, FullReason, Phase, RecoveryTriggers, RelationKey,
+        Resolved, Source, Status,
     },
     notice::Class,
     queue::WorkStage,
@@ -383,10 +383,7 @@ fn dependency_results_preserve_unique_order_and_phase_edge_charges() {
         ),
         (Phase::Waiting(missing.clone()), missing_order.clone(), 4),
         (
-            Phase::Replaced {
-                triggers: missing,
-                require_all: false,
-            },
+            Phase::Replaced(RecoveryTriggers::RetryInputs(missing)),
             missing_order,
             4,
         ),

@@ -214,7 +214,7 @@ pub(super) fn entry_info(store: &Store, config: &TxPoolConfig) -> Result<TxPoolE
     for entry in owners {
         if entry.accepted().is_some() {
             members.insert(entry.hash(), entry);
-        } else if matches!(entry.phase, Phase::Replaced { .. }) {
+        } else if matches!(entry.phase, Phase::Replaced(_)) {
             result.conflicted.push(entry.hash());
         }
     }

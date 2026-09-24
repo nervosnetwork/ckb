@@ -2104,7 +2104,7 @@ async fn saved_replacement_history_reenters_through_verified_recovery() {
         .unwrap();
     assert!(matches!(
         pool.store.point(&transaction.hash()).1.unwrap().phase,
-        Phase::Replaced { .. }
+        Phase::Replaced(_)
     ));
     within(pool.save()).await.unwrap();
     let saved = crate::persisted::load_persistence_snapshot(&configuration).unwrap();

@@ -4,7 +4,7 @@ use super::*;
 use crate::authority::{
     budget::{OwnerUsage, owner_amount},
     chain::ClearScope,
-    model::{Accepted, Phase, RemoteOrigin, Source, Status},
+    model::{Accepted, Phase, RecoveryTriggers, RemoteOrigin, Source, Status},
     notice::Class,
     tests::common::{
         config, delete, entry, insert, output_tx, spend, store_with_pipeline_limit,
@@ -164,13 +164,17 @@ impl Fixture {
                 DependencyKey::Cell(self.dependency.clone()),
                 DependencyKey::Header(self.header.clone()),
             ])),
-            Shape::HistoryAll | Shape::HistoryAny => Phase::Replaced {
-                triggers: BTreeSet::from([
+            Shape::HistoryAll | Shape::HistoryAny => {
+                let keys = BTreeSet::from([
                     DependencyKey::Cell(self.input.clone()),
                     DependencyKey::Cell(self.dependency.clone()),
-                ]),
-                require_all: matches!(shape, Shape::HistoryAll),
-            },
+                ]);
+                Phase::Replaced(if matches!(shape, Shape::HistoryAll) {
+                    RecoveryTriggers::BlockedDependencies(keys)
+                } else {
+                    RecoveryTriggers::RetryInputs(keys)
+                })
+            }
             Shape::Pending | Shape::Gap | Shape::Proposed => Phase::Accepted(Accepted {
                 transaction: Arc::clone(&self.resolved),
                 cycles: 19,
@@ -255,18 +259,8 @@ fn assert_state(store: &Store, expected: &[Expected], wakes: &[DependencyKey]) {
                 (Phase::Resolve, Shape::Resolve)
                 | (Phase::Verify(_), Shape::Verify)
                 | (Phase::Waiting(_), Shape::Waiting)
-                | (
-                    Phase::Replaced {
-                        require_all: true, ..
-                    },
-                    Shape::HistoryAll,
-                )
-                | (
-                    Phase::Replaced {
-                        require_all: false, ..
-                    },
-                    Shape::HistoryAny,
-                ) => true,
+                | (Phase::Replaced(RecoveryTriggers::BlockedDependencies(_)), Shape::HistoryAll)
+                | (Phase::Replaced(RecoveryTriggers::RetryInputs(_)), Shape::HistoryAny) => true,
                 (Phase::Accepted(accepted), shape) => {
                     let status = accepted.status(&store.snapshot().1);
                     matches!(

@@ -26,7 +26,7 @@ impl WorkStage {
         match phase {
             Phase::Resolve => Some(Self::Resolve),
             Phase::Verify(_) => Some(Self::Verify),
-            Phase::Waiting(_) | Phase::Accepted(_) | Phase::Replaced { .. } => None,
+            Phase::Waiting(_) | Phase::Accepted(_) | Phase::Replaced(_) => None,
         }
     }
 }

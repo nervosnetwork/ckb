@@ -247,16 +247,63 @@ impl Accepted {
     }
 }
 
+/// Why a replaced owner can recover, including which availability changes matter.
+#[derive(Clone, Debug)]
+pub(super) enum RecoveryTriggers {
+    /// Every recorded dependency must be available again after replacement.
+    BlockedDependencies(BTreeSet<DependencyKey>),
+    /// Policy-only eviction retries when any original input becomes available.
+    RetryInputs(BTreeSet<DependencyKey>),
+}
+
+impl RecoveryTriggers {
+    pub(super) fn keys(&self) -> &BTreeSet<DependencyKey> {
+        match self {
+            Self::BlockedDependencies(keys) | Self::RetryInputs(keys) => keys,
+        }
+    }
+
+    pub(super) fn is_ready(
+        &self,
+        mut available: impl FnMut(&DependencyKey) -> Result<bool, Error>,
+    ) -> Result<bool, Error> {
+        match self {
+            Self::BlockedDependencies(keys) => {
+                for key in keys {
+                    if !available(key)? {
+                        return Ok(false);
+                    }
+                }
+                Ok(true)
+            }
+            Self::RetryInputs(keys) => {
+                for key in keys {
+                    if available(key)? {
+                        return Ok(true);
+                    }
+                }
+                Ok(false)
+            }
+        }
+    }
+
+    /// Creating policy-only history is not a retry reason. A blocked owner
+    /// can use that event only if the dependency has no final spender.
+    pub(super) fn defer_creation_event(&self, spent: bool) -> bool {
+        match self {
+            Self::BlockedDependencies(_) => spent,
+            Self::RetryInputs(_) => true,
+        }
+    }
+}
+
 #[derive(Clone, Debug)]
 pub(super) enum Phase {
     Resolve,
     Verify(Arc<Resolved>),
     Waiting(BTreeSet<DependencyKey>),
     Accepted(Accepted),
-    Replaced {
-        triggers: BTreeSet<DependencyKey>,
-        require_all: bool,
-    },
+    Replaced(RecoveryTriggers),
 }
 
 /// Values never mutate after insertion; every change constructs a fresh Arc.
@@ -282,7 +329,7 @@ impl Entry {
         }
     }
     pub(super) fn preaccepted(&self) -> bool {
-        !matches!(self.phase, Phase::Accepted(_) | Phase::Replaced { .. })
+        !matches!(self.phase, Phase::Accepted(_) | Phase::Replaced(_))
     }
     /// The retained peer cohort excludes accepted owners and replacement history.
     pub(super) fn preaccepted_peer(&self) -> Option<PeerIndex> {
@@ -342,9 +389,8 @@ impl Entry {
                             .map(DependencyKey::Header),
                     ),
             ),
-            Phase::Waiting(keys) | Phase::Replaced { triggers: keys, .. } => {
-                keys.iter().cloned().collect()
-            }
+            Phase::Waiting(keys) => keys.iter().cloned().collect(),
+            Phase::Replaced(triggers) => triggers.keys().iter().cloned().collect(),
             Phase::Resolve => self.declared_dependencies(),
         }
     }

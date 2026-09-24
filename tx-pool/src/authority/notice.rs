@@ -277,7 +277,7 @@ impl Effect {
                     Some(Phase::Verify(_)) => "verify",
                     Some(Phase::Waiting(_)) => "waiting",
                     Some(Phase::Accepted(_)) => "accepted",
-                    Some(Phase::Replaced { .. }) => "replaced",
+                    Some(Phase::Replaced(_)) => "replaced",
                 },
                 source: match source {
                     Source::Remote { .. } => "remote",

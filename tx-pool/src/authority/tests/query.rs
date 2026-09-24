@@ -2,7 +2,7 @@ use super::*;
 use crate::authority::chain::ClearScope;
 use crate::authority::store::Captured;
 use crate::authority::{
-    model::{Phase, Source},
+    model::{Phase, RecoveryTriggers, Source},
     notice::Class,
     queue::WorkStage,
     store::Plan,
@@ -46,10 +46,7 @@ fn input_snapshot_reconstructs_membership_without_notifications_or_owner_retenti
     replace(
         &store,
         waiting,
-        Phase::Replaced {
-            triggers: BTreeSet::new(),
-            require_all: false,
-        },
+        Phase::Replaced(RecoveryTriggers::RetryInputs(BTreeSet::new())),
     );
     let unchanged = cache.capture(&store).unwrap();
     assert!(Arc::ptr_eq(&before.inputs, &unchanged.inputs));
@@ -193,10 +190,7 @@ fn descendant_fee_saturation_remains_exact_after_removing_one_reader() {
 fn history_is_hidden_from_live_queries_but_exposed_in_conflicted_entries() {
     let store = store();
     let victim = entry(&store, tx(6004), Source::Local);
-    let victim = victim.with_phase(Phase::Replaced {
-        triggers: BTreeSet::new(),
-        require_all: false,
-    });
+    let victim = victim.with_phase(Phase::Replaced(RecoveryTriggers::RetryInputs(BTreeSet::new())));
     insert(&store, Arc::clone(&victim));
     let pending = entry(&store, tx(6005), Source::Local);
     insert(&store, Arc::clone(&pending));
@@ -251,10 +245,8 @@ fn fresh_proposal_filter_preserves_absent_id_order_and_duplicates_across_all_pha
         entry(&store, tx(6605), Source::Local).with_phase(Phase::Waiting(BTreeSet::from([
             crate::authority::model::DependencyKey::Cell(OutPoint::new(tx(6606).hash(), 0)),
         ])));
-    let replaced = entry(&store, tx(6607), Source::Local).with_phase(Phase::Replaced {
-        triggers: BTreeSet::new(),
-        require_all: false,
-    });
+    let replaced = entry(&store, tx(6607), Source::Local)
+        .with_phase(Phase::Replaced(RecoveryTriggers::RetryInputs(BTreeSet::new())));
     for owner in [resolving, verifying, waiting, replaced] {
         present.push(owner.proposal());
         insert(&store, owner);

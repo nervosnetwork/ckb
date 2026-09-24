@@ -2,7 +2,7 @@ use super::*;
 use crate::{
     authority::{
         chain::ClearScope,
-        model::{Phase, RemoteOrigin, Source, Status},
+        model::{Phase, RecoveryTriggers, RemoteOrigin, Source, Status},
         notice::{Class, Effect},
         service::{Endpoints, Pool},
         tests::common::*,
@@ -560,10 +560,7 @@ fn projection_role_union_survives_phase_changes_and_duplicate_dependencies() {
     let owner = replace(
         &store,
         owner,
-        Phase::Replaced {
-            triggers: keys,
-            require_all: false,
-        },
+        Phase::Replaced(RecoveryTriggers::RetryInputs(keys)),
     );
     assert_eq!(roles(&cell_key), Some(Roles::WAITING));
     assert_eq!(roles(&header_key), Some(Roles::WAITING));
@@ -1856,7 +1853,7 @@ fn history_capacity_retry_rebuilds_relation_changes_after_dropping_history() {
         .values()
         .filter_map(|edit| {
             edit.after.as_ref().and_then(|entry| match &entry.phase {
-                Phase::Replaced { triggers, .. } => Some(triggers),
+                Phase::Replaced(triggers) => Some(triggers.keys()),
                 _ => None,
             })
         })

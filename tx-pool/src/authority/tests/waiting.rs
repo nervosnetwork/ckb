@@ -1,5 +1,5 @@
 use super::super::{
-    model::{DependencyKey, Error, Phase, Source, Status},
+    model::{DependencyKey, Error, Phase, RecoveryTriggers, Source, Status},
     notice::Class,
     store::{Plan, Store},
     waiting,
@@ -153,21 +153,18 @@ fn replacement_history_obeys_all_and_any_blockers_and_recovers_as_trusted() {
         DependencyKey::Cell(OutPoint::new(first.hash(), 0)),
         DependencyKey::Cell(OutPoint::new(second.hash(), 0)),
     ]);
-    let all = entry(&store, tx(22), remote(1, 1)).with_phase(Phase::Replaced {
-        triggers: keys.clone(),
-        require_all: true,
-    });
-    let any = entry(&store, tx(23), remote(2, 1)).with_phase(Phase::Replaced {
-        triggers: keys,
-        require_all: false,
-    });
+    let all = entry(&store, tx(22), remote(1, 1)).with_phase(Phase::Replaced(
+        RecoveryTriggers::BlockedDependencies(keys.clone()),
+    ));
+    let any = entry(&store, tx(23), remote(2, 1))
+        .with_phase(Phase::Replaced(RecoveryTriggers::RetryInputs(keys)));
     insert(&store, Arc::clone(&all));
     insert(&store, Arc::clone(&any));
     accept(&store, first, 1, 1, Status::Pending);
     drain_wakes(&store);
     assert!(matches!(
         store.point(&all.hash()).1.unwrap().phase,
-        Phase::Replaced { .. }
+        Phase::Replaced(_)
     ));
     let recovered = store.point(&any.hash()).1.unwrap();
     assert_eq!(recovered.source, Source::Recovery);
@@ -238,10 +235,7 @@ fn replacement_history_skips_its_blocked_creation_event_and_observes_the_next_ch
             let history = store.point(&old).1.unwrap();
             assert!(matches!(
                 history.phase,
-                Phase::Replaced {
-                    require_all: true,
-                    ..
-                }
+                Phase::Replaced(RecoveryTriggers::BlockedDependencies(_))
             ));
             let mut cursor = None;
             if existing_waiter {
@@ -285,14 +279,13 @@ fn replacement_history_creation_without_a_spender_preserves_all_and_policy_only_
             Status::Pending,
         );
         let before = store.point(&old).1.unwrap();
-        replace(
-            &store,
-            before,
-            Phase::Replaced {
-                triggers: BTreeSet::from([DependencyKey::Cell(point.clone())]),
-                require_all: all,
-            },
-        );
+        let keys = BTreeSet::from([DependencyKey::Cell(point.clone())]);
+        let triggers = if all {
+            RecoveryTriggers::BlockedDependencies(keys)
+        } else {
+            RecoveryTriggers::RetryInputs(keys)
+        };
+        replace(&store, before, Phase::Replaced(triggers));
         assert_eq!(drain_wakes(&store), usize::from(all));
         assert_eq!(
             matches!(store.point(&old).1.unwrap().phase, Phase::Resolve),
@@ -454,8 +447,62 @@ fn shared_wake_readiness_rejects_changed_producer_and_spender_before_commit() {
 
 #[test]
 fn wake_short_circuit_does_not_observe_an_unvisited_trigger() {
+    for replaced in [false, true] {
+        let store = store();
+        let mut parents = [output_tx(7810), output_tx(7811)].map(|transaction| {
+            (
+                DependencyKey::Cell(OutPoint::new(transaction.hash(), 0)),
+                transaction,
+            )
+        });
+        parents.sort_by(|a, b| a.0.cmp(&b.0));
+        let [(first_key, first), (trigger_key, trigger)] = parents;
+        let keys = BTreeSet::from([first_key, trigger_key.clone()]);
+        let waiters = [7812, 7813].map(|nonce| {
+            let phase = if replaced {
+                Phase::Replaced(RecoveryTriggers::BlockedDependencies(keys.clone()))
+            } else {
+                Phase::Waiting(keys.clone())
+            };
+            let owner = entry(&store, tx(nonce), remote(1, 1)).with_phase(phase);
+            insert(&store, Arc::clone(&owner));
+            owner
+        });
+        let trigger = accept(&store, trigger, 1, 1, Status::Pending);
+
+        let mut cursor = None;
+        let mut plan = waiting::wake(&store, &mut cursor).unwrap().unwrap();
+        assert_eq!(cursor, Some(trigger_key));
+        assert!(plan.edits().is_empty());
+        // Both waiters stop at the earlier missing key. A first observation of
+        // the trigger can bind its successor, proving the old owner was not read.
+        let before = store.point(&trigger).1.unwrap();
+        let successor = replace(&store, Arc::clone(&before), before.phase.clone());
+        assert!(!Arc::ptr_eq(&before, &successor));
+        plan.observe_owner(&trigger, Some(&successor)).unwrap();
+        // Replacing the producer still starts a newer wake pass. Its independent
+        // cursor premise must reject the old page, despite the unvisited key.
+        assert!(matches!(store.apply(plan), Err(Error::Stale)));
+        assert!(drain_wakes(&store) > 0);
+        for waiter in &waiters {
+            assert!(Arc::ptr_eq(&store.point(&waiter.hash()).1.unwrap(), waiter));
+        }
+        accept(&store, first, 1, 1, Status::Pending);
+        assert!(drain_wakes(&store) > 0);
+        for waiter in &waiters {
+            assert!(matches!(
+                store.point(&waiter.hash()).1.unwrap().phase,
+                Phase::Resolve
+            ));
+        }
+        assert!(!store.is_faulted());
+    }
+}
+
+#[test]
+fn recovery_retry_short_circuit_does_not_observe_an_unvisited_trigger() {
     let store = store();
-    let mut parents = [output_tx(7810), output_tx(7811)].map(|transaction| {
+    let mut parents = [output_tx(7820), output_tx(7821)].map(|transaction| {
         (
             DependencyKey::Cell(OutPoint::new(transaction.hash(), 0)),
             transaction,
@@ -463,9 +510,11 @@ fn wake_short_circuit_does_not_observe_an_unvisited_trigger() {
     });
     parents.sort_by(|a, b| a.0.cmp(&b.0));
     let [(first_key, first), (trigger_key, trigger)] = parents;
+    accept(&store, first, 1, 1, Status::Pending);
     let keys = BTreeSet::from([first_key, trigger_key.clone()]);
-    let waiters = [7812, 7813].map(|nonce| {
-        let owner = entry(&store, tx(nonce), remote(1, 1)).with_phase(Phase::Waiting(keys.clone()));
+    let histories = [7822, 7823].map(|nonce| {
+        let owner = entry(&store, tx(nonce), remote(1, 1))
+            .with_phase(Phase::Replaced(RecoveryTriggers::RetryInputs(keys.clone())));
         insert(&store, Arc::clone(&owner));
         owner
     });
@@ -474,27 +523,25 @@ fn wake_short_circuit_does_not_observe_an_unvisited_trigger() {
     let mut cursor = None;
     let mut plan = waiting::wake(&store, &mut cursor).unwrap().unwrap();
     assert_eq!(cursor, Some(trigger_key));
-    assert!(plan.edits().is_empty());
-    // Both waiters stop at the earlier missing key. A first observation of
-    // the trigger can bind its successor, proving the old owner was not read.
+    assert_eq!(plan.edits().len(), histories.len());
+    // Each retry is decided by the earlier available input. The shared page
+    // trigger remains unobserved even though both histories will resolve.
     let before = store.point(&trigger).1.unwrap();
     let successor = replace(&store, Arc::clone(&before), before.phase.clone());
     assert!(!Arc::ptr_eq(&before, &successor));
     plan.observe_owner(&trigger, Some(&successor)).unwrap();
-    // Replacing the producer still starts a newer wake pass. Its independent
-    // cursor premise must reject the old page, despite the unvisited key.
     assert!(matches!(store.apply(plan), Err(Error::Stale)));
-    assert!(drain_wakes(&store) > 0);
-    for waiter in &waiters {
-        assert!(Arc::ptr_eq(&store.point(&waiter.hash()).1.unwrap(), waiter));
-    }
-    accept(&store, first, 1, 1, Status::Pending);
-    assert!(drain_wakes(&store) > 0);
-    for waiter in &waiters {
-        assert!(matches!(
-            store.point(&waiter.hash()).1.unwrap().phase,
-            Phase::Resolve
+    for history in &histories {
+        assert!(Arc::ptr_eq(
+            &store.point(&history.hash()).1.unwrap(),
+            history
         ));
+    }
+    assert!(drain_wakes(&store) > 0);
+    for history in &histories {
+        let recovered = store.point(&history.hash()).1.unwrap();
+        assert!(matches!(recovered.phase, Phase::Resolve));
+        assert_eq!(recovered.source, Source::Recovery);
     }
     assert!(!store.is_faulted());
 }

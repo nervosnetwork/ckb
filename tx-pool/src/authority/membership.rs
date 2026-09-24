@@ -4,7 +4,7 @@ use super::{
     budget::{Amount, owner_amount},
     ingress,
     jobs::Verified,
-    model::{Accepted, DependencyKey, Entry, Error, Phase, Source, Status},
+    model::{Accepted, DependencyKey, Entry, Error, Phase, RecoveryTriggers, Source, Status},
     notice::Effect,
     residency,
     store::{Plan, Store},
@@ -870,7 +870,7 @@ fn history(
     graph: &mut Graph<'_>,
 ) -> Result<Option<Arc<Entry>>, Error> {
     let accepted = accepted(old)?;
-    let mut triggers = BTreeSet::new();
+    let mut keys = BTreeSet::new();
     for cell in accepted
         .transaction
         .resolved_inputs
@@ -883,28 +883,27 @@ fn history(
             || spender.as_ref().is_some_and(|hash| !removed.contains(hash))
             || (cell.transaction_info.is_none() && removed.contains(&cell.out_point.tx_hash()))
         {
-            triggers.insert(DependencyKey::Cell(compact_packed(&cell.out_point)));
+            keys.insert(DependencyKey::Cell(compact_packed(&cell.out_point)));
         }
     }
-    let require_all = !triggers.is_empty();
-    if !require_all {
-        triggers.extend(
+    let triggers = if keys.is_empty() {
+        keys.extend(
             old.transaction
                 .input_pts_iter()
                 .map(|point| DependencyKey::Cell(compact_packed(&point))),
         );
-    }
-    if triggers.is_empty() {
+        RecoveryTriggers::RetryInputs(keys)
+    } else {
+        RecoveryTriggers::BlockedDependencies(keys)
+    };
+    if triggers.keys().is_empty() {
         return Ok(None);
     }
     Ok(Some(Arc::new(Entry {
         transaction: Arc::clone(&old.transaction),
         arrival: old.arrival,
         source: Source::Recovery,
-        phase: Phase::Replaced {
-            triggers,
-            require_all,
-        },
+        phase: Phase::Replaced(triggers),
     })))
 }
 

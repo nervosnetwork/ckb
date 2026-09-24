@@ -325,9 +325,8 @@ pub(super) fn owner_amount(entry: &Entry) -> Result<Amount, Error> {
                     .checked_add(ENTRY_BYTES)
                     .ok_or(Error::Full("resolved byte arithmetic".into()))?;
         }
-        Phase::Waiting(keys) | Phase::Replaced { triggers: keys, .. } => {
-            edges = edges.max(keys.len());
-        }
+        Phase::Waiting(keys) => edges = edges.max(keys.len()),
+        Phase::Replaced(triggers) => edges = edges.max(triggers.keys().len()),
         Phase::Resolve => {}
     }
     if !matches!(entry.phase, Phase::Accepted(_)) {
@@ -362,7 +361,7 @@ fn owner_accounts(entry: &Entry) -> Result<[Option<(Account, Amount)>; 3], Error
     }
     Ok(match &entry.phase {
         Phase::Accepted(_) => [charge(Account::Accepted), None, None],
-        Phase::Replaced { .. } => [charge(Account::Pipeline), charge(Account::History), None],
+        Phase::Replaced(_) => [charge(Account::Pipeline), charge(Account::History), None],
         _ => [charge(Account::Pipeline), None, None],
     })
 }
