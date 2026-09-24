@@ -54,6 +54,32 @@ fn selected(driver: &Driver) -> Arc<CurrentTemplate> {
 }
 
 #[test]
+fn published_template_retains_miner_content_without_resolved_metadata() {
+    let driver = fixture();
+    let transaction = tx(7183);
+    let hash = accept(&driver.store, transaction.clone(), 1, 37, Status::Proposed);
+    let owner = driver.store.point(&hash).1.unwrap();
+    let resolved = Arc::downgrade(&owner.accepted().unwrap().transaction);
+    driver.rebuild(&mut Cache::default()).unwrap();
+    let current = selected(&driver);
+    let expected = JsonBlockTemplate::from(&current.template);
+    assert_eq!(expected.transactions.len(), 1);
+    assert_eq!(expected.transactions[0].data, transaction.data().into());
+    assert_eq!(expected.transactions[0].cycles, Some(37.into()));
+
+    driver.store.apply(delete(&driver.store, owner)).unwrap();
+    assert!(resolved.upgrade().is_none());
+    let source = current.source.as_ref().unwrap();
+    assert!(matches!(
+        driver
+            .store
+            .read_selected(source.view, &source.reads, || ()),
+        Err(Error::Stale)
+    ));
+    assert_eq!(JsonBlockTemplate::from(&current.template), expected);
+}
+
+#[test]
 fn template_sources_follow_final_contents_and_overlapping_proposals() {
     let driver = fixture();
     let kept = tx(7180);
@@ -259,10 +285,8 @@ fn template_build_reproposes_a_recovered_gap_then_packs_it_after_proposal() {
     let output = selected(&driver);
     assert_eq!(output.template.proposals, vec![pending.proposal_short_id()]);
     assert_eq!(output.template.transactions.len(), 1);
-    assert_eq!(
-        output.template.transactions[0].transaction().hash(),
-        gap.hash()
-    );
+    let (transaction, _) = &output.template.transactions[0];
+    assert_eq!(transaction.hash(), gap.hash());
     assert!(template_bytes(&output) as u64 <= output.template.bytes_limit);
 }
 

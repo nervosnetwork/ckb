@@ -1,6 +1,5 @@
 //! Complete block template, published state and JSON-RPC conversion.
 
-use crate::component::entry::TxEntry;
 use crate::error::BlockAssemblerError;
 use ckb_jsonrpc_types::{
     BlockTemplate as JsonBlockTemplate, CellbaseTemplate, TransactionTemplate, UncleTemplate,
@@ -26,7 +25,8 @@ pub(crate) struct BlockTemplate {
 
     // option
     pub(crate) uncles: Vec<UncleBlockView>,
-    pub(crate) transactions: Vec<TxEntry>,
+    // Resolution metadata is needed only while preparing DAO and source reads.
+    pub(crate) transactions: Vec<(TransactionView, Cycle)>,
     pub(crate) proposals: Vec<ProposalShortId>,
     pub(crate) cellbase: TransactionView,
     pub(crate) work_id: u64,
@@ -102,7 +102,13 @@ impl<'a> From<&'a BlockTemplate> for JsonBlockTemplate {
             transactions: template
                 .transactions
                 .iter()
-                .map(tx_entry_to_template)
+                .map(|(transaction, cycles)| TransactionTemplate {
+                    hash: transaction.hash().into(),
+                    required: false, // not supported by CKB
+                    cycles: Some((*cycles).into()),
+                    depends: None, // not supported by CKB
+                    data: transaction.data().into(),
+                })
                 .collect(),
             proposals: template.proposals.iter().map(Into::into).collect(),
             cellbase: cellbase_to_template(&template.cellbase),
@@ -125,16 +131,6 @@ pub(crate) fn uncle_to_template(uncle: &UncleBlockView) -> UncleTemplate {
             .map(Into::into)
             .collect(),
         header: uncle.data().header().into(),
-    }
-}
-
-pub(crate) fn tx_entry_to_template(entry: &TxEntry) -> TransactionTemplate {
-    TransactionTemplate {
-        hash: entry.transaction().hash().into(),
-        required: false, // not supported by CKB
-        cycles: Some(entry.cycles.into()),
-        depends: None, // not supported by CKB
-        data: entry.transaction().data().into(),
     }
 }
 

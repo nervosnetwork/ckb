@@ -268,7 +268,10 @@ impl Driver {
             unix_time_as_millis(),
         )?;
         template.extension = extension;
-        template.transactions = transactions;
+        template.transactions = transactions
+            .into_iter()
+            .map(|entry| (entry.transaction().clone(), entry.cycles))
+            .collect();
         template.proposals = optional.proposals;
         template.uncles = optional.uncles;
         Ok(PreparedTemplate {

@@ -13,7 +13,10 @@ use ckb_logger::debug;
 use ckb_snapshot::Snapshot;
 use ckb_store::ChainStore;
 use ckb_types::{
-    core::{Capacity, EpochExt, TransactionView, cell::TransactionsChecker},
+    core::{
+        EpochExt, TransactionView,
+        cell::{ResolvedTransaction, TransactionsChecker},
+    },
     packed::Byte32,
 };
 use ckb_util::Mutex;
@@ -65,10 +68,9 @@ impl BlockAssembler {
                 .collect()
         });
 
-        let dummy_cellbase_entry = TxEntry::dummy_resolve(cellbase, 0, Capacity::zero(), 0);
-        let entries_iter = iter::once(&dummy_cellbase_entry)
-            .chain(checked_entries.iter())
-            .map(|entry| entry.rtx.as_ref());
+        let cellbase = ResolvedTransaction::dummy_resolve(cellbase);
+        let entries_iter =
+            iter::once(&cellbase).chain(checked_entries.iter().map(|entry| entry.rtx.as_ref()));
 
         // Generate DAO fields here
         let dao = DaoCalculator::new(consensus, &snapshot.borrow_as_data_loader())
