@@ -35,7 +35,7 @@ use ckb_verification_traits::Switch;
 use rayon::iter::{IndexedParallelIterator, IntoParallelRefIterator, ParallelIterator};
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
-use tokio::sync::{RwLock, oneshot};
+use tokio::sync::RwLock;
 
 /// Context for context-dependent block verification
 pub struct VerifyContext<CS> {
@@ -351,26 +351,20 @@ impl<'a, 'b, CS: ChainStore + VersionbitsIndexer + 'static> BlockTxsVerifier<'a,
         rtxs: &'a [Arc<ResolvedTransaction>],
         rules: ScriptVerificationRules,
     ) -> HashMap<TxVerificationCacheKey, ScriptVerificationProof> {
-        let (sender, receiver) = oneshot::channel();
         let txs_verify_cache = Arc::clone(self.txs_verify_cache);
         let keys: Vec<TxVerificationCacheKey> = rtxs
             .iter()
             .skip(1)
             .map(|rtx| TxVerificationCacheKey::from_resolved(rtx, rules))
             .collect();
-        self.handle.spawn(async move {
+        let task = self.handle.spawn(async move {
             let guard = txs_verify_cache.read().await;
-            let ret = keys
-                .into_iter()
+            keys.into_iter()
                 .filter_map(|key| guard.lookup(&key).map(|proof| (key, proof)))
-                .collect();
-
-            if let Err(e) = sender.send(ret) {
-                error_target!(crate::LOG_TARGET, "TxsVerifier fetched_cache error {:?}", e);
-            };
+                .collect()
         });
         self.handle
-            .block_on(receiver)
+            .block_on(task)
             .expect("fetched cache no exception")
     }
 
