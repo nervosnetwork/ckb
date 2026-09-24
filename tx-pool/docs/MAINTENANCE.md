@@ -51,7 +51,22 @@ independent state-transition oracle for their combined result, including clear.
 
 For a template optional-content change, start with `fit_optional_content`:
 selected proposals consume bytes before compatible uncles, and only selected proposals
-participate in conflict filtering.
+participate in conflict filtering. `TemplateSource::from_content` owns invalidation
+premises for the final DAO-filtered transactions and selected proposals.
+
+For a packing rule, start in [PackingRun](../src/authority/packing/run.rs).
+It owns candidate queues, package selection, retirement and repricing under the
+remaining block limits. [Graph](../src/authority/packing/graph.rs) checks the
+whole causal graph before computing bounded ancestor totals; conditional
+read-before-spend edges belong to [Precedence](../src/authority/packing/ordering.rs).
+The independent DAG and retirement oracles check these mechanics without
+reproducing their caches.
+
+For a task exit or shutdown rule, start in the [builder](../src/service/builder.rs).
+Replay, serving and drain have distinct exit contracts. The optional publisher
+handle is cleared only after its join completes; cancelling a wait retains the
+join capability. Finish all producers before closing the publisher's outbox,
+and preserve the fault check before saving persistence.
 
 Resource ceilings and fallible reservations do not promise recovery from every
 allocation failure. The committed mutation tail still uses Rust's abort-on-OOM

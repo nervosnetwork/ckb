@@ -84,9 +84,9 @@ Business rules still own which premises and obligations are necessary; see
 | Live reads and prepared decisions | [Store](../src/authority/store.rs), [Plan and read set](../src/authority/store/plan.rs) |
 | Coupled mutation and resource ownership | [Apply](../src/authority/store/apply.rs), [budget](../src/authority/budget.rs) |
 | Retained representation and runnable work | [model](../src/authority/model.rs), [residency](../src/authority/residency.rs), [queues](../src/authority/queue.rs), [waiting](../src/authority/waiting.rs) |
-| Resolution and canonical checks | [jobs](../src/authority/jobs.rs), [verification](../src/verification.rs) |
+| Resolution and canonical checks | [jobs](../src/authority/jobs.rs), [bounded resolution provider](../src/authority/jobs/resolution.rs), [verification](../src/verification.rs) |
 | Committed effects and relay reconstruction | [notice](../src/authority/notice.rs), [relay](../src/authority/relay.rs) |
-| Queries and mining output | [query](../src/authority/query.rs), [template](../src/authority/template.rs), [packing](../src/authority/packing.rs), [compiled causal graph](../src/authority/packing/graph.rs), [conditional ordering](../src/authority/packing/ordering.rs), [block assembler](../src/block_assembler/mod.rs) |
+| Queries and mining output | [query](../src/authority/query.rs), [template](../src/authority/template.rs), [packing](../src/authority/packing.rs), [compiled causal graph](../src/authority/packing/graph.rs), [packing run](../src/authority/packing/run.rs), [conditional ordering](../src/authority/packing/ordering.rs), [block assembler](../src/block_assembler/mod.rs) |
 | Startup, shutdown and disk format | [builder](../src/service/builder.rs), [persistence](../src/persisted.rs) |
 
 ## Read the details
