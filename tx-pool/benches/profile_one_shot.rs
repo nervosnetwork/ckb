@@ -473,10 +473,10 @@ impl Completion {
             .sum()
     }
 
-    fn begin_target(&self, started: Instant) {
+    fn begin_target(&self, started: Instant) -> BenchResult<()> {
         self.target_started
             .set(started)
-            .expect("benchmark has one target measurement window");
+            .map_err(|_| bench_error("benchmark has one target measurement window"))
     }
 
     fn validate(&self, expected: usize, allow_duplicates: bool) -> BenchResult<()> {
@@ -517,13 +517,16 @@ impl Completion {
         .map_err(|_| bench_error("target callback did not overlap reorg"))
     }
 
-    fn end_target(&self) -> u64 {
+    fn target_p99(&self, allow_duplicates: bool) -> BenchResult<u64> {
+        self.validate(self.indexes.len(), allow_duplicates)?;
         let mut samples = self.timestamps_ns[self.target_begin..]
             .iter()
             .map(|sample| sample.load(Ordering::Acquire))
             .collect::<Vec<_>>();
         for sample in &mut samples {
-            *sample -= 1;
+            *sample = sample
+                .checked_sub(1)
+                .ok_or_else(|| bench_error("target callback has no terminal timestamp"))?;
         }
         samples.sort_unstable();
         let index = samples
@@ -531,7 +534,10 @@ impl Completion {
             .saturating_mul(99)
             .div_ceil(100)
             .saturating_sub(1);
-        samples[index]
+        samples
+            .get(index)
+            .copied()
+            .ok_or_else(|| bench_error("target callback population is empty"))
     }
 
     async fn wait_for(&self, target: usize) -> BenchResult<()> {
@@ -688,6 +694,17 @@ impl RelayCompletion {
             .cloned()
             .collect::<RelayOkSet>();
         let rejects = lock(&self.rejects).clone();
+        require(
+            rejects.iter().all(|hash| {
+                completion.indexes.get(hash).is_some_and(|&index| {
+                    completion.timestamps_ns[index].load(Ordering::Acquire) == 0
+                })
+            }) && completion.unexpected_callbacks.load(Ordering::Acquire) == 0
+                && completion.duplicate_callbacks.load(Ordering::Acquire) == 0
+                && self.duplicate_ok.load(Ordering::Acquire) == 0
+                && self.duplicate_reject.load(Ordering::Acquire) == 0,
+            "capacity stress terminal ownership violation; see BENCH_STRESS_RESULT",
+        )?;
         if self.generation_resets.load(Ordering::Acquire) == 0 {
             return self.validate(&accepted, &rejects, Some(allowed));
         }
@@ -1977,8 +1994,9 @@ fn run() -> BenchResult<()> {
         .capture("process_start")
         .map_err(bench_error)?;
     let options = BenchmarkScenario::parse(std::env::args().skip(1)).map_err(bench_error)?;
+    let is_rbf_pressure = options.name == "rbf_pressure";
     require(
-        options.name != "rbf_pressure" || !cfg!(feature = "cross-version-legacy-bench-adapter"),
+        !is_rbf_pressure || !cfg!(feature = "cross-version-legacy-bench-adapter"),
         "RBF pressure diagnostics require the current public controller",
     )?;
     // Do not silently run a former diagnostic under the protocol contract.
@@ -2133,7 +2151,7 @@ fn run() -> BenchResult<()> {
     if workload == (Workload::Fanout { reverse: true }) {
         // Capacity stress has a different terminal contract from throughput:
         // legacy orphan eviction is an observable rejection, not a hang.
-        completion.begin_target(Instant::now());
+        completion.begin_target(Instant::now())?;
         let started = Instant::now();
         let deadline = tokio::time::Instant::now() + Duration::from_secs(120);
         let submission = runtime.block_on(submit_only(
@@ -2175,16 +2193,6 @@ fn run() -> BenchResult<()> {
             settled,
             "capacity stress left unresolved transactions; see BENCH_STRESS_RESULT",
         )?;
-        let observation = terminal_diagnostics(&completion, &relay_completion, all_expected_relay);
-        require(
-            observation["accepted_rejected_overlap"] == 0
-                && observation["unexpected_rejects"] == 0
-                && observation["unexpected_callbacks"] == 0
-                && observation["callback_duplicates"] == 0
-                && observation["relay_duplicate_ok"] == 0
-                && observation["relay_duplicate_reject"] == 0,
-            "capacity stress terminal ownership violation; see BENCH_STRESS_RESULT",
-        )?;
         relay_completion.validate_stress(&completion, all_expected_relay, &allowed_unknown)?;
         diagnostics.armed = false;
         return Ok(());
@@ -2218,7 +2226,7 @@ fn run() -> BenchResult<()> {
         .capture("warm_complete")
         .map_err(bench_error)?;
     #[cfg(not(feature = "cross-version-legacy-bench-adapter"))]
-    if scenario == "rbf_pressure" {
+    if is_rbf_pressure {
         rbf_pressure::run(
             &runtime,
             &controller,
@@ -2242,7 +2250,7 @@ fn run() -> BenchResult<()> {
     }
     let (target_user_cpu_started, target_system_cpu_started) = process_cpu_nanos()?;
     let started = Instant::now();
-    completion.begin_target(started);
+    completion.begin_target(started)?;
     let mut target_readiness = fanout_readiness::Readiness::default();
     let (reorg_latency_ns, reorg_overlap_callbacks) = if let Some(reorg_snapshot) = reorg_snapshot {
         runtime.block_on(async {
@@ -2320,8 +2328,7 @@ fn run() -> BenchResult<()> {
         &all_expected_rejects,
         workload.is_reverse().then_some(&allowed_unknown),
     )?;
-    completion.validate(transactions.len(), reorg_in_flight)?;
-    let p99_latency_ns = completion.end_target();
+    let p99_latency_ns = completion.target_p99(reorg_in_flight)?;
     resource_phases.capture("validated").map_err(bench_error)?;
     let reorg_latency_ns = if reorg_in_flight {
         reorg_latency_ns
@@ -2431,4 +2438,83 @@ fn run() -> BenchResult<()> {
     );
     diagnostics.armed = false;
     Ok(())
+}
+
+#[cfg(test)]
+mod terminal_tests {
+    #[test]
+    fn target_latency_requires_complete_terminals_and_one_origin() {
+        use super::*;
+
+        let transactions =
+            [1u32, 2].map(|version| TransactionBuilder::default().version(version).build());
+        let completion = Completion::new(&transactions, 1, false).unwrap();
+        completion.record(transactions[0].hash());
+        completion.begin_target(Instant::now()).unwrap();
+        assert!(completion.target_p99(false).is_err());
+        completion.record(transactions[1].hash());
+        assert!(completion.target_p99(false).is_ok());
+        assert!(completion.begin_target(Instant::now()).is_err());
+        completion.record(transactions[1].hash());
+        assert!(completion.target_p99(false).is_err());
+        assert!(completion.target_p99(true).is_ok());
+
+        let empty_target = Completion::new(&transactions, transactions.len(), false).unwrap();
+        for transaction in &transactions {
+            empty_target.record(transaction.hash());
+        }
+        assert!(empty_target.target_p99(false).is_err());
+
+        let early = Completion::new(&transactions, 0, false).unwrap();
+        for transaction in &transactions {
+            early.record(transaction.hash());
+        }
+        assert!(early.target_p99(true).is_err());
+    }
+
+    #[test]
+    fn stress_checks_terminal_ownership_without_reading_diagnostics() {
+        use super::*;
+
+        let transactions =
+            [1u32, 2].map(|version| TransactionBuilder::default().version(version).build());
+        let completion = Completion::new(&transactions, 0, false).unwrap();
+        completion.begin_target(Instant::now()).unwrap();
+        completion.record(transactions[0].hash());
+        let relay = RelayCompletion::default();
+        relay.record(TxVerificationResult::Ok {
+            original_peer: None,
+            tx_hash: transactions[0].hash(),
+        });
+        relay.record(TxVerificationResult::Reject {
+            tx_hash: transactions[1].hash(),
+        });
+        let expected = transactions.iter().map(|tx| (tx.hash(), None)).collect();
+        relay
+            .validate_stress(&completion, &expected, &HashMap::new())
+            .unwrap();
+        let json = terminal_diagnostics(&completion, &relay, &expected);
+        assert_eq!(json["accepted"], 1);
+        assert_eq!(json["rejected"], 1);
+        assert_eq!(json["unresolved"], 0);
+        assert_eq!(
+            json["refused_without_observed_acceptance"][0]["corpus_index"],
+            1
+        );
+        assert_eq!(
+            json["refused_without_observed_acceptance"][0]["phase"],
+            "target"
+        );
+
+        relay.record(TxVerificationResult::Reject {
+            tx_hash: transactions[0].hash(),
+        });
+        let overlap = terminal_diagnostics(&completion, &relay, &expected);
+        assert_eq!(overlap["accepted_rejected_overlap"], 1);
+        assert!(
+            relay
+                .validate_stress(&completion, &expected, &HashMap::new())
+                .is_err()
+        );
+    }
 }

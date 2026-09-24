@@ -436,7 +436,8 @@ After changing the executor, runner or analyzer, run:
 
 ```sh
 make clippy ALL_FEATURES=profiling,ckb-tx-pool/allocation-observation
-cargo nextest run -p ckb-tx-pool --features profiling --test profile_spans --test measurement_clock --test relay_batches
+cargo nextest run -p ckb-tx-pool --features profiling,allocation-observation,packing-bench \
+  --test profile_contract --test packing_contract
 python3 -m unittest tx-pool/scripts/test_profile.py
 python3 -m unittest tx-pool/scripts/test_cross_version_benchmark.py
 python3 -m unittest tx-pool/scripts/test_measurement_process.py

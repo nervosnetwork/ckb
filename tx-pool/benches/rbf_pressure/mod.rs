@@ -21,7 +21,7 @@ pub(super) fn run(
     let victims: HashSet<_> = warm.iter().map(TransactionView::hash).collect();
     let targets: HashSet<_> = target.iter().map(TransactionView::hash).collect();
     require(live()? == victims, "warm accepted membership differs")?;
-    completion.begin_target(Instant::now());
+    completion.begin_target(Instant::now())?;
     // Warm work is complete and no target exists yet; suspension precedes
     // every target submission. The callback check below verifies that boundary.
     controller.suspend_chunk_process().map_err(bench_error)?;

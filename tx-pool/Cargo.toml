@@ -68,25 +68,8 @@ name = "profile_one_shot"
 harness = false
 
 [[test]]
-name = "profile_spans"
-path = "benches/profile_spans/mod.rs"
-required-features = ["profiling"]
-
-[[test]]
-name = "relay_batches"
-path = "benches/relay_batches/mod.rs"
-
-[[test]]
-name = "measurement_clock"
-path = "benches/measurement_clock/mod.rs"
-
-[[test]]
-name = "benchmark_scenario"
-path = "benches/scenario/mod.rs"
-
-[[test]]
-name = "fanout_readiness"
-path = "benches/fanout_readiness/mod.rs"
+name = "profile_contract"
+path = "benches/profile_contract/mod.rs"
 
 [[bench]]
 name = "packing_one_shot"
