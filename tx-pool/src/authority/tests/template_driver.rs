@@ -53,6 +53,67 @@ fn selected(driver: &Driver) -> Arc<CurrentTemplate> {
     Arc::clone(&driver.assembler.current.read())
 }
 
+#[test]
+fn template_sources_follow_final_contents_and_overlapping_proposals() {
+    let driver = fixture();
+    let kept = tx(7180);
+    let proposal = tx(7181);
+    let filtered = tx(7182);
+    for transaction in [&kept, &proposal, &filtered] {
+        accept(&driver.store, transaction.clone(), 1, 1, Status::Proposed);
+    }
+    let Captured {
+        view,
+        snapshot,
+        owners,
+        ..
+    } = driver.store.capture_accepted();
+    let mut cache = Cache::default();
+    let selection = cache
+        .selection(&owners, &snapshot, driver.max_ancestors)
+        .unwrap();
+    let transactions = selection
+        .pack_transactions(TemplatePackingLimits::new(usize::MAX, u64::MAX))
+        .unwrap()
+        .into_iter()
+        .filter(|entry| entry.transaction().hash() == kept.hash())
+        .collect::<Vec<_>>();
+    assert_eq!(transactions.len(), 1);
+    let source = TemplateSource::from_content(
+        view,
+        &selection,
+        &transactions,
+        &[kept.proposal_short_id(), proposal.proposal_short_id()],
+    )
+    .unwrap();
+
+    // A DAO-filtered owner is irrelevant unless its proposal was selected.
+    driver
+        .store
+        .apply(delete(
+            &driver.store,
+            driver.store.point(&filtered.hash()).1.unwrap(),
+        ))
+        .unwrap();
+    driver
+        .store
+        .read_selected(source.view, &source.reads, || ())
+        .unwrap();
+    driver
+        .store
+        .apply(delete(
+            &driver.store,
+            driver.store.point(&proposal.hash()).1.unwrap(),
+        ))
+        .unwrap();
+    assert!(matches!(
+        driver
+            .store
+            .read_selected(source.view, &source.reads, || ()),
+        Err(Error::Stale)
+    ));
+}
+
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn missing_parent_in_a_coherent_capture_faults_and_releases_template_readers() {
     let driver = fixture();

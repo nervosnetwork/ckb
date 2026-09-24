@@ -3,11 +3,12 @@
 
 use super::{
     model::Error,
-    packing::{Cache, TemplatePackingLimits},
+    packing::{Cache, Selection, TemplatePackingLimits},
     store::{Captured, ReadSet, Store},
 };
 use crate::{
     block_assembler::{BlockAssembler, BlockTemplate, CandidateUnclePrune, CurrentTemplate},
+    component::entry::TxEntry,
     error::BlockAssemblerError,
     util::block_offload,
 };
@@ -15,7 +16,10 @@ use ckb_error::{AnyError, prelude::thiserror};
 use ckb_jsonrpc_types::BlockTemplate as JsonBlockTemplate;
 use ckb_store::ChainStore;
 use ckb_systemtime::unix_time_as_millis;
-use ckb_types::prelude::{Entity, Reader};
+use ckb_types::{
+    packed::ProposalShortId,
+    prelude::{Entity, Reader},
+};
 use std::{
     collections::HashSet,
     sync::{
@@ -32,6 +36,38 @@ use tokio::sync::Notify;
 pub(crate) struct TemplateSource {
     view: u64,
     reads: ReadSet,
+}
+
+impl TemplateSource {
+    /// Only final DAO transactions and selected proposals constrain publication.
+    /// A proposal short-ID collision observes every matching captured owner.
+    fn from_content(
+        view: u64,
+        selection: &Selection<'_>,
+        transactions: &[TxEntry],
+        proposals: &[ProposalShortId],
+    ) -> Result<Self, Error> {
+        let mut reads = ReadSet::default();
+        let mut selected: HashSet<_> = transactions
+            .iter()
+            .map(|transaction| transaction.transaction().hash())
+            .collect();
+        let proposals: HashSet<_> = proposals.iter().map(Entity::as_slice).collect();
+        for candidate in selection.candidates() {
+            if selected.remove(candidate.hash())
+                || proposals.contains(candidate.proposal_short_id().as_slice())
+            {
+                reads.observe_owner(candidate.hash(), Some(candidate.owner()))?;
+            }
+        }
+        if let Some(hash) = selected.iter().min() {
+            ckb_logger::error!("selected transaction {hash} is outside template candidates");
+            return Err(Error::Fault(
+                "selected transaction outside template candidates",
+            ));
+        }
+        Ok(Self { view, reads })
+    }
 }
 
 /// One build and the exact sources that authorize its publication and pruning.
@@ -219,23 +255,8 @@ impl Driver {
             selected,
             &self.assembler.cell_liveness_memo,
         )?;
-        let mut reads = ReadSet::default();
-        let mut selected: HashSet<_> = transactions
-            .iter()
-            .map(|transaction| transaction.transaction().hash())
-            .collect();
-        let proposals: HashSet<_> = optional.proposals.iter().map(Entity::as_slice).collect();
-        for candidate in selection.candidates() {
-            if selected.remove(candidate.hash())
-                || proposals.contains(candidate.proposal_short_id().as_slice())
-            {
-                reads.observe_owner(candidate.hash(), Some(candidate.owner()))?;
-            }
-        }
-        if let Some(hash) = selected.iter().min() {
-            ckb_logger::error!("selected transaction {hash} is outside template candidates");
-            return Err(Error::Fault("selected transaction outside template candidates").into());
-        }
+        let source =
+            TemplateSource::from_content(view, &selection, &transactions, &optional.proposals)?;
         // Compute DAO only for the final selected contents. Work IDs and time
         // belong to this publication attempt, not the reused mandatory parts.
         let mut template = BlockTemplate::new(
@@ -253,7 +274,7 @@ impl Driver {
         Ok(PreparedTemplate {
             current: Arc::new(CurrentTemplate {
                 template,
-                source: Some(TemplateSource { view, reads }),
+                source: Some(source),
             }),
             prune,
         })
