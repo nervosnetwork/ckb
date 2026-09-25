@@ -313,6 +313,18 @@ fn producer_read_sets_do_not_pin_retired_transaction_payloads() {
         store.read_selected(store.snapshot().0, &reads, || ()),
         Err(Error::Stale)
     ));
+
+    let successor = entry(&store, tx(4), Source::Recovery);
+    insert(&store, successor);
+    let mut published = false;
+    assert!(matches!(
+        store.read_selected(store.snapshot().0, &reads, || published = true),
+        Err(Error::Stale)
+    ));
+    assert!(
+        !published,
+        "a same-hash successor cannot satisfy the old read"
+    );
 }
 
 #[test]

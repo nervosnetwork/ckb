@@ -37,7 +37,7 @@ pub(in crate::authority) struct ReadSet {
     pub(super) accepted: Option<Box<Shards<u64>>>,
 }
 
-pub(super) fn same_weak<T>(a: &Option<Weak<T>>, b: &Option<Weak<T>>) -> bool {
+fn same_weak<T>(a: &Option<Weak<T>>, b: &Option<Weak<T>>) -> bool {
     match (a, b) {
         (None, None) => true,
         (Some(a), Some(b)) => a.ptr_eq(b),

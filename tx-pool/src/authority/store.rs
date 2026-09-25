@@ -5,7 +5,6 @@ mod apply;
 mod plan;
 mod shards;
 
-use plan::same_weak;
 pub(super) use plan::{Edit, Plan, ReadSet};
 use shards::{
     Guard, LockFootprint, Routing, SHARDS, ShardGuards, ShardIndex, Shards, proposal_key,
@@ -1024,6 +1023,12 @@ impl Store {
         reads: &ReadSet,
         guards: &ShardGuards<'_, Shard>,
     ) -> Result<(), Error> {
+        fn matches_current<T>(expected: &Option<Weak<T>>, current: Option<&Arc<T>>) -> bool {
+            // The retained Weak keeps its allocation identity from being reused,
+            // even after the original value is gone. No temporary Weak is needed.
+            expected.as_ref().map(Weak::as_ptr) == current.map(Arc::as_ptr)
+        }
+
         let ReadSet {
             owners,
             spenders,
@@ -1036,7 +1041,7 @@ impl Store {
             let shard = guards
                 .get(self.owner_shard(hash))
                 .ok_or(Error::Fault("owner read support"))?;
-            if !same_weak(expected, &shard.owners.get(hash).map(Arc::downgrade)) {
+            if !matches_current(expected, shard.owners.get(hash)) {
                 return Err(Error::Stale);
             }
         }
@@ -1059,20 +1064,15 @@ impl Store {
         }
         for (key, expected) in relations {
             let row = self.relation(key);
-            if !same_weak(
-                expected,
-                &row.as_ref()
-                    .map(|row| Arc::downgrade(&row.lock().accepted_version)),
-            ) {
+            let row = row.as_ref().map(|row| row.lock());
+            if !matches_current(expected, row.as_ref().map(|row| &row.accepted_version)) {
                 return Err(Error::Stale);
             }
         }
         for (peer, expected) in peers {
             let row = self.peers.lock().get(peer).cloned();
-            if !same_weak(
-                expected,
-                &row.as_ref().map(|row| Arc::downgrade(&row.lock().version)),
-            ) {
+            let row = row.as_ref().map(|row| row.lock());
+            if !matches_current(expected, row.as_ref().map(|row| &row.version)) {
                 return Err(Error::Stale);
             }
         }
