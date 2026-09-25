@@ -490,7 +490,7 @@ impl Drop for ActivePermit {
         if self.budget.active.lock().release(self.peer).is_none() {
             self.budget.faulted.store(true, Ordering::Release);
         }
-        self.budget.changed.notify_waiters();
+        self.budget.active_changed.notify_waiters();
     }
 }
 
@@ -499,7 +499,7 @@ pub(super) struct Budget {
     usage: Mutex<BTreeMap<Account, Amount>>,
     active: Mutex<Active>,
     faulted: AtomicBool,
-    pub(super) changed: Notify,
+    pub(super) active_changed: Notify,
 }
 
 pub(super) struct Reservation {
@@ -515,7 +515,7 @@ impl Budget {
             usage: Mutex::new(BTreeMap::new()),
             active: Mutex::new(Active::default()),
             faulted: AtomicBool::new(false),
-            changed: Notify::new(),
+            active_changed: Notify::new(),
         })
     }
 
@@ -628,7 +628,7 @@ impl Budget {
         })
     }
 
-    fn release(&self, amounts: &[(Account, Amount)], notify: bool) {
+    fn release(&self, amounts: &[(Account, Amount)]) {
         if amounts.is_empty() {
             return;
         }
@@ -646,8 +646,8 @@ impl Budget {
             }
         }
         drop(usage);
-        if notify {
-            self.changed.notify_waiters();
+        if self.faulted() {
+            self.active_changed.notify_waiters();
         }
     }
 }
@@ -658,14 +658,14 @@ impl Reservation {
     /// Report returned capacity so Store wakes waiters after releasing guards.
     pub(super) fn commit(mut self) -> bool {
         self.positive.take();
-        self.budget.release(&self.negative, false);
+        self.budget.release(&self.negative);
         !self.negative.is_empty()
     }
 }
 impl Drop for Reservation {
     fn drop(&mut self) {
         if let Some(positive) = self.positive.take() {
-            self.budget.release(&positive, true);
+            self.budget.release(&positive);
         }
     }
 }

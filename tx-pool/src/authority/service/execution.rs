@@ -128,7 +128,7 @@ impl Pool {
             // a job is owned, unrelated commits must not repoll its VM future.
             let (cpu, mut job) = {
                 let work = self.store.work.notified();
-                let memory = self.store.budget.changed.notified();
+                let memory = self.store.budget.active_changed.notified();
                 tokio::pin!(work, memory);
                 // Queue repair also uses notify_one, which needs registration.
                 work.as_mut().enable();

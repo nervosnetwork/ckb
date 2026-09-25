@@ -201,6 +201,10 @@ before removing queue work; refusal changes neither counters nor selection.
 The permit retains its original peer until drop, even if a later owner promotion
 changes the transaction's source.
 
+Active waiters observe `Budget::active_changed`: permit release or a quota fault
+wakes them. Returning retained owner quota wakes maintenance through
+`Store.changed`; it does not make another active job admissible.
+
 Direct local requests retain their verified data and active envelope while waiting
 for their committed publication response. Background jobs can return their worker
 and active permit after commit because the outbox owns the remaining obligations.

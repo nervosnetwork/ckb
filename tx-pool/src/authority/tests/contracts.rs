@@ -690,7 +690,7 @@ fn worker_notifications_require_queued_work_or_returned_capacity() {
     };
     let store = store();
     let mut context = Context::from_waker(Waker::noop());
-    let mut capacity = std::pin::pin!(store.budget.changed.notified());
+    let mut capacity = std::pin::pin!(store.budget.active_changed.notified());
     let mut work = std::pin::pin!(store.work.notified());
     let mut maintenance = std::pin::pin!(store.changed.notified());
     capacity.as_mut().enable();
@@ -733,10 +733,12 @@ fn worker_notifications_require_queued_work_or_returned_capacity() {
     assert!(maintenance.as_mut().poll(&mut context).is_pending());
 
     store.apply(delete(&store, Arc::clone(&job.entry))).unwrap();
-    assert!(capacity.as_mut().poll(&mut context).is_ready());
+    assert!(capacity.as_mut().poll(&mut context).is_pending());
     assert!(work.as_mut().poll(&mut context).is_pending());
     assert!(maintenance.as_mut().poll(&mut context).is_ready());
     job.mark_handled();
+    drop(job);
+    assert!(capacity.as_mut().poll(&mut context).is_ready());
 
     let mut maintenance = std::pin::pin!(store.changed.notified());
     let mut lifecycle = Plan::new(store.snapshot().0, Class::Critical, Default::default());
