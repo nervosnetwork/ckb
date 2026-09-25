@@ -682,7 +682,8 @@ impl Store {
     }
 
     /// Copy one bounded pool cell while its producer still owns its complete
-    /// payload charge. No provider or foreign code is called under this read.
+    /// payload charge. Data is present and its length metadata comes from the
+    /// same copy. No provider or foreign code is called under this read.
     pub(super) fn pool_cell(
         &self,
         point: &OutPoint,

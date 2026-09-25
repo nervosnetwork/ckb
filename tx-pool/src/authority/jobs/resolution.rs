@@ -221,7 +221,7 @@ impl<'a> Provider<'a> {
                 status => return Ok(status),
             }
         };
-        let data_bytes = if eager || pool || cell.mem_cell_data.is_some() {
+        let data_bytes = if eager || cell.mem_cell_data.is_some() {
             usize::try_from(cell.data_bytes).map_err(|_| Error::Full("cell data size".into()))?
         } else {
             0
@@ -245,25 +245,24 @@ impl<'a> Provider<'a> {
         // the database for its bytes. Pool cells were already copied in-budget.
         state.bytes = next;
         if pool {
+            // Store supplied data, exact length metadata and detached backing.
             state.pool.insert(compact_packed(point));
-        }
-        if eager && !pool {
-            match self.snapshot.cell(point, true) {
-                CellStatus::Live(loaded) => cell = loaded,
-                status => return Ok(status),
+        } else {
+            if eager {
+                match self.snapshot.cell(point, true) {
+                    CellStatus::Live(loaded) => cell = loaded,
+                    status => return Ok(status),
+                }
             }
-        }
-        if cell
-            .mem_cell_data
-            .as_ref()
-            .is_some_and(|data| data.len() > data_bytes)
-        {
-            return Err(Error::Full(
-                "cell data exceeds materialization metadata".into(),
-            ));
-        }
-        // Store detached pool cells under the producer's payload charge.
-        if !pool {
+            if cell
+                .mem_cell_data
+                .as_ref()
+                .is_some_and(|data| data.len() > data_bytes)
+            {
+                return Err(Error::Full(
+                    "cell data exceeds materialization metadata".into(),
+                ));
+            }
             detach_cell(&mut cell);
         }
         state
@@ -467,6 +466,89 @@ mod tests {
         );
         assert_eq!(provider.observed.borrow().cells.len(), 1);
         assert_eq!(provider.observed.borrow().bytes, provider.max_bytes);
+    }
+
+    #[test]
+    fn chain_cell_upgrade_preserves_lazy_cache_until_its_data_fits() {
+        let snapshot = chain_snapshot();
+        let store = store_with_pipeline_limit(Arc::clone(&snapshot), &config(), 64_000_000);
+        let point = ckb_test_chain_utils::create_always_success_out_point();
+        let mut provider = Provider::new(&store, &snapshot);
+        let CellStatus::Live(lazy) = provider.materialize(&point, false).unwrap() else {
+            panic!("genesis cell is live")
+        };
+        assert!(lazy.mem_cell_data.is_none());
+        assert!(lazy.data_bytes > 0);
+        let lazy_bytes = provider.observed.borrow().bytes;
+        let eager_bytes = lazy_bytes + usize::try_from(lazy.data_bytes).unwrap() * 4;
+        provider.max_bytes = eager_bytes - 1;
+        assert!(matches!(
+            provider.materialize(&point, true),
+            Err(Error::Full(FullReason::Other("active resolved cell bytes")))
+        ));
+        assert_eq!(provider.observed.borrow().bytes, lazy_bytes);
+        assert!(
+            provider.observed.borrow().cells[&point]
+                .0
+                .mem_cell_data
+                .is_none()
+        );
+
+        provider.max_bytes = eager_bytes;
+        let CellStatus::Live(loaded) = provider.materialize(&point, true).unwrap() else {
+            panic!("genesis data fits the exact budget")
+        };
+        let data = loaded.mem_cell_data.as_ref().unwrap();
+        assert_eq!(data, &ckb_test_chain_utils::always_success_cell().1);
+        assert_eq!(provider.observed.borrow().bytes, eager_bytes);
+        assert!(provider.observed.borrow().pool.is_empty());
+        for eager in [false, true] {
+            let CellStatus::Live(cached) = provider.materialize(&point, eager).unwrap() else {
+                panic!("cached chain cell remains live")
+            };
+            assert_eq!(
+                cached.mem_cell_data.as_ref().unwrap().as_ptr(),
+                data.as_ptr()
+            );
+        }
+        assert_eq!(provider.observed.borrow().bytes, eager_bytes);
+        assert_eq!(provider.observed.borrow().cells.len(), 1);
+    }
+
+    #[test]
+    fn chain_data_cannot_exceed_the_metadata_used_for_its_charge() {
+        let (chain, snapshot) =
+            chain_store(Arc::new(ckb_test_chain_utils::always_success_consensus()));
+        let point = ckb_test_chain_utils::create_always_success_out_point();
+        let (output, data, _) = ckb_test_chain_utils::always_success_cell();
+        assert!(data.len() > 1);
+        // Chain metadata and data come from separate columns; unlike pool
+        // cells, their consistency is not established by one in-memory builder.
+        let cell = ckb_types::packed::CellEntry::new_builder()
+            .output(output.clone())
+            .data_size(1u64)
+            .build();
+        let payload = ckb_types::packed::CellDataEntry::new_builder()
+            .output_data(data.pack())
+            .output_data_hash(CellOutput::calc_data_hash(data))
+            .build();
+        let transaction = chain.store().begin_transaction();
+        transaction
+            .insert_cells(std::iter::once((point.clone(), cell, Some(payload))))
+            .unwrap();
+        transaction.commit().unwrap();
+        let snapshot = Arc::new(snapshot.refresh(chain.store().get_snapshot()));
+        let store = store_with_pipeline_limit(Arc::clone(&snapshot), &config(), 64_000_000);
+        let provider = Provider::new(&store, &snapshot);
+        assert_eq!(provider.cell(&point, true), CellStatus::Unknown);
+        assert!(matches!(
+            provider.error(),
+            Some(Error::Full(FullReason::Other(
+                "cell data exceeds materialization metadata"
+            )))
+        ));
+        assert!(provider.observed.borrow().cells.is_empty());
+        assert!(provider.observed.borrow().bytes > 0);
     }
 
     #[test]
