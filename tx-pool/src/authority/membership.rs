@@ -107,9 +107,9 @@ pub(super) fn ancestor_hashes(
 ) -> Result<BTreeSet<Byte32>, Error> {
     let entry = members.get(hash).ok_or(Error::Stale)?;
     let mut seen = BTreeSet::from([hash.clone()]);
-    let mut stack: Vec<_> = accepted(entry)?.parents.iter().cloned().collect();
+    let mut stack: Vec<_> = accepted(entry)?.parents.iter().collect();
     while let Some(parent) = stack.pop() {
-        if parent == *hash {
+        if parent == hash {
             return Err(causal_cycle(hash));
         }
         if !seen.insert(parent.clone()) {
@@ -118,8 +118,8 @@ pub(super) fn ancestor_hashes(
         if seen.len() > limit {
             return Err(Reject::ExceededMaximumAncestorsCount.into());
         }
-        let entry = members.get(&parent).ok_or(Error::Stale)?;
-        stack.extend(accepted(entry)?.parents.iter().cloned());
+        let entry = members.get(parent).ok_or(Error::Stale)?;
+        stack.extend(&accepted(entry)?.parents);
     }
     if seen.len() > limit {
         return Err(Reject::ExceededMaximumAncestorsCount.into());
