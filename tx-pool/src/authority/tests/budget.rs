@@ -4,7 +4,11 @@ use super::super::{
     store::Store,
 };
 use super::common::*;
-use std::sync::Arc;
+use std::{
+    future::Future,
+    sync::Arc,
+    task::{Context, Waker},
+};
 
 #[test]
 fn positive_reservation_rolls_back_when_dropped_and_exact_owner_charge_is_released() {
@@ -21,6 +25,9 @@ fn positive_reservation_rolls_back_when_dropped_and_exact_owner_charge_is_releas
         .find_map(|edit| edit.after.as_ref())
         .unwrap();
     let charge = owner_amount(after).unwrap();
+    let mut active_changed = std::pin::pin!(store.budget.active_changed.notified());
+    let mut context = Context::from_waker(Waker::noop());
+    assert!(active_changed.as_mut().poll(&mut context).is_pending());
     let reservation = OwnerDelta::new(std::iter::empty(), std::iter::once(after.as_ref()))
         .unwrap()
         .reserve(&store.budget)
@@ -28,12 +35,37 @@ fn positive_reservation_rolls_back_when_dropped_and_exact_owner_charge_is_releas
     assert_eq!(store.budget.accepted_usage(), charge);
     drop(reservation);
     assert_eq!(store.budget.accepted_usage().items, 0);
+    assert!(active_changed.as_mut().poll(&mut context).is_pending());
     store.apply(plan).unwrap();
     assert_eq!(store.budget.accepted_usage(), charge);
     store
         .apply(delete(&store, store.point(&candidate.hash()).1.unwrap()))
         .unwrap();
     assert_eq!(store.budget.accepted_usage().items, 0);
+    assert!(active_changed.as_mut().poll(&mut context).is_pending());
+}
+
+#[test]
+fn invalid_owner_release_wakes_active_waiters_to_observe_the_fault() {
+    let store = store();
+    let candidate = entry(&store, tx(13), Source::Local);
+    let mut changed = std::pin::pin!(store.budget.active_changed.notified());
+    let mut context = Context::from_waker(Waker::noop());
+    assert!(changed.as_mut().poll(&mut context).is_pending());
+
+    // Release an owner which was never charged. A structural failure must wake
+    // active waiters even though no active permit was returned.
+    OwnerDelta::new(std::iter::once(candidate.as_ref()), std::iter::empty())
+        .unwrap()
+        .reserve(&store.budget)
+        .unwrap()
+        .commit();
+    assert!(changed.as_mut().poll(&mut context).is_ready());
+    assert!(store.budget.faulted());
+    assert!(matches!(
+        store.budget.active(Source::Local),
+        Err(Error::Fault("quota counter"))
+    ));
 }
 
 #[test]
@@ -108,12 +140,8 @@ fn resource_coordinates_match_wide_arithmetic_at_every_machine_boundary() {
 
 #[test]
 fn active_capacity_return_wakes_registered_waiters() {
-    use std::{
-        future::Future,
-        task::{Context, Waker},
-    };
     let store = store();
-    let mut changed = std::pin::pin!(store.budget.changed.notified());
+    let mut changed = std::pin::pin!(store.budget.active_changed.notified());
     changed.as_mut().enable();
     let reservation = store.budget.active(Source::Local).unwrap();
     assert!(

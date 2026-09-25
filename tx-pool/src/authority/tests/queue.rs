@@ -330,7 +330,7 @@ async fn global_active_refusal_preserves_both_queues_and_observes_an_early_relea
             store.budget.active(Source::Local),
             Err(Error::Full(FullReason::Active))
         ));
-        let changed = store.budget.changed.notified();
+        let changed = store.budget.active_changed.notified();
         for stage in [WorkStage::Resolve, WorkStage::Verify] {
             assert!(matches!(
                 queues.pop(stage, WorkSelection::Any, &store.budget),

@@ -694,9 +694,6 @@ impl Store {
         if let Some(batch) = batch {
             batch.activate(&self.outbox);
         }
-        if capacity_returned {
-            self.budget.changed.notify_waiters();
-        }
         if plan.lifecycle.is_some() || plan.edits.values().any(Edit::affects_accepted) {
             self.template_changed.notify_waiters();
         }

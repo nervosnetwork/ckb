@@ -690,7 +690,7 @@ fn worker_notifications_require_queued_work_or_returned_capacity() {
     };
     let store = store();
     let mut context = Context::from_waker(Waker::noop());
-    let mut capacity = std::pin::pin!(store.budget.changed.notified());
+    let mut capacity = std::pin::pin!(store.budget.active_changed.notified());
     let mut work = std::pin::pin!(store.work.notified());
     let mut maintenance = std::pin::pin!(store.changed.notified());
     capacity.as_mut().enable();
@@ -733,10 +733,12 @@ fn worker_notifications_require_queued_work_or_returned_capacity() {
     assert!(maintenance.as_mut().poll(&mut context).is_pending());
 
     store.apply(delete(&store, Arc::clone(&job.entry))).unwrap();
-    assert!(capacity.as_mut().poll(&mut context).is_ready());
+    assert!(capacity.as_mut().poll(&mut context).is_pending());
     assert!(work.as_mut().poll(&mut context).is_pending());
     assert!(maintenance.as_mut().poll(&mut context).is_ready());
     job.mark_handled();
+    drop(job);
+    assert!(capacity.as_mut().poll(&mut context).is_ready());
 
     let mut maintenance = std::pin::pin!(store.changed.notified());
     let mut lifecycle = Plan::new(store.snapshot().0, Class::Critical, Default::default());
@@ -744,6 +746,31 @@ fn worker_notifications_require_queued_work_or_returned_capacity() {
     store.apply(lifecycle).unwrap();
     assert!(work.as_mut().poll(&mut context).is_ready());
     assert!(maintenance.as_mut().poll(&mut context).is_ready());
+}
+
+#[test]
+fn work_broadcasts_are_observed_before_the_waiter_is_first_polled() {
+    use std::{
+        future::Future,
+        task::{Context, Waker},
+    };
+
+    let changes: [fn(&Store); 4] = [
+        |store| insert(store, entry(store, tx(902), Source::Local)),
+        |store| drop(store.begin_chain().unwrap()),
+        Store::stop,
+        Store::fault,
+    ];
+    for change in changes {
+        let store = store();
+        let mut work = std::pin::pin!(store.work.notified());
+        change(&store);
+        assert!(
+            work.as_mut()
+                .poll(&mut Context::from_waker(Waker::noop()))
+                .is_ready()
+        );
+    }
 }
 
 #[test]

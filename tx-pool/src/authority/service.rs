@@ -351,7 +351,7 @@ impl Pool {
 
     async fn direct_capacity(&self) -> Result<(ComputePermit, ActivePermit), Error> {
         loop {
-            let changed = self.store.budget.changed.notified();
+            let changed = self.store.budget.active_changed.notified();
             tokio::pin!(changed);
             self.open()?;
             let cpu = self.compute().await?;

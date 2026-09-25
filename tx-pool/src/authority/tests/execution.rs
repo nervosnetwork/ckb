@@ -79,7 +79,7 @@ async fn observe(pool: &Pool, hash: &Byte32, check: impl Fn(&Entry) -> bool) {
             // These observations follow worker phase transitions. A completed
             // Job releases active capacity after its new owner is committed;
             // Store.changed also preserves fault and lifecycle observation.
-            let completed = pool.store.budget.changed.notified();
+            let completed = pool.store.budget.active_changed.notified();
             tokio::pin!(changed, completed);
             changed.as_mut().enable();
             if pool.store.point(hash).1.as_deref().is_some_and(&check) {
@@ -2722,7 +2722,7 @@ async fn background_rejection_releases_work_before_a_blocked_callback_and_preser
         let worker = tokio::spawn(Arc::clone(&pool).worker(WorkStage::Resolve, 0));
         within(async {
             loop {
-                let changed = pool.store.budget.changed.notified();
+                let changed = pool.store.budget.active_changed.notified();
                 tokio::pin!(changed);
                 changed.as_mut().enable();
                 if pool.store.point(&rejected.hash()).1.is_none()
