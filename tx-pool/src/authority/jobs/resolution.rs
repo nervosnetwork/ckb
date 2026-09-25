@@ -12,6 +12,7 @@ use super::Resolution;
 use crate::{error::Reject, util::compact_packed, verification::check_tx_fee_with_min_fee_rate};
 use ckb_app_config::TxPoolConfig;
 use ckb_snapshot::Snapshot;
+use ckb_store::ChainStore;
 use ckb_types::{
     core::{
         DepType, TransactionView,
@@ -248,11 +249,11 @@ impl<'a> Provider<'a> {
             // Store supplied data, exact length metadata and detached backing.
             state.pool.insert(compact_packed(point));
         } else {
-            if eager {
-                match self.snapshot.cell(point, true) {
-                    CellStatus::Live(loaded) => cell = loaded,
-                    status => return Ok(status),
-                }
+            // Metadata already came from this immutable snapshot; only its
+            // data and stored hash remain to load after the precharge.
+            if eager && let Some((data, data_hash)) = self.snapshot.get_cell_data(point) {
+                cell.mem_cell_data = Some(data);
+                cell.mem_cell_data_hash = Some(data_hash);
             }
             if cell
                 .mem_cell_data
@@ -549,6 +550,64 @@ mod tests {
         ));
         assert!(provider.observed.borrow().cells.is_empty());
         assert!(provider.observed.borrow().bytes > 0);
+    }
+
+    #[test]
+    fn chain_eager_loading_preserves_empty_data_and_its_hash() {
+        let (chain, snapshot) =
+            chain_store(Arc::new(ckb_test_chain_utils::always_success_consensus()));
+        let point = OutPoint::new(tx(1910).hash(), 0);
+        let cell = ckb_types::packed::CellEntry::new_builder()
+            .output(CellOutput::default())
+            .data_size(0u64)
+            .build();
+        let transaction = chain.store().begin_transaction();
+        // None writes an empty data record, distinct from a missing record.
+        transaction
+            .insert_cells(std::iter::once((point.clone(), cell, None)))
+            .unwrap();
+        transaction.commit().unwrap();
+        let snapshot = Arc::new(snapshot.refresh(chain.store().get_snapshot()));
+        let store = store_with_pipeline_limit(Arc::clone(&snapshot), &config(), 64_000_000);
+        let provider = Provider::new(&store, &snapshot);
+        let CellStatus::Live(loaded) = provider.cell(&point, true) else {
+            panic!("empty chain cell is live")
+        };
+        assert_eq!(loaded.mem_cell_data, Some(Bytes::new()));
+        assert_eq!(
+            loaded.mem_cell_data_hash,
+            Some(ckb_types::packed::Byte32::zero())
+        );
+        assert!(provider.error().is_none());
+        assert_eq!(provider.cell(&point, false), CellStatus::live_cell(loaded));
+    }
+
+    #[test]
+    fn chain_cell_upgrade_uses_its_original_snapshot_after_deletion() {
+        let (chain, snapshot) =
+            chain_store(Arc::new(ckb_test_chain_utils::always_success_consensus()));
+        let point = ckb_test_chain_utils::create_always_success_out_point();
+        let store = store_with_pipeline_limit(Arc::clone(&snapshot), &config(), 64_000_000);
+        let provider = Provider::new(&store, &snapshot);
+        let CellStatus::Live(mut expected) = provider.cell(&point, false) else {
+            panic!("genesis cell is live")
+        };
+        assert!(expected.mem_cell_data.is_none());
+
+        let transaction = chain.store().begin_transaction();
+        transaction
+            .delete_cells(std::iter::once(point.clone()))
+            .unwrap();
+        transaction.commit().unwrap();
+        let current = snapshot.refresh(chain.store().get_snapshot());
+        assert_eq!(current.cell(&point, true), CellStatus::Unknown);
+
+        let data = ckb_test_chain_utils::always_success_cell().1.clone();
+        expected.mem_cell_data_hash = Some(CellOutput::calc_data_hash(&data));
+        expected.mem_cell_data = Some(data);
+        assert_eq!(provider.cell(&point, true), CellStatus::live_cell(expected));
+        assert!(provider.error().is_none());
+        assert_eq!(provider.observed.borrow().cells.len(), 1);
     }
 
     #[test]
