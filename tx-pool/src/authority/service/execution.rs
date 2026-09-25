@@ -130,8 +130,8 @@ impl Pool {
                 let work = self.store.work.notified();
                 let memory = self.store.budget.active_changed.notified();
                 tokio::pin!(work, memory);
-                // Queue repair also uses notify_one, which needs registration.
-                work.as_mut().enable();
+                // Store broadcasts are observed from future creation, including
+                // changes during selection before select first polls the waiter.
                 if self.store.is_faulted() {
                     return Err(Error::Fault("worker generation"));
                 }

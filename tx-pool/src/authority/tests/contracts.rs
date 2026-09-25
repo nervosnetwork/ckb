@@ -749,6 +749,31 @@ fn worker_notifications_require_queued_work_or_returned_capacity() {
 }
 
 #[test]
+fn work_broadcasts_are_observed_before_the_waiter_is_first_polled() {
+    use std::{
+        future::Future,
+        task::{Context, Waker},
+    };
+
+    let changes: [fn(&Store); 4] = [
+        |store| insert(store, entry(store, tx(902), Source::Local)),
+        |store| drop(store.begin_chain().unwrap()),
+        Store::stop,
+        Store::fault,
+    ];
+    for change in changes {
+        let store = store();
+        let mut work = std::pin::pin!(store.work.notified());
+        change(&store);
+        assert!(
+            work.as_mut()
+                .poll(&mut Context::from_waker(Waker::noop()))
+                .is_ready()
+        );
+    }
+}
+
+#[test]
 fn maintenance_stays_asleep_when_resolution_only_queues_verification() {
     use std::{future::Future, task::Context, task::Waker};
 
