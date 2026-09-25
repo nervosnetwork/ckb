@@ -195,7 +195,7 @@ impl<'a> Provider<'a> {
         // and its original spender for the final checked replacement decision.
         let _ = self.store.spender(point, &mut state.reads)?;
         if let Some((cell, _)) = state.cells.get(point)
-            && (!eager || cell.mem_cell_data.is_some() || cell.data_bytes == 0)
+            && (!eager || cell.mem_cell_data.is_some())
         {
             return Ok(CellStatus::live_cell(cell.clone()));
         }
@@ -608,6 +608,45 @@ mod tests {
         assert_eq!(provider.cell(&point, true), CellStatus::live_cell(expected));
         assert!(provider.error().is_none());
         assert_eq!(provider.observed.borrow().cells.len(), 1);
+    }
+
+    #[test]
+    fn empty_chain_input_used_as_dep_group_is_rejected_without_panicking() {
+        let (chain, snapshot) =
+            chain_store(Arc::new(ckb_test_chain_utils::always_success_consensus()));
+        let point = OutPoint::new(tx(1911).hash(), 0);
+        let cell = ckb_types::packed::CellEntry::new_builder()
+            .output(CellOutput::default())
+            .data_size(0u64)
+            .build();
+        let transaction = chain.store().begin_transaction();
+        transaction
+            .insert_cells(std::iter::once((point.clone(), cell, None)))
+            .unwrap();
+        transaction.commit().unwrap();
+        let snapshot = Arc::new(snapshot.refresh(chain.store().get_snapshot()));
+        let store = store_with_pipeline_limit(Arc::clone(&snapshot), &config(), 64_000_000);
+        let provider = Provider::new(&store, &snapshot);
+        let transaction = ckb_types::core::TransactionBuilder::default()
+            .input(ckb_types::packed::CellInput::new(point.clone(), 0))
+            .output(CellOutput::default())
+            .output_data(Bytes::new().pack())
+            .cell_dep(
+                CellDep::new_builder()
+                    .out_point(point.clone())
+                    .dep_type(DepType::DepGroup)
+                    .build(),
+            )
+            .build();
+
+        crate::verification::non_contextual_verify(snapshot.consensus(), &transaction).unwrap();
+        assert_eq!(
+            provider
+                .resolve_transaction(&transaction)
+                .unwrap()
+                .unwrap_err(),
+            OutPointError::InvalidDepGroup(point)
+        );
     }
 
     #[test]
