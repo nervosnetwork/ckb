@@ -12,6 +12,7 @@ from unittest import mock
 import benchmark_build
 import packing_benchmark
 from packing_benchmark import explicit_limits, parse, replay, sha256
+from test_benchmark_build import rocksdb_messages
 
 
 class PackingContractTests(unittest.TestCase):
@@ -236,9 +237,11 @@ class PackingContractTests(unittest.TestCase):
             source = {"root": str(root), "commit": "fixed"}
             artifact = dict(reason="compiler-artifact", target=dict(name="packing_one_shot", kind=["bench"]),
                             executable=str(binary))
+            messages, _ = rocksdb_messages(directory)
+            cargo_output = "\n".join(map(json.dumps, [artifact, *messages]))
             with mock.patch.object(benchmark_build, "git_record", return_value=source), mock.patch.object(
                     benchmark_build, "command_output", return_value="fixed"), mock.patch.object(
-                    benchmark_build, "run_process", return_value=subprocess.CompletedProcess([], 0, json.dumps(artifact), "")):
+                    benchmark_build, "run_process", return_value=subprocess.CompletedProcess([], 0, cargo_output, "")):
                 build = benchmark_build.build_binary(root, directory / "target", "ckb-tx-pool/packing-bench", "packing_one_shot")
             build_path = directory / "build.json"
             build_path.write_text(json.dumps(build))

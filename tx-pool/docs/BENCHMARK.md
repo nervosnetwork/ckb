@@ -19,7 +19,7 @@ CKB-VM packages, checksums and features. An older pool also needs a reviewed,
 committed `cross-version-legacy-bench-adapter`; preserve its production basis and
 patch. The runner does not create the adapter. It freezes the complete harness,
 process runner, window parser, observation decoder, rejection verifier and
-scenario validator. Current comparison records use schema 15; schema 14 and
+scenario validator. Current comparison records use schema 16; schema 15 and
 earlier evidence retain their original runner and source attribution.
 
 Edit the two checkout paths and run:
@@ -106,14 +106,27 @@ The runner records source/build/host identities, commands and binary hashes.
 Supplied builds require `--baseline-build-receipt` / `--candidate-build-receipt`.
 Optional `--baseline-binary` / `--candidate-binary` select a copied executable;
 its hash and size must match the receipt. Automatic A/B builds use the same Cargo
-build operation. A receipt establishes the recorded producer-to-artifact link;
-it is not a signature against deliberate falsification of the evidence.
+build operation. Build receipt schema 2 also records RocksDB's complete, ordered
+`PLATFORM_CXXFLAGS` vector from the build-script output selected by that Cargo
+invocation, including cached builds. The paired runner requires both receipts
+to record the same RocksDB package and detected flags before any pilot, including
+A/A, allocation studies and resume. Missing observations and legacy schema 1
+receipts cannot establish this match; rebuild with the current builder. A/A does
+not compensate for different build choices. Copying the executable or removing
+the target directory does not invalidate an already recorded observation.
+
+These flags cover the platform probes, not every native compiler/SDK/linker input.
+A receipt establishes the recorded producer-to-artifact link; it is not a
+signature against deliberate falsification of the evidence. Historical artifact
+comparisons with unknown or different flags remain replayable with their frozen
+tools, but do not isolate source changes. Profile and packing readers still
+accept legacy build receipts for their original artifact contract.
 Pilots must agree on transaction bytes/hashes, declared cycles, script preflight
 and runtime consensus. Measured attempts use randomized, balanced AB/BA blocks.
 `--order-seed` and the complete resulting schedule are part of the frozen
 configuration; changing either requires a new study.
 
-Schema 15 `attempts[]` retains commands, raw output, source side, attempt ID,
+Schema 16 `attempts[]` retains commands, raw output, source side, attempt ID,
 corpus, window and metrics; terminal evidence remains in the raw observation.
 Start/outcome checkpoints are atomic; completion rechecks source and binary
 identity. Host-load snapshots accompany

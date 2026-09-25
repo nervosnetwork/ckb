@@ -21,7 +21,8 @@ from pathlib import Path
 
 import rejection_diagnostics
 from benchmark_build import (binary_record, build_binary, effective_features,
-                             git_record, host_identity, load_build, sha256, validate_build)
+                             git_record, host_identity, load_build, sha256, validate_build,
+                             validate_rocksdb_builds)
 from benchmark_scenario import validate_scenario
 from measurement_observation import parse_observation
 from measurement_process import run_process
@@ -44,7 +45,7 @@ BUILD = re.compile(
     re.MULTILINE,
 )
 CORPUS_PREFIX = "BENCH_CORPUS "
-SCHEMA_VERSION = 15
+SCHEMA_VERSION = 16
 PROTOCOL_CONTRACT = "protocol"
 CONSENSUS_LOCK_PACKAGES = ("ckb-vm", "ckb-vm-definitions")
 HEX_32 = re.compile(r"^[0-9a-f]{64}$")
@@ -1060,6 +1061,7 @@ def load_aa_evidence(record: dict[str, object]) -> dict[str, object]:
                 raise RuntimeError(f"{side} A/A source or consensus differs")
             validate_build(control_arm["build"], control_source, "profile_one_shot",
                            measured["build"]["features"], control_arm["binary"])
+            validate_rocksdb_builds(control_arm["build"], measured["build"])
             if any(control_arm.get("build", {}).get(field) != measured["build"].get(field)
                    for field in ("bench", "features", "profile", "toolchain")):
                 raise RuntimeError(f"{side} A/A build contract differs")
@@ -1148,7 +1150,10 @@ def validate_frozen(
             raise RuntimeError(f"{side} binary changed")
         if supplied[side] is not None and binary_record(supplied[side]) != frozen["binary"]:
             raise RuntimeError(f"supplied {side} binary differs from the checkpoint")
+        validate_build(frozen["build"], current["source"], "profile_one_shot",
+                       record["configuration"][f"{side}_build_features"], frozen["binary"])
         current["binary"], current["build"] = frozen["binary"], frozen["build"]
+    validate_rocksdb_builds(contexts["baseline"]["build"], contexts["candidate"]["build"])
 
 
 def main() -> None:
@@ -1219,6 +1224,7 @@ def main() -> None:
             "summary": {},
             "complete": False,
         }
+    validate_rocksdb_builds(contexts["baseline"]["build"], contexts["candidate"]["build"])
     if args.comparison == "aa" and contexts["baseline"]["binary"]["sha256"] != contexts["candidate"]["binary"]["sha256"]:
         raise RuntimeError("A/A binary hashes differ")
     aa_evidence = load_aa_evidence(record)

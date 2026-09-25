@@ -23,6 +23,8 @@ BENCHMARK = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(BENCHMARK)
 
 from test_measurement_observation import completed_observation, record_output
+from test_benchmark_build import build_receipt, rocksdb_observation
+from benchmark_build import build_command
 
 
 EMPTY_CAPTURE = "BENCH_REJECTION_CAPTURE " + json.dumps(dict(
@@ -405,7 +407,10 @@ class BuildProfileContractTest(unittest.TestCase):
                                 outcome="success", corpus={}, metrics=metrics)
                 with mock.patch.object(BENCHMARK, "git_record", return_value={"root": str(root), "commit": "fixed"}), mock.patch.object(
                     BENCHMARK, "consensus_dependency_identity", return_value={"locked_packages": [], "enabled_features": []}
-                ), mock.patch.object(BENCHMARK, "load_build", return_value=(BENCHMARK.binary_record(root / "binary"), {})), mock.patch.object(BENCHMARK, "host_identity", return_value={}), mock.patch.object(
+                ), mock.patch.object(BENCHMARK, "load_build", return_value=(
+                    BENCHMARK.binary_record(root / "binary"), build_receipt(
+                        {"root": str(root), "commit": "fixed"}, BENCHMARK.binary_record(root / "binary"))
+                )), mock.patch.object(BENCHMARK, "host_identity", return_value={}), mock.patch.object(
                     BENCHMARK, "run_attempt", side_effect=observation
                 ) as run, mock.patch.object(sys, "stdout", io.StringIO()):
                     with mock.patch.object(sys, "argv", command):
@@ -439,6 +444,66 @@ class BuildProfileContractTest(unittest.TestCase):
                             BENCHMARK.main()
                     self.assertEqual(BENCHMARK.read_checkpoint(output)["schema"], 10)
                     self.assertEqual(run.call_count, 14)
+
+    def test_native_build_mismatch_stops_every_entry_before_collection(self):
+        # These are the different vectors observed in two otherwise compatible
+        # macOS builds. A/A, diagnostics and allocation mode cannot excuse them.
+        old = ["-std=c++17", "-DROCKSDB_PLATFORM_POSIX", "-DROCKSDB_LIB_IO_POSIX",
+               "-DOS_MACOSX", "-mmacosx-version-min=10.13"]
+        new = ["-std=c++17", "-faligned-new", "-DHAVE_ALIGNED_NEW", "-DROCKSDB_PLATFORM_POSIX",
+               "-DROCKSDB_LIB_IO_POSIX", "-DOS_MACOSX", "-Wshorten-64-to-32",
+               "-mmacosx-version-min=10.13", "-DHAVE_UINT128_EXTENSION", "-DHAVE_FULLFSYNC"]
+        with tempfile.TemporaryDirectory() as raw:
+            root = Path(raw)
+            (root / "binary").write_bytes(b"fixed binary")
+            (root / "build.json").write_text("{}")
+            binary = BENCHMARK.binary_record(root / "binary")
+            consensus = dict(locked_packages=[], enabled_features=[])
+            for extra in (["--comparison", "ab"], ["--aa-equivalence-margin-percent", "2"],
+                          ["--comparison", "ab", "--calibration-only"],
+                          ["--comparison", "ab", "--allocation-observation", "enabled"]):
+                for resume in (False, True):
+                    output = root / "result.json"
+                    command = self.aa_command(root, output) + ["--candidate-root", str(root / "candidate"),
+                              "--allow-noncomparable", *extra]
+                    with mock.patch.object(sys, "argv", command):
+                        args = BENCHMARK.arguments()
+                    sides = {}
+                    for side, flags in (("baseline", old), ("candidate", new)):
+                        source = dict(root=str(getattr(args, f"{side}_root").resolve()), commit="fixed")
+                        receipt = build_receipt(source, binary)
+                        features = getattr(args, f"{side}_build_features")
+                        receipt.update(features=features, command=build_command(
+                            "profile_one_shot", features), rocksdb_build=rocksdb_observation(flags))
+                        sides[side] = dict(source=source, consensus=consensus, binary=binary, build=receipt)
+                    record = dict(schema=BENCHMARK.SCHEMA_VERSION, sides=sides, host={},
+                                  metric_scopes=BENCHMARK.METRIC_SCOPES, harness_sha256="same",
+                                  configuration=BENCHMARK.configuration(args, [BENCHMARK.parse_scenario(args.scenario[0])]))
+                    for field in ("runner", "build_runner", "process_runner", "measurement_window",
+                                  "rejection_diagnostics", "scenario_parser", "observation_parser"):
+                        record[field + "_sha256"] = "same"
+                    if resume:
+                        output.write_text(json.dumps(record))
+                        command += ["--resume"]
+                    with (
+                        self.subTest(extra=extra, resume=resume),
+                        mock.patch.object(sys, "argv", command),
+                        mock.patch.object(BENCHMARK, "git_record", side_effect=lambda path: dict(root=str(path), commit="fixed")),
+                        mock.patch.object(BENCHMARK, "bundle_hash", return_value="same"),
+                        mock.patch.object(BENCHMARK, "harness_bundle", return_value={}),
+                        mock.patch.object(BENCHMARK, "sha256", return_value="same"),
+                        mock.patch.object(BENCHMARK, "consensus_dependency_identity", return_value=consensus),
+                        mock.patch.object(BENCHMARK, "host_identity", return_value={}),
+                        mock.patch.object(BENCHMARK, "load_build", side_effect=[(binary, sides[side]["build"])
+                                                                                 for side in ("baseline", "candidate")]),
+                        mock.patch.object(BENCHMARK, "load_aa_evidence") as aa,
+                        mock.patch.object(BENCHMARK, "run_attempt") as run,
+                    ):
+                        with self.assertRaisesRegex(RuntimeError, "flags differ"):
+                            BENCHMARK.main()
+                        aa.assert_not_called()
+                        run.assert_not_called()
+                    output.unlink(missing_ok=True)
 
 
     def test_short_pilot_stops_before_comparative_measurement(self) -> None:

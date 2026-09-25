@@ -14,6 +14,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import cross_version_benchmark as benchmark
 from benchmark_build import build_command
 from test_measurement_observation import completed_observation, record_output
+from test_benchmark_build import rocksdb_observation
 
 
 def output(elapsed=1_000_000_000, cpu=1_000_000_000, rss=1_000_000, *,
@@ -49,7 +50,7 @@ class ControlEvidenceTests(unittest.TestCase):
         self.context = dict(source={"commit": "candidate", "root": "/fixed/source"}, consensus={},
             build=dict(bench="profile_one_shot", features="", profile="prod", toolchain={"rustc": "fixed"}),
             binary=dict(path="/fixed/candidate", sha256="candidate binary", size=123))
-        self.context["build"].update(schema=1, kind="tx_pool_benchmark_build",
+        self.context["build"].update(schema=2, kind="tx_pool_benchmark_build", rocksdb_build=rocksdb_observation(),
             source=copy.deepcopy(self.context["source"]), binary=copy.deepcopy(self.context["binary"]),
             command=build_command("profile_one_shot", ""),
             cargo_artifact=dict(reason="compiler-artifact", executable="/fixed/candidate",
@@ -399,6 +400,13 @@ class ControlEvidenceTests(unittest.TestCase):
             record["configuration"]["aa_evidence"]["candidate"] = benchmark.binary_record(path)
             self.assertEqual(benchmark.load_aa_evidence(record)["candidate"][self.key]["status"], "aa_equivalent")
             original = copy.deepcopy(self.control)
+            for flags in (None, ["-std=c++17", "-DHAVE_FULLFSYNC"]):
+                self.control = copy.deepcopy(original)
+                self.control["sides"]["baseline"]["build"]["rocksdb_build"] = rocksdb_observation(flags)
+                path.write_text(json.dumps(self.control))
+                record["configuration"]["aa_evidence"]["candidate"] = benchmark.binary_record(path)
+                with self.subTest(flags=flags), self.assertRaisesRegex(RuntimeError, "RocksDB"):
+                    benchmark.load_aa_evidence(record)
             for field in ("source", "binary", "consensus", "build"):
                 self.control = copy.deepcopy(original)
                 self.control["sides"]["baseline"][field] = {"wrong": "identity"}
