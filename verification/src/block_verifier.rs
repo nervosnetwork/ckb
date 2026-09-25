@@ -54,6 +54,7 @@ impl<'a> Verifier for BlockVerifier<'a> {
     }
 }
 
+/// Checks uncle count and proposal bodies without chain context.
 #[derive(Clone)]
 pub struct UnclesBodyVerifier {
     max_uncles_num: u32,
@@ -61,6 +62,7 @@ pub struct UnclesBodyVerifier {
 }
 
 impl UnclesBodyVerifier {
+    /// Constructs a verifier with the consensus uncle and per-uncle proposal limits.
     pub fn new(max_uncles_num: usize, max_proposals_limit: u64) -> Self {
         UnclesBodyVerifier {
             max_uncles_num: max_uncles_num as u32,
@@ -68,6 +70,7 @@ impl UnclesBodyVerifier {
         }
     }
 
+    /// Checks each uncle's proposal count, hash and uniqueness, and the total uncle count.
     pub fn verify(&self, block: &BlockView) -> Result<(), Error> {
         let uncles_count = block.data().uncles().len() as u32;
 

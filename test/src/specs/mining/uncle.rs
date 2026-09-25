@@ -177,6 +177,14 @@ fn construct_uncle(node: &Node) -> BlockView {
 
 // Convenient way to add all the fork-blocks as uncles into the main chain
 fn until_no_uncles_left(node: &Node) {
+    // Chain and tx-pool/template updates are asynchronous. A blank reset is a
+    // valid intermediate template before detached candidates are installed,
+    // so treating the first empty template as completion can skip the entire
+    // fork-uncle drain. These scenarios guarantee at least one candidate:
+    // wait for that phase-two publication before consuming the ordinary
+    // level-triggered sequence.
+    let first = node.new_block_with_blocking(|template| template.uncles.is_empty());
+    node.submit_block(&first);
     loop {
         let block = node.new_block(None, None, None);
         if block.uncles().into_iter().count() == 0 {

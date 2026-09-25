@@ -55,7 +55,7 @@ impl ChainService {
                         let _ = responder.send(());
                     },
                     _ => {
-                        error!("process_block_receiver closed");
+                        debug!("ChainService request channel closed, exit now");
                         break;
                     },
                 },

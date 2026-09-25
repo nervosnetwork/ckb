@@ -502,8 +502,9 @@ pub trait IntegrationTestRpc {
     #[rpc(name = "calculate_dao_field")]
     fn calculate_dao_field(&self, block_template: BlockTemplate) -> Result<Byte32>;
 
-    /// Submits a new test local transaction into the transaction pool, only for testing.
-    /// If the transaction is already in the pool, rebroadcast it to peers.
+    /// Resolves a local test transaction and queues its script verification.
+    /// Missing or spent dependencies are rejected before queueing. A successful
+    /// response acknowledges the queue; final validity is reported by `get_transaction`.
     ///
     /// ## Params
     ///

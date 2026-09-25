@@ -1,146 +1,103 @@
-//! An overlay to index the pending txs in the ckb tx pool
+//! A rebuildable view of inputs consumed by accepted pool transactions.
 
-use ckb_async_runtime::{
-    Handle,
-    tokio::{self, task::JoinHandle},
+use ckb_tx_pool::{TxPoolController, TxPoolInputSnapshot};
+use ckb_types::packed::{Byte32, OutPoint};
+use std::{
+    collections::HashSet,
+    sync::{Arc, RwLock},
 };
-use ckb_logger::info;
-use ckb_notify::NotifyController;
-use ckb_stop_handler::{CancellationToken, new_tokio_exit_rx};
-use ckb_types::{core::TransactionView, packed::OutPoint};
 
-use std::collections::HashSet;
-use std::sync::{Arc, RwLock};
-
-const SUBSCRIBER_NAME: &str = "Indexer";
-
-/// An overlay to index the pending txs in the ckb tx pool,
-/// currently only supports removals of dead cells from the pending txs
+/// Inputs consumed by accepted transactions, shared by indexer queries.
 #[derive(Default)]
 pub struct Pool {
-    dead_cells: HashSet<OutPoint>,
+    dead_cells: Arc<HashSet<OutPoint>>,
+}
+
+impl From<Arc<HashSet<OutPoint>>> for Pool {
+    fn from(dead_cells: Arc<HashSet<OutPoint>>) -> Self {
+        Self { dead_cells }
+    }
 }
 
 impl Pool {
-    /// the tx has been committed in a block, it should be removed from pending dead cells
-    pub fn transaction_committed(&mut self, tx: &TransactionView) {
-        for input in tx.inputs() {
-            self.dead_cells.remove(&input.previous_output());
+    // Retain the previous inputs until this indexer has applied the pool's tip.
+    // They bridge commitment in the pool to the corresponding database spend.
+    fn update(&mut self, snapshot: TxPoolInputSnapshot, indexed_tip: &Byte32) {
+        if snapshot.tip_hash == *indexed_tip {
+            self.dead_cells = snapshot.inputs;
         }
     }
 
-    /// the tx has been rejected for some reason, it should be removed from pending dead cells
-    pub fn transaction_rejected(&mut self, tx: &TransactionView) {
-        for input in tx.inputs() {
-            self.dead_cells.remove(&input.previous_output());
-        }
-    }
-
-    /// a new tx is submitted to the pool, mark its inputs as dead cells
-    pub fn new_transaction(&mut self, tx: &TransactionView) {
-        for input in tx.inputs() {
-            self.dead_cells.insert(input.previous_output());
-        }
-    }
-
-    /// Return weather out_point referred cell consumed by pooled transaction
+    /// Whether an accepted transaction consumes this outpoint.
     pub fn is_consumed_by_pool_tx(&self, out_point: &OutPoint) -> bool {
         self.dead_cells.contains(out_point)
     }
 
-    /// the txs has been committed in a block, it should be removed from pending dead cells
-    pub fn transactions_committed(&mut self, txs: &[TransactionView]) {
-        for tx in txs {
-            self.transaction_committed(tx);
-        }
-    }
-
-    /// return all dead cells
+    /// All inputs consumed in this snapshot.
     pub fn dead_cells(&self) -> impl Iterator<Item = &OutPoint> {
         self.dead_cells.iter()
     }
 }
 
-/// Pool service
+/// Refreshes one indexer's pool view at the end of its block synchronization.
 #[derive(Clone)]
 pub struct PoolService {
     pool: Option<Arc<RwLock<Pool>>>,
-    async_handle: Handle,
-    is_index_tx_pool_called: bool,
+    controller: TxPoolController,
 }
 
 impl PoolService {
-    /// Construct new Pool service instance
-    pub fn new(index_tx_pool: bool, async_handle: Handle) -> Self {
-        let pool = if index_tx_pool {
-            Some(Arc::new(RwLock::new(Pool::default())))
-        } else {
-            None
-        };
-
+    /// Create an optional pool view for the indexer synchronization loop.
+    pub fn new(index_tx_pool: bool, controller: TxPoolController) -> Self {
         Self {
-            pool,
-            async_handle,
-            is_index_tx_pool_called: false,
+            pool: index_tx_pool.then(|| Arc::new(RwLock::new(Pool::default()))),
+            controller,
         }
     }
 
-    /// Get the inner pool
+    /// The last complete input snapshot published for this indexer.
     pub fn pool(&self) -> Option<Arc<RwLock<Pool>>> {
         self.pool.clone()
     }
 
-    /// Processes that handle index pool transaction and expect to be spawned to run in tokio runtime
-    pub fn index_tx_pool(
-        &mut self,
-        notify_controller: NotifyController,
-        check_index_tx_pool_ready: JoinHandle<()>,
-    ) {
-        if self.is_index_tx_pool_called {
+    pub(crate) fn refresh(&self, indexed_tip: &Byte32) {
+        let Some(pool) = &self.pool else {
             return;
+        };
+        match self.controller.input_snapshot() {
+            Ok(snapshot) => {
+                pool.write()
+                    .expect("acquire lock")
+                    .update(snapshot, indexed_tip);
+            }
+            Err(error) => ckb_logger::debug!("indexer pool snapshot unavailable: {error}"),
         }
-        self.is_index_tx_pool_called = true;
+    }
+}
 
-        let service = self.clone();
-        let stop: CancellationToken = new_tokio_exit_rx();
+#[cfg(test)]
+mod tests {
+    use super::*;
 
-        self.async_handle.spawn(async move {
-            let _check_index_tx_pool_ready = check_index_tx_pool_ready.await;
-            if stop.is_cancelled() {
-                info!("Indexer received exit signal, cancel subscribe_new_transaction task, exit now");
-                return;
-            }
+    #[test]
+    fn view_bridges_commit_until_indexer_catches_up() {
+        let spent = OutPoint::default();
+        let old_tip = Byte32::from([1; 32]);
+        let new_tip = Byte32::from([2; 32]);
+        let before = TxPoolInputSnapshot {
+            tip_hash: old_tip.clone(),
+            inputs: Arc::new(HashSet::from([spent.clone()])),
+        };
+        let mut pool = Pool::default();
+        pool.update(before, &old_tip);
+        let committed = TxPoolInputSnapshot {
+            tip_hash: new_tip.clone(),
+            inputs: Arc::new(HashSet::new()),
+        };
 
-            info!("check_index_tx_pool_ready finished");
-
-            let mut new_transaction_receiver = notify_controller
-                .subscribe_new_transaction(SUBSCRIBER_NAME.to_string())
-                .await;
-            let mut reject_transaction_receiver = notify_controller
-                .subscribe_reject_transaction(SUBSCRIBER_NAME.to_string())
-                .await;
-
-            loop {
-                tokio::select! {
-                    Some(tx_entry) = new_transaction_receiver.recv() => {
-                        if let Some(pool) = service.pool.as_ref() {
-                            pool.write().expect("acquire lock").new_transaction(&tx_entry.transaction);
-                        }
-                    }
-                    Some((tx_entry, _reject)) = reject_transaction_receiver.recv() => {
-                        if let Some(pool) = service.pool.as_ref() {
-                            pool.write()
-                            .expect("acquire lock")
-                            .transaction_rejected(&tx_entry.transaction);
-                        }
-                    }
-                    _ = stop.cancelled() => {
-                        info!("index_tx_pool received exit signal, exit now");
-                        break
-                    },
-                    else => break,
-                }
-            }
-        });
+        pool.update(committed.clone(), &old_tip);
+        assert!(pool.is_consumed_by_pool_tx(&spent));
+        pool.update(committed, &new_tip);
+        assert!(!pool.is_consumed_by_pool_tx(&spent));
     }
 }

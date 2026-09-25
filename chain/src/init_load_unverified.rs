@@ -4,7 +4,7 @@ use ckb_constant::sync::BLOCK_DOWNLOAD_WINDOW;
 use ckb_db::{Direction, IteratorMode};
 use ckb_db_schema::COLUMN_NUMBER_HASH;
 use ckb_logger::{error, info};
-use ckb_shared::Shared;
+use ckb_shared::{Shared, Snapshot};
 use ckb_stop_handler::has_received_stop_signal;
 use ckb_store::ChainStore;
 use ckb_types::core::{BlockNumber, BlockView};
@@ -14,20 +14,26 @@ use std::cmp;
 use std::sync::Arc;
 use std::sync::atomic::AtomicBool;
 
+#[cfg(test)]
+#[path = "tests/init_load_unverified.rs"]
+mod tests;
+
 pub(crate) struct InitLoadUnverified {
-    shared: Shared,
+    snapshot: Snapshot,
     chain_controller: ChainController,
     is_verifying_unverified_blocks_on_startup: Arc<AtomicBool>,
 }
 
 impl InitLoadUnverified {
     pub(crate) fn new(
-        shared: Shared,
+        shared: &Shared,
         chain_controller: ChainController,
         is_verifying_unverified_blocks_on_startup: Arc<AtomicBool>,
     ) -> Self {
         InitLoadUnverified {
-            shared,
+            // Include every store write before service startup, even when the
+            // cached chain snapshot predates an unverified block's insertion.
+            snapshot: shared.snapshot().refresh(shared.store().get_snapshot()),
             chain_controller,
             is_verifying_unverified_blocks_on_startup,
         }
@@ -40,8 +46,7 @@ impl InitLoadUnverified {
         // If a block has `COLUMN_NUMBER_HASH` but not `BlockExt`,
         // it indicates an unverified block inserted during the last shutdown.
         let unverified_hashes: Vec<packed::Byte32> = self
-            .shared
-            .store()
+            .snapshot
             .get_iter(
                 COLUMN_NUMBER_HASH,
                 IteratorMode::From(prefix, Direction::Forward),
@@ -53,7 +58,7 @@ impl InitLoadUnverified {
 
                 reader.block_hash().to_entity()
             })
-            .filter(|hash| self.shared.store().get_block_ext(hash).is_none())
+            .filter(|hash| self.snapshot.get_block_ext(hash).is_none())
             .collect::<Vec<packed::Byte32>>();
         unverified_hashes
     }
@@ -61,8 +66,8 @@ impl InitLoadUnverified {
     pub(crate) fn start(&self) {
         info!(
             "finding unverified blocks, current tip: {}-{}",
-            self.shared.snapshot().tip_number(),
-            self.shared.snapshot().tip_hash()
+            self.snapshot.tip_number(),
+            self.snapshot.tip_hash()
         );
 
         self.find_and_verify_unverified_blocks();
@@ -76,10 +81,10 @@ impl InitLoadUnverified {
     where
         F: Fn(&packed::Byte32),
     {
-        let tip_number: BlockNumber = self.shared.snapshot().tip_number();
+        let tip_number: BlockNumber = self.snapshot.tip_number();
         let start_check_number = cmp::max(
             1,
-            tip_number.saturating_sub(EXPIRED_EPOCH * self.shared.consensus().max_epoch_length()),
+            tip_number.saturating_sub(EXPIRED_EPOCH * self.snapshot.consensus().max_epoch_length()),
         );
         let Some(end_check_number) = tip_number.checked_add(BLOCK_DOWNLOAD_WINDOW * 10) else {
             error!(
@@ -104,7 +109,7 @@ impl InitLoadUnverified {
                 info!(
                     "no unverified blocks found after tip, current tip: {}-{}",
                     tip_number,
-                    self.shared.snapshot().tip_hash()
+                    self.snapshot.tip_hash()
                 );
                 return;
             }
@@ -118,8 +123,7 @@ impl InitLoadUnverified {
     fn find_and_verify_unverified_blocks(&self) {
         self.find_unverified_blocks(|unverified_hash| {
             let unverified_block: BlockView = self
-                .shared
-                .store()
+                .snapshot
                 .get_block(unverified_hash)
                 .expect("unverified block must be in db");
 

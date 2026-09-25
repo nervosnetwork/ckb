@@ -1,0 +1,1082 @@
+//! Live owners, tracked reads and their shared synchronization primitives.
+//! [Plan] owns a prepared decision; [apply] keeps its preflight, coupled mutation,
+//! guard release and retirement together.
+mod apply;
+mod plan;
+mod shards;
+
+pub(super) use plan::{Edit, Plan, ReadSet};
+use shards::{
+    Guard, LockFootprint, Routing, SHARDS, ShardGuards, ShardIndex, Shards, proposal_key,
+};
+
+use super::{
+    budget::{Amount, Budget, Limits},
+    jobs::Job,
+    model::{DependencyKey, Entry, Error, FullReason, RelationKey},
+    notice::Outbox,
+    queue::{Queues, WorkSelection, WorkStage},
+};
+use crate::util::compact_packed;
+use ckb_app_config::TxPoolConfig;
+use ckb_network::PeerIndex;
+use ckb_snapshot::Snapshot;
+use ckb_types::{
+    packed::{Byte32, OutPoint, ProposalShortId},
+    prelude::*,
+};
+use ckb_util::parking_lot::{Mutex, RwLock};
+use std::{
+    collections::{BTreeMap, BTreeSet},
+    hash::Hash,
+    ops::Bound::{Excluded, Unbounded},
+    sync::{
+        Arc, Weak,
+        atomic::{AtomicBool, AtomicU64, Ordering},
+    },
+    time::Instant,
+};
+use tokio::sync::Notify;
+
+#[cfg(test)]
+#[path = "tests/concurrency.rs"]
+mod tests;
+
+#[cfg(test)]
+#[path = "tests/state_transitions.rs"]
+mod transition_tests;
+
+#[cfg(test)]
+type CommitObserver = Arc<dyn Fn(&Plan, bool) + Send + Sync>;
+
+const WAKE_PAGE: usize = 32;
+const COMMITTED_HASH_CACHE_CAPACITY: usize = 100_000;
+
+/// One owner's roles toward a dependency or parent. The spender is exclusive;
+/// the other roles share the relation's member map.
+#[derive(Clone, Copy, Default, PartialEq, Eq)]
+#[repr(transparent)]
+pub(super) struct Roles(u8);
+
+impl Roles {
+    pub(super) const NONE: Self = Self(0);
+    pub(super) const SPENDER: Self = Self(1);
+    pub(super) const DEPENDENCY: Self = Self(2);
+    pub(super) const WAITING: Self = Self(4);
+    pub(super) const CHILD: Self = Self(8);
+    pub(super) const READERS: Self = Self(Self::SPENDER.0 | Self::DEPENDENCY.0);
+    // Only these roles advance an existing row's accepted version.
+    const ACCEPTED: Self = Self(Self::READERS.0 | Self::CHILD.0);
+    const MEMBERS: Self = Self(Self::DEPENDENCY.0 | Self::WAITING.0 | Self::CHILD.0);
+
+    pub(super) fn intersects(self, other: Self) -> bool {
+        self.0 & other.0 != 0
+    }
+
+    fn intersection(self, other: Self) -> Self {
+        Self(self.0 & other.0)
+    }
+
+    fn is_empty(self) -> bool {
+        self == Self::NONE
+    }
+}
+
+impl std::ops::BitOr for Roles {
+    type Output = Self;
+
+    fn bitor(self, other: Self) -> Self {
+        Self(self.0 | other.0)
+    }
+}
+
+impl std::ops::BitOrAssign for Roles {
+    fn bitor_assign(&mut self, other: Self) {
+        *self = *self | other;
+    }
+}
+
+impl std::fmt::Debug for Roles {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_set()
+            .entries(
+                [
+                    (Self::SPENDER, "spender"),
+                    (Self::DEPENDENCY, "dependency"),
+                    (Self::WAITING, "waiting"),
+                    (Self::CHILD, "child"),
+                ]
+                .into_iter()
+                .filter_map(|(role, name)| self.intersects(role).then_some(name)),
+            )
+            .finish()
+    }
+}
+
+struct View {
+    snapshot: Arc<Snapshot>,
+    revision: u64,
+}
+#[derive(Default)]
+struct Shard {
+    owners: BTreeMap<Byte32, Arc<Entry>>,
+    proposals: BTreeMap<[u8; ProposalShortId::TOTAL_SIZE], Byte32>,
+    deadlines: BTreeSet<(Instant, Byte32)>,
+    accepted_times: BTreeSet<(u64, Byte32)>,
+    // Derived only by owner edits; proposed is refreshed with a new snapshot.
+    waiting: usize,
+    proposed: usize,
+    revision: u64,
+    accepted_revision: u64,
+}
+impl Shard {
+    fn proposal(&self, id: &ProposalShortId) -> Option<&Arc<Entry>> {
+        self.proposals
+            .get(id.as_slice())
+            .and_then(|hash| self.owners.get(hash))
+    }
+}
+pub(super) struct Summary {
+    pub(super) snapshot: Arc<Snapshot>,
+    pub(super) accepted: Amount,
+    pub(super) waiting: usize,
+    pub(super) proposed: usize,
+    pub(super) queued: usize,
+    pub(super) last_updated: u64,
+}
+
+/// One coherent owner population and its original observations, without guards.
+/// A caller's worker/handler/capture permit or fixed background task bounds the
+/// entire use of these values, including fields moved out. The sole template
+/// driver bounds its own captures by building one template at a time.
+pub(super) struct Captured {
+    pub(super) view: u64,
+    pub(super) snapshot: Arc<Snapshot>,
+    pub(super) owners: Vec<Arc<Entry>>,
+    pub(super) reads: ReadSet,
+}
+
+/// Position in the bounded reconstruction of current remote waiting owners.
+pub(super) struct MissingCursor {
+    view: u64,
+    shard: usize,
+    after: Option<Byte32>,
+}
+impl MissingCursor {
+    pub(super) fn new(view: u64) -> Self {
+        Self {
+            view,
+            shard: 0,
+            after: None,
+        }
+    }
+}
+
+pub(super) enum MissingPage {
+    Waiter(crate::service::TxVerificationResult),
+    Incomplete,
+    Exhausted,
+}
+
+#[derive(Clone, Debug)]
+struct Wake {
+    pass: u64,
+    after: Option<Byte32>,
+}
+#[derive(Debug)]
+struct RelationMember {
+    roles: Roles,
+    // A freshly registered current absence waits for a later availability
+    // event. A policy-only history cannot wake itself on its own removal.
+    wait_after_pass: u64,
+}
+
+impl RelationMember {
+    fn can_wake(&self, pass: u64) -> bool {
+        self.roles.intersects(Roles::WAITING) && pass > self.wait_after_pass
+    }
+}
+#[derive(Debug, Default)]
+struct Relation {
+    // The exclusive spender lives separately; members hold only Roles::MEMBERS.
+    members: BTreeMap<Byte32, RelationMember>,
+    spender: Option<Byte32>,
+    // Weak observations keep each retired marker allocation unique until the
+    // observer is gone. Shared member updates need no finite counter reserve.
+    accepted_version: Arc<()>,
+    wake: Option<Wake>,
+    next_pass: u64,
+}
+impl Relation {
+    /// The eligible suffix shared by page capture and completion.
+    fn wake_candidates(&self, pass: u64, after: Option<&Byte32>) -> impl Iterator<Item = &Byte32> {
+        self.members
+            .range((after.map_or(Unbounded, Excluded), Unbounded))
+            .filter_map(move |(hash, member)| member.can_wake(pass).then_some(hash))
+    }
+
+    fn roles(&self, hash: &Byte32) -> Roles {
+        self.members
+            .get(hash)
+            .map_or(Roles::NONE, |member| member.roles)
+            | if self.spender.as_ref() == Some(hash) {
+                Roles::SPENDER
+            } else {
+                Roles::NONE
+            }
+    }
+
+    fn is_empty(&self) -> bool {
+        self.spender.is_none() && self.members.is_empty() && self.wake.is_none()
+    }
+}
+#[derive(Debug, Default)]
+struct Peer {
+    members: BTreeSet<Byte32>,
+    version: Arc<()>,
+}
+
+#[derive(Clone)]
+pub(super) struct WakePage {
+    key: DependencyKey,
+    hashes: Vec<Byte32>,
+    row: Weak<Mutex<Relation>>,
+    pass: u64,
+    after: Option<Byte32>,
+}
+impl WakePage {
+    pub(super) fn key(&self) -> &DependencyKey {
+        &self.key
+    }
+
+    pub(super) fn hashes(&self) -> &[Byte32] {
+        &self.hashes
+    }
+}
+
+/// Nested acquisition order: view -> peer gates -> dependency gates -> owner
+/// shards -> short row/queue mutexes. Each gate/shard family is sorted by index.
+/// Relation and peer collections precede their row mutexes. Bookkeeping mutexes
+/// (budget, outbox, bans, committed hashes, dirty keys) must not acquire an
+/// earlier layer while held. Queue selection releases its lane before owners.
+/// New acquisition paths must fit this order; no authority guard spans await.
+pub(super) struct Store {
+    #[cfg(test)]
+    pub(super) commit_observer: Mutex<Option<CommitObserver>>,
+    #[cfg(test)]
+    pub(super) admission_attempts: AtomicU64,
+    view: RwLock<View>,
+    shards: Shards<RwLock<Shard>>,
+    relations: Shards<Mutex<BTreeMap<RelationKey, Arc<Mutex<Relation>>>>>,
+    dependency_gates: Shards<RwLock<()>>,
+    peer_gates: Shards<RwLock<()>>,
+    peers: Mutex<BTreeMap<PeerIndex, Arc<Mutex<Peer>>>>,
+    bans: Mutex<BTreeMap<PeerIndex, Instant>>,
+    committed: Mutex<lru::LruCache<ProposalShortId, Byte32>>,
+    dirty: Mutex<BTreeSet<DependencyKey>>,
+    routing: Routing,
+    arrival: AtomicU64,
+    stopped: AtomicBool,
+    chain_pending: AtomicBool,
+    faulted: Arc<AtomicBool>,
+    pub(super) budget: Arc<Budget>,
+    pub(super) outbox: Arc<Outbox>,
+    queues: Queues,
+    pub(super) changed: Notify,
+    pub(super) template_changed: Notify,
+    pub(super) work: Notify,
+}
+
+/// The sole reliable chain consumer temporarily prevents new owner commits
+/// while preparing its bounded pure reconciliation. In-flight cuts finish;
+/// ordinary work waits outside guards and resumes when this pause is dropped.
+/// Normal reconciliation holds the pause through publication of the new view.
+pub(super) struct ChainPause<'a>(&'a Store);
+impl Drop for ChainPause<'_> {
+    fn drop(&mut self) {
+        self.0.chain_pending.store(false, Ordering::Release);
+        self.0.work.notify_waiters();
+        self.0.changed.notify_waiters();
+    }
+}
+/// Guard support for one decision. Tracked reads use the same routing in Apply
+/// and guarded publication; owner writes and lifecycle work extend Apply's
+/// footprint. Write requests only upgrade reads, and each family is acquired
+/// in shard order.
+#[derive(Default)]
+struct CommitLocks {
+    owners: LockFootprint,
+    dependencies: LockFootprint,
+    peers: LockFootprint,
+}
+impl CommitLocks {
+    fn for_reads(store: &Store, reads: &ReadSet) -> Self {
+        let mut locks = Self::default();
+        locks.add_reads(store, reads);
+        locks
+    }
+
+    fn add_reads(&mut self, store: &Store, reads: &ReadSet) {
+        // A new observation kind must declare its protection here too.
+        let ReadSet {
+            owners,
+            spenders,
+            relations,
+            peers,
+            all,
+            accepted,
+        } = reads;
+        for hash in owners.keys() {
+            self.owners.insert(store.owner_shard(hash), false);
+        }
+        if all.is_some() || accepted.is_some() {
+            for index in ShardIndex::all() {
+                self.owners.insert(index, false);
+            }
+        }
+        for point in spenders.keys() {
+            self.dependencies.insert(
+                store.route(&RelationKey::Dependency(DependencyKey::Cell(point.clone()))),
+                false,
+            );
+        }
+        for key in relations.keys() {
+            self.dependencies.insert(store.route(key), true);
+        }
+        for peer in peers.keys() {
+            self.peers.insert(store.route(peer), true);
+        }
+    }
+
+    fn complete_for_plan(&mut self, store: &Store, plan: &Plan) {
+        if plan.lifecycle.is_some() {
+            // The lifecycle writer already excludes ordinary commits. Refresh
+            // proposal counts for unchanged owners in the same snapshot cut.
+            for index in ShardIndex::all() {
+                self.owners.insert(index, true);
+            }
+        }
+        self.add_reads(store, &plan.reads);
+        if let Some((peer, _)) = plan.peer_access {
+            self.peers.insert(store.route(&peer), false);
+        }
+        if let Some((peer, _)) = plan.ban {
+            self.peers.insert(store.route(&peer), true);
+        }
+        for key in &plan.wake {
+            self.dependencies
+                .insert(store.route(&RelationKey::Dependency(key.clone())), true);
+        }
+        if let Some(page) = &plan.wake_advance {
+            self.dependencies.insert(
+                store.route(&RelationKey::Dependency(page.key.clone())),
+                true,
+            );
+        }
+    }
+}
+
+fn compact_dependency(key: &DependencyKey) -> DependencyKey {
+    match key {
+        DependencyKey::Cell(point) => DependencyKey::Cell(compact_packed(point)),
+        DependencyKey::Header(hash) => DependencyKey::Header(compact_packed(hash)),
+    }
+}
+
+fn compact_relation(key: &RelationKey) -> RelationKey {
+    match key {
+        RelationKey::Dependency(key) => RelationKey::Dependency(compact_dependency(key)),
+        RelationKey::Children(hash) => RelationKey::Children(compact_packed(hash)),
+    }
+}
+
+impl Store {
+    pub(super) fn new(snapshot: Arc<Snapshot>, config: &TxPoolConfig) -> Result<Arc<Self>, Error> {
+        let limits = Limits::new(config, snapshot.consensus())?;
+        Self::with_limits(snapshot, config, limits)
+    }
+
+    pub(super) fn with_limits(
+        snapshot: Arc<Snapshot>,
+        config: &TxPoolConfig,
+        limits: Limits,
+    ) -> Result<Arc<Self>, Error> {
+        let faulted = Arc::new(AtomicBool::new(false));
+        let outbox = Outbox::new(&limits, Arc::clone(&faulted))?;
+        Ok(Arc::new(Self {
+            #[cfg(test)]
+            commit_observer: Mutex::new(None),
+            #[cfg(test)]
+            admission_attempts: AtomicU64::new(0),
+            view: RwLock::new(View {
+                snapshot,
+                revision: 0,
+            }),
+            shards: Shards::new(|| RwLock::new(Shard::default())),
+            relations: Shards::new(|| Mutex::new(BTreeMap::new())),
+            dependency_gates: Shards::new(|| RwLock::new(())),
+            peer_gates: Shards::new(|| RwLock::new(())),
+            peers: Mutex::new(BTreeMap::new()),
+            bans: Mutex::new(BTreeMap::new()),
+            committed: Mutex::new(lru::LruCache::new(COMMITTED_HASH_CACHE_CAPACITY)),
+            dirty: Mutex::new(BTreeSet::new()),
+            routing: Routing::default(),
+            arrival: AtomicU64::new(0),
+            stopped: AtomicBool::new(false),
+            chain_pending: AtomicBool::new(false),
+            faulted,
+            budget: Budget::new(limits),
+            outbox,
+            queues: Queues::new(config.verify_ordering, config.max_tx_verify_cycles),
+            changed: Notify::new(),
+            template_changed: Notify::new(),
+            work: Notify::new(),
+        }))
+    }
+
+    fn route<T: Hash + ?Sized>(&self, key: &T) -> ShardIndex {
+        self.routing.key(key)
+    }
+
+    fn owner_shard(&self, hash: &Byte32) -> ShardIndex {
+        self.routing.owner(hash)
+    }
+
+    pub(super) fn begin_chain(&self) -> Result<ChainPause<'_>, Error> {
+        self.chain_pending
+            .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
+            .map_err(|_| Error::Full(FullReason::ChainTransition))?;
+        Ok(ChainPause(self))
+    }
+
+    pub(super) fn snapshot(&self) -> (u64, Arc<Snapshot>) {
+        let view = self.view.read();
+        (view.revision, Arc::clone(&view.snapshot))
+    }
+
+    pub(super) fn next_arrival(&self) -> Result<u64, Error> {
+        self.arrival
+            .fetch_update(Ordering::AcqRel, Ordering::Acquire, |old| {
+                old.checked_add(1)
+            })
+            .map_err(|_| {
+                self.fault();
+                Error::Fault("arrival counter")
+            })
+    }
+
+    pub(super) fn fault(&self) {
+        if !self.faulted.swap(true, Ordering::AcqRel) {
+            crate::metrics::record_failure(crate::metrics::FailureBoundary::TypedFault);
+        }
+        self.changed.notify_waiters();
+        self.template_changed.notify_waiters();
+        self.work.notify_waiters();
+        self.outbox.failed.notify_waiters();
+        self.outbox.changed.notify_waiters();
+    }
+
+    pub(super) fn is_faulted(&self) -> bool {
+        self.faulted.load(Ordering::Acquire) || self.budget.faulted()
+    }
+
+    pub(super) fn stop(&self) {
+        self.stopped.store(true, Ordering::Release);
+        self.work.notify_waiters();
+        self.changed.notify_waiters();
+        self.template_changed.notify_waiters();
+    }
+
+    pub(super) fn is_stopped(&self) -> bool {
+        self.stopped.load(Ordering::Acquire)
+    }
+
+    #[expect(
+        clippy::arithmetic_side_effects,
+        reason = "The cursor and scan count advance only within the bounded scan."
+    )]
+    pub(super) fn next_missing(&self, cursor: &mut MissingCursor, maximum: usize) -> MissingPage {
+        use std::ops::Bound::{Excluded, Unbounded};
+        let view = self.view.read();
+        if cursor.view != view.revision {
+            *cursor = MissingCursor::new(view.revision);
+        }
+        let mut scanned = 0;
+        while let Some(shard) = self.shards.at_position(cursor.shard) {
+            let shard = shard.read();
+            let lower = cursor.after.as_ref().map_or(Unbounded, Excluded);
+            for (hash, entry) in shard.owners.range((lower, Unbounded)) {
+                cursor.after = Some(hash.clone());
+                scanned += 1;
+                if let Some(result) = super::relay::unknown_parents(entry) {
+                    return MissingPage::Waiter(result);
+                }
+                if scanned == maximum {
+                    return MissingPage::Incomplete;
+                }
+            }
+            cursor.shard += 1;
+            cursor.after = None;
+        }
+        MissingPage::Exhausted
+    }
+
+    pub(super) fn peer_banned(&self, peer: PeerIndex) -> bool {
+        self.bans
+            .lock()
+            .get(&peer)
+            .is_some_and(|until| *until > Instant::now())
+    }
+
+    pub(super) fn point(&self, hash: &Byte32) -> (Arc<Snapshot>, Option<Arc<Entry>>) {
+        let view = self.view.read();
+        let shard = self.shards.at(self.owner_shard(hash)).read();
+        (Arc::clone(&view.snapshot), shard.owners.get(hash).cloned())
+    }
+
+    /// Instantaneous identity check after queue selection. Prepared decisions
+    /// still need their original ReadSet validated at commit.
+    pub(super) fn is_current(&self, entry: &Arc<Entry>) -> bool {
+        let hash = entry.hash();
+        let _view = self.view.read();
+        let shard = self.shards.at(self.owner_shard(&hash)).read();
+        shard
+            .owners
+            .get(&hash)
+            .is_some_and(|current| Arc::ptr_eq(current, entry))
+    }
+
+    pub(super) fn points(&self, hashes: &[Byte32]) -> Vec<Arc<Entry>> {
+        let mut footprint = LockFootprint::default();
+        for hash in hashes {
+            footprint.insert(self.owner_shard(hash), false);
+        }
+        let _view = self.view.read();
+        let owners = self.shards.acquire(&footprint);
+        hashes
+            .iter()
+            .filter_map(|hash| {
+                owners
+                    .get(self.owner_shard(hash))
+                    .and_then(|shard| shard.owners.get(hash))
+                    .cloned()
+            })
+            .collect()
+    }
+
+    /// Filter IDs already owned by any pool phase at one coherent cut. Keep
+    /// unknown and committed-only IDs in their input order, including repeats.
+    pub(super) fn filter_fresh_proposals(
+        &self,
+        mut ids: Vec<ProposalShortId>,
+    ) -> Vec<ProposalShortId> {
+        let mut footprint = LockFootprint::default();
+        for id in &ids {
+            footprint.insert(self.route(id), false);
+        }
+        let _view = self.view.read();
+        let owners = self.shards.acquire(&footprint);
+        ids.retain(|id| {
+            owners
+                .get(self.route(id))
+                .and_then(|shard| shard.proposal(id))
+                .is_none()
+        });
+        ids
+    }
+
+    #[expect(
+        clippy::type_complexity,
+        reason = "One coherent lookup returns live owners and committed hashes with their chain snapshot."
+    )]
+    pub(super) fn compact_lookup(
+        &self,
+        ids: &[ProposalShortId],
+    ) -> (
+        Arc<Snapshot>,
+        Vec<(ProposalShortId, Arc<Entry>)>,
+        Vec<(ProposalShortId, Byte32)>,
+    ) {
+        let mut footprint = LockFootprint::default();
+        for id in ids {
+            footprint.insert(self.route(id), false);
+        }
+        let view = self.view.read();
+        let owners = self.shards.acquire(&footprint);
+        let mut live = Vec::with_capacity(ids.len());
+        let mut committed = Vec::with_capacity(ids.len());
+        let cache = self.committed.lock();
+        for id in ids {
+            let shard = owners.get(self.route(id));
+            if let Some(entry) = shard.and_then(|shard| shard.proposal(id)) {
+                live.push((id.clone(), Arc::clone(entry)));
+            } else if let Some(hash) = cache.peek(id) {
+                committed.push((id.clone(), hash.clone()));
+            }
+        }
+        (Arc::clone(&view.snapshot), live, committed)
+    }
+
+    pub(super) fn live_cell(
+        &self,
+        point: &OutPoint,
+        with_data: bool,
+    ) -> (Arc<Snapshot>, Option<ckb_types::core::cell::CellStatus>) {
+        use ckb_types::{
+            bytes::Bytes,
+            core::cell::{CellMeta, CellStatus},
+        };
+        let view = self.view.read();
+        let key = RelationKey::Dependency(DependencyKey::Cell(point.clone()));
+        let _dependency = self.dependency_gates.at(self.route(&key)).read();
+        let shard = self.shards.at(self.owner_shard(&point.tx_hash())).read();
+        let snapshot = Arc::clone(&view.snapshot);
+        if self
+            .relation(&key)
+            .is_some_and(|row| row.lock().spender.is_some())
+        {
+            return (snapshot, Some(CellStatus::Unknown));
+        }
+        let Some(owner) = shard
+            .owners
+            .get(&point.tx_hash())
+            .filter(|entry| entry.accepted().is_some())
+        else {
+            return (snapshot, None);
+        };
+        let index: u32 = point.index().unpack();
+        let Some((output, data)) = owner.transaction.output_with_data(index as usize) else {
+            return (snapshot, None);
+        };
+        let output =
+            ckb_types::packed::CellOutput::new_unchecked(Bytes::copy_from_slice(output.as_slice()));
+        (
+            snapshot,
+            Some(CellStatus::Live(CellMeta {
+                cell_output: output,
+                out_point: compact_packed(point),
+                data_bytes: data.len() as u64,
+                mem_cell_data: with_data.then(|| Bytes::copy_from_slice(&data)),
+                mem_cell_data_hash: with_data
+                    .then(|| ckb_types::packed::CellOutput::calc_data_hash(&data)),
+                transaction_info: None,
+            })),
+        )
+    }
+
+    pub(super) fn get(
+        &self,
+        hash: &Byte32,
+        reads: &mut ReadSet,
+    ) -> Result<Option<Arc<Entry>>, Error> {
+        let _view = self.view.read();
+        let entry = self
+            .shards
+            .at(self.owner_shard(hash))
+            .read()
+            .owners
+            .get(hash)
+            .cloned();
+        reads.observe_owner(hash, entry.as_ref())?;
+        Ok(entry)
+    }
+
+    /// Copy one bounded pool cell while its producer still owns its complete
+    /// payload charge. Data is present and its length metadata comes from the
+    /// same copy. No provider or foreign code is called under this read.
+    pub(super) fn pool_cell(
+        &self,
+        point: &OutPoint,
+        byte_limit: usize,
+        reads: &mut ReadSet,
+    ) -> Result<Option<ckb_types::core::cell::CellMeta>, Error> {
+        use ckb_types::{bytes::Bytes, core::cell::CellMetaBuilder};
+        let _view = self.view.read();
+        let shard = self.shards.at(self.owner_shard(&point.tx_hash())).read();
+        let owner = shard.owners.get(&point.tx_hash());
+        reads.observe_owner(&point.tx_hash(), owner)?;
+        let Some(owner) = owner.filter(|entry| entry.accepted().is_some()) else {
+            return Ok(None);
+        };
+        let index: u32 = point.index().unpack();
+        let Some((output, data)) = owner.transaction.output_with_data(index as usize) else {
+            return Ok(None);
+        };
+        let bytes = output
+            .total_size()
+            .checked_add(data.len())
+            .and_then(|b| b.checked_add(256))
+            .ok_or(Error::Full("pool cell arithmetic".into()))?;
+        if bytes > byte_limit {
+            return Err(Error::Full("pool cell materialization".into()));
+        }
+        let output =
+            ckb_types::packed::CellOutput::new_unchecked(Bytes::copy_from_slice(output.as_slice()));
+        let data = Bytes::copy_from_slice(&data);
+        Ok(Some(
+            CellMetaBuilder::from_cell_output(output, data)
+                .out_point(compact_packed(point))
+                .build(),
+        ))
+    }
+
+    fn relation(&self, key: &RelationKey) -> Option<Arc<Mutex<Relation>>> {
+        self.relations.at(self.route(key)).lock().get(key).cloned()
+    }
+
+    pub(super) fn spender(
+        &self,
+        point: &OutPoint,
+        reads: &mut ReadSet,
+    ) -> Result<Option<Byte32>, Error> {
+        let key = RelationKey::Dependency(DependencyKey::Cell(point.clone()));
+        let row = self.relation(&key);
+        let spender = row.as_ref().and_then(|row| row.lock().spender.clone());
+        reads.observe_spender(point, &spender)?;
+        Ok(spender)
+    }
+
+    /// Owners holding any selected role, including the separately stored spender.
+    /// Waiting-only edits preserve an existing row's accepted version. Creating
+    /// or removing the row can still invalidate an empty observation.
+    fn members(
+        &self,
+        key: &RelationKey,
+        roles: Roles,
+        reads: &mut ReadSet,
+    ) -> Result<Vec<Byte32>, Error> {
+        let row = self.relation(key);
+        let (version, members) = row.as_ref().map_or((None, Vec::new()), |row| {
+            let row = row.lock();
+            let mut members: Vec<_> = row
+                .members
+                .iter()
+                .filter(|(_, member)| member.roles.intersects(roles))
+                .map(|(hash, _)| hash.clone())
+                .collect();
+            if roles.intersects(Roles::SPENDER)
+                && let Some(spender) = &row.spender
+                && let Err(index) = members.binary_search(spender)
+            {
+                members.insert(index, spender.clone());
+            }
+            (Some(Arc::downgrade(&row.accepted_version)), members)
+        });
+        reads.observe_relation(key, version)?;
+        Ok(members)
+    }
+
+    pub(super) fn peer_members(
+        &self,
+        peer: PeerIndex,
+        reads: &mut ReadSet,
+    ) -> Result<Vec<Byte32>, Error> {
+        let row = self.peers.lock().get(&peer).cloned();
+        let (version, hashes) = row.as_ref().map_or((None, Vec::new()), |row| {
+            let row = row.lock();
+            (
+                Some(Arc::downgrade(&row.version)),
+                row.members.iter().cloned().collect(),
+            )
+        });
+        reads.observe_peer(peer, version)?;
+        Ok(hashes)
+    }
+
+    pub(super) fn capture_all(&self) -> Captured {
+        self.capture(false)
+    }
+
+    pub(super) fn capture_accepted(&self) -> Captured {
+        self.capture(true)
+    }
+
+    fn capture(&self, accepted_only: bool) -> Captured {
+        #[cfg(feature = "profiling")]
+        let _span =
+            tracing::trace_span!(target: "ckb_tx_pool_profile", "tx_pool.authority.capture")
+                .entered();
+        let view = self.view.read();
+        let guards = self.shards.read_all();
+        let versions = guards.map(|shard| {
+            if accepted_only {
+                shard.accepted_revision
+            } else {
+                shard.revision
+            }
+        });
+        let entries = guards
+            .iter()
+            .flat_map(|shard| shard.owners.values())
+            .filter(|entry| !accepted_only || entry.accepted().is_some())
+            .cloned()
+            .collect();
+        let reads = if accepted_only {
+            ReadSet {
+                accepted: Some(Box::new(versions)),
+                ..ReadSet::default()
+            }
+        } else {
+            ReadSet {
+                all: Some(Box::new(versions)),
+                ..ReadSet::default()
+            }
+        };
+        Captured {
+            view: view.revision,
+            snapshot: Arc::clone(&view.snapshot),
+            owners: entries,
+            reads,
+        }
+    }
+
+    /// Capture one accepted descendant closure at a coherent cut. Every child
+    /// membership update holds an owner writer, so these read guards stabilize
+    /// the existing relation rows too. Caller owns a bounded read/capture slot.
+    #[expect(
+        clippy::arithmetic_side_effects,
+        reason = "The cursor visits each captured owner once and cannot exceed the bounded Vec length."
+    )]
+    pub(super) fn capture_descendants(
+        &self,
+        hash: &Byte32,
+    ) -> Result<(Arc<Snapshot>, Vec<Arc<Entry>>), Error> {
+        let view = self.view.read();
+        let guards = self.shards.read_all();
+        let snapshot = Arc::clone(&view.snapshot);
+        let Some(root) = guards
+            .at(self.owner_shard(hash))
+            .owners
+            .get(hash)
+            .filter(|entry| entry.accepted().is_some())
+        else {
+            return Ok((snapshot, Vec::new()));
+        };
+        let mut owners = vec![Arc::clone(root)];
+        let mut seen = BTreeSet::from([hash.clone()]);
+        let mut cursor = 0;
+        while let Some(parent) = owners.get(cursor) {
+            if let Some(row) = self.relation(&RelationKey::Children(parent.hash())) {
+                let row = row.lock();
+                for (hash, member) in &row.members {
+                    if member.roles.intersects(Roles::CHILD) && seen.insert(hash.clone()) {
+                        let child = guards
+                            .at(self.owner_shard(hash))
+                            .owners
+                            .get(hash)
+                            .filter(|entry| entry.accepted().is_some())
+                            .ok_or(Error::Fault("accepted descendant projection"))?;
+                        owners.push(Arc::clone(child));
+                    }
+                }
+            }
+            cursor += 1;
+        }
+        Ok((snapshot, owners))
+    }
+
+    /// Owner reservations settle before their guards open, so the accepted
+    /// account and owner/queue projections describe this same complete cut.
+    pub(super) fn capture_summary(&self) -> Summary {
+        #[cfg(feature = "profiling")]
+        let _span =
+            tracing::trace_span!(target: "ckb_tx_pool_profile", "tx_pool.authority.capture")
+                .entered();
+        let view = self.view.read();
+        let guards = self.shards.read_all();
+        Summary {
+            snapshot: Arc::clone(&view.snapshot),
+            accepted: self.budget.accepted_usage(),
+            waiting: guards.iter().map(|shard| shard.waiting).sum(),
+            proposed: guards.iter().map(|shard| shard.proposed).sum(),
+            queued: self.queues.queued_len(),
+            last_updated: guards
+                .iter()
+                .filter_map(|shard| shard.accepted_times.last().map(|(time, _)| *time))
+                .max()
+                .unwrap_or(0),
+        }
+    }
+
+    /// Validate captured facts before bounded synchronous publication, including
+    /// candidate pruning and replacement of the current template.
+    /// Supports point owners/spenders and complete owner revision captures;
+    /// relation and peer membership need the additional guards owned by Apply.
+    /// The closure must not perform I/O, callbacks, allocation or await. Removed
+    /// output is returned to the caller for destruction after all guards open.
+    pub(super) fn read_selected<R>(
+        &self,
+        view: u64,
+        reads: &ReadSet,
+        publish: impl FnOnce() -> R,
+    ) -> Result<R, Error> {
+        if !reads.relations.is_empty() || !reads.peers.is_empty() {
+            return Err(Error::Fault("non-point selected read"));
+        }
+        let locks = CommitLocks::for_reads(self, reads);
+        let current = self.view.read();
+        let _dependencies = self.dependency_gates.acquire(&locks.dependencies);
+        let owners = self.shards.acquire(&locks.owners);
+        if self.is_faulted() {
+            return Err(Error::Fault("closed generation"));
+        }
+        if current.revision != view {
+            return Err(Error::Stale);
+        }
+        self.validate_reads(reads, &owners)?;
+        Ok(publish())
+    }
+
+    pub(super) fn pop(
+        self: &Arc<Self>,
+        stage: WorkStage,
+        selection: WorkSelection,
+    ) -> Result<Option<Job>, Error> {
+        if self.is_stopped() {
+            return Ok(None);
+        }
+        if self.chain_pending.load(Ordering::Acquire) {
+            return Ok(None);
+        }
+        let Some((entry, memory)) = self.queues.pop(stage, selection, &self.budget)? else {
+            return Ok(None);
+        };
+        // Pop released the lane. A concurrent successor owns its own queue
+        // item; discard this old selection without touching that projection.
+        let (view, _) = self.snapshot();
+        if self.is_current(&entry) {
+            Ok(Some(Job::new(Arc::clone(self), entry, view, memory)))
+        } else {
+            Ok(None)
+        }
+    }
+
+    pub(super) fn wake_page(&self, cursor: &mut Option<DependencyKey>) -> Option<WakePage> {
+        let key = {
+            let dirty = self.dirty.lock();
+            cursor
+                .as_ref()
+                .and_then(|after| dirty.range((Excluded(after), Unbounded)).next())
+                .or_else(|| dirty.first())?
+                .clone()
+        };
+        // Rotate even when this row disappears or the prepared page goes stale.
+        // Never retain the dirty-key guard while taking a relation guard.
+        *cursor = Some(key.clone());
+        let relation_key = RelationKey::Dependency(key.clone());
+        let row = self.relation(&relation_key)?;
+        let relation = row.lock();
+        let wake = relation.wake.as_ref()?;
+        let hashes = relation
+            .wake_candidates(wake.pass, wake.after.as_ref())
+            .take(WAKE_PAGE)
+            .cloned()
+            .collect::<Vec<_>>();
+        let after = hashes.last().cloned().or_else(|| wake.after.clone());
+        Some(WakePage {
+            key,
+            hashes,
+            row: Arc::downgrade(&row),
+            pass: wake.pass,
+            after,
+        })
+    }
+
+    pub(super) fn expired(
+        &self,
+        now: Instant,
+        accepted_before: u64,
+        max: usize,
+    ) -> Vec<Arc<Entry>> {
+        if max == 0 {
+            return Vec::new();
+        }
+        let _view = self.view.read();
+        let mut result = Vec::new();
+        for shard in self.shards.iter() {
+            let shard = shard.read();
+            for (_, hash) in shard.deadlines.iter().take_while(|(at, _)| *at <= now) {
+                if let Some(entry) = shard.owners.get(hash) {
+                    result.push(Arc::clone(entry));
+                    if result.len() == max {
+                        return result;
+                    }
+                }
+            }
+            for (_, hash) in shard
+                .accepted_times
+                .iter()
+                .take_while(|(at, _)| *at < accepted_before)
+            {
+                if let Some(entry) = shard.owners.get(hash) {
+                    result.push(Arc::clone(entry));
+                    if result.len() == max {
+                        return result;
+                    }
+                }
+            }
+        }
+        result
+    }
+
+    fn validate_reads(
+        &self,
+        reads: &ReadSet,
+        guards: &ShardGuards<'_, Shard>,
+    ) -> Result<(), Error> {
+        fn matches_current<T>(expected: &Option<Weak<T>>, current: Option<&Arc<T>>) -> bool {
+            // The retained Weak keeps its allocation identity from being reused,
+            // even after the original value is gone. No temporary Weak is needed.
+            expected.as_ref().map(Weak::as_ptr) == current.map(Arc::as_ptr)
+        }
+
+        let ReadSet {
+            owners,
+            spenders,
+            relations,
+            peers,
+            all,
+            accepted,
+        } = reads;
+        for (hash, expected) in owners {
+            let shard = guards
+                .get(self.owner_shard(hash))
+                .ok_or(Error::Fault("owner read support"))?;
+            if !matches_current(expected, shard.owners.get(hash)) {
+                return Err(Error::Stale);
+            }
+        }
+        for (index, shard) in guards.iter() {
+            if all
+                .as_ref()
+                .is_some_and(|versions| *versions.at(index) != shard.revision)
+                || accepted
+                    .as_ref()
+                    .is_some_and(|versions| *versions.at(index) != shard.accepted_revision)
+            {
+                return Err(Error::Stale);
+            }
+        }
+        for (point, expected) in spenders {
+            let row = self.relation(&RelationKey::Dependency(DependencyKey::Cell(point.clone())));
+            if row.as_ref().and_then(|row| row.lock().spender.clone()) != *expected {
+                return Err(Error::Stale);
+            }
+        }
+        for (key, expected) in relations {
+            let row = self.relation(key);
+            let row = row.as_ref().map(|row| row.lock());
+            if !matches_current(expected, row.as_ref().map(|row| &row.accepted_version)) {
+                return Err(Error::Stale);
+            }
+        }
+        for (peer, expected) in peers {
+            let row = self.peers.lock().get(peer).cloned();
+            let row = row.as_ref().map(|row| row.lock());
+            if !matches_current(expected, row.as_ref().map(|row| &row.version)) {
+                return Err(Error::Stale);
+            }
+        }
+        Ok(())
+    }
+}

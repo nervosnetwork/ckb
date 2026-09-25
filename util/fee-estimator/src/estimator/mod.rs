@@ -13,6 +13,7 @@ use crate::{Error, constants};
 
 mod confirmation_fraction;
 mod weight_units_flow;
+pub use weight_units_flow::FeeSample;
 
 /// The fee estimator with a chosen algorithm.
 #[derive(Clone)]
@@ -88,7 +89,7 @@ impl FeeEstimator {
         }
     }
 
-    /// Estimates fee rate.
+    /// Estimates fee rate from the public tx-pool entry projection.
     pub fn estimate_fee_rate(
         &self,
         estimate_mode: EstimateMode,
@@ -102,5 +103,60 @@ impl FeeEstimator {
                 algo.read().estimate_fee_rate(target_blocks, all_entry_info)
             }
         }
+    }
+
+    /// Estimates fee rate, collecting current-pool samples only when needed.
+    pub fn estimate_fee_rate_with_samples(
+        &self,
+        estimate_mode: EstimateMode,
+        current_txs: impl FnOnce() -> Vec<FeeSample>,
+    ) -> Result<FeeRate, Error> {
+        let target_blocks = Self::target_blocks_for_estimate_mode(estimate_mode);
+        match self {
+            Self::Dummy => Err(Error::Dummy),
+            Self::ConfirmationFraction(algo) => algo.read().estimate_fee_rate(target_blocks),
+            Self::WeightUnitsFlow(algo) => {
+                let current_txs = current_txs();
+                algo.read()
+                    .estimate_fee_rate_with_samples(target_blocks, current_txs)
+            }
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::cell::Cell;
+
+    #[test]
+    fn only_weight_units_flow_requests_current_pool_samples() {
+        let projection = TxPoolEntryInfo {
+            pending: Default::default(),
+            proposed: Default::default(),
+            conflicted: Vec::new(),
+        };
+        assert_eq!(
+            FeeEstimator::new_dummy().estimate_fee_rate(EstimateMode::NoPriority, projection),
+            Err(Error::Dummy)
+        );
+        for estimator in [
+            FeeEstimator::new_dummy(),
+            FeeEstimator::new_confirmation_fraction(),
+        ] {
+            let _ = estimator.estimate_fee_rate_with_samples(EstimateMode::NoPriority, || {
+                panic!("this algorithm does not use current-pool samples")
+            });
+        }
+        let calls = Cell::new(0);
+        let estimator = FeeEstimator::new_weight_units_flow();
+        assert_eq!(
+            estimator.estimate_fee_rate_with_samples(EstimateMode::NoPriority, || {
+                calls.set(calls.get() + 1);
+                Vec::new()
+            }),
+            Err(Error::NotReady)
+        );
+        assert_eq!(calls.get(), 1);
     }
 }

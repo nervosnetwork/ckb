@@ -642,21 +642,17 @@ pub fn get_related_dep_out_points<F: Fn(&OutPoint) -> Option<Bytes>>(
     )
 }
 
-fn parse_dep_group_data(slice: &[u8]) -> Result<OutPointVec, String> {
+/// Parse the canonical dep-group payload: a valid, nonempty `OutPointVec`.
+/// Resolution and pool missing-dependency discovery share this validity rule.
+pub fn parse_dep_group_data(slice: &[u8]) -> Result<OutPointVec, String> {
     if slice.is_empty() {
-        Err("data is empty".to_owned())
-    } else {
-        match OutPointVec::from_slice(slice) {
-            Ok(v) => {
-                if v.is_empty() {
-                    Err("dep group is empty".to_owned())
-                } else {
-                    Ok(v)
-                }
-            }
-            Err(err) => Err(err.to_string()),
-        }
+        return Err("data is empty".to_owned());
     }
+    let points = OutPointVec::from_slice(slice).map_err(|error| error.to_string())?;
+    if points.is_empty() {
+        return Err("dep group is empty".to_owned());
+    }
+    Ok(points)
 }
 
 fn resolve_dep_group<F: FnMut(&OutPoint, bool) -> Result<CellMeta, OutPointError>>(

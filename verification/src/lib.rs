@@ -23,7 +23,7 @@ pub use crate::header_verifier::HeaderVerifier;
 pub use crate::transaction_verifier::{
     CapacityVerifier, ContextualTransactionVerifier, DaoScriptSizeVerifier,
     NonContextualTransactionVerifier, ScriptVerifier, Since, SinceMetric,
-    TimeRelativeTransactionVerifier,
+    TimeRelativeTransactionVerifier, transaction_depends_on_time,
 };
 pub use ckb_script::{
     ScriptError, ScriptGroupType, TransactionState as ScriptVerifyState, TxVerifyEnv,

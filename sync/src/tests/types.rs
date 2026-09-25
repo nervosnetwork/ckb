@@ -114,3 +114,38 @@ fn ttl_filter() {
     assert!(!filter.contains(&1));
     assert!(filter.contains(&2));
 }
+
+#[test]
+fn ttl_filter_reinsert_preserves_public_membership_expiration_and_lru_contracts() {
+    let clock = ckb_systemtime::faketime();
+    clock.set_faketime(0);
+    let mut filter = TtlFilter::new(2, 3);
+    assert!(filter.insert(1));
+    clock.set_faketime(1_000);
+    assert!(filter.insert(2));
+    clock.set_faketime(2_000);
+    assert!(!filter.insert(1), "reinsert reports an existing item");
+    assert!(filter.contains(&2), "contains does not promote the item");
+    assert!(filter.insert(3));
+    assert!(
+        !filter.contains(&2),
+        "insert refreshes LRU, contains does not"
+    );
+    clock.set_faketime(5_000);
+    filter.remove_expired();
+    assert!(
+        filter.contains(&1),
+        "reinsert refreshes TTL and expiry is strict"
+    );
+    assert!(filter.contains(&3));
+    clock.set_faketime(6_000);
+    filter.remove_expired();
+    assert!(!filter.contains(&1));
+    assert!(!filter.contains(&3));
+    assert!(filter.insert(4));
+    assert!(filter.remove(&4));
+    assert!(!filter.remove(&4));
+    assert!(filter.insert(5));
+    filter.clear();
+    assert!(!filter.contains(&5));
+}

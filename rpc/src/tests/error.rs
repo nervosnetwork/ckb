@@ -1,5 +1,5 @@
 use ckb_dao_utils::DaoError;
-use ckb_error::Error as CKBError;
+use ckb_error::{Error as CKBError, InternalErrorKind};
 use ckb_tx_pool::error::Reject;
 use ckb_types::{
     core::{FeeRate, error::OutPointError},
@@ -61,10 +61,44 @@ fn test_submit_transaction_error() {
 }
 
 #[test]
+fn network_verification_timeout_in_local_rpc_is_an_internal_error() {
+    assert_eq!(
+        serde_json::to_value(RPCError::from_submit_transaction_reject(
+            &Reject::ExcessiveVerifyTime
+        ))
+        .unwrap(),
+        serde_json::json!({
+            "code": -1,
+            "message": "CKBInternalError: local submission unexpectedly exhausted a network verification budget",
+            "data": "ExcessiveVerifyTime"
+        })
+    );
+    assert_eq!(
+        serde_json::to_value(RPCError::from_submit_transaction_reject(&Reject::Full(
+            "capacity".to_owned()
+        )))
+        .unwrap(),
+        serde_json::json!({
+            "code": -1106,
+            "message": "PoolIsFull: Transaction is replaced because the pool is full, capacity",
+            "data": "Full(\"capacity\")"
+        })
+    );
+}
+
+#[test]
 fn test_out_point_error_from_ckb_error() {
     let err: CKBError = OutPointError::InvalidHeader(Byte32::new([0; 32])).into();
     assert_eq!(
         "TransactionFailedToResolve: OutPoint(InvalidHeader(Byte32(0x0000000000000000000000000000000000000000000000000000000000000000)))",
         RPCError::from_ckb_error(err).message
     );
+}
+
+#[test]
+fn interrupted_verification_in_rpc_is_an_internal_error() {
+    let reject = Reject::Verification(InternalErrorKind::Interrupts.other("VM Interrupts").into());
+    let error = RPCError::from_submit_transaction_reject(&reject);
+    assert_eq!(error.code, jsonrpc_core::ErrorCode::ServerError(-1));
+    assert!(error.message.contains("VM Interrupts"), "{}", error.message);
 }

@@ -11,8 +11,9 @@ pub struct Config {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub network_alert_notify_script: Option<String>,
 
-    /// Notify tx timeout in milliseconds
-    #[serde(default, deserialize_with = "at_least_100")]
+    /// Retained for old configuration files; no longer used.
+    /// Transaction notifications are omitted immediately when a channel is full.
+    #[serde(default)]
     pub notify_tx_timeout: Option<u64>,
 
     /// Legacy network alert notify timeout in milliseconds. Ignored since the alert protocol was removed.
@@ -48,6 +49,14 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn legacy_transaction_timeout_remains_readable() {
+        for timeout in [0, 1, 100, 7000] {
+            let config: Config = toml::from_str(&format!("notify_tx_timeout = {timeout}")).unwrap();
+            assert_eq!(config.notify_tx_timeout, Some(timeout));
+        }
+    }
 
     #[test]
     fn test_deserialize() {

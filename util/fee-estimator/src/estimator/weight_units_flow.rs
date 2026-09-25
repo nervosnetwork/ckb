@@ -56,7 +56,7 @@ use std::collections::HashMap;
 
 use ckb_chain_spec::consensus::MAX_BLOCK_BYTES;
 use ckb_types::core::{
-    BlockNumber, BlockView, FeeRate,
+    BlockNumber, BlockView, Capacity, Cycle, FeeRate,
     tx_pool::{TxEntryInfo, TxPoolEntryInfo, get_transaction_weight},
 };
 
@@ -74,24 +74,25 @@ const MAX_BUCKET_INDEX: usize = 135;
 pub struct Algorithm {
     boot_tip: BlockNumber,
     current_tip: BlockNumber,
-    txs: HashMap<BlockNumber, Vec<TxStatus>>,
+    txs: HashMap<BlockNumber, Vec<FeeSample>>,
 
     is_ready: bool,
 }
 
-#[derive(Clone, Copy, PartialEq, Eq)]
-struct TxStatus {
+/// The fee and weight facts used by weight-units flow.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct FeeSample {
     weight: u64,
     fee_rate: FeeRate,
 }
 
-impl PartialOrd for TxStatus {
-    fn partial_cmp(&self, other: &TxStatus) -> Option<::std::cmp::Ordering> {
+impl PartialOrd for FeeSample {
+    fn partial_cmp(&self, other: &FeeSample) -> Option<::std::cmp::Ordering> {
         Some(self.cmp(other))
     }
 }
 
-impl Ord for TxStatus {
+impl Ord for FeeSample {
     fn cmp(&self, other: &Self) -> ::std::cmp::Ordering {
         self.fee_rate
             .cmp(&other.fee_rate)
@@ -99,10 +100,11 @@ impl Ord for TxStatus {
     }
 }
 
-impl TxStatus {
-    fn new_from_entry_info(info: TxEntryInfo) -> Self {
-        let weight = get_transaction_weight(info.size as usize, info.cycles);
-        let fee_rate = FeeRate::calculate(info.fee, weight);
+impl FeeSample {
+    /// Builds the fee and weight sample for one accepted transaction.
+    pub fn new(size: usize, cycles: Cycle, fee: Capacity) -> Self {
+        let weight = get_transaction_weight(size, cycles);
+        let fee_rate = FeeRate::calculate(fee, weight);
         Self { weight, fee_rate }
     }
 }
@@ -160,7 +162,7 @@ impl Algorithm {
         if self.current_tip == 0 {
             return;
         }
-        let item = TxStatus::new_from_entry_info(info);
+        let item = FeeSample::new(info.size as usize, info.cycles, info.fee);
         self.txs
             .entry(self.current_tip)
             .and_modify(|items| items.push(item))
@@ -175,17 +177,26 @@ impl Algorithm {
         if !self.is_ready {
             return Err(Error::NotReady);
         }
+        let current_txs = all_entry_info
+            .pending
+            .into_values()
+            .chain(all_entry_info.proposed.into_values())
+            .map(|info| FeeSample::new(info.size as usize, info.cycles, info.fee))
+            .collect();
+        self.estimate_fee_rate_with_samples(target_blocks, current_txs)
+    }
 
-        let sorted_current_txs = {
-            let mut current_txs: Vec<_> = all_entry_info
-                .pending
-                .into_values()
-                .chain(all_entry_info.proposed.into_values())
-                .map(TxStatus::new_from_entry_info)
-                .collect();
-            current_txs.sort_unstable_by(|a, b| b.cmp(a));
-            current_txs
-        };
+    pub fn estimate_fee_rate_with_samples(
+        &self,
+        target_blocks: BlockNumber,
+        current_txs: Vec<FeeSample>,
+    ) -> Result<FeeRate, Error> {
+        if !self.is_ready {
+            return Err(Error::NotReady);
+        }
+
+        let mut sorted_current_txs = current_txs;
+        sorted_current_txs.sort_unstable_by(|a, b| b.cmp(a));
 
         self.do_estimate(target_blocks, &sorted_current_txs)
     }
@@ -195,7 +206,7 @@ impl Algorithm {
     fn do_estimate(
         &self,
         target_blocks: BlockNumber,
-        sorted_current_txs: &[TxStatus],
+        sorted_current_txs: &[FeeSample],
     ) -> Result<FeeRate, Error> {
         ckb_logger::debug!(
             "boot: {}, current: {}, target: {target_blocks} blocks",
@@ -306,7 +317,7 @@ impl Algorithm {
         Err(Error::NoProperFeeRate)
     }
 
-    fn sorted_flowed(&self, historical_tip: BlockNumber) -> Vec<TxStatus> {
+    fn sorted_flowed(&self, historical_tip: BlockNumber) -> Vec<FeeSample> {
         let mut statuses: Vec<_> = self
             .txs
             .iter()
@@ -368,7 +379,7 @@ impl Algorithm {
 
 #[cfg(test)]
 mod tests {
-    use super::{Algorithm, MAX_BUCKET_FEE_RATE, MAX_BUCKET_INDEX, TxStatus};
+    use super::{Algorithm, FeeSample, MAX_BUCKET_FEE_RATE, MAX_BUCKET_INDEX};
     use crate::constants;
     use ckb_types::core::FeeRate;
 
@@ -445,7 +456,7 @@ mod tests {
         algorithm.boot_tip = 1;
         algorithm.current_tip = constants::MIN_TARGET * 2 + 1;
 
-        let txs = [TxStatus {
+        let txs = [FeeSample {
             weight: 1,
             fee_rate: FeeRate::from_u64(u64::MAX),
         }];

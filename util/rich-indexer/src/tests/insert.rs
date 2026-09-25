@@ -16,7 +16,6 @@ async fn test_append_block_0() {
     let storage = connect_sqlite(MEMORY_DB).await;
     let indexer = AsyncRichIndexer::new(
         storage.clone(),
-        None,
         CustomFilters::new(
             Some("block.header.number.to_uint() >= \"0x0\".to_uint()"),
             None,
@@ -70,7 +69,6 @@ async fn with_custom_block_filter() {
     let storage = connect_sqlite(MEMORY_DB).await;
     let indexer = AsyncRichIndexer::new(
         storage.clone(),
-        None,
         CustomFilters::new(
             Some("block.header.number.to_uint() >= \"0x1\".to_uint()"),
             None,
@@ -286,7 +284,6 @@ async fn with_custom_cell_filter() {
     let storage = connect_sqlite(MEMORY_DB).await;
     let indexer = AsyncRichIndexer::new(
         storage.clone(),
-        None,
         CustomFilters::new(
             None,
             Some(r#"output.type?.args == "0x747970655f73637269707431""#),

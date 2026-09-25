@@ -7,6 +7,7 @@ use ckb_reward_calculator::RewardCalculator;
 use ckb_shared::{Shared, Snapshot};
 use ckb_store::ChainStore;
 use ckb_test_chain_utils::{always_success_cell, always_success_cellbase};
+use ckb_tx_pool::internal_test_support::BlockingTxPoolTestScope;
 use ckb_types::{
     core::{
         BlockBuilder, BlockView, HeaderView, TransactionBuilder, TransactionView,
@@ -77,9 +78,12 @@ pub(crate) struct RpcTestSuite {
     rpc_client: Client,
     rpc_uri: String,
     tcp_uri: Option<String>,
-    // Drop the extra controller before joining the chain service, then keep
-    // Shared/runtime alive until the service has stopped.
+    // Field order is the lifecycle proof: release the extra controller, stop
+    // and join tx-pool while its relay consumer and database are live, then
+    // release the chain service and runtime.
     chain_controller: ChainController,
+    _tx_pool_scope: BlockingTxPoolTestScope,
+    _sync_shared: std::sync::Arc<ckb_sync::SyncShared>,
     _chain_scope: ChainServiceScope,
     shared: Shared,
     _runtime_stop_rx: Receiver<()>,
@@ -89,9 +93,12 @@ pub(crate) struct RpcTestSuite {
 
 impl RpcTestSuite {
     fn rpc(&self, request: &RpcTestRequest) -> RpcTestResponse {
-        self.send_request(request)
-            .json::<RpcTestResponse>()
-            .expect("Deserialize RpcTestRequest")
+        let response = self.send_request(request);
+        let status = response.status();
+        let body = response.text().expect("read RPC test response body");
+        serde_json::from_str(&body).unwrap_or_else(|error| {
+            panic!("deserialize RPC test response: status={status}, body={body:?}, error={error}")
+        })
     }
 
     fn rpc_batch(&self, request: &[RpcTestRequest]) -> Result<Vec<RpcTestResponse>, String> {
