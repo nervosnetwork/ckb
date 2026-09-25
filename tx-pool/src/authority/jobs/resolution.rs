@@ -262,7 +262,10 @@ impl<'a> Provider<'a> {
                 "cell data exceeds materialization metadata".into(),
             ));
         }
-        detach_cell(&mut cell);
+        // Store detached pool cells under the producer's payload charge.
+        if !pool {
+            detach_cell(&mut cell);
+        }
         state
             .cells
             .insert(compact_packed(point), (cell.clone(), bytes.max(old_bytes)));
@@ -365,13 +368,74 @@ fn missing(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::authority::{model::Status, tests::common::*};
+    use crate::authority::{
+        model::{FullReason, Status},
+        tests::common::*,
+    };
     use ckb_types::{
         bytes::Bytes,
         packed::{CellDep, CellOutput},
         prelude::*,
     };
     use std::collections::HashMap;
+
+    #[test]
+    fn pool_cell_detaches_all_backing_within_its_materialization_limit() {
+        for data in [Bytes::new(), Bytes::from_static(b"pool cell data")] {
+            let store = store();
+            let parent = ckb_types::core::TransactionBuilder::default()
+                .output(CellOutput::default())
+                .output_data(data.pack())
+                .output(CellOutput::default())
+                .output_data(Bytes::from(vec![0x7a; 65_536]).pack())
+                .build();
+            accept(&store, parent.clone(), 1, 1, Status::Pending);
+            let usage = store.budget.owner_usage();
+            let point = OutPoint::new(parent.hash(), 0);
+            let mut backing = vec![0; 4096];
+            backing.extend_from_slice(point.as_slice());
+            let backing = Bytes::from(backing);
+            let point = OutPoint::new_unchecked(backing.slice(4096..));
+            let mut reads = ReadSet::default();
+            let limit = CellOutput::default().total_size() + data.len() + 256;
+            assert!(matches!(
+                store.pool_cell(&point, limit - 1, &mut reads),
+                Err(Error::Full(FullReason::Other("pool cell materialization")))
+            ));
+            let cell = store.pool_cell(&point, limit, &mut reads).unwrap().unwrap();
+            assert_eq!(cell.cell_output, CellOutput::default());
+            assert_eq!(cell.out_point, point);
+            assert_eq!(cell.transaction_info, None);
+            assert_eq!(cell.data_bytes, data.len() as u64);
+            assert_eq!(cell.mem_cell_data.as_ref(), Some(&data));
+            assert_eq!(
+                cell.mem_cell_data_hash,
+                Some(CellOutput::calc_data_hash(&data))
+            );
+            let producer = parent.data();
+            for source in [producer.as_slice(), backing.as_ref()] {
+                let start = source.as_ptr() as usize;
+                let range = start..start + source.len();
+                for address in [
+                    cell.cell_output.as_slice().as_ptr(),
+                    cell.out_point.as_slice().as_ptr(),
+                    cell.mem_cell_data.as_ref().unwrap().as_ptr(),
+                    cell.mem_cell_data_hash
+                        .as_ref()
+                        .unwrap()
+                        .as_slice()
+                        .as_ptr(),
+                ] {
+                    assert!(!range.contains(&(address as usize)));
+                }
+            }
+            assert_eq!(store.budget.owner_usage(), usage);
+            assert!(store.budget.active_is_empty_for_test());
+            store
+                .read_selected(store.snapshot().0, &reads, || ())
+                .unwrap();
+        }
+    }
 
     #[test]
     fn repeated_materialization_shares_one_precharged_detached_cell() {
@@ -391,7 +455,7 @@ mod tests {
             max_edges: 4,
         };
         let point = OutPoint::new(parent.hash(), 0);
-        let first = provider.materialize(&point, true).unwrap();
+        let first = provider.materialize(&point, false).unwrap();
         provider.max_bytes = provider.observed.borrow().bytes;
         let second = provider.materialize(&point, true).unwrap();
         let (CellStatus::Live(first), CellStatus::Live(second)) = (first, second) else {
