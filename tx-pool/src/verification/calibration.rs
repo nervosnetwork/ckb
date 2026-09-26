@@ -109,12 +109,18 @@ impl Measurement {
 }
 
 static VM_TIMING: LazyLock<Option<VmTiming>> = LazyLock::new(|| {
-    let timing = match crate::util::block_offload(Measurement::measure) {
-        Ok(sample) => VmTiming::from_sample(sample),
+    let sample = match crate::util::block_offload(Measurement::measure) {
+        Ok(sample) => sample,
         Err(error) => {
             ckb_logger::warn!("VM calibration failed; using the network time cap: {error}");
             return None;
         }
+    };
+    let Some(timing) = VmTiming::from_sample(sample) else {
+        ckb_logger::warn!(
+            "VM calibration clock resolution is insufficient; using the network time cap"
+        );
+        return None;
     };
     ckb_logger::info!(
         "Network VM calibration: {} cycles/ms, minimum {} ms",
@@ -141,7 +147,7 @@ struct VmTiming {
 }
 
 impl VmTiming {
-    fn from_sample(sample: Measurement) -> Self {
+    fn from_sample(sample: Measurement) -> Option<Self> {
         // A small, cache-hot loop is much cheaper than arbitrary scripts and
         // their providers. Give both measurements the same conservative slack.
         // The minimum admits one whole calibration quantum (load + execution),
@@ -151,7 +157,7 @@ impl VmTiming {
             .execution_time
             .as_nanos()
             .saturating_mul(MARGIN.into());
-        let nanos = NonZeroU128::new(nanos).unwrap_or(NonZeroU128::MIN);
+        let nanos = NonZeroU128::new(nanos)?;
         let cycles_per_ms =
             (u128::from(sample.cycles) * 1_000_000 / nanos).clamp(1, u64::MAX.into()) as u64;
         let minimum = sample
@@ -162,10 +168,10 @@ impl VmTiming {
             .as_nanos()
             .div_ceil(1_000_000)
             .clamp(1, u64::MAX.into());
-        Self {
+        Some(Self {
             cycles_per_ms,
             minimum: Duration::from_millis(millis as u64),
-        }
+        })
     }
 
     fn limit(&self, cycles: u64, cap: Duration) -> Duration {
@@ -187,7 +193,7 @@ mod tests {
     #[ignore = "hardware observation: run alone with the prod profile and --nocapture"]
     fn observe_calibration_against_holdout_workloads() {
         let calibration = Measurement::measure().unwrap();
-        let timing = VmTiming::from_sample(calibration);
+        let timing = VmTiming::from_sample(calibration).unwrap();
         println!(
             "CALIBRATION_SAMPLE {}",
             serde_json::json!({
@@ -267,8 +273,6 @@ mod tests {
         let sample = Measurement::measure().unwrap();
         assert!(sample.cycles > SAMPLE_CYCLES - 32);
         assert!(sample.cycles <= SAMPLE_CYCLES);
-        assert!(!sample.loading_time.is_zero());
-        assert!(!sample.execution_time.is_zero());
     }
 
     #[test]
@@ -278,12 +282,13 @@ mod tests {
             loading_time: Duration::from_millis(2),
             execution_time: Duration::from_millis(10),
         };
-        let fast = VmTiming::from_sample(sample);
+        let fast = VmTiming::from_sample(sample).unwrap();
         let slow = VmTiming::from_sample(Measurement {
             loading_time: sample.loading_time * 4,
             execution_time: sample.execution_time * 4,
             ..sample
-        });
+        })
+        .unwrap();
         let cap = Duration::from_secs(8);
         assert_eq!(fast.cycles_per_ms, 31_250);
         assert_eq!(fast.minimum, Duration::from_millis(192));
@@ -291,7 +296,8 @@ mod tests {
         let slow_loading = VmTiming::from_sample(Measurement {
             loading_time: Duration::from_millis(200),
             ..sample
-        });
+        })
+        .unwrap();
         assert_eq!(slow_loading.cycles_per_ms, fast.cycles_per_ms);
         assert_eq!(slow_loading.limit(1, cap), Duration::from_millis(3_360));
         for cycles in [0, 1, 100_000, 5_000_000, 50_000_000, u64::MAX] {
@@ -308,13 +314,39 @@ mod tests {
     }
 
     #[test]
-    fn coarse_clocks_and_extreme_measurements_preserve_the_cap() {
-        for elapsed in [Duration::ZERO, Duration::from_nanos(1), Duration::MAX] {
+    fn zero_execution_cannot_define_a_rate_but_zero_loading_is_valid() {
+        let sample = Measurement {
+            cycles: SAMPLE_CYCLES,
+            loading_time: Duration::ZERO,
+            execution_time: Duration::ZERO,
+        };
+        for loading_time in [Duration::ZERO, Duration::from_millis(10)] {
+            assert!(
+                VmTiming::from_sample(Measurement {
+                    loading_time,
+                    ..sample
+                })
+                .is_none()
+            );
+        }
+        let timing = VmTiming::from_sample(Measurement {
+            execution_time: Duration::from_millis(10),
+            ..sample
+        })
+        .unwrap();
+        assert_eq!(timing.cycles_per_ms, 31_250);
+        assert_eq!(timing.minimum, Duration::from_millis(160));
+    }
+
+    #[test]
+    fn extreme_measurements_preserve_the_cap() {
+        for elapsed in [Duration::from_nanos(1), Duration::MAX] {
             let timing = VmTiming::from_sample(Measurement {
                 cycles: u64::MAX,
                 loading_time: elapsed,
                 execution_time: elapsed,
-            });
+            })
+            .unwrap();
             assert!(timing.cycles_per_ms > 0);
             assert!(!timing.minimum.is_zero());
             assert_eq!(timing.limit(u64::MAX, Duration::ZERO), Duration::ZERO);
