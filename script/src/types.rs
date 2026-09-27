@@ -1058,7 +1058,7 @@ where
 
     /// Sets current base cycles
     pub fn set_base_cycles(&mut self, base_cycles: u64) {
-        self.base_cycles.store(base_cycles, Ordering::Release);
+        self.base_cycles.store(base_cycles, Ordering::SeqCst);
     }
 }
 

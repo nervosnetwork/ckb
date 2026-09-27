@@ -990,7 +990,7 @@ impl Peers {
         let protect_outbound = is_outbound
             && self
                 .n_protected_outbound_peers
-                .fetch_update(Ordering::AcqRel, Ordering::Acquire, |x| {
+                .fetch_update(Ordering::SeqCst, Ordering::SeqCst, |x| {
                     if x < MAX_OUTBOUND_PEERS_TO_PROTECT_FROM_DISCONNECT {
                         Some(x + 1)
                     } else {
@@ -1065,7 +1065,7 @@ impl Peers {
                 // fetch_sub wraps around on overflow, we still check manually
                 // panic here to prevent some bug be hidden silently.
                 assert_ne!(
-                    self.n_sync_started.fetch_sub(1, Ordering::AcqRel),
+                    self.n_sync_started.fetch_sub(1, Ordering::SeqCst),
                     0,
                     "n_sync_started overflow when disconnects"
                 );
@@ -1075,7 +1075,7 @@ impl Peers {
             if peer_state.peer_flags.is_protect {
                 assert_ne!(
                     self.n_protected_outbound_peers
-                        .fetch_sub(1, Ordering::AcqRel),
+                        .fetch_sub(1, Ordering::SeqCst),
                     0,
                     "n_protected_outbound_peers overflow when disconnects"
                 );
@@ -1583,7 +1583,7 @@ impl SyncState {
     pub(crate) fn suspend_sync(&self, peer_state: &mut PeerState) {
         if peer_state.sync_started() {
             assert_ne!(
-                self.peers.n_sync_started.fetch_sub(1, Ordering::AcqRel),
+                self.peers.n_sync_started.fetch_sub(1, Ordering::SeqCst),
                 0,
                 "n_sync_started overflow when suspend_sync"
             );
@@ -1594,7 +1594,7 @@ impl SyncState {
     pub(crate) fn tip_synced(&self, peer_state: &mut PeerState) {
         if peer_state.sync_started() {
             assert_ne!(
-                self.peers.n_sync_started.fetch_sub(1, Ordering::AcqRel),
+                self.peers.n_sync_started.fetch_sub(1, Ordering::SeqCst),
                 0,
                 "n_sync_started overflow when tip_synced"
             );

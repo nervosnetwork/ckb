@@ -52,7 +52,7 @@ fn startup_recovery_does_not_requeue_blocks_received_after_capture() {
     assert!(shared.store().get_block_ext(&incoming.hash()).is_none());
 
     recovery.start();
-    assert!(!loading.load(Ordering::Acquire));
+    assert!(!loading.load(Ordering::SeqCst));
     let replayed: Vec<_> = received
         .try_iter()
         .map(|request| {

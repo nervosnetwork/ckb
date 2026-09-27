@@ -907,7 +907,7 @@ fn test_chain_sync_timeout() {
             .shared()
             .state()
             .n_sync_started()
-            .fetch_add(1, Ordering::AcqRel);
+            .fetch_add(1, Ordering::SeqCst);
     }
     synchronizer.eviction(&(Arc::clone(&network_context) as Arc<dyn CKBProtocolContext + Sync>));
     {
@@ -924,7 +924,7 @@ fn test_chain_sync_timeout() {
                 .shared()
                 .state()
                 .n_sync_started()
-                .load(Ordering::Acquire),
+                .load(Ordering::SeqCst),
             1
         );
 
@@ -1020,7 +1020,7 @@ fn test_chain_sync_timeout() {
                 .shared()
                 .state()
                 .n_sync_started()
-                .load(Ordering::Acquire),
+                .load(Ordering::SeqCst),
             0
         );
 
@@ -1075,7 +1075,7 @@ fn test_n_sync_started() {
             .shared()
             .state()
             .n_sync_started()
-            .fetch_add(1, Ordering::AcqRel);
+            .fetch_add(1, Ordering::SeqCst);
     }
     synchronizer.eviction(&(Arc::clone(&network_context) as Arc<dyn CKBProtocolContext + Sync>));
 
@@ -1112,7 +1112,7 @@ fn test_n_sync_started() {
                 .shared()
                 .state()
                 .n_sync_started()
-                .load(Ordering::Acquire),
+                .load(Ordering::SeqCst),
             0
         );
     }

@@ -485,7 +485,7 @@ fn same_view_reuses_only_mandatory_payloads_and_consumes_a_fresh_work_id() {
     assert!(old.template.proposals.is_empty());
     assert_eq!(prepared.template.proposals.len(), 1);
     assert_eq!(Arc::strong_count(&old), previous_references);
-    driver.assembler.work_id.store(u64::MAX, Ordering::Release);
+    driver.assembler.work_id.store(u64::MAX, Ordering::SeqCst);
     let error = driver
         .prepare(&mut Cache::default())
         .err()

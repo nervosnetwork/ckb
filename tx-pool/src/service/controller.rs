@@ -151,7 +151,7 @@ impl TxPoolController {
 
     /// Return whether tx-pool service is started
     pub fn service_started(&self) -> bool {
-        self.started.load(Ordering::Acquire)
+        self.started.load(Ordering::SeqCst)
     }
 
     /// Whether chain publication still has an owner, including before startup.

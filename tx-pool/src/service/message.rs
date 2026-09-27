@@ -517,7 +517,7 @@ mod administration {
 
         pub(in crate::service) fn try_acquire(&self) -> Option<AdminAdmission> {
             self.occupied
-                .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
+                .compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst)
                 .ok()
                 .map(|_| AdminAdmission { gate: self.clone() })
         }
@@ -535,7 +535,7 @@ mod administration {
 
     impl Drop for AdminAdmission {
         fn drop(&mut self) {
-            self.gate.occupied.store(false, Ordering::Release);
+            self.gate.occupied.store(false, Ordering::SeqCst);
         }
     }
 

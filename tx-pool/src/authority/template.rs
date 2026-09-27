@@ -167,7 +167,7 @@ impl Driver {
             // Refresh waiters retain no obsolete template payload while the
             // sole driver prepares its next publication.
             drop(current);
-            if attempted && self.failed.load(Ordering::Acquire) {
+            if attempted && self.failed.load(Ordering::SeqCst) {
                 return Err(Error::Full("template build".into()));
             }
             self.requested.notify_one();
@@ -352,7 +352,7 @@ impl Driver {
             let outcome = self.rebuild(&mut packing);
             let stale = matches!(outcome, Err(BuildError::Pool(Error::Stale)));
             self.failed
-                .store(outcome.is_err() && !stale, Ordering::Release);
+                .store(outcome.is_err() && !stale, Ordering::SeqCst);
             match outcome {
                 Ok(()) => {}
                 Err(BuildError::Pool(Error::Stale)) => {

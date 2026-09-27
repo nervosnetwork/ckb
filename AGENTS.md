@@ -27,6 +27,9 @@ checks needed only to maintain it. Trace contracts through their producers and
 consumers, including failure, cancellation and shutdown paths. Keep lock order,
 ownership and cleanup clear across concurrent work.
 
+Use `Ordering::SeqCst` for atomic operations, including tests and benchmarks.
+Run `devtools/ci/check-relaxed.sh` alongside the relevant Rust checks.
+
 Refine every change repeatedly before delivery, reconsidering the model as well
 as its expression. Remove unnecessary states, layers, conventions and superseded
 routes across complete call paths. Continue while concrete improvements remain;

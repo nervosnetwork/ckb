@@ -7,10 +7,7 @@ use ckb_types::{
 use rand::{Rng, thread_rng};
 use std::{
     collections::{BTreeMap, HashMap},
-    sync::atomic::{
-        AtomicUsize,
-        Ordering::{Acquire, SeqCst},
-    },
+    sync::atomic::{AtomicUsize, Ordering::SeqCst},
 };
 
 use crate::types::{FILTER_TTL, TtlFilter};
@@ -79,7 +76,7 @@ fn test_get_ancestor_use_skip_list() {
             .unwrap();
 
         // Search must finished in <limit> steps
-        assert!(count.load(Acquire) <= limit);
+        assert!(count.load(SeqCst) <= limit);
 
         header
     };

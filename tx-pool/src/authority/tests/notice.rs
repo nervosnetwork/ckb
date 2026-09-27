@@ -131,7 +131,7 @@ async fn later_activation_cannot_overtake_committed_fifo_head() {
     let mut publisher = Box::pin(Arc::clone(&outbox).run(endpoints));
     poll_pending(publisher.as_mut());
     assert!(receiver.try_recv().is_none());
-    assert!(!second.published.load(Ordering::Acquire));
+    assert!(!second.published.load(Ordering::SeqCst));
     first.activate(&outbox);
     publisher.await.unwrap();
     first.wait(&outbox).await.unwrap();
@@ -191,7 +191,7 @@ fn ordinary_saturation_preserves_trusted_and_critical_headroom() {
     ));
     drop((remote, trusted, critical));
     assert_eq!(outbox.state.lock().budget.total.used.items, 0);
-    assert!(!outbox.faulted.load(Ordering::Acquire));
+    assert!(!outbox.faulted.load(Ordering::SeqCst));
 }
 
 #[test]
@@ -242,7 +242,7 @@ fn total_saturation_refuses_remote_without_retaining_partial_charges() {
         assert_eq!(used.items, 0);
         assert_eq!(used.bytes, 0);
     }
-    assert!(!outbox.faulted.load(Ordering::Acquire));
+    assert!(!outbox.faulted.load(Ordering::SeqCst));
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -263,7 +263,7 @@ async fn older_acknowledgement_cannot_erase_later_pending_rejection() {
     first.activate(&outbox);
     let mut publisher = Box::pin(Arc::clone(&outbox).run(endpoints));
     poll_pending(publisher.as_mut());
-    assert!(first.published.load(Ordering::Acquire));
+    assert!(first.published.load(Ordering::SeqCst));
     let encoded = outbox.pending_reject(&hash).unwrap();
     assert_eq!(
         serde_json::from_str::<serde_json::Value>(&encoded).unwrap(),
@@ -283,7 +283,7 @@ async fn publisher_cancellation_faults_generation_and_releases_waiters_with_fail
     poll_pending(publisher.as_mut());
     drop(publisher);
     assert!(matches!(batch.wait(&outbox).await, Err(Error::Fault(_))));
-    assert!(!batch.published.load(Ordering::Acquire));
+    assert!(!batch.published.load(Ordering::SeqCst));
     assert_eq!(outbox.state.lock().budget.total.used.items, 1);
     assert!(!outbox.drained());
 }
@@ -294,17 +294,17 @@ async fn callback_failure_disables_all_callback_kinds_while_later_relay_drains()
     let mut callbacks = Callbacks::new();
     let observed = Arc::clone(&calls);
     callbacks.register_pending(Box::new(move |_| {
-        observed.fetch_add(1, Ordering::AcqRel);
+        observed.fetch_add(1, Ordering::SeqCst);
         panic!("injected callback failure");
     }));
     let other_calls = Arc::new(std::sync::atomic::AtomicUsize::new(0));
     let observed = Arc::clone(&other_calls);
     callbacks.register_proposed(Box::new(move |_| {
-        observed.fetch_add(1, Ordering::AcqRel);
+        observed.fetch_add(1, Ordering::SeqCst);
     }));
     let observed = Arc::clone(&other_calls);
     callbacks.register_reject(Box::new(move |_, _| {
-        observed.fetch_add(1, Ordering::AcqRel);
+        observed.fetch_add(1, Ordering::SeqCst);
     }));
     let (outbox, endpoints, receiver) = fixture(callbacks);
     let store = store();
@@ -326,8 +326,8 @@ async fn callback_failure_disables_all_callback_kinds_while_later_relay_drains()
     }
     outbox.close();
     Arc::clone(&outbox).run(endpoints).await.unwrap();
-    assert_eq!(calls.load(Ordering::Acquire), 1);
-    assert_eq!(other_calls.load(Ordering::Acquire), 0);
+    assert_eq!(calls.load(Ordering::SeqCst), 1);
+    assert_eq!(other_calls.load(Ordering::SeqCst), 0);
     for nonce in 1..=4 {
         assert!(matches!(
             receiver.try_recv(),
@@ -336,7 +336,7 @@ async fn callback_failure_disables_all_callback_kinds_while_later_relay_drains()
     }
     assert!(receiver.try_recv().is_none());
     assert!(outbox.drained());
-    assert!(!outbox.faulted.load(Ordering::Acquire));
+    assert!(!outbox.faulted.load(Ordering::SeqCst));
 }
 
 #[tokio::test(start_paused = true)]
@@ -402,7 +402,7 @@ async fn recent_write_cooldown_settles_batches_and_later_records_without_replay(
     assert!(outbox.pending_reject(&first_hash).is_some());
     let mut publisher = Box::pin(Arc::clone(&outbox).run(endpoints));
     poll_pending(publisher.as_mut());
-    assert!(first.published.load(Ordering::Acquire));
+    assert!(first.published.load(Ordering::SeqCst));
     assert!(outbox.pending_reject(&first_hash).is_none());
     assert!(recent.get(&first_hash).unwrap().is_none());
     assert!(matches!(
@@ -428,7 +428,7 @@ async fn recent_write_cooldown_settles_batches_and_later_records_without_replay(
     ));
     assert!(receiver.try_recv().is_none());
     assert!(outbox.drained());
-    assert!(!outbox.faulted.load(Ordering::Acquire));
+    assert!(!outbox.faulted.load(Ordering::SeqCst));
 }
 
 #[test]
@@ -745,16 +745,16 @@ async fn publisher_abort_keeps_a_running_callback_and_its_batch_owned_until_retu
         .unwrap();
     publisher.abort();
     assert!(!publisher.is_finished());
-    assert!(!batch.published.load(Ordering::Acquire));
+    assert!(!batch.published.load(Ordering::SeqCst));
     assert_eq!(outbox.state.lock().budget.total.used.items, 1);
     release.send(()).unwrap();
     let result = tokio::time::timeout(std::time::Duration::from_secs(5), publisher)
         .await
         .unwrap();
     assert!(result.unwrap_err().is_cancelled());
-    assert!(batch.published.load(Ordering::Acquire));
+    assert!(batch.published.load(Ordering::SeqCst));
     assert_eq!(outbox.state.lock().budget.total.used.items, 0);
-    assert!(outbox.faulted.load(Ordering::Acquire));
+    assert!(outbox.faulted.load(Ordering::SeqCst));
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -791,7 +791,7 @@ async fn publication_selection_excludes_later_activation_and_append() {
         let calls = std::sync::atomic::AtomicUsize::new(0);
         let mut callbacks = Callbacks::new();
         callbacks.register_pending(Box::new(move |_| {
-            if calls.fetch_add(1, Ordering::AcqRel) == 0 {
+            if calls.fetch_add(1, Ordering::SeqCst) == 0 {
                 entered.send(()).unwrap();
                 waiting
                     .lock()
@@ -834,10 +834,10 @@ async fn publication_selection_excludes_later_activation_and_append() {
         release.send(()).unwrap();
         let (result, endpoints) = operation.await.unwrap();
         assert!(result.unwrap());
-        assert!(first.published.load(Ordering::Acquire));
-        assert_eq!(second.published.load(Ordering::Acquire), initial_count == 2);
+        assert!(first.published.load(Ordering::SeqCst));
+        assert_eq!(second.published.load(Ordering::SeqCst), initial_count == 2);
         for batch in [&third, &fourth, &fifth] {
-            assert!(!batch.published.load(Ordering::Acquire));
+            assert!(!batch.published.load(Ordering::SeqCst));
         }
         Arc::clone(&outbox).run(endpoints).await.unwrap();
         for nonce in 805..=809 {
@@ -859,7 +859,7 @@ async fn later_callback_observes_prior_batch_settled_and_released() {
         let calls = std::sync::atomic::AtomicUsize::new(0);
         let mut callbacks = Callbacks::new();
         callbacks.register_pending(Box::new(move |_| {
-            if calls.fetch_add(1, Ordering::AcqRel) == 1 {
+            if calls.fetch_add(1, Ordering::SeqCst) == 1 {
                 entered.send(()).unwrap();
                 waiting
                     .lock()
@@ -887,7 +887,7 @@ async fn later_callback_observes_prior_batch_settled_and_released() {
         let released = Arc::downgrade(&first);
         drop(first);
         assert!(released.upgrade().is_none());
-        assert!(!second.published.load(Ordering::Acquire));
+        assert!(!second.published.load(Ordering::SeqCst));
         if cancel {
             publisher.abort();
             assert!(!publisher.is_finished());
@@ -898,13 +898,13 @@ async fn later_callback_observes_prior_batch_settled_and_released() {
             .unwrap();
         if cancel {
             assert!(result.unwrap_err().is_cancelled());
-            assert!(outbox.faulted.load(Ordering::Acquire));
+            assert!(outbox.faulted.load(Ordering::SeqCst));
             outbox.close();
         } else {
             result.unwrap().unwrap();
-            assert!(!outbox.faulted.load(Ordering::Acquire));
+            assert!(!outbox.faulted.load(Ordering::SeqCst));
         }
-        assert!(second.published.load(Ordering::Acquire));
+        assert!(second.published.load(Ordering::SeqCst));
         assert!(outbox.drained());
     }
 }
@@ -934,12 +934,12 @@ async fn unregistered_callback_prefix_is_bounded_without_a_blocking_boundary() {
             assert!(
                 batches[..PUBLISH_BATCH_LIMIT]
                     .iter()
-                    .all(|batch| batch.published.load(Ordering::Acquire))
+                    .all(|batch| batch.published.load(Ordering::SeqCst))
             );
             assert!(
                 !batches[PUBLISH_BATCH_LIMIT]
                     .published
-                    .load(Ordering::Acquire)
+                    .load(Ordering::SeqCst)
             );
             assert_eq!(outbox.state.lock().budget.total.used.items, 1);
             assert!(outbox.publish_ready(&mut endpoints).unwrap());
@@ -964,7 +964,7 @@ impl std::task::Wake for PublicationWakeCount {
     }
 
     fn wake_by_ref(self: &Arc<Self>) {
-        self.0.fetch_add(1, Ordering::AcqRel);
+        self.0.fetch_add(1, Ordering::SeqCst);
     }
 }
 
@@ -1008,7 +1008,7 @@ fn completion_wakes_only_its_batch_and_preserves_multiple_and_cancelled_waiters(
     assert!(
         counters
             .iter()
-            .all(|counter| counter.0.load(Ordering::Acquire) == 0)
+            .all(|counter| counter.0.load(Ordering::SeqCst) == 0)
     );
     for (published, batch) in batches.iter().enumerate() {
         batch.activate(&outbox);
@@ -1017,7 +1017,7 @@ fn completion_wakes_only_its_batch_and_preserves_multiple_and_cancelled_waiters(
             waiters.iter_mut().zip(&wakers).zip(&counters).enumerate()
         {
             assert_eq!(
-                counter.0.load(Ordering::Acquire),
+                counter.0.load(Ordering::SeqCst),
                 usize::from(index / 2 <= published && index != CANCELLED),
                 "listener {index}, published batch {published}"
             );
@@ -1082,19 +1082,19 @@ fn store_fault_and_publisher_cancellation_wake_every_unfinished_batch() {
         assert!(
             counters
                 .iter()
-                .all(|counter| counter.0.load(Ordering::Acquire) == 0)
+                .all(|counter| counter.0.load(Ordering::SeqCst) == 0)
         );
         if !cancel {
             store.fault();
             assert!(
                 counters
                     .iter()
-                    .all(|counter| counter.0.load(Ordering::Acquire) > 0)
+                    .all(|counter| counter.0.load(Ordering::SeqCst) > 0)
             );
         }
         drop(publisher);
         for ((waiter, waker), counter) in waiters.iter_mut().zip(&wakers).zip(&counters) {
-            assert!(counter.0.load(Ordering::Acquire) > 0);
+            assert!(counter.0.load(Ordering::SeqCst) > 0);
             assert!(matches!(
                 waiter
                     .as_mut()
@@ -1113,7 +1113,7 @@ fn store_fault_and_publisher_cancellation_wake_every_unfinished_batch() {
         assert!(
             batches
                 .iter()
-                .all(|batch| !batch.published.load(Ordering::Acquire))
+                .all(|batch| !batch.published.load(Ordering::SeqCst))
         );
         assert_eq!(outbox.state.lock().budget.total.used.items, 2);
         assert!(!outbox.drained());
@@ -1160,7 +1160,7 @@ async fn release_fault_wakes_later_batch_before_the_next_callback_returns() {
         .await
         .unwrap()
         .unwrap();
-    let woke_before_callback_return = counter.0.load(Ordering::Acquire) > 0;
+    let woke_before_callback_return = counter.0.load(Ordering::SeqCst) > 0;
     let failed_while_callback_waits = waiter
         .as_mut()
         .poll(&mut std::task::Context::from_waker(&waker));
@@ -1182,8 +1182,8 @@ async fn release_fault_wakes_later_batch_before_the_next_callback_returns() {
         std::task::Poll::Ready(Err(Error::Fault(_)))
     ));
     assert!(matches!(first_completed, std::task::Poll::Ready(Ok(()))));
-    assert!(second.published.load(Ordering::Acquire));
-    assert!(!last.published.load(Ordering::Acquire));
+    assert!(second.published.load(Ordering::SeqCst));
+    assert!(!last.published.load(Ordering::SeqCst));
     let state = outbox.state.lock();
     assert_eq!(state.budget.total.used.items, 1);
     assert_eq!(state.budget.total.used.bytes, last.charge.bytes);
@@ -1205,14 +1205,14 @@ fn unappended_release_fault_wakes_committed_waiter_without_a_publisher() {
     );
     outbox.state.lock().budget.ordinary.used.bytes = 0;
     drop(reservation);
-    assert!(counter.0.load(Ordering::Acquire) > 0);
+    assert!(counter.0.load(Ordering::SeqCst) > 0);
     assert!(matches!(
         waiter
             .as_mut()
             .poll(&mut std::task::Context::from_waker(&waker)),
         std::task::Poll::Ready(Err(Error::Fault(_)))
     ));
-    assert!(!batch.published.load(Ordering::Acquire));
+    assert!(!batch.published.load(Ordering::SeqCst));
     let state = outbox.state.lock();
     assert_eq!(state.queue.len(), 1);
     assert_eq!(state.budget.total.used.items, 1);

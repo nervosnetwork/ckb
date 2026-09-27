@@ -246,11 +246,11 @@ impl AuthorityRelaySink {
     /// detail that cannot fit even after reconciliation is a bounded Remote
     /// availability loss, not a tx-pool authority failure.
     pub(super) fn publish(&self, result: TxVerificationResult) -> RelayMailboxDisposition {
-        if !self.inner.receiver_alive.load(Ordering::Acquire) {
+        if !self.inner.receiver_alive.load(Ordering::SeqCst) {
             return RelayMailboxDisposition::Disconnected;
         }
         let mut state = self.inner.state.lock();
-        if !self.inner.receiver_alive.load(Ordering::Acquire) {
+        if !self.inner.receiver_alive.load(Ordering::SeqCst) {
             return RelayMailboxDisposition::Disconnected;
         }
         let prompt = matches!(
@@ -342,7 +342,7 @@ impl AuthorityRelayReceiver {
 
 impl Drop for AuthorityRelayReceiver {
     fn drop(&mut self) {
-        self.inner.receiver_alive.store(false, Ordering::Release);
+        self.inner.receiver_alive.store(false, Ordering::SeqCst);
         let mut state = self.inner.state.lock();
         state.queue.clear();
         state.bytes = 0;

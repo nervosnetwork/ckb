@@ -25,9 +25,9 @@ static ALLOCATION_BYTES: AtomicU64 = AtomicU64::new(0);
 #[cfg(feature = "allocation-observation")]
 unsafe impl GlobalAlloc for CountingAllocator {
     unsafe fn alloc(&self, layout: Layout) -> *mut u8 {
-        if ALLOCATION_WINDOW_ACTIVE.load(Ordering::Acquire) {
-            ALLOCATION_CALLS.fetch_add(1, Ordering::AcqRel);
-            ALLOCATION_BYTES.fetch_add(layout.size() as u64, Ordering::AcqRel);
+        if ALLOCATION_WINDOW_ACTIVE.load(Ordering::SeqCst) {
+            ALLOCATION_CALLS.fetch_add(1, Ordering::SeqCst);
+            ALLOCATION_BYTES.fetch_add(layout.size() as u64, Ordering::SeqCst);
         }
         // SAFETY: this allocator delegates every operation to the system allocator.
         unsafe { System.alloc(layout) }
@@ -39,9 +39,9 @@ unsafe impl GlobalAlloc for CountingAllocator {
     }
 
     unsafe fn realloc(&self, pointer: *mut u8, layout: Layout, size: usize) -> *mut u8 {
-        if ALLOCATION_WINDOW_ACTIVE.load(Ordering::Acquire) {
-            ALLOCATION_CALLS.fetch_add(1, Ordering::AcqRel);
-            ALLOCATION_BYTES.fetch_add(size as u64, Ordering::AcqRel);
+        if ALLOCATION_WINDOW_ACTIVE.load(Ordering::SeqCst) {
+            ALLOCATION_CALLS.fetch_add(1, Ordering::SeqCst);
+            ALLOCATION_BYTES.fetch_add(size as u64, Ordering::SeqCst);
         }
         // SAFETY: the complete reallocation request is delegated unchanged.
         unsafe { System.realloc(pointer, layout, size) }
@@ -58,9 +58,9 @@ impl AllocationWindow {
     pub(crate) fn begin() -> Self {
         #[cfg(feature = "allocation-observation")]
         {
-            ALLOCATION_CALLS.store(0, Ordering::Release);
-            ALLOCATION_BYTES.store(0, Ordering::Release);
-            ALLOCATION_WINDOW_ACTIVE.store(true, Ordering::Release);
+            ALLOCATION_CALLS.store(0, Ordering::SeqCst);
+            ALLOCATION_BYTES.store(0, Ordering::SeqCst);
+            ALLOCATION_WINDOW_ACTIVE.store(true, Ordering::SeqCst);
         }
         Self { _private: () }
     }
@@ -70,8 +70,8 @@ impl AllocationWindow {
         #[cfg(feature = "allocation-observation")]
         {
             (
-                ALLOCATION_CALLS.load(Ordering::Acquire),
-                ALLOCATION_BYTES.load(Ordering::Acquire),
+                ALLOCATION_CALLS.load(Ordering::SeqCst),
+                ALLOCATION_BYTES.load(Ordering::SeqCst),
             )
         }
         #[cfg(not(feature = "allocation-observation"))]
@@ -82,7 +82,7 @@ impl AllocationWindow {
 impl Drop for AllocationWindow {
     fn drop(&mut self) {
         #[cfg(feature = "allocation-observation")]
-        ALLOCATION_WINDOW_ACTIVE.store(false, Ordering::Release);
+        ALLOCATION_WINDOW_ACTIVE.store(false, Ordering::SeqCst);
     }
 }
 
@@ -94,13 +94,13 @@ mod tests {
 
         let failed = || -> Result<(), ()> {
             let _window = AllocationWindow::begin();
-            assert!(ALLOCATION_WINDOW_ACTIVE.load(Ordering::Acquire));
+            assert!(ALLOCATION_WINDOW_ACTIVE.load(Ordering::SeqCst));
             Err(())
         };
         assert!(failed().is_err());
-        assert!(!ALLOCATION_WINDOW_ACTIVE.load(Ordering::Acquire));
+        assert!(!ALLOCATION_WINDOW_ACTIVE.load(Ordering::SeqCst));
         let window = AllocationWindow::begin();
         let _totals = window.finish();
-        assert!(!ALLOCATION_WINDOW_ACTIVE.load(Ordering::Acquire));
+        assert!(!ALLOCATION_WINDOW_ACTIVE.load(Ordering::SeqCst));
     }
 }

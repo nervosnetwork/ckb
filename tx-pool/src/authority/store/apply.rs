@@ -732,8 +732,7 @@ impl Store {
         if lifecycle_write && view.get().revision == u64::MAX {
             return Err(Error::Fault("view counter"));
         }
-        if self.chain_pending.load(Ordering::Acquire) && !lifecycle_write && !plan.edits.is_empty()
-        {
+        if self.chain_pending.load(Ordering::SeqCst) && !lifecycle_write && !plan.edits.is_empty() {
             return Err(Error::Full(FullReason::ChainTransition));
         }
         if plan

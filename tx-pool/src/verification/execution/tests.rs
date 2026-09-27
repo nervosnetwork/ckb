@@ -556,7 +556,7 @@ async fn resumed_slices_spend_one_cpu_budget() {
     };
     let result = runner
         .run_vm(move |_| {
-            let attempt = observed.fetch_add(1, Ordering::Relaxed);
+            let attempt = observed.fetch_add(1, Ordering::SeqCst);
             consume_cpu(Duration::from_millis(50));
             if attempt < 2 {
                 Err(Error::Pause)
@@ -570,7 +570,7 @@ async fn resumed_slices_spend_one_cpu_budget() {
         result.is_none(),
         "resuming must not replenish the CPU budget"
     );
-    assert!((2..=3).contains(&attempts.load(Ordering::Relaxed)));
+    assert!((2..=3).contains(&attempts.load(Ordering::SeqCst)));
     assert_eq!(runner.remaining, Duration::ZERO);
 }
 

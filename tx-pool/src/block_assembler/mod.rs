@@ -166,7 +166,7 @@ impl BlockAssembler {
         label: &'static str,
     ) -> Result<u64, BlockAssemblerError> {
         counter
-            .fetch_update(Ordering::AcqRel, Ordering::Acquire, |value| {
+            .fetch_update(Ordering::SeqCst, Ordering::SeqCst, |value| {
                 value.checked_add(1)
             })
             .map_err(|_| BlockAssemblerError::CounterExhausted(label))

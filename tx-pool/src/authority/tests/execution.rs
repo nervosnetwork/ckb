@@ -1609,7 +1609,7 @@ async fn requeue_retries_concurrent_chain_changes_even_during_stop() {
             if locked || !plan.edits().contains_key(&hash) {
                 return;
             }
-            if attempts.fetch_add(1, std::sync::atomic::Ordering::AcqRel) < 3 {
+            if attempts.fetch_add(1, std::sync::atomic::Ordering::SeqCst) < 3 {
                 // Reconciliation changes the view after requeue has planned,
                 // while preserving the selected Resolve owner and empty queue.
                 let pool = applying.upgrade().unwrap();
@@ -2312,7 +2312,7 @@ async fn optional_history_pressure_preserves_local_and_owned_job_admission() {
         let planned_before = pool
             .store
             .admission_attempts
-            .load(std::sync::atomic::Ordering::Acquire);
+            .load(std::sync::atomic::Ordering::SeqCst);
         let applying = Arc::downgrade(&pool);
         let target = candidate.hash();
         let victim = incumbent.clone();
@@ -2331,7 +2331,7 @@ async fn optional_history_pressure_preserves_local_and_owned_job_admission() {
                 pool.stop();
             }
             if !locked {
-                let attempt = observed.fetch_add(1, std::sync::atomic::Ordering::AcqRel);
+                let attempt = observed.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
                 if !local && !stop && (1..=3).contains(&attempt) {
                     // History pressure has released the first cut. Change a
                     // membership premise before that retry and the next two
@@ -2384,14 +2384,14 @@ async fn optional_history_pressure_preserves_local_and_owned_job_admission() {
         assert_eq!(
             pool.store
                 .admission_attempts
-                .load(std::sync::atomic::Ordering::Acquire)
+                .load(std::sync::atomic::Ordering::SeqCst)
                 - planned_before,
             if !local && !stop { 4 } else { 1 },
             "local={local}: only a changed membership premise requires replanning"
         );
         if !local && !stop {
             assert_eq!(
-                attempts.load(std::sync::atomic::Ordering::Acquire),
+                attempts.load(std::sync::atomic::Ordering::SeqCst),
                 5,
                 "replanning must remember omitted history and avoid another capacity failure"
             );

@@ -488,7 +488,7 @@ pub(super) struct ActivePermit {
 impl Drop for ActivePermit {
     fn drop(&mut self) {
         if self.budget.active.lock().release(self.peer).is_none() {
-            self.budget.faulted.store(true, Ordering::Release);
+            self.budget.faulted.store(true, Ordering::SeqCst);
         }
         self.budget.active_changed.notify_waiters();
     }
@@ -520,7 +520,7 @@ impl Budget {
     }
 
     pub(super) fn faulted(&self) -> bool {
-        self.faulted.load(Ordering::Acquire)
+        self.faulted.load(Ordering::SeqCst)
     }
 
     pub(super) fn publish_metrics(&self) {
@@ -617,7 +617,7 @@ impl Budget {
             if let Some(after) = before.checked_add(*delta) {
                 usage.insert(*key, after);
             } else {
-                self.faulted.store(true, Ordering::Release);
+                self.faulted.store(true, Ordering::SeqCst);
             }
         }
         drop(usage);
@@ -642,7 +642,7 @@ impl Budget {
                     usage.insert(*key, new);
                 }
             } else {
-                self.faulted.store(true, Ordering::Release);
+                self.faulted.store(true, Ordering::SeqCst);
             }
         }
         drop(usage);

@@ -696,7 +696,7 @@ fn history_retry_revalidates_before_mutation_and_refunds_on_failure() {
         *store.commit_observer.lock() = Some(Arc::new(move |plan, locked| {
             if !locked
                 && plan.edits().contains_key(&target)
-                && observed.fetch_add(1, Ordering::AcqRel) == 1
+                && observed.fetch_add(1, Ordering::SeqCst) == 1
             {
                 entered.send(()).unwrap();
                 wait.lock()
@@ -742,7 +742,7 @@ fn history_retry_revalidates_before_mutation_and_refunds_on_failure() {
             drop(pause);
         });
         *store.commit_observer.lock() = None;
-        assert_eq!(attempts.load(Ordering::Acquire), 2);
+        assert_eq!(attempts.load(Ordering::SeqCst), 2);
         assert!(!store.is_faulted());
     }
 }
@@ -764,7 +764,7 @@ fn history_retry_without_optional_history_is_bounded_and_refunds_notices() {
     let observed = Arc::clone(&attempts);
     *store.commit_observer.lock() = Some(Arc::new(move |_, locked| {
         if !locked {
-            observed.fetch_add(1, Ordering::AcqRel);
+            observed.fetch_add(1, Ordering::SeqCst);
         }
     }));
     let mut retain_history = true;
@@ -773,7 +773,7 @@ fn history_retry_without_optional_history_is_bounded_and_refunds_notices() {
         Err(Error::Full(FullReason::Pipeline))
     ));
     assert!(!retain_history);
-    assert_eq!(attempts.load(Ordering::Acquire), 2);
+    assert_eq!(attempts.load(Ordering::SeqCst), 2);
     for nonce in 7500..7570 {
         assert!(store.point(&tx(nonce).hash()).1.is_none());
     }
@@ -1129,13 +1129,13 @@ fn remaining_counter_exhaustion_rejects_before_any_owner_or_notice_change() {
         );
     }
     let store = store();
-    store.arrival.store(u64::MAX - 1, Ordering::Release);
+    store.arrival.store(u64::MAX - 1, Ordering::SeqCst);
     assert_eq!(store.next_arrival().unwrap(), u64::MAX - 1);
     assert!(matches!(
         store.next_arrival(),
         Err(Error::Fault("arrival counter"))
     ));
-    assert_eq!(store.arrival.load(Ordering::Acquire), u64::MAX);
+    assert_eq!(store.arrival.load(Ordering::SeqCst), u64::MAX);
     assert!(store.is_faulted());
     assert!(store.capture_all().owners.is_empty());
 }

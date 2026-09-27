@@ -24,7 +24,7 @@ use std::{
 pub struct TemplatesDuringAdmission;
 
 fn observe(node: &Node, phase: &str, received: &AtomicUsize) -> BlockTemplate {
-    let before = received.load(Ordering::Acquire);
+    let before = received.load(Ordering::SeqCst);
     let started = Instant::now();
     let result = node
         .rpc_client()
@@ -35,7 +35,7 @@ fn observe(node: &Node, phase: &str, received: &AtomicUsize) -> BlockTemplate {
         "TEMPLATE_RPC {}",
         serde_json::json!({
             "phase": phase, "elapsed_ns": elapsed.as_nanos(),
-            "received_before": before, "received_after": received.load(Ordering::Acquire),
+            "received_before": before, "received_after": received.load(Ordering::SeqCst),
             "result": result.as_ref().map(|template| serde_json::json!({
                 "work_id": template.work_id, "transactions": template.transactions.len(),
                 "proposals": template.proposals.len(), "parent_hash": template.parent_hash,
@@ -129,7 +129,7 @@ impl Spec for TemplatesDuringAdmission {
             let producer = scope.spawn(|| {
                 for tx in &transactions[COUNT / 2..] {
                     node.submit_transaction(tx);
-                    received.fetch_add(1, Ordering::Release);
+                    received.fetch_add(1, Ordering::SeqCst);
                 }
             });
             // Always query after starting the producer, even if it finishes
@@ -173,11 +173,11 @@ impl Spec for TemplatesDuringAdmission {
         println!(
             "TEMPLATE_PUBLICATION {}",
             serde_json::json!({
-                "admitted_transactions": received.load(Ordering::Acquire),
+                "admitted_transactions": received.load(Ordering::SeqCst),
                 "admission_ns": admission_ns, "admission_to_visible_ns": admitted.elapsed().as_nanos(),
             })
         );
-        assert_eq!(received.load(Ordering::Acquire), COUNT / 2);
+        assert_eq!(received.load(Ordering::SeqCst), COUNT / 2);
         node.assert_tx_pool_size((COUNT / 2) as u64, (COUNT / 2 - 1) as u64);
         node.submit_block(&Block::from(template).into_view());
     }

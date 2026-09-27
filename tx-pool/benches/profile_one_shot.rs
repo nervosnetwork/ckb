@@ -426,7 +426,7 @@ impl Completion {
 
     fn begin_callback(&self) {
         if self.track_in_flight {
-            self.callbacks_in_flight.fetch_add(1, Ordering::AcqRel);
+            self.callbacks_in_flight.fetch_add(1, Ordering::SeqCst);
             self.changed.notify_one();
         }
     }
@@ -434,14 +434,14 @@ impl Completion {
     fn finish_callback(&self, hash: Byte32) {
         self.record(hash);
         if self.track_in_flight {
-            self.callbacks_in_flight.fetch_sub(1, Ordering::Release);
+            self.callbacks_in_flight.fetch_sub(1, Ordering::SeqCst);
             self.changed.notify_one();
         }
     }
 
     fn record(&self, hash: Byte32) {
         let Some(&index) = self.indexes.get(&hash) else {
-            self.unexpected_callbacks.fetch_add(1, Ordering::AcqRel);
+            self.unexpected_callbacks.fetch_add(1, Ordering::SeqCst);
             self.changed.notify_one();
             return;
         };
@@ -450,27 +450,27 @@ impl Completion {
         } else if let Some(started) = self.target_started.get() {
             started.elapsed().as_nanos().min(u128::from(u64::MAX - 1)) as u64 + 1
         } else {
-            self.early_target_callbacks.fetch_add(1, Ordering::AcqRel);
+            self.early_target_callbacks.fetch_add(1, Ordering::SeqCst);
             1
         };
         if self.timestamps_ns[index]
-            .compare_exchange(0, timestamp, Ordering::AcqRel, Ordering::Acquire)
+            .compare_exchange(0, timestamp, Ordering::SeqCst, Ordering::SeqCst)
             .is_err()
         {
-            self.duplicate_callbacks.fetch_add(1, Ordering::AcqRel);
+            self.duplicate_callbacks.fetch_add(1, Ordering::SeqCst);
             self.changed.notify_one();
             return;
         }
         self.accepted_shards[index % COMPLETION_COUNTER_SHARDS]
             .0
-            .fetch_add(1, Ordering::Release);
+            .fetch_add(1, Ordering::SeqCst);
         self.changed.notify_one();
     }
 
     fn accepted_count(&self) -> usize {
         self.accepted_shards
             .iter()
-            .map(|counter| counter.0.load(Ordering::Acquire))
+            .map(|counter| counter.0.load(Ordering::SeqCst))
             .sum()
     }
 
@@ -482,10 +482,10 @@ impl Completion {
 
     fn validate(&self, expected: usize, allow_duplicates: bool) -> BenchResult<()> {
         let observed = self.accepted_count();
-        let duplicates = self.duplicate_callbacks.load(Ordering::Acquire);
-        let unexpected = self.unexpected_callbacks.load(Ordering::Acquire);
-        let early_target = self.early_target_callbacks.load(Ordering::Acquire);
-        let callbacks_in_flight = self.callbacks_in_flight.load(Ordering::Acquire);
+        let duplicates = self.duplicate_callbacks.load(Ordering::SeqCst);
+        let unexpected = self.unexpected_callbacks.load(Ordering::SeqCst);
+        let early_target = self.early_target_callbacks.load(Ordering::SeqCst);
+        let callbacks_in_flight = self.callbacks_in_flight.load(Ordering::SeqCst);
         require(
             observed == expected
                 && (allow_duplicates || duplicates == 0)
@@ -507,7 +507,7 @@ impl Completion {
         tokio::time::timeout(Duration::from_secs(30), async {
             loop {
                 let changed = self.changed.notified();
-                let count = self.callbacks_in_flight.load(Ordering::Acquire);
+                let count = self.callbacks_in_flight.load(Ordering::SeqCst);
                 if count != 0 {
                     break count;
                 }
@@ -522,7 +522,7 @@ impl Completion {
         self.validate(self.indexes.len(), allow_duplicates)?;
         let mut samples = self.timestamps_ns[self.target_begin..]
             .iter()
-            .map(|sample| sample.load(Ordering::Acquire))
+            .map(|sample| sample.load(Ordering::SeqCst))
             .collect::<Vec<_>>();
         for sample in &mut samples {
             *sample = sample
@@ -599,12 +599,12 @@ impl RelayCompletion {
                 tx_hash,
             } => {
                 if !lock(&self.ok).insert((tx_hash, original_peer)) {
-                    self.duplicate_ok.fetch_add(1, Ordering::AcqRel);
+                    self.duplicate_ok.fetch_add(1, Ordering::SeqCst);
                 }
             }
             TxVerificationResult::Reject { tx_hash } => {
                 if !lock(&self.rejects).insert(tx_hash) {
-                    self.duplicate_reject.fetch_add(1, Ordering::AcqRel);
+                    self.duplicate_reject.fetch_add(1, Ordering::SeqCst);
                 }
             }
             TxVerificationResult::UnknownParents { peer, parents } => {
@@ -612,7 +612,7 @@ impl RelayCompletion {
             }
             #[cfg(not(feature = "cross-version-legacy-bench-adapter"))]
             TxVerificationResult::GenerationReset => {
-                self.generation_resets.fetch_add(1, Ordering::AcqRel);
+                self.generation_resets.fetch_add(1, Ordering::SeqCst);
             }
         }
         self.changed.notify_one();
@@ -639,11 +639,11 @@ impl RelayCompletion {
             .collect();
         RelayObservation {
             ok: lock(&self.ok).len(),
-            duplicate_ok: self.duplicate_ok.load(Ordering::Acquire),
+            duplicate_ok: self.duplicate_ok.load(Ordering::SeqCst),
             rejects: lock(&self.rejects).len(),
             unknown_parents: unknown.values().sum(),
             unknown_parent_observations,
-            generation_resets: self.generation_resets.load(Ordering::Acquire),
+            generation_resets: self.generation_resets.load(Ordering::SeqCst),
         }
     }
 
@@ -689,7 +689,7 @@ impl RelayCompletion {
             .iter()
             .filter(|(hash, _)| {
                 completion.indexes.get(hash).is_some_and(|&index| {
-                    completion.timestamps_ns[index].load(Ordering::Acquire) != 0
+                    completion.timestamps_ns[index].load(Ordering::SeqCst) != 0
                 })
             })
             .cloned()
@@ -698,15 +698,15 @@ impl RelayCompletion {
         require(
             rejects.iter().all(|hash| {
                 completion.indexes.get(hash).is_some_and(|&index| {
-                    completion.timestamps_ns[index].load(Ordering::Acquire) == 0
+                    completion.timestamps_ns[index].load(Ordering::SeqCst) == 0
                 })
-            }) && completion.unexpected_callbacks.load(Ordering::Acquire) == 0
-                && completion.duplicate_callbacks.load(Ordering::Acquire) == 0
-                && self.duplicate_ok.load(Ordering::Acquire) == 0
-                && self.duplicate_reject.load(Ordering::Acquire) == 0,
+            }) && completion.unexpected_callbacks.load(Ordering::SeqCst) == 0
+                && completion.duplicate_callbacks.load(Ordering::SeqCst) == 0
+                && self.duplicate_ok.load(Ordering::SeqCst) == 0
+                && self.duplicate_reject.load(Ordering::SeqCst) == 0,
             "capacity stress terminal ownership violation; see BENCH_STRESS_RESULT",
         )?;
-        if self.generation_resets.load(Ordering::Acquire) == 0 {
+        if self.generation_resets.load(Ordering::SeqCst) == 0 {
             return self.validate(&accepted, &rejects, Some(allowed));
         }
         // Reset does not replay historical Ok results. Check every retained
@@ -751,8 +751,8 @@ impl RelayCompletion {
                 expected_rejects.len()
             ),
         )?;
-        let duplicate_ok = self.duplicate_ok.load(Ordering::Acquire);
-        let duplicate_reject = self.duplicate_reject.load(Ordering::Acquire);
+        let duplicate_ok = self.duplicate_ok.load(Ordering::SeqCst);
+        let duplicate_reject = self.duplicate_reject.load(Ordering::SeqCst);
         let unknown_parent_observations = lock(&self.unknown_parents);
         let unknown_parents: usize = unknown_parent_observations.values().sum();
         let invalid_unknown_parent = match allowed_unknown_parents {
@@ -764,7 +764,7 @@ impl RelayCompletion {
             }),
             None => !unknown_parent_observations.is_empty(),
         };
-        let generation_resets = self.generation_resets.load(Ordering::Acquire);
+        let generation_resets = self.generation_resets.load(Ordering::SeqCst);
         require(
             duplicate_ok == 0
                 && duplicate_reject == 0
@@ -800,7 +800,7 @@ fn terminal_diagnostics(
         .indexes
         .iter()
         .filter_map(|(hash, &index)| {
-            (completion.timestamps_ns[index].load(Ordering::Acquire) != 0).then_some(hash.clone())
+            (completion.timestamps_ns[index].load(Ordering::SeqCst) != 0).then_some(hash.clone())
         })
         .collect::<HashSet<_>>();
     let mut unresolved = completion
@@ -854,10 +854,10 @@ fn terminal_diagnostics(
         "refused_without_observed_acceptance": refusals,
         "unresolved": unresolved.len(), "unresolved_hashes": unresolved,
         "accepted_rejected_overlap": overlapping, "unexpected_rejects": unexpected_rejects,
-        "callback_duplicates": completion.duplicate_callbacks.load(Ordering::Acquire),
-        "unexpected_callbacks": completion.unexpected_callbacks.load(Ordering::Acquire),
+        "callback_duplicates": completion.duplicate_callbacks.load(Ordering::SeqCst),
+        "unexpected_callbacks": completion.unexpected_callbacks.load(Ordering::SeqCst),
         "relay_ok": observation.ok, "relay_duplicate_ok": observation.duplicate_ok,
-        "relay_duplicate_reject": relay.duplicate_reject.load(Ordering::Acquire),
+        "relay_duplicate_reject": relay.duplicate_reject.load(Ordering::SeqCst),
         "relay_generation_resets": observation.generation_resets,
         "relay_unknown_parent_observations": observation.unknown_parent_observations,
     })
@@ -886,14 +886,14 @@ async fn wait_for_stress_settlement(
             let settled = {
                 let rejects = lock(&relay.rejects);
                 completion.indexes.iter().all(|(hash, &index)| {
-                    completion.timestamps_ns[index].load(Ordering::Acquire) != 0
+                    completion.timestamps_ns[index].load(Ordering::SeqCst) != 0
                         || rejects.contains(hash)
                 })
             };
             let (ok, _) = relay.terminal_counts();
             if settled
                 && (ok >= completion.accepted_count()
-                    || relay.generation_resets.load(Ordering::Acquire) != 0)
+                    || relay.generation_resets.load(Ordering::SeqCst) != 0)
             {
                 break;
             }
@@ -938,7 +938,7 @@ impl RelayDrainGuard {
         let handle = std::thread::Builder::new()
             .name("txpool-bench-relay-drain".to_owned())
             .spawn(move || {
-                while !thread_stop.load(Ordering::Acquire) {
+                while !thread_stop.load(Ordering::SeqCst) {
                     if let Some(result) = try_recv_relay(&receiver) {
                         thread_completion.record(result);
                         continue;
@@ -977,7 +977,7 @@ impl RelayDrainGuard {
         let Some(handle) = self.handle.take() else {
             return Ok(None);
         };
-        self.stop.store(true, Ordering::Release);
+        self.stop.store(true, Ordering::SeqCst);
         handle
             .join()
             .map(Some)
@@ -2197,7 +2197,7 @@ fn run() -> BenchResult<()> {
             .map_err(bench_error)?;
         resource_phases.finish();
         let terminals = terminal_diagnostics(&completion, &relay_completion, all_expected_relay);
-        let reset = relay_completion.generation_resets.load(Ordering::Acquire) != 0;
+        let reset = relay_completion.generation_resets.load(Ordering::SeqCst) != 0;
         println!(
             "BENCH_STRESS_RESULT {}",
             serde_json::json!({
@@ -2394,7 +2394,7 @@ fn run() -> BenchResult<()> {
     }
     let throughput = target_count as f64 / elapsed.as_secs_f64();
     let accepted = completion.accepted_count();
-    let callback_duplicates = completion.duplicate_callbacks.load(Ordering::Acquire);
+    let callback_duplicates = completion.duplicate_callbacks.load(Ordering::SeqCst);
     let relay = relay_completion.observation();
     let observation = serde_json::json!({
         "schema_version": 3,

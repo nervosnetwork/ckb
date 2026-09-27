@@ -453,7 +453,7 @@ impl Batch {
     /// Open publication only after Store::apply has released its commit guards.
     /// An appended batch keeps its FIFO position while waiting for activation.
     pub(super) fn activate(&self, outbox: &Outbox) {
-        self.ready.store(true, Ordering::Release);
+        self.ready.store(true, Ordering::SeqCst);
         outbox.changed.notify_one();
     }
 
@@ -467,10 +467,10 @@ impl Batch {
             // notify_waiters is observed even if it precedes the first poll.
             let completed = self.completed.notified();
             let failed = outbox.failed.notified();
-            if self.published.load(Ordering::Acquire) {
+            if self.published.load(Ordering::SeqCst) {
                 return Ok(());
             }
-            if outbox.faulted.load(Ordering::Acquire) {
+            if outbox.faulted.load(Ordering::SeqCst) {
                 return Err(Error::Fault("notice publisher"));
             }
             tokio::select! {
@@ -671,7 +671,7 @@ impl Outbox {
             if let Some(next) = quota.used.sub(batch.charge) {
                 quota.used = next;
             } else {
-                self.faulted.store(true, Ordering::Release);
+                self.faulted.store(true, Ordering::SeqCst);
                 failed = true;
             }
         }
@@ -726,7 +726,7 @@ impl Outbox {
             let Some(head) = state
                 .queue
                 .front()
-                .filter(|batch| batch.ready.load(Ordering::Acquire))
+                .filter(|batch| batch.ready.load(Ordering::SeqCst))
             else {
                 return Ok(false);
             };
@@ -734,7 +734,7 @@ impl Outbox {
                 .queue
                 .iter()
                 .take(PUBLISH_BATCH_LIMIT)
-                .take_while(|batch| batch.ready.load(Ordering::Acquire))
+                .take_while(|batch| batch.ready.load(Ordering::SeqCst))
                 .count();
             (Arc::clone(head), count)
         };
@@ -824,11 +824,11 @@ impl Outbox {
                 next = state
                     .queue
                     .front()
-                    .filter(|batch| batch.ready.load(Ordering::Acquire))
+                    .filter(|batch| batch.ready.load(Ordering::SeqCst))
                     .cloned();
             }
             drop(state);
-            batch.published.store(true, Ordering::Release);
+            batch.published.store(true, Ordering::SeqCst);
             batch.completed.notify_waiters();
             if failed {
                 self.failed.notify_waiters();
@@ -850,7 +850,7 @@ impl Outbox {
                     crate::metrics::record_failure(
                         crate::metrics::FailureBoundary::EffectPublisher,
                     );
-                    self.outbox.faulted.store(true, Ordering::Release);
+                    self.outbox.faulted.store(true, Ordering::SeqCst);
                     self.outbox.failed.notify_waiters();
                     self.outbox.room.notify_waiters();
                 }
@@ -869,7 +869,7 @@ impl Outbox {
                 completion.done = true;
                 return Ok(());
             }
-            if self.faulted.load(Ordering::Acquire) {
+            if self.faulted.load(Ordering::SeqCst) {
                 return Err(Error::Fault("notice publisher"));
             }
             changed.await;

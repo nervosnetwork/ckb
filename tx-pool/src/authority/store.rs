@@ -294,7 +294,7 @@ pub(super) struct Store {
 pub(super) struct ChainPause<'a>(&'a Store);
 impl Drop for ChainPause<'_> {
     fn drop(&mut self) {
-        self.0.chain_pending.store(false, Ordering::Release);
+        self.0.chain_pending.store(false, Ordering::SeqCst);
         self.0.work.notify_waiters();
         self.0.changed.notify_waiters();
     }
@@ -445,7 +445,7 @@ impl Store {
 
     pub(super) fn begin_chain(&self) -> Result<ChainPause<'_>, Error> {
         self.chain_pending
-            .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
+            .compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst)
             .map_err(|_| Error::Full(FullReason::ChainTransition))?;
         Ok(ChainPause(self))
     }
@@ -457,9 +457,7 @@ impl Store {
 
     pub(super) fn next_arrival(&self) -> Result<u64, Error> {
         self.arrival
-            .fetch_update(Ordering::AcqRel, Ordering::Acquire, |old| {
-                old.checked_add(1)
-            })
+            .fetch_update(Ordering::SeqCst, Ordering::SeqCst, |old| old.checked_add(1))
             .map_err(|_| {
                 self.fault();
                 Error::Fault("arrival counter")
@@ -467,7 +465,7 @@ impl Store {
     }
 
     pub(super) fn fault(&self) {
-        if !self.faulted.swap(true, Ordering::AcqRel) {
+        if !self.faulted.swap(true, Ordering::SeqCst) {
             crate::metrics::record_failure(crate::metrics::FailureBoundary::TypedFault);
         }
         self.changed.notify_waiters();
@@ -478,18 +476,18 @@ impl Store {
     }
 
     pub(super) fn is_faulted(&self) -> bool {
-        self.faulted.load(Ordering::Acquire) || self.budget.faulted()
+        self.faulted.load(Ordering::SeqCst) || self.budget.faulted()
     }
 
     pub(super) fn stop(&self) {
-        self.stopped.store(true, Ordering::Release);
+        self.stopped.store(true, Ordering::SeqCst);
         self.work.notify_waiters();
         self.changed.notify_waiters();
         self.template_changed.notify_waiters();
     }
 
     pub(super) fn is_stopped(&self) -> bool {
-        self.stopped.load(Ordering::Acquire)
+        self.stopped.load(Ordering::SeqCst)
     }
 
     #[expect(
@@ -945,7 +943,7 @@ impl Store {
         if self.is_stopped() {
             return Ok(None);
         }
-        if self.chain_pending.load(Ordering::Acquire) {
+        if self.chain_pending.load(Ordering::SeqCst) {
             return Ok(None);
         }
         let Some((entry, memory)) = self.queues.pop(stage, selection, &self.budget)? else {

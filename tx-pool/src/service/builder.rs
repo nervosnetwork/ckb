@@ -268,7 +268,7 @@ impl TxPoolServiceBuilder {
                                 if signal.is_cancelled() || pool.is_faulted() {
                                     break;
                                 }
-                                started.store(true, Ordering::Release);
+                                started.store(true, Ordering::SeqCst);
                             }
                             Err(error) => {
                                 error!("tx-pool persistence replay failed: {error}");
@@ -324,7 +324,7 @@ impl TxPoolServiceBuilder {
                 }
             }
         }
-        started.store(false, Ordering::Release);
+        started.store(false, Ordering::SeqCst);
         signal.cancel();
         pool.stop();
         receiver.close();
