@@ -48,7 +48,7 @@ pub struct TxPoolConfig {
     /// RPC submissions still verify and complete normally.
     #[serde(default = "default_max_tx_verify_workers")]
     pub max_tx_verify_workers: usize,
-    /// Test-only override of the network verification time cap, in milliseconds.
+    /// Test-only override of the network verification CPU-time cap, in milliseconds.
     #[cfg(feature = "test")]
     #[doc(hidden)]
     pub max_tx_verify_time_ms: u32,
@@ -70,7 +70,7 @@ pub struct TxPoolConfig {
 }
 
 impl TxPoolConfig {
-    /// Internal network verification cap; only test builds support an override.
+    /// Internal network verification CPU cap; only test builds support an override.
     pub fn max_tx_verify_time(&self) -> std::time::Duration {
         #[cfg(feature = "test")]
         {

@@ -1932,6 +1932,7 @@ dependencies = [
  "hyper-util",
  "libc",
  "lru",
+ "nix 0.31.2",
  "rand 0.8.6",
  "serde_json",
  "tempfile",
@@ -1940,6 +1941,7 @@ dependencies = [
  "tonic",
  "tracing",
  "tracing-subscriber",
+ "winapi",
 ]
 
 [[package]]

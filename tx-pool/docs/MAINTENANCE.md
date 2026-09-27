@@ -17,6 +17,7 @@ the linked implementation and architecture pages remain authoritative.
 | Admission counts each affected existing owner once against the shared bound | [Membership](../src/authority/membership.rs) budgets the union of replacement families, capacity-trim families and late-producer descendants | [Membership](../src/authority/tests/membership.rs): exact 100, refusing 101 and overlapping families | Unbounded mutation work or incorrect capacity refusal |
 | Cancellation releases the capability it owns without erasing committed effects | [Job and active permit](../src/authority/jobs.rs), [budget](../src/authority/budget.rs) and [outbox](../src/authority/notice.rs) own separate lifetimes; activation follows guard release | [Execution](../src/authority/tests/execution.rs) and [notice](../src/authority/tests/notice.rs): pause/stop refund, cancelled waiters and publisher failure | Leaked capacity, missing publication or a blocked caller |
 | Authority verification holds admitted compute capacity | [ComputePermit](../src/authority/service.rs) owns the slot and mode; [verification](../src/authority/jobs.rs) borrows it across computation | [Execution](../src/authority/tests/execution.rs): pause during capacity wait, stop and one-worker runtime | Bypassing concurrency or pause admission; releasing active memory before settlement |
+| Network VM limits charge only the execution thread's CPU; remote observations never become receipts | [CPU clock](../src/verification/cpu_clock.rs) binds precise timestamps to their thread; [executor](../src/verification/execution.rs) joins before billing or resuming | [Execution tests](../src/verification/execution/tests.rs): off-CPU waits, late monitor failure, cumulative resumed CPU, failed receipt and nonzero script exit | False normal-transaction refusal, uncontrolled CPU work or misclassified script failure |
 | Recovery uses the same trigger meaning at retention, wakeup and creation-event deferral | [RecoveryTriggers](../src/authority/model.rs) defines blocked-dependency all and retry-input any; [history](../src/authority/membership.rs) produces it and [wake](../src/authority/waiting.rs) preserves short-circuit observations | [Waiting](../src/authority/tests/waiting.rs) and [concurrency](../src/authority/tests/concurrency.rs): all/any recovery, later lost producer, creation-event order | Premature recovery, self-wakeup or missing a terminal dependency |
 | A notice class charges and refunds the same cumulative quotas | [NoticeBudget::charged_by](../src/authority/notice.rs) defines remote/ordinary/total membership; reservation installs a complete projected budget | [Notice](../src/authority/tests/notice.rs): final-tier refusal and refund after a broken tier | Partial charge, leaked capacity or lost trusted headroom |
 | Cancelling a remote batch removes only its still-pending claims | [KnownRemoteBatch and the known filter](../../sync/src/types/mod.rs) own identity and overlapping claim counts; the non-Clone guard alone settles its prefix and releases its suffix | [Relayer](../../sync/src/relayer/tests/transactions_process.rs): duplicates, overlapping batches, reset, accept, expiry and same-batch LRU eviction | Erasing completed or newer known marks, or resurrecting rejected work |
@@ -91,8 +92,8 @@ share validation, but legacy ancestor normalization has its own compatibility fl
 | `keep_rejected_tx_hashes_days` / `keep_rejected_tx_hashes_count` | 7 / 10,000,000 | Recent-rejection retention |
 | `persisted_data` / `recent_reject` | Under the node's `tx-pool` data directory | Persistence file base and recent-rejection database; relative paths use the node root |
 
-VM execution rate and startup allowance are calibrated internally and logged at
-startup. Only network work has a time budget, capped at `MIN_BLOCK_INTERVAL`
+VM CPU execution rate and startup allowance are calibrated internally and logged
+at startup. Only network work has a CPU-time budget, capped at `MIN_BLOCK_INTERVAL`
 (currently 8 seconds); see [verification budgets](architecture/EXECUTION.md#verification-budgets-and-proof-reuse).
 
 `max_tx_pool_size` retains its existing serialized-byte meaning. Internal
@@ -144,7 +145,7 @@ instrumentation. Gauges are observations, not admission authority.
 |---|---|---|
 | Remote pressure while local progress remains possible | `ckb_tx_pool_pipeline_residency`: remote/total entries and bytes, active work | Distinguish retained backlog from active compute; check per-peer limits and workload shape |
 | Commits or reorg calls wait after state changed | `ckb_tx_pool_effect_usage`: batches/bytes, publisher logs | Identify an unready FIFO head, slow synchronous endpoint or endpoint failure |
-| VM-time rejection | Rejection class and startup calibration values | Reproduce actual VM work; do not classify local resource refusal as consensus invalidity |
+| VM CPU-time rejection | Rejection class and startup calibration values | Reproduce actual VM work; do not classify local resource refusal as consensus invalidity |
 | Template refresh error | Selected-owner/lifecycle source and template-driver logs | Check invalidation or build failure; a refresh deadline does not cancel the shared driver |
 | Shutdown stalls | Handler/background join versus publisher join | Follow owned tasks and synchronous providers; `started=false` is insufficient |
 | Startup has no restored transactions | Persistence-load log and v2 file | Preserve the failed input for diagnosis; malformed v2 does not fall back to v1 |
@@ -236,7 +237,7 @@ as their exhaustive matches require. Policy is captured before diagnostic
 strings are bounded. Recent records answer status queries; they do not gate
 admission. Terminal capacity rejection, including eviction, remains queryable;
 ingress capacity refusal only diagnoses pressure and releases relay tracking.
-VM timeouts and node interruptions leave verification unfinished. They release
+VM CPU-budget refusals and node interruptions leave verification unfinished. They release
 network retry tracking without becoming recent records or rejection events.
 `PoolTransactionReject::try_from` excludes these outcomes;
 adding an internal outcome does not require a new public rejection value.

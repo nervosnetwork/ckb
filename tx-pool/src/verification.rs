@@ -1,6 +1,7 @@
 //! Canonical transaction verification adapters and node-local execution budgets.
 
 pub(crate) mod calibration;
+mod cpu_clock;
 mod execution;
 
 pub(crate) use execution::ComputeMode;
@@ -102,16 +103,13 @@ fn verify_dao_script_size(
 
 #[derive(Clone, Copy, Debug)]
 pub(crate) struct TxPoolVerificationBudget {
-    active_vm_time: std::time::Duration,
+    cpu_time: std::time::Duration,
     mode: ComputeMode,
 }
 
 impl TxPoolVerificationBudget {
-    pub(crate) const fn new(active_vm_time: std::time::Duration, mode: ComputeMode) -> Self {
-        Self {
-            active_vm_time,
-            mode,
-        }
+    pub(crate) const fn new(cpu_time: std::time::Duration, mode: ComputeMode) -> Self {
+        Self { cpu_time, mode }
     }
 }
 
@@ -141,7 +139,7 @@ pub(crate) async fn verify_rtx(
                 cache_entry,
                 &mut execution::VmRunner {
                     command: command_rx,
-                    remaining: budget.active_vm_time,
+                    remaining: budget.cpu_time,
                     mode: budget.mode,
                 },
             )

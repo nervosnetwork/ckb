@@ -462,7 +462,10 @@ python3 -m unittest discover -s tx-pool/scripts -p test_packing_benchmark.py
 
 Run calibration holdouts alone in fresh processes with the production VM backend,
 recording source, binary, toolchain and CPU identities. `calibration-observation`
-keeps their wall-clock assertions out of ordinary concurrent unit suites.
+keeps their CPU-time budget assertions out of ordinary concurrent unit suites.
+Record the CPU metric with each observation; older wall-time samples cannot
+validate CPU-based calibration. Contention and frequency changes can still alter
+actual CPU cost even though off-CPU waiting is excluded.
 
 ```sh
 cargo nextest run --locked --cargo-profile prod -p ckb-tx-pool \

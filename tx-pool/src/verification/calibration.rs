@@ -1,5 +1,6 @@
 //! Machine calibration for network admission; never a consensus limit.
 
+use super::cpu_clock::CpuTime;
 use ckb_script::{ScriptVersion, types::Machine};
 use ckb_types::bytes::Bytes;
 use ckb_vm::{
@@ -8,11 +9,7 @@ use ckb_vm::{
     elf::{LoadingAction, ProgramMetadata},
     memory::{FLAG_EXECUTABLE, FLAG_FREEZED},
 };
-use std::{
-    num::NonZeroU128,
-    sync::LazyLock,
-    time::{Duration, Instant},
-};
+use std::{num::NonZeroU128, sync::LazyLock, time::Duration};
 
 const SAMPLE_CYCLES: u64 = 5_000_000;
 
@@ -21,20 +18,20 @@ const SAMPLE_CYCLES: u64 = 5_000_000;
 struct Measurement {
     /// Executed consensus cycles in the fixed workload.
     cycles: u64,
-    /// Time spent creating the machine and loading its program and stack.
+    /// CPU time spent creating the machine and loading its program and stack.
     loading_time: Duration,
-    /// Time spent running the loaded workload to its cycle limit.
+    /// CPU time spent running the loaded workload to its cycle limit.
     execution_time: Duration,
 }
 
 impl Measurement {
     /// Measure all supported script versions using the node's actual VM backend.
     ///
-    /// Three samples per version suppress an isolated scheduling disturbance;
+    /// Three CPU-time samples per version suppress an isolated measurement disturbance;
     /// retain the slowest version. The program has no syscalls or external data.
     /// Loading uses fixed metadata, so ELF parsing and data-provider I/O are not
     /// measured. Callers must leave room for those costs and workload variation.
-    fn measure() -> Result<Self, Error> {
+    fn measure() -> Result<Self, Box<dyn std::error::Error>> {
         // Keep the instructions reviewable without a compiled benchmark asset.
         // The arithmetic/load/store loop stops at the VM's cycle limit.
         let instructions: [u32; 6] = [
@@ -85,8 +82,8 @@ impl Measurement {
         program: &Bytes,
         metadata: &ProgramMetadata,
         cycles: u64,
-    ) -> Result<Self, Error> {
-        let started = Instant::now();
+    ) -> Result<Self, Box<dyn std::error::Error>> {
+        let started = CpuTime::now()?;
         let core = version.init_core_machine(cycles);
         let mut machine = Machine::new(
             DefaultMachineBuilder::new(core)
@@ -94,16 +91,16 @@ impl Measurement {
                 .build(),
         );
         machine.load_program_with_metadata(program, metadata, std::iter::empty())?;
-        let loading_time = started.elapsed();
-        let started = Instant::now();
+        let loading_time = started.elapsed()?;
+        let started = CpuTime::now()?;
         match machine.run() {
             Err(Error::CyclesExceeded) => Ok(Self {
                 cycles: machine.machine().cycles(),
                 loading_time,
-                execution_time: started.elapsed(),
+                execution_time: started.elapsed()?,
             }),
-            Err(error) => Err(error),
-            Ok(_) => Err(Error::Unexpected("calibration loop exited".into())),
+            Err(error) => Err(error.into()),
+            Ok(_) => Err(Error::Unexpected("calibration loop exited".into()).into()),
         }
     }
 }
@@ -123,7 +120,7 @@ static VM_TIMING: LazyLock<Option<VmTiming>> = LazyLock::new(|| {
         return None;
     };
     ckb_logger::info!(
-        "Network VM calibration: {} cycles/ms, minimum {} ms",
+        "Network VM CPU calibration: {} cycles/ms, minimum {} ms",
         timing.cycles_per_ms,
         timing.minimum.as_millis(),
     );

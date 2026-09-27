@@ -88,7 +88,7 @@ have their own progress requirements, described below, and remain outside this g
 
 ## Verification budgets and proof reuse
 
-The transaction source selects an active-time budget only for network relay and
+The transaction source selects a CPU-time budget only for network relay and
 proposal verification. Local RPC submission, test submission, dry-run and recovery
 have no time limit and use synchronous canonical verification through the existing
 blocking adapter. They pass the computation gate before starting and retain their
@@ -98,8 +98,9 @@ with pause/stop/join. Proposal promotion preserves local and recovery sources.
 Before accepting work, the pool calibrates the node's VM backend once per process.
 A fixed arithmetic/load/store loop runs to five million cycles after loading a
 64 KiB program image and stack. Each supported VM version runs three samples;
-the median suppresses an isolated scheduling disturbance and the slowest version
-sets the execution rate. Loading uses fixed metadata, without ELF parsing or
+loading and execution both use the calling thread's CPU clock. The median
+suppresses an isolated measurement disturbance and the slowest version sets the
+execution rate. Loading uses fixed metadata, without ELF parsing or
 provider I/O. The [budget adapter](../../src/verification/calibration.rs) leaves
 16 times the measured time for workload differences and sets the minimum to one
 whole loading/execution quantum with that margin. Both values scale with the
@@ -124,21 +125,38 @@ rule must preserve the independent syscall visibility and cache identity tests.
 Expanded dep-group members have cell-dep indexes; group containers do not.
 
 The [pool executor](../../src/verification/execution.rs) shares one remaining
-budget across ordinary VM groups. Each task owns a scheduler slice and returns
-that ownership with its result and measured execution time. Joining the slice
-both acknowledges suspension and debits its active time before any resume;
-there is no separate pause acknowledgment protocol. A slice's timer starts when
-its task runs and requests a cooperative interrupt. Its returned elapsed time
-decides exhaustion, including when completion wins the timer race. The timer and
-interrupt belong to that slice and cannot affect its successor. Dropping the
+CPU budget across ordinary VM groups and resumptions. Each task owns a scheduler
+slice and returns that ownership with its result and a CPU receipt taken on the
+execution thread. Joining the slice acknowledges suspension and debits its CPU
+use before any resume; there is no separate pause acknowledgment protocol.
+
+The private [CPU clock](../../src/verification/cpu_clock.rs) separates two roles.
+The synchronous execution owns a precise timestamp that cannot move to another
+thread. A transferable monitor observes the target thread's CPU progress and
+requests a cooperative interrupt when it observes exhaustion. Remote reads
+can lag, fail after thread exit, or include later work after the slice returns.
+They never debit the budget or override the final receipt. Monitor failure joins
+the child before deciding the outcome and rechecks completion before stopping
+work; a stale observation cannot poison a completed slice's resume. The monitor
+and interrupt belong to that slice and cannot affect its successor. Dropping the
 caller interrupts and cancels its owned slice.
 
-Queueing, suspension and parent polling delay spend no budget. Root and dynamic
-program loading run inside the charged scheduler slice, through the ordinary
-loader. Synchronous loading and providers must return before the VM can
-acknowledge a pause, so this is not a hard wall-clock deadline. Type ID, cycle
-accounting and script error attribution remain in the canonical script verifier;
-the pool supplies only its scheduler execution policy.
+Checks sleep for the observed remaining CPU allowance, with a 1 ms floor matching
+Tokio's timer granularity. Commands do not reset that wait. Suspend and Stop
+interrupt immediately, without waiting for the next CPU check. OS scheduling,
+remote counter lag and cooperative interruption still affect when execution stops;
+this is not a hard wall-clock deadline. The precise receipt decides exhaustion,
+including when normal completion races the monitor.
+
+Queueing, suspension, parent polling delay, OS preemption and off-CPU provider
+waiting spend no CPU budget. Root and dynamic program loading and provider CPU
+work remain inside the charged scheduler slice. Calibration uses the same precise
+thread CPU metric. If a receipt cannot be measured, the runner cannot accept or
+resume work; a determined VM error or nonzero script exit still reaches canonical
+error attribution. Other measurement failures are retryable local interruptions,
+never malformed transactions. Type ID, cycle accounting and script error
+attribution remain in the canonical verifier; the pool supplies its execution
+policy.
 
 ## Settlement and failure
 
@@ -220,7 +238,7 @@ Bounds include source/destination overlap, container capacity and concurrent pro
 
 Full graph/query/template scratch, database caches, allocator overhead and VM
 internals remain separate costs. Pool budgets are not a process-RSS cap. The local
-VM-time budget does not establish consensus invalidity or justify peer banning;
+VM CPU-time budget does not establish consensus invalidity or justify peer banning;
 an exhausted attempt may be retried.
 
 Controller ingress is a separate bounded population: the ordinary channel has

@@ -51,6 +51,13 @@ tracing-subscriber = { workspace = true, optional = true }
 console-subscriber = { workspace = true, optional = true }
 tonic = { workspace = true, optional = true }
 
+[target.'cfg(unix)'.dependencies]
+libc.workspace = true
+nix = { version = "0.31.2", default-features = false, features = ["time"] }
+
+[target.'cfg(windows)'.dependencies]
+winapi = { version = "0.3", features = ["handleapi", "processthreadsapi", "winnt"] }
+
 [dev-dependencies]
 ckb-app-config = { workspace = true, features = ["test"] }
 tempfile.workspace = true
