@@ -407,8 +407,22 @@ impl Shared {
     pub fn set_unverified_tip(&self, header: crate::HeaderIndex) {
         self.unverified_tip.store(Arc::new(header));
     }
+
+    /// Returns received-block progress, at least as high as the verified snapshot read here.
+    /// Verification can advance before the producer publishes, or after a failure
+    /// resets the candidate. Derive the verified floor without another shared write.
     pub fn get_unverified_tip(&self) -> crate::HeaderIndex {
-        self.unverified_tip.load().as_ref().clone()
+        let candidate = self.unverified_tip.load();
+        let verified = self.snapshot();
+        if candidate.number() < verified.tip_number() {
+            crate::HeaderIndex::new(
+                verified.tip_number(),
+                verified.tip_hash(),
+                verified.total_difficulty().clone(),
+            )
+        } else {
+            candidate.as_ref().clone()
+        }
     }
 
     pub fn header_map(&self) -> &HeaderMap {

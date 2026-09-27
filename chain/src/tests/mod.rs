@@ -12,4 +12,5 @@ mod orphan_block_pool;
 mod reward;
 mod truncate;
 mod uncle;
+mod unverified_tip;
 mod util;
