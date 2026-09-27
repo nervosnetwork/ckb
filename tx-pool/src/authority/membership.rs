@@ -674,7 +674,8 @@ fn prepare_admission(
     } else {
         None
     };
-    let inputs = admitted.transaction.input_pts_iter().collect();
+    let history_inputs = (retain_history && !order.is_empty())
+        .then(|| admitted.transaction.input_pts_iter().collect());
     for hash in order {
         let old = graph.require(&hash)?;
         let old_snapshot = if let Some(totals) = &removed_totals {
@@ -691,8 +692,8 @@ fn prepare_admission(
             ))
         };
         let effect = Effect::removed(&old, reason, Some(old_snapshot))?;
-        let history = if retain_history {
-            history(&old, &inputs, &removed, graph)?
+        let history = if let Some(inputs) = &history_inputs {
+            history(&old, inputs, &removed, graph)?
         } else {
             None
         };
