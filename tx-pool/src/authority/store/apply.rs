@@ -15,7 +15,10 @@ use crate::authority::{
 use crate::util::compact_packed;
 use ckb_network::PeerIndex;
 use ckb_snapshot::Snapshot;
-use ckb_types::packed::{Byte32, ProposalShortId};
+use ckb_types::{
+    packed::{Byte32, ProposalShortId},
+    prelude::*,
+};
 use ckb_util::parking_lot::Mutex;
 use std::{
     collections::{BTreeMap, BTreeSet},
@@ -98,7 +101,7 @@ impl<'a> OwnerChanges<'a> {
         let mut relation_changes: BTreeMap<RelationKey, MemberChanges<Roles>> = BTreeMap::new();
         let mut peer_changes: BTreeMap<PeerIndex, MemberChanges<bool>> = BTreeMap::new();
         for (hash, edit) in edits {
-            let index = store.owner_shard(hash);
+            let index = store.owner_shard(hash.as_slice());
             locks.owners.insert(index, true);
             owner_edits.push((index, hash, edit));
             if replace_generation {
@@ -201,7 +204,7 @@ impl<'a> OwnerChanges<'a> {
             let mut previous_proposal = None;
             for (_, hash, edit) in edits.iter().copied() {
                 if edit.after.is_some() {
-                    let proposal = proposal_key(hash);
+                    let proposal = proposal_key(hash.as_slice());
                     if let Some(existing) = shard.proposals.get(proposal)
                         && existing != hash
                         && plan
@@ -413,7 +416,7 @@ impl Shard {
             revision,
             accepted_revision,
         } = self;
-        let proposal = proposal_key(hash);
+        let proposal = proposal_key(hash.as_slice());
         let before_deadline = edit.before.as_deref().and_then(deadline);
         let after_deadline = edit.after.as_deref().and_then(deadline);
         if let Some(before) = &edit.before {
@@ -459,10 +462,10 @@ impl Shard {
             if let Some(accepted) = after.accepted() {
                 accepted_times.insert((accepted.timestamp, hash.clone()));
             }
-            retired.extend(owners.insert(hash.clone(), Arc::clone(after)));
+            retired.extend(owners.insert(hash.unpack(), Arc::clone(after)));
             queues.insert(after);
         } else {
-            retired.extend(owners.remove(hash));
+            retired.extend(owners.remove(hash.as_slice()));
         }
         *revision += 1;
         if edit.affects_accepted() {

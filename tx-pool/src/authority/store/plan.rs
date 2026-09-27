@@ -15,6 +15,7 @@ use ckb_snapshot::Snapshot;
 use ckb_types::{
     core::BlockView,
     packed::{Byte32, OutPoint, ProposalShortId},
+    prelude::*,
 };
 use std::{
     collections::{BTreeMap, BTreeSet},
@@ -28,7 +29,8 @@ use std::{
 /// Recording and merging observations both reject a change to the original fact.
 #[derive(Clone, Debug, Default)]
 pub(in crate::authority) struct ReadSet {
-    pub(super) owners: BTreeMap<Byte32, Option<Weak<Entry>>>,
+    // Inline keys cannot keep an observed transaction's shared backing alive.
+    pub(super) owners: BTreeMap<[u8; 32], Option<Weak<Entry>>>,
     pub(super) spenders: BTreeMap<OutPoint, Option<Byte32>>,
     pub(super) relations: BTreeMap<RelationKey, Option<Weak<()>>>,
     pub(super) peers: BTreeMap<PeerIndex, Option<Weak<()>>>,
@@ -77,7 +79,7 @@ fn merge_observations<K: Ord + Clone, V: Clone>(
 
 impl ReadSet {
     fn observed_owner(&self, hash: &Byte32) -> Option<&Option<Weak<Entry>>> {
-        self.owners.get(hash)
+        self.owners.get(hash.as_slice())
     }
 
     pub(in crate::authority) fn observe_owner(
@@ -86,8 +88,8 @@ impl ReadSet {
         entry: Option<&Arc<Entry>>,
     ) -> Result<(), Error> {
         let observed = entry.map(Arc::downgrade);
-        if first_observation(self.owners.get(hash), &observed, same_weak)? {
-            self.owners.insert(compact_packed(hash), observed);
+        if first_observation(self.owners.get(hash.as_slice()), &observed, same_weak)? {
+            self.owners.insert(hash.unpack(), observed);
         }
         Ok(())
     }

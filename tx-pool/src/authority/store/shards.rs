@@ -5,10 +5,7 @@
 //! Store and Apply still choose the semantic keys and cross-family lock order;
 //! direct access to a single lock does not enforce ordering between separate calls.
 
-use ckb_types::{
-    packed::{Byte32, ProposalShortId},
-    prelude::*,
-};
+use ckb_types::packed::ProposalShortId;
 use ckb_util::parking_lot::{RwLock, RwLockReadGuard, RwLockWriteGuard};
 use std::{
     collections::hash_map::RandomState,
@@ -45,7 +42,7 @@ impl Routing {
         ShardIndex::from_hash(self.0.hash_one(key))
     }
 
-    pub(super) fn owner(&self, hash: &Byte32) -> ShardIndex {
+    pub(super) fn owner(&self, hash: &[u8]) -> ShardIndex {
         // Packed ProposalShortId hashes raw bytes, without a slice-length prefix.
         let mut hasher = self.0.build_hasher();
         hasher.write(proposal_key(hash));
@@ -55,11 +52,10 @@ impl Routing {
 
 #[expect(
     clippy::expect_used,
-    reason = "A valid Byte32 has 32 bytes, so its 10-byte proposal prefix always exists."
+    reason = "Owner keys come from valid 32-byte transaction hashes; their 10-byte proposal prefix exists."
 )]
-pub(super) fn proposal_key(hash: &Byte32) -> &[u8; ProposalShortId::TOTAL_SIZE] {
-    hash.as_slice()
-        .first_chunk()
+pub(super) fn proposal_key(hash: &[u8]) -> &[u8; ProposalShortId::TOTAL_SIZE] {
+    hash.first_chunk()
         .expect("a transaction hash contains a proposal ID")
 }
 

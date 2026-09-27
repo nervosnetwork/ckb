@@ -329,7 +329,7 @@ fn assert_state(store: &Store, expected: &[Expected], wakes: &[DependencyKey]) {
         for (hash, owner) in &shard.owners {
             assert!(
                 actual_owners
-                    .insert(hash.clone(), Arc::clone(owner))
+                    .insert(Byte32::new(*hash), Arc::clone(owner))
                     .is_none()
             );
         }

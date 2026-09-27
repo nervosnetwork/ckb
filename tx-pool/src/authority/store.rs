@@ -119,7 +119,7 @@ struct View {
 }
 #[derive(Default)]
 struct Shard {
-    owners: BTreeMap<Byte32, Arc<Entry>>,
+    owners: BTreeMap<[u8; 32], Arc<Entry>>,
     proposals: BTreeMap<[u8; ProposalShortId::TOTAL_SIZE], Byte32>,
     deadlines: BTreeSet<(Instant, Byte32)>,
     accepted_times: BTreeSet<(u64, Byte32)>,
@@ -133,7 +133,7 @@ impl Shard {
     fn proposal(&self, id: &ProposalShortId) -> Option<&Arc<Entry>> {
         self.proposals
             .get(id.as_slice())
-            .and_then(|hash| self.owners.get(hash))
+            .and_then(|hash| self.owners.get(hash.as_slice()))
     }
 }
 pub(super) struct Summary {
@@ -160,7 +160,7 @@ pub(super) struct Captured {
 pub(super) struct MissingCursor {
     view: u64,
     shard: usize,
-    after: Option<Byte32>,
+    after: Option<[u8; 32]>,
 }
 impl MissingCursor {
     pub(super) fn new(view: u64) -> Self {
@@ -327,7 +327,8 @@ impl CommitLocks {
             accepted,
         } = reads;
         for hash in owners.keys() {
-            self.owners.insert(store.owner_shard(hash), false);
+            self.owners
+                .insert(store.owner_shard(hash.as_slice()), false);
         }
         if all.is_some() || accepted.is_some() {
             for index in ShardIndex::all() {
@@ -438,7 +439,7 @@ impl Store {
         self.routing.key(key)
     }
 
-    fn owner_shard(&self, hash: &Byte32) -> ShardIndex {
+    fn owner_shard(&self, hash: &[u8]) -> ShardIndex {
         self.routing.owner(hash)
     }
 
@@ -504,9 +505,9 @@ impl Store {
         let mut scanned = 0;
         while let Some(shard) = self.shards.at_position(cursor.shard) {
             let shard = shard.read();
-            let lower = cursor.after.as_ref().map_or(Unbounded, Excluded);
+            let lower = cursor.after.map_or(Unbounded, Excluded);
             for (hash, entry) in shard.owners.range((lower, Unbounded)) {
-                cursor.after = Some(hash.clone());
+                cursor.after = Some(*hash);
                 scanned += 1;
                 if let Some(result) = super::relay::unknown_parents(entry) {
                     return MissingPage::Waiter(result);
@@ -530,8 +531,11 @@ impl Store {
 
     pub(super) fn point(&self, hash: &Byte32) -> (Arc<Snapshot>, Option<Arc<Entry>>) {
         let view = self.view.read();
-        let shard = self.shards.at(self.owner_shard(hash)).read();
-        (Arc::clone(&view.snapshot), shard.owners.get(hash).cloned())
+        let shard = self.shards.at(self.owner_shard(hash.as_slice())).read();
+        (
+            Arc::clone(&view.snapshot),
+            shard.owners.get(hash.as_slice()).cloned(),
+        )
     }
 
     /// Instantaneous identity check after queue selection. Prepared decisions
@@ -539,17 +543,17 @@ impl Store {
     pub(super) fn is_current(&self, entry: &Arc<Entry>) -> bool {
         let hash = entry.hash();
         let _view = self.view.read();
-        let shard = self.shards.at(self.owner_shard(&hash)).read();
+        let shard = self.shards.at(self.owner_shard(hash.as_slice())).read();
         shard
             .owners
-            .get(&hash)
+            .get(hash.as_slice())
             .is_some_and(|current| Arc::ptr_eq(current, entry))
     }
 
     pub(super) fn points(&self, hashes: &[Byte32]) -> Vec<Arc<Entry>> {
         let mut footprint = LockFootprint::default();
         for hash in hashes {
-            footprint.insert(self.owner_shard(hash), false);
+            footprint.insert(self.owner_shard(hash.as_slice()), false);
         }
         let _view = self.view.read();
         let owners = self.shards.acquire(&footprint);
@@ -557,8 +561,8 @@ impl Store {
             .iter()
             .filter_map(|hash| {
                 owners
-                    .get(self.owner_shard(hash))
-                    .and_then(|shard| shard.owners.get(hash))
+                    .get(self.owner_shard(hash.as_slice()))
+                    .and_then(|shard| shard.owners.get(hash.as_slice()))
                     .cloned()
             })
             .collect()
@@ -629,7 +633,10 @@ impl Store {
         let view = self.view.read();
         let key = RelationKey::Dependency(DependencyKey::Cell(point.clone()));
         let _dependency = self.dependency_gates.at(self.route(&key)).read();
-        let shard = self.shards.at(self.owner_shard(&point.tx_hash())).read();
+        let shard = self
+            .shards
+            .at(self.owner_shard(point.tx_hash().as_slice()))
+            .read();
         let snapshot = Arc::clone(&view.snapshot);
         if self
             .relation(&key)
@@ -639,7 +646,7 @@ impl Store {
         }
         let Some(owner) = shard
             .owners
-            .get(&point.tx_hash())
+            .get(point.tx_hash().as_slice())
             .filter(|entry| entry.accepted().is_some())
         else {
             return (snapshot, None);
@@ -672,10 +679,10 @@ impl Store {
         let _view = self.view.read();
         let entry = self
             .shards
-            .at(self.owner_shard(hash))
+            .at(self.owner_shard(hash.as_slice()))
             .read()
             .owners
-            .get(hash)
+            .get(hash.as_slice())
             .cloned();
         reads.observe_owner(hash, entry.as_ref())?;
         Ok(entry)
@@ -692,8 +699,11 @@ impl Store {
     ) -> Result<Option<ckb_types::core::cell::CellMeta>, Error> {
         use ckb_types::{bytes::Bytes, core::cell::CellMetaBuilder};
         let _view = self.view.read();
-        let shard = self.shards.at(self.owner_shard(&point.tx_hash())).read();
-        let owner = shard.owners.get(&point.tx_hash());
+        let shard = self
+            .shards
+            .at(self.owner_shard(point.tx_hash().as_slice()))
+            .read();
+        let owner = shard.owners.get(point.tx_hash().as_slice());
         reads.observe_owner(&point.tx_hash(), owner)?;
         let Some(owner) = owner.filter(|entry| entry.accepted().is_some()) else {
             return Ok(None);
@@ -845,9 +855,9 @@ impl Store {
         let guards = self.shards.read_all();
         let snapshot = Arc::clone(&view.snapshot);
         let Some(root) = guards
-            .at(self.owner_shard(hash))
+            .at(self.owner_shard(hash.as_slice()))
             .owners
-            .get(hash)
+            .get(hash.as_slice())
             .filter(|entry| entry.accepted().is_some())
         else {
             return Ok((snapshot, Vec::new()));
@@ -861,9 +871,9 @@ impl Store {
                 for (hash, member) in &row.members {
                     if member.roles.intersects(Roles::CHILD) && seen.insert(hash.clone()) {
                         let child = guards
-                            .at(self.owner_shard(hash))
+                            .at(self.owner_shard(hash.as_slice()))
                             .owners
-                            .get(hash)
+                            .get(hash.as_slice())
                             .filter(|entry| entry.accepted().is_some())
                             .ok_or(Error::Fault("accepted descendant projection"))?;
                         owners.push(Arc::clone(child));
@@ -996,7 +1006,7 @@ impl Store {
         for shard in self.shards.iter() {
             let shard = shard.read();
             for (_, hash) in shard.deadlines.iter().take_while(|(at, _)| *at <= now) {
-                if let Some(entry) = shard.owners.get(hash) {
+                if let Some(entry) = shard.owners.get(hash.as_slice()) {
                     result.push(Arc::clone(entry));
                     if result.len() == max {
                         return result;
@@ -1008,7 +1018,7 @@ impl Store {
                 .iter()
                 .take_while(|(at, _)| *at < accepted_before)
             {
-                if let Some(entry) = shard.owners.get(hash) {
+                if let Some(entry) = shard.owners.get(hash.as_slice()) {
                     result.push(Arc::clone(entry));
                     if result.len() == max {
                         return result;
@@ -1040,7 +1050,7 @@ impl Store {
         } = reads;
         for (hash, expected) in owners {
             let shard = guards
-                .get(self.owner_shard(hash))
+                .get(self.owner_shard(hash.as_slice()))
                 .ok_or(Error::Fault("owner read support"))?;
             if !matches_current(expected, shard.owners.get(hash)) {
                 return Err(Error::Stale);

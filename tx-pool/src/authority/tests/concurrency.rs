@@ -75,10 +75,10 @@ fn a_missing_child_in_a_coherent_descendant_capture_is_a_fault() {
     // production Apply always retires both sides under these owner guards.
     store
         .shards
-        .at(store.owner_shard(&child))
+        .at(store.owner_shard(child.as_slice()))
         .write()
         .owners
-        .remove(&child);
+        .remove(child.as_slice());
     assert!(matches!(
         store.capture_descendants(&parent),
         Err(Error::Fault("accepted descendant projection"))
@@ -158,7 +158,7 @@ fn owner_routing_matches_packed_proposal_hashing() {
                 bytes[position] = value;
                 let hash = Byte32::new(bytes);
                 let proposal = ProposalShortId::from_tx_hash(&hash);
-                assert_eq!(store.owner_shard(&hash), store.route(&proposal));
+                assert_eq!(store.owner_shard(hash.as_slice()), store.route(&proposal));
             }
         }
     }
@@ -171,7 +171,7 @@ fn shard_identities(store: &Store) -> BTreeMap<usize, Byte32> {
         bytes[..4].copy_from_slice(&nonce.to_be_bytes());
         let hash = Byte32::new(bytes);
         identities
-            .entry(store.owner_shard(&hash).position())
+            .entry(store.owner_shard(hash.as_slice()).position())
             .or_insert(hash);
         if identities.len() == SHARDS {
             return identities;
@@ -324,7 +324,7 @@ fn owner_preflight_preserves_shard_order_between_collision_and_counter_errors() 
         .unwrap();
         store
             .shards
-            .at(store.owner_shard(exhausted.1))
+            .at(store.owner_shard(exhausted.1.as_slice()))
             .write()
             .revision = u64::MAX;
         let before = store.capture_all();
@@ -820,7 +820,11 @@ fn footprint(store: &Store, tx: &TransactionView) -> [BTreeMap<usize, bool>; 2] 
         .input_pts_iter()
         .chain(tx.cell_deps_iter().map(|dep| dep.out_point()))
     {
-        add_lock_request(&mut owners, store.owner_shard(&point.tx_hash()), false);
+        add_lock_request(
+            &mut owners,
+            store.owner_shard(point.tx_hash().as_slice()),
+            false,
+        );
         add_lock_request(
             &mut dependencies,
             store.route(&RelationKey::Dependency(DependencyKey::Cell(point.clone()))),
@@ -832,7 +836,7 @@ fn footprint(store: &Store, tx: &TransactionView) -> [BTreeMap<usize, bool>; 2] 
             false,
         );
     }
-    add_lock_request(&mut owners, store.owner_shard(&tx.hash()), true);
+    add_lock_request(&mut owners, store.owner_shard(tx.hash().as_slice()), true);
     for point in tx.input_pts_iter().chain(tx.output_pts_iter()) {
         add_lock_request(
             &mut dependencies,
@@ -1061,12 +1065,16 @@ fn remaining_counter_exhaustion_rejects_before_any_owner_or_notice_change() {
         match counter {
             "view counter" => store.view.write().revision = u64::MAX,
             "owner revision" => {
-                store.shards.at(store.owner_shard(&hash)).write().revision = u64::MAX
+                store
+                    .shards
+                    .at(store.owner_shard(hash.as_slice()))
+                    .write()
+                    .revision = u64::MAX
             }
             "accepted revision" => {
                 store
                     .shards
-                    .at(store.owner_shard(&hash))
+                    .at(store.owner_shard(hash.as_slice()))
                     .write()
                     .accepted_revision = u64::MAX
             }
@@ -1211,7 +1219,7 @@ fn full_query_waits_for_an_atomic_multi_shard_change_and_returns_one_coherent_cu
     let a = accept(&store, tx(6406), 1000, 7, Status::Pending);
     let b = (6407..6500)
         .map(tx)
-        .find(|tx| store.owner_shard(&tx.hash()) != store.owner_shard(&a))
+        .find(|tx| store.owner_shard(tx.hash().as_slice()) != store.owner_shard(a.as_slice()))
         .unwrap();
     let b = accept(&store, b, 2000, 11, Status::Pending);
     let mut plan = Plan::new(store.snapshot().0, Class::Trusted, Default::default());
@@ -1697,7 +1705,10 @@ fn sparse_admission_replans_settled_capacity_using_fee_policy() {
         let candidate = entry(&store, tx(7100), Source::Local);
         let competing = (7101..7160)
             .map(tx)
-            .find(|tx| store.owner_shard(&tx.hash()) != store.owner_shard(&candidate.hash()))
+            .find(|tx| {
+                store.owner_shard(tx.hash().as_slice())
+                    != store.owner_shard(candidate.hash().as_slice())
+            })
             .expect("independent fixture uses a disjoint owner shard");
         let (plan, reject) =
             admission(&store, &candidate, fee, 1, Status::Pending, &configuration).unwrap();

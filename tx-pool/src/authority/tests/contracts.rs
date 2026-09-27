@@ -11,11 +11,13 @@ use super::super::{
 };
 use super::common::*;
 use ckb_types::{
+    bytes::Bytes,
     core::{
         Capacity,
         cell::{CellMeta, ResolvedTransaction},
     },
     packed::{Byte32, OutPoint},
+    prelude::Entity,
 };
 use std::{collections::BTreeSet, sync::Arc};
 
@@ -302,19 +304,28 @@ fn absence_is_a_current_fact_and_allows_absent_present_absent_history() {
 #[test]
 fn producer_read_sets_do_not_pin_retired_transaction_payloads() {
     let store = store();
-    let owner = entry(&store, tx(4), Source::Local);
+    let source: Arc<[u8]> = vec![7; 128 * 1024].into();
+    let backing = Arc::downgrade(&source);
+    let hash = Byte32::new_unchecked(Bytes::from_owner(source).slice(1024..1056));
+    let owner = entry(&store, tx(4).fake_hash(hash), Source::Local);
     let weak = Arc::downgrade(&owner);
     insert(&store, Arc::clone(&owner));
     let mut reads = ReadSet::default();
     store.get(&owner.hash(), &mut reads).unwrap();
+    assert_eq!(backing.strong_count(), 1, "the fixture retains its source");
     store.apply(delete(&store, owner)).unwrap();
     assert!(weak.upgrade().is_none());
+    assert_eq!(backing.strong_count(), 0, "reads must release the source");
     assert!(matches!(
         store.read_selected(store.snapshot().0, &reads, || ()),
         Err(Error::Stale)
     ));
 
-    let successor = entry(&store, tx(4), Source::Recovery);
+    let successor = entry(
+        &store,
+        tx(4).fake_hash(Byte32::new([7; 32])),
+        Source::Recovery,
+    );
     insert(&store, successor);
     let mut published = false;
     assert!(matches!(
