@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.3.1](https://github.com/nervosnetwork/ckb/compare/ckb-light-client-protocol-server-v1.3.0...ckb-light-client-protocol-server-v1.3.1) - 2026-09-28
+
+### Fixed
+
+- *(light-client)* distinguish the replacement fork explicitly (#5337) (by @zhangsoledad)
+
+### Contributors
+
+- @zhangsoledad
+
 ## [1.3.0](https://github.com/nervosnetwork/ckb/compare/ckb-light-client-protocol-server-v1.2.1...ckb-light-client-protocol-server-v1.3.0) - 2026-07-28
 
 ### Added
