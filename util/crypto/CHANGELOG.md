@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.1.2](https://github.com/nervosnetwork/ckb/compare/ckb-crypto-v1.1.1...ckb-crypto-v1.1.2) - 2026-09-28
+
+### Changed
+
+- depedencies updated in the workspace root Cargo.toml
+
 ## [1.1.1](https://github.com/nervosnetwork/ckb/compare/ckb-crypto-v1.1.0...ckb-crypto-v1.1.1) - 2026-06-08
 
 ### Changed
