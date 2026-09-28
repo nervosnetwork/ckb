@@ -50,8 +50,7 @@ impl<'b> serde::de::Visitor<'b> for Byte32Visitor {
             return Err(E::invalid_value(serde::de::Unexpected::Str(v), &self));
         }
         let mut buffer = [0u8; 32]; // we checked length
-        hex_decode(&v.as_bytes()[2..], &mut buffer)
-            .map_err(|e| E::custom(format_args!("{e:?}")))?;
+        hex_decode(&v.as_bytes()[2..], &mut buffer).map_err(|_| E::custom("Invalid character"))?;
         Ok(Byte32(buffer))
     }
 
