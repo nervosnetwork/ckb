@@ -58,7 +58,7 @@ where
             .map_err(|e| VMError::Unexpected(e.to_string()))?;
 
         match sc.load_data(&data_piece_id, offset, u64::MAX) {
-            Ok((cell, _)) => {
+            Ok((mut cell, _)) => {
                 let size = machine.memory_mut().load64(&size_addr)?.to_u64();
                 if size == 0 {
                     machine
@@ -67,23 +67,16 @@ where
                     machine.set_register(A0, Mac::REG::from_u8(SUCCESS));
                     return Ok(());
                 }
-                let (wrote_size, _) = match sc.store_bytes(
-                    machine,
-                    addr,
-                    &data_piece_id,
-                    offset,
-                    size,
-                    size_addr.to_u64(),
-                ) {
-                    Ok(val) => val,
-                    Err(VMError::SnapshotDataLoadError) => {
-                        // This comes from TxData results in an out of bound error, to
-                        // mimic current behavior, we would return INDEX_OUT_OF_BOUND error.
-                        machine.set_register(A0, Mac::REG::from_u8(INDEX_OUT_OF_BOUND));
-                        return Ok(());
-                    }
-                    Err(e) => return Err(e),
-                };
+                // Keep Snapshot2Context::store_bytes ordering while reusing the
+                // cell already loaded above, including its remaining length.
+                let wrote_size = cell.len().min(size as usize) as u64;
+                machine
+                    .memory_mut()
+                    .store64(&size_addr, &Mac::REG::from_u64(cell.len() as u64))?;
+                cell.truncate(wrote_size as usize);
+                sc.untrack_pages(machine, addr, wrote_size)?;
+                machine.memory_mut().store_bytes(addr, &cell)?;
+                sc.track_pages(machine, addr, wrote_size, &data_piece_id, offset)?;
                 machine.add_cycles_no_checking(transferred_byte_cycles(wrote_size))?;
                 machine.set_register(A0, Mac::REG::from_u8(SUCCESS));
                 return Ok(());
