@@ -1,0 +1,48 @@
+Allow overriding ckb-vm's MSVC-branch asm compiler via CKB_VM_ASM_CC.
+
+ckb-vm 0.24.14's build.rs assembles src/machine/asm/execute_x64.S as part
+of the `asm` / `detect-asm` feature path.  The file is written in GNU AT&T
+syntax, which Microsoft's ml64.exe (MASM) cannot parse, so the author
+hardcoded `build.compiler("gcc")` for the is_msvc branch under the
+assumption that a native Windows MSVC developer has a GNU gcc.exe from
+MinGW-w64 available alongside cl.exe.
+
+This assumption breaks for cross-compilation from Linux to
+x86_64-pc-windows-msvc: "gcc" resolves to the host's Linux gcc, which
+cannot emit MSVC COFF objects and also chokes on cc-rs's MSVC-style
+`/imsvc<path>` flags supplied via CFLAGS_x86_64_pc_windows_msvc.
+
+Fix: honour an optional CKB_VM_ASM_CC env var.  When set, build.rs uses
+that compiler instead of "gcc"; when unset, the existing native-Windows
+behaviour is preserved.  The Guix build sets CKB_VM_ASM_CC to clang-cl,
+which handles GNU AT&T .S files natively via LLVM's integrated assembler
+and produces valid MSVC-ABI COFF.
+
+diff --git a/build.rs b/build.rs
+index 1f7e9e0..9dd181c 100644
+--- a/build.rs
++++ b/build.rs
+@@ -35,12 +35,17 @@ fn main() {
+         if x64_asm {
+             build.file("src/machine/asm/execute_x64.S");
+             if is_msvc {
+-                // For now, only an assembly source code is required for CKB-VM, we won't
+-                // need to build any C source file here. Hence we can use this simpler solution
+-                // to set the default compiler to GCC. We will need to manually trigger the
+-                // command to assemble the assembly code file, should any C source file is also
+-                // required here.
+-                build.compiler("gcc");
++                // On native Windows an MSVC developer usually has a GNU gcc
++                // installed alongside, so the default is to route the GNU-
++                // syntax .S file through "gcc".  When cross-compiling from
++                // Linux (where "gcc" is the host's Linux cc and can't emit
++                // MSVC COFF), callers can point at clang-cl via this env var
++                // instead — clang-cl handles GNU AT&T assembly natively.
++                if let Ok(cc) = env::var("CKB_VM_ASM_CC") {
++                    build.compiler(cc);
++                } else {
++                    build.compiler("gcc");
++                }
+             }
+         } else if aarch64_asm {
+             build.file("src/machine/asm/execute_aarch64.S");

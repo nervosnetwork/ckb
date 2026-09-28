@@ -1,0 +1,30 @@
+Fix ckb-librocksdb-sys cross-compilation platform detection.
+
+ckb-librocksdb-sys's build.rs runs `rocksdb/build_tools/build_detect_platform`
+(a bash script) to pick up Linux-specific defines (ROCKSDB_PLATFORM_POSIX,
+OS_LINUX, ROCKSDB_FALLOCATE_PRESENT, ...) and guards the invocation with
+`cfg!(target_os = "windows")`.
+
+The problem: `cfg!()` evaluates against the BUILD host, not the Cargo TARGET.
+When cross-compiling from Linux to any non-Linux target (MinGW Windows, MSVC
+Windows, macOS Darwin), the check passes and the Linux platform script runs
+anyway, polluting CFLAGS with Linux-only defines that then collide with the
+target-specific defines the same build.rs adds later (`-DOS_WIN`, etc.).
+
+Fix: use the Cargo `TARGET` env var instead of `cfg!()`.  Only actually run
+the Linux detect script when the target is Linux; skip it for every other
+platform.  This matches what the comment in build.rs always intended to do.
+
+diff --git a/build.rs b/build.rs
+index 2544aeb..31c8773 100644
+--- a/build.rs
++++ b/build.rs
+@@ -7,7 +7,7 @@ use std::path::PathBuf;
+ use std::process::Command;
+
+ fn get_flags_from_detect_platform_script() -> Option<Vec<String>> {
+-    if !cfg!(target_os = "windows") {
++    if env::var("TARGET").unwrap_or_default().contains("linux") {
+         let mut cmd = Command::new("bash");
+
+         // if ROCKSDB_USE_IO_URING is not set, treat as enable
