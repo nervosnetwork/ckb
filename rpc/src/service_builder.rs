@@ -197,21 +197,20 @@ impl<'a> ServiceBuilder<'a> {
     ) -> Self {
         // Initialize instances of data sources that will be shared for use by indexer and rich-indexer.
         let ckb_secondary_db = new_secondary_db(db_config, &indexer_config.into());
-        let pool_service =
-            PoolService::new(indexer_config.index_tx_pool, shared.async_handle().clone());
+        let pool_service = PoolService::new(
+            indexer_config.index_tx_pool,
+            shared.tx_pool_controller().clone(),
+        );
 
         if self.config.indexer_enable() {
             // Init indexer service.
-            let mut indexer = IndexerService::new(
+            let indexer = IndexerService::new(
                 ckb_secondary_db.clone(),
                 pool_service.clone(),
                 indexer_config,
                 shared.async_handle().clone(),
             );
             indexer.spawn_poll(shared.notify_controller().clone());
-            if indexer_config.index_tx_pool {
-                indexer.index_tx_pool(shared.notify_controller().clone());
-            }
 
             let indexer_handle = indexer.handle();
             let methods = IndexerRpcImpl::new(indexer_handle);
@@ -226,16 +225,13 @@ impl<'a> ServiceBuilder<'a> {
 
         if self.config.rich_indexer_enable() {
             // Init rich-indexer service
-            let mut rich_indexer = RichIndexerService::new(
+            let rich_indexer = RichIndexerService::new(
                 ckb_secondary_db,
                 pool_service,
                 indexer_config,
                 shared.async_handle().clone(),
             );
             rich_indexer.spawn_poll(shared.notify_controller().clone());
-            if indexer_config.index_tx_pool {
-                rich_indexer.index_tx_pool(shared.notify_controller().clone());
-            }
 
             let rich_indexer_handle = rich_indexer.async_handle();
             let rich_indexer_methods = RichIndexerRpcImpl::new(rich_indexer_handle);

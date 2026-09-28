@@ -43,6 +43,86 @@ pub struct TxEntry {
     pub timestamp: u64,
 }
 
+/// Immutable callback payload detached from resolved-cell ownership.
+///
+/// A pool entry retains complete resolved inputs for DAO accounting and a
+/// compact liveness-only dep representation. Stable-state callbacks need
+/// neither; they only need the transaction and accounting snapshot.
+/// Keeping this compact type in the effect journal prevents a stalled callback
+/// from extending the lifetime of arbitrarily large resolved metadata after
+/// the authoritative pool entry has been removed.
+#[derive(Debug, Clone, Eq, PartialEq)]
+pub struct TxEntrySnapshot {
+    /// Transaction.
+    pub transaction: TransactionView,
+    /// Cycles.
+    pub cycles: Cycle,
+    /// Serialized transaction size.
+    pub size: usize,
+    /// Fee.
+    pub fee: Capacity,
+    /// Ancestor transaction size.
+    pub ancestors_size: usize,
+    /// Ancestor transaction fee.
+    pub ancestors_fee: Capacity,
+    /// Ancestor transaction cycles.
+    pub ancestors_cycles: Cycle,
+    /// Ancestor count.
+    pub ancestors_count: usize,
+    /// Descendant transaction fee.
+    pub descendants_fee: Capacity,
+    /// Descendant transaction size.
+    pub descendants_size: usize,
+    /// Descendant transaction cycles.
+    pub descendants_cycles: Cycle,
+    /// Descendant count.
+    pub descendants_count: usize,
+    /// Unix timestamp when the transaction entered the pool, in milliseconds.
+    pub timestamp: u64,
+}
+
+impl TxEntrySnapshot {
+    /// Return the immutable transaction view.
+    pub fn transaction(&self) -> &TransactionView {
+        &self.transaction
+    }
+
+    /// Convert the snapshot to the public entry-info representation.
+    pub fn to_info(&self) -> TxEntryInfo {
+        TxEntryInfo {
+            cycles: self.cycles,
+            size: self.size as u64,
+            fee: self.fee,
+            ancestors_size: self.ancestors_size as u64,
+            ancestors_cycles: self.ancestors_cycles,
+            descendants_size: self.descendants_size as u64,
+            descendants_cycles: self.descendants_cycles,
+            ancestors_count: self.ancestors_count as u64,
+            timestamp: self.timestamp,
+        }
+    }
+}
+
+impl From<TxEntry> for TxEntrySnapshot {
+    fn from(entry: TxEntry) -> Self {
+        Self {
+            transaction: entry.rtx.transaction.clone(),
+            cycles: entry.cycles,
+            size: entry.size,
+            fee: entry.fee,
+            ancestors_size: entry.ancestors_size,
+            ancestors_fee: entry.ancestors_fee,
+            ancestors_cycles: entry.ancestors_cycles,
+            ancestors_count: entry.ancestors_count,
+            descendants_fee: entry.descendants_fee,
+            descendants_size: entry.descendants_size,
+            descendants_cycles: entry.descendants_cycles,
+            descendants_count: entry.descendants_count,
+            timestamp: entry.timestamp,
+        }
+    }
+}
+
 impl TxEntry {
     /// Create new transaction pool entry
     pub fn new(rtx: Arc<ResolvedTransaction>, cycles: Cycle, fee: Capacity, size: usize) -> Self {
@@ -115,54 +195,6 @@ impl TxEntry {
     pub fn fee_rate(&self) -> FeeRate {
         let weight = get_transaction_weight(self.size, self.cycles);
         FeeRate::calculate(self.fee, weight)
-    }
-
-    /// Update ancestor state for add an entry
-    pub fn add_descendant_weight(&mut self, entry: &TxEntry) {
-        self.descendants_count = self.descendants_count.saturating_add(1);
-        self.descendants_size = self.descendants_size.saturating_add(entry.size);
-        self.descendants_cycles = self.descendants_cycles.saturating_add(entry.cycles);
-        self.descendants_fee = Capacity::shannons(
-            self.descendants_fee
-                .as_u64()
-                .saturating_add(entry.fee.as_u64()),
-        );
-    }
-
-    /// Update ancestor state for remove an entry
-    pub fn sub_descendant_weight(&mut self, entry: &TxEntry) {
-        self.descendants_count = self.descendants_count.saturating_sub(1);
-        self.descendants_size = self.descendants_size.saturating_sub(entry.size);
-        self.descendants_cycles = self.descendants_cycles.saturating_sub(entry.cycles);
-        self.descendants_fee = Capacity::shannons(
-            self.descendants_fee
-                .as_u64()
-                .saturating_sub(entry.fee.as_u64()),
-        );
-    }
-
-    /// Update ancestor state for add an entry
-    pub fn add_ancestor_weight(&mut self, entry: &TxEntry) {
-        self.ancestors_count = self.ancestors_count.saturating_add(1);
-        self.ancestors_size = self.ancestors_size.saturating_add(entry.size);
-        self.ancestors_cycles = self.ancestors_cycles.saturating_add(entry.cycles);
-        self.ancestors_fee = Capacity::shannons(
-            self.ancestors_fee
-                .as_u64()
-                .saturating_add(entry.fee.as_u64()),
-        );
-    }
-
-    /// Update ancestor state for remove an entry
-    pub fn sub_ancestor_weight(&mut self, entry: &TxEntry) {
-        self.ancestors_count = self.ancestors_count.saturating_sub(1);
-        self.ancestors_size = self.ancestors_size.saturating_sub(entry.size);
-        self.ancestors_cycles = self.ancestors_cycles.saturating_sub(entry.cycles);
-        self.ancestors_fee = Capacity::shannons(
-            self.ancestors_fee
-                .as_u64()
-                .saturating_sub(entry.fee.as_u64()),
-        );
     }
 
     /// Reset ancestor state by remove
@@ -243,6 +275,7 @@ impl From<&TxEntry> for EvictKey {
             fee_rate: descendants_feerate.max(feerate),
             timestamp: entry.timestamp,
             descendants_count: entry.descendants_count,
+            id: entry.proposal_short_id(),
         }
     }
 }

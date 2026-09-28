@@ -1,9 +1,10 @@
 use crate::util::transaction::{relay_tx, send_tx};
+use crate::util::{cell::gen_spendable, transaction::always_success_transaction};
 use crate::utils::wait_until;
 use crate::{Net, Node, Spec};
 use ckb_jsonrpc_types::{Status, TxPoolInfo};
 use ckb_network::SupportProtocols;
-use ckb_types::packed::CellOutputBuilder;
+use ckb_types::packed::{Byte32, CellOutputBuilder};
 use ckb_types::{
     bytes::Bytes,
     core::{Capacity, TransactionBuilder, TransactionView, capacity_bytes},
@@ -13,6 +14,7 @@ use ckb_types::{
     packed::{CellInput, OutPoint},
     prelude::*,
 };
+use std::collections::BTreeSet;
 
 const ALWAYS_SUCCESS_SCRIPT_CYCLE: u64 = 537;
 // always_failure, as the name implies, so it doesn't matter what the cycles are
@@ -56,6 +58,100 @@ impl Spec for OrphanTxAccepted {
     }
 }
 
+/// Proposal age and dependency readiness remain independent throughout receipt,
+/// the gap block, dependency recovery and final block commitment.
+pub struct RpcMissingDependencyAndNetworkWaiting;
+
+impl Spec for RpcMissingDependencyAndNetworkWaiting {
+    crate::setup!(num_nodes: 1);
+
+    fn run(&self, nodes: &mut Vec<Node>) {
+        let node = &mut nodes[0];
+        let cells = gen_spendable(node, 3);
+        let parent = always_success_transaction(node, &cells[0]);
+        let child = always_success_transaction(node, &cells[1])
+            .as_advanced_builder()
+            .cell_dep(
+                packed::CellDep::new_builder()
+                    .out_point(OutPoint::new(parent.hash(), 0))
+                    .build(),
+            )
+            .build();
+        for result in [
+            node.rpc_client()
+                .send_transaction_result(child.data().into()),
+            node.rpc_client()
+                .inner()
+                .send_test_transaction(child.data().into(), None),
+        ] {
+            let error =
+                result.expect_err("RPC cannot retain a transaction with a missing cell dep");
+            assert!(error.to_string().contains("TransactionFailedToResolve"));
+        }
+        assert_tx_pool_counts(node, 0, 0, "RPC rejection leaves no waiter");
+
+        let mut net = Net::new(
+            self.name(),
+            node.consensus(),
+            vec![SupportProtocols::RelayV3],
+        );
+        net.connect(node);
+        relay_tx(&net, node, child.clone(), ALWAYS_SUCCESS_SCRIPT_CYCLE);
+        assert_tx_pool_counts(node, 1, 0, "network receipt retains the missing dependency");
+
+        let ready = always_success_transaction(node, &cells[2]);
+        node.submit_transaction(&ready);
+        let proposal_id = ready.proposal_short_id().into();
+        let proposal = node
+            .new_block_builder_with_blocking(|template| !template.proposals.contains(&proposal_id))
+            .proposal(child.proposal_short_id())
+            .build();
+        node.submit_block(&proposal);
+        // Even after the proposal reaches commit age, missing cells keep this
+        // transaction outside accepted membership. Neither age is an orphan state.
+        for offset in 0..node.consensus().tx_proposal_window().closest() {
+            if offset != 0 {
+                node.mine(1);
+            }
+            let info = node.get_tip_tx_pool_info();
+            assert_eq!(info.orphan.value(), 1);
+            assert_eq!(info.pending.value() + info.proposed.value(), 1);
+            node.assert_pool_entry_status(
+                ready.hash(),
+                if offset + 1 < node.consensus().tx_proposal_window().closest() {
+                    "gap"
+                } else {
+                    "proposed"
+                },
+            );
+            assert_eq!(
+                node.rpc_client()
+                    .get_pool_tx_detail_info(child.hash())
+                    .entry_status,
+                "unknown"
+            );
+        }
+        relay_tx(&net, node, parent.clone(), ALWAYS_SUCCESS_SCRIPT_CYCLE);
+        assert!(
+            wait_until(30, || {
+                let info = node.get_tip_tx_pool_info();
+                info.orphan.value() == 0 && info.pending.value() + info.proposed.value() == 3
+            }),
+            "both transactions must complete verification after the dependency arrives"
+        );
+        node.assert_pool_entry_status(child.hash(), "proposed");
+        node.mine_until_bool(|| {
+            [&parent, &child, &ready].iter().all(|tx| {
+                node.rpc_client()
+                    .get_transaction(tx.hash())
+                    .tx_status
+                    .status
+                    == Status::Committed
+            })
+        });
+    }
+}
+
 pub struct OrphanTxRejected;
 
 impl Spec for OrphanTxRejected {
@@ -91,7 +187,9 @@ impl Spec for OrphanTxRejected {
             1,
             "Send parent tx, the child tx will be moved from orphan tx pool because of always_failure",
         );
-        wait_until(20, || node0.rpc_client().get_banned_addresses().len() == 1);
+        assert!(wait_until(20, || {
+            node0.rpc_client().get_banned_addresses().len() == 1
+        }));
 
         let ret = node0
             .rpc_client()
@@ -233,13 +331,24 @@ fn assert_tx_pool_counts(node0: &Node, orphan_tx_cnt: u64, pending_cnt: u64, ass
     );
 }
 
-fn should_receive_get_relay_transactions(net: &Net, node0: &Node, assert_message: &str) {
-    let ret = net.should_receive(node0, |data: &Bytes| {
-        packed::RelayMessage::from_slice(data)
-            .map(|message| message.to_enum().item_name() == packed::GetRelayTransactions::NAME)
-            .unwrap_or(false)
-    });
-    assert!(ret, "{}", assert_message);
+fn should_receive_get_relay_transactions(net: &Net, node0: &Node, hashes: &[Byte32]) {
+    let mut missing: BTreeSet<_> = hashes.iter().cloned().collect();
+    // A parent request may be split across messages. Do not satisfy the wait
+    // with an unrelated or repeated GetRelayTransactions message.
+    let received = net.should_receive(
+        node0,
+        |data: &Bytes| match packed::RelayMessage::from_slice(data).map(|message| message.to_enum())
+        {
+            Ok(packed::RelayMessageUnion::GetRelayTransactions(request)) => {
+                for hash in request.tx_hashes() {
+                    missing.remove(&hash);
+                }
+                missing.is_empty()
+            }
+            _ => false,
+        },
+    );
+    assert!(received, "node did not request parents {missing:?}");
 }
 
 pub struct TxPoolOrphanNormal;
@@ -285,10 +394,14 @@ impl Spec for TxPoolOrphanReverse {
             run_replay_tx(&net, node0, final_tx, 1, 0),
             "expect final_tx is in orphan pool"
         );
-        should_receive_get_relay_transactions(&net, node0, "node should ask for tx11 tx12 tx13");
+        should_receive_get_relay_transactions(
+            &net,
+            node0,
+            &[tx11.hash(), tx12.hash(), tx13.hash()],
+        );
 
         assert!(run_send_tx(&net, node0, tx13, 2, 0), "tx13 in orphan pool");
-        should_receive_get_relay_transactions(&net, node0, "node should ask for tx1");
+        should_receive_get_relay_transactions(&net, node0, &[tx1.hash()]);
 
         assert!(
             run_send_tx(&net, node0, tx12, 3, 0),
@@ -297,7 +410,7 @@ impl Spec for TxPoolOrphanReverse {
         assert!(run_send_tx(&net, node0, tx11, 4, 0), "tx11 is in orphan");
         assert!(run_send_tx(&net, node0, tx1, 5, 0), "tx1 is in orphan");
 
-        should_receive_get_relay_transactions(&net, node0, "node should ask for parent");
+        should_receive_get_relay_transactions(&net, node0, &[parent.hash()]);
         assert!(run_send_tx(&net, node0, parent, 0, 6), "all is in pending");
     }
 }
@@ -313,10 +426,14 @@ impl Spec for TxPoolOrphanUnordered {
             "expect final_tx is in orphan pool"
         );
 
-        should_receive_get_relay_transactions(&net, node0, "node should ask for tx11 tx12 tx13");
+        should_receive_get_relay_transactions(
+            &net,
+            node0,
+            &[tx11.hash(), tx12.hash(), tx13.hash()],
+        );
 
         assert!(run_send_tx(&net, node0, tx11, 2, 0), "tx11 in orphan pool");
-        should_receive_get_relay_transactions(&net, node0, "node should ask for tx1");
+        should_receive_get_relay_transactions(&net, node0, &[tx1.hash()]);
 
         let tx12_clone = tx12.clone();
         assert!(
@@ -324,15 +441,17 @@ impl Spec for TxPoolOrphanUnordered {
             "tx12 is in orphan pool"
         );
 
-        // set tx12_clone with rpc
+        // Local RPC is synchronous by design even when the same transaction
+        // has a remote orphan owner. It runs against the current snapshot and
+        // reports the still-missing parent; it must not create a second owner
+        // or disturb the remote wait registered above.
         let ret = node0
             .rpc_client()
             .send_transaction_result(tx12_clone.data().into());
+        let error = ret.expect_err("the local retry still has an unresolved parent");
         assert!(
-            ret.err()
-                .unwrap()
-                .to_string()
-                .contains("already exists in transaction_pool")
+            error.to_string().contains("TransactionFailedToResolve"),
+            "unexpected local retry result: {error}"
         );
 
         assert!(
@@ -378,7 +497,7 @@ impl Spec for TxPoolOrphanPartialInputUnknown {
             "expect final_tx is in orphan pool"
         );
 
-        should_receive_get_relay_transactions(&net, node0, "node should ask for tx13");
+        should_receive_get_relay_transactions(&net, node0, &[tx13.hash()]);
         assert!(
             run_send_tx(&net, node0, tx13, 0, 6),
             "tx13 is sent, orphan pool is empty"

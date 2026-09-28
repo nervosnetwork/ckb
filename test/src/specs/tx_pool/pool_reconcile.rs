@@ -2,8 +2,9 @@ use crate::node::waiting_for_sync;
 use crate::node::{connect_all, disconnect_all};
 use crate::util::check::is_transaction_proposed;
 use crate::util::mining::out_ibd_mode;
+use crate::utils::wait_until;
 use crate::{Node, Spec};
-use ckb_jsonrpc_types::ProposalShortId;
+use ckb_jsonrpc_types::{ProposalShortId, Status};
 use ckb_logger::info;
 use ckb_types::core::{Capacity, FeeRate, capacity_bytes};
 use ckb_types::packed::CellOutputBuilder;
@@ -49,14 +50,14 @@ impl Spec for PoolReconcile {
         waiting_for_sync(nodes);
 
         info!("Tx should be re-added to node0's pool");
-        assert!(
+        assert!(wait_until(30, || {
             node0
                 .rpc_client()
-                .get_transaction(hash)
+                .get_transaction(hash.clone())
                 .tx_status
-                .block_hash
-                .is_none()
-        );
+                .status
+                == Status::Pending
+        }));
     }
 }
 

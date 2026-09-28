@@ -1,6 +1,6 @@
+use super::utils::{get_pool_entries, wait_for_pending_count};
 use crate::node::{connect_all, waiting_for_sync};
 use crate::util::mining::out_ibd_mode;
-use crate::utils::sleep;
 use crate::{Node, Spec};
 use ckb_types::core::FeeRate;
 use ckb_types::{
@@ -47,13 +47,27 @@ impl Spec for TxsRelayOrder {
         assert_eq!(COUNT as u64, tx_pool_info.pending.value());
         assert_eq!(0, tx_pool_info.orphan.value());
 
-        // node1 should receive all txs
-        sleep(10);
+        // Receiving orphan bodies is not completion: every dependent must
+        // resolve and verify after its parent, leaving the exact accepted set.
+        wait_for_pending_count(node1, COUNT as u64);
         let tx_pool_info = node1.get_tip_tx_pool_info();
-        assert_eq!(
-            COUNT as u64,
-            tx_pool_info.pending.value() + tx_pool_info.orphan.value()
-        );
+        assert_eq!(tx_pool_info.orphan.value(), 0);
+        assert_eq!(tx_pool_info.verify_queue_size.value(), 0);
+        let entries = get_pool_entries(node1);
+        assert!(entries.proposed.is_empty());
+        assert_eq!(entries.pending.len(), COUNT);
+        for (index, tx) in txs.iter().enumerate() {
+            let hash = tx.hash().into();
+            let entry = entries
+                .pending
+                .get(&hash)
+                .expect("relayed transaction is accepted");
+            assert_eq!(entry.ancestors_count.value(), index as u64 + 1);
+            assert_eq!(
+                node1.get_transaction(tx.hash()),
+                ckb_jsonrpc_types::TxStatus::pending()
+            );
+        }
     }
 
     fn modify_app_config(&self, config: &mut ckb_app_config::CKBAppConfig) {

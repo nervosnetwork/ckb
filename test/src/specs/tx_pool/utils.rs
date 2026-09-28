@@ -1,7 +1,37 @@
 use crate::Node;
-use ckb_types::core::TransactionView;
+use crate::util::check;
+use ckb_jsonrpc_types::{RawTxPool, TxPoolEntries};
+use ckb_types::core::{BlockNumber, TransactionView};
 use ckb_types::packed::{CellInput, OutPoint};
 use ckb_types::prelude::*;
+
+pub fn get_pool_entries(node: &Node) -> TxPoolEntries {
+    match node.rpc_client().get_raw_tx_pool(Some(true)) {
+        RawTxPool::Verbose(entries) => entries,
+        RawTxPool::Ids(_) => panic!("verbose pool query returned transaction IDs"),
+    }
+}
+
+/// Follow one pending transaction through proposal and commit at the expected height.
+pub fn assert_committed_at(node: &Node, transaction: &TransactionView, committed_at: BlockNumber) {
+    // Pending
+    node.assert_tx_pool_size(1, 0);
+    assert!(check::is_transaction_pending(node, transaction));
+    // Gap
+    let proposed = node.mine_with_blocking(|template| template.proposals.len() != 1);
+    node.assert_tx_pool_size(1, 0);
+    assert!(check::is_transaction_pending(node, transaction));
+    // Proposed
+    node.mine_with_blocking(|template| template.number.value() != (proposed + 1));
+    node.assert_tx_pool_size(0, 1);
+    assert!(check::is_transaction_proposed(node, transaction));
+    // Committed
+    node.mine_with_blocking(|template| template.transactions.len() != 1);
+    node.assert_tx_pool_size(0, 0);
+    assert!(check::is_transaction_committed(node, transaction));
+
+    assert_eq!(node.get_tip_block_number(), committed_at);
+}
 
 /// `TxFamily` used to represent a set of relative transactions,
 /// `TxFamily.get(0)` is the parent of `TxFamily.get(1)`,
@@ -89,9 +119,41 @@ fn print_proposals_in_window(node: &Node) {
 }
 
 pub fn assert_new_block_committed(node: &Node, committed: &[TransactionView]) {
+    // A matching pool tip precedes asynchronous recovery verification and
+    // template publication. Wait for the promised contents, not a fixed delay.
+    let expected: Vec<_> = committed.iter().map(TransactionView::hash).collect();
+    let ready = crate::utils::wait_until(5, || {
+        let template = node.rpc_client().get_block_template(None, None, None);
+        template
+            .transactions
+            .iter()
+            .map(|tx| tx.hash.clone())
+            .collect::<Vec<_>>()
+            == expected.iter().cloned().map(Into::into).collect::<Vec<_>>()
+    });
     let block = node.new_block(None, None, None);
-    if committed != &block.transactions()[1..] {
+    if !ready || committed != &block.transactions()[1..] {
         print_proposals_in_window(node);
         assert_eq!(committed, &block.transactions()[1..]);
+    }
+}
+
+/// Poll until the node's tx-pool has exactly `expected` pending txs.
+///
+/// In the pipeline model, dependent txs recovered after a reorg are first
+/// routed to the ordered resolve queue and only become `pending` once their
+/// ancestors have been verified and submitted. Tests that assert on the
+/// recovered pool size must therefore wait briefly instead of checking
+/// immediately.
+pub fn wait_for_pending_count(node: &Node, expected: u64) {
+    let ok = crate::utils::wait_until(30, || {
+        node.rpc_client().tx_pool_info().pending.value() == expected
+    });
+    if !ok {
+        let actual = node.rpc_client().tx_pool_info().pending.value();
+        panic!(
+            "timeout waiting for pending count: expected {}, got {}",
+            expected, actual
+        );
     }
 }

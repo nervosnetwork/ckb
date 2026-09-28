@@ -617,17 +617,17 @@ impl TransactionWithStatusResponse {
 #[derive(Clone, Serialize, Deserialize, PartialEq, Eq, Hash, Debug, JsonSchema)]
 #[serde(rename_all = "lowercase")]
 pub enum Status {
-    /// Status "pending". The transaction is in the pool, and not proposed yet.
+    /// Status "pending". Accepted by the pool, with no proposal eligible for the next block.
     Pending,
-    /// Status "proposed". The transaction is in the pool and has been proposed.
+    /// Status "proposed". Accepted by the pool, with a proposal eligible for the next block.
     Proposed,
     /// Status "committed". The transaction has been committed to the canonical chain.
     Committed,
-    /// Status "unknown". The node has not seen the transaction,
-    /// or it should be rejected but was cleared due to storage limitations.
+    /// Status "unknown". No committed transaction, accepted pool entry or retained
+    /// rejection was found within the query scope.
     Unknown,
-    /// Status "rejected". The transaction has been recently removed from the pool.
-    /// Due to storage limitations, the node can only hold the most recently removed transactions.
+    /// Status "rejected". A recent rejection reason is retained by the node.
+    /// The transaction need not have been accepted into the pool.
     Rejected,
 }
 
@@ -713,7 +713,7 @@ impl TxStatus {
         }
     }
 
-    /// The node has not seen the transaction,
+    /// No public transaction status is available within the query scope.
     pub fn unknown() -> Self {
         Self {
             status: Status::Unknown,

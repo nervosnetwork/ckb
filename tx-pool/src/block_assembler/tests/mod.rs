@@ -1,0 +1,413 @@
+use ckb_types::core::{BlockBuilder, EpochNumberWithFraction};
+
+use crate::block_assembler::candidate_uncles::CandidateUncles;
+
+use super::BlockTemplate;
+use ckb_chain_spec::consensus::{Consensus, ConsensusBuilder};
+use ckb_snapshot::Snapshot;
+use ckb_store::attach_block_cell;
+use ckb_test_chain_utils::MockStore;
+use ckb_types::{U256, core::BlockExt, packed::Byte32};
+use std::{collections::HashSet, sync::Arc};
+
+pub(super) fn genesis_snapshot() -> Arc<Snapshot> {
+    snapshot_with_consensus(Arc::new(ConsensusBuilder::default().build()))
+}
+
+pub(super) fn snapshot_with_consensus(consensus: Arc<Consensus>) -> Arc<Snapshot> {
+    let store = MockStore::default();
+    let genesis = consensus.genesis_block();
+    let epoch_ext = consensus.genesis_epoch_ext().clone();
+    {
+        let db_txn = store.store().begin_transaction();
+        let last_block_hash_in_previous_epoch = epoch_ext.last_block_hash_in_previous_epoch();
+        db_txn.insert_block(genesis).unwrap();
+        db_txn.attach_block(genesis).unwrap();
+        attach_block_cell(&db_txn, genesis).unwrap();
+        db_txn
+            .insert_block_epoch_index(&genesis.hash(), &last_block_hash_in_previous_epoch)
+            .unwrap();
+        db_txn
+            .insert_epoch_ext(&last_block_hash_in_previous_epoch, &epoch_ext)
+            .unwrap();
+        db_txn
+            .insert_block_ext(
+                &genesis.hash(),
+                &BlockExt {
+                    received_at: 0,
+                    total_difficulty: U256::zero(),
+                    total_uncles_count: 0,
+                    verified: Some(true),
+                    txs_fees: vec![],
+                    cycles: None,
+                    txs_sizes: None,
+                },
+            )
+            .unwrap();
+        db_txn.commit().unwrap();
+    }
+
+    Arc::new(Snapshot::new(
+        genesis.header(),
+        U256::zero(),
+        epoch_ext,
+        store.store().get_snapshot(),
+        Default::default(),
+        consensus,
+    ))
+}
+
+#[test]
+fn block_template_preserves_consensus_uncle_limit_above_u8() {
+    let mut consensus = ConsensusBuilder::default().build();
+    consensus.max_uncles_num = 300;
+    let snapshot = snapshot_with_consensus(Arc::new(consensus));
+    let epoch = snapshot.consensus().genesis_epoch_ext();
+    let template = BlockTemplate::new(
+        &snapshot,
+        epoch,
+        snapshot.consensus().genesis_block().transactions()[0].clone(),
+        0,
+        Byte32::zero(),
+        0,
+    )
+    .expect("the configured uncle limit is lossless");
+
+    assert_eq!(template.uncles_count_limit, 300);
+}
+
+#[test]
+fn block_template_time_follows_the_parent_and_rejects_overflow() {
+    let snapshot = |timestamp| {
+        let consensus = ConsensusBuilder::default().build();
+        let genesis = consensus
+            .genesis_block()
+            .as_advanced_builder()
+            .timestamp(timestamp)
+            .build();
+        snapshot_with_consensus(Arc::new(
+            ConsensusBuilder::default().genesis_block(genesis).build(),
+        ))
+    };
+    let ordinary = snapshot(42);
+    for (now, expected) in [(0, 43), (42, 43), (43, 43), (100, 100)] {
+        let template = BlockTemplate::new(
+            &ordinary,
+            ordinary.consensus().genesis_epoch_ext(),
+            ordinary.consensus().genesis_block().transactions()[0].clone(),
+            0,
+            Byte32::zero(),
+            now,
+        )
+        .unwrap();
+        assert_eq!(template.current_time, expected);
+    }
+
+    let terminal = snapshot(u64::MAX);
+    assert!(matches!(
+        BlockTemplate::new(
+            &terminal,
+            terminal.consensus().genesis_epoch_ext(),
+            terminal.consensus().genesis_block().transactions()[0].clone(),
+            0,
+            Byte32::zero(),
+            u64::MAX,
+        ),
+        Err(crate::error::BlockAssemblerError::Overflow)
+    ));
+}
+
+#[test]
+fn candidate_uncle_scratch_is_bounded_by_the_candidate_population() {
+    let mut consensus = ConsensusBuilder::default().build();
+    consensus.max_uncles_num = usize::MAX;
+    let snapshot = snapshot_with_consensus(Arc::new(consensus));
+    let epoch = snapshot.consensus().genesis_epoch_ext();
+    let candidates = CandidateUncles::new();
+
+    let prepared = candidates
+        .prepare_uncles(&snapshot, epoch)
+        .expect("an empty candidate population requires no configured-limit allocation");
+    assert!(prepared.into_parts().0.is_empty());
+}
+
+/// Uncle proposals are excluded by the consensus block-size accounting
+/// basis. The canonical per-uncle increment is therefore independent of the
+/// number of proposal ids carried by that uncle.
+#[test]
+fn uncle_size_matches_the_canonical_block_size_basis() {
+    use ckb_types::packed::ProposalShortId;
+
+    let snapshot = genesis_snapshot();
+    let cellbase = snapshot.consensus().genesis_block().transactions()[0].data();
+    let bare = BlockBuilder::default()
+        .number(1)
+        .epoch(EpochNumberWithFraction::new(0, 0, 1))
+        .build()
+        .as_uncle();
+    let proposals: Vec<ProposalShortId> = (0..32u8)
+        .map(|i| ProposalShortId::from_tx_hash(&Byte32::new([i; 32])))
+        .collect();
+    let with_proposals = BlockBuilder::default()
+        .number(2)
+        .epoch(EpochNumberWithFraction::new(0, 0, 1))
+        .proposals(proposals)
+        .build()
+        .as_uncle();
+    let base = super::BlockAssembler::basic_block_size(
+        cellbase.clone(),
+        &[],
+        std::iter::empty::<&ProposalShortId>(),
+        None,
+    );
+    let expected = ckb_types::core::UncleBlockView::serialized_size_in_block();
+
+    for uncle in [bare, with_proposals] {
+        let with_uncle = super::BlockAssembler::basic_block_size(
+            cellbase.clone(),
+            &[uncle],
+            std::iter::empty::<&ProposalShortId>(),
+            None,
+        );
+        assert_eq!(with_uncle.checked_sub(base), Some(expected));
+    }
+}
+
+/// Bug #56: a committed uncle plan must remove candidates that are already on
+/// the main chain or embedded as an uncle. Read-only preparation itself must
+/// not mutate the live cache because its publication token may lose a race.
+#[test]
+fn candidate_uncle_receipt_is_exact_and_committed_stale_prune_is_version_neutral() {
+    let snapshot = genesis_snapshot();
+    let consensus = snapshot.consensus();
+    let epoch_ext = consensus.genesis_epoch_ext().clone();
+
+    let mut candidate_uncles = CandidateUncles::new();
+
+    // The genesis block IS on the main chain of this snapshot.
+    let genesis_uncle = consensus.genesis_block().as_uncle();
+    candidate_uncles.insert(genesis_uncle.clone());
+    assert_eq!(candidate_uncles.len(), 1);
+
+    // A block that is NOT on the main chain (random hash).
+    let off_chain = BlockBuilder::default()
+        .number(0)
+        .epoch(EpochNumberWithFraction::new(0, 0, 1).full_value())
+        .parent_hash(consensus.genesis_block().hash())
+        .build()
+        .as_uncle();
+    candidate_uncles.insert(off_chain.clone());
+    assert_eq!(candidate_uncles.len(), 2);
+
+    let prepared = candidate_uncles
+        .prepare_uncles(&snapshot, &epoch_ext)
+        .expect("bounded candidate fixture snapshot is allocatable");
+    let (uncles, stale) = prepared.into_parts();
+    let equivalent = candidate_uncles
+        .prepare_uncles(&snapshot, &epoch_ext)
+        .expect("bounded candidate fixture snapshot is allocatable")
+        .into_parts()
+        .1;
+
+    assert!(
+        candidate_uncles.contains(&genesis_uncle),
+        "read-only preparation cannot prune before publication"
+    );
+    assert!(candidate_uncles.try_prune(stale).is_ok());
+    assert!(
+        candidate_uncles.try_prune(equivalent).is_ok(),
+        "pruning candidates proven absent from this chain cut cannot dirty an equivalent template source"
+    );
+
+    // The genesis uncle is on the main chain: must be removed.
+    assert!(
+        !candidate_uncles.contains(&genesis_uncle),
+        "main-chain candidate must be removed by committed uncle cleanup"
+    );
+    // The off-chain candidate is eligible (its parent is genesis which is
+    // on the main chain) and is returned as a valid uncle.
+    assert_eq!(uncles.len(), 1);
+    assert_eq!(uncles[0].hash(), off_chain.hash());
+    // It is retained in the candidate set (not removed, just not eligible
+    // for removal; it is a valid uncle that was selected).
+    assert!(candidate_uncles.contains(&off_chain));
+}
+
+/// A Pending proposal must win over an optional uncle carrying the same id.
+/// If that uncle is removed, descendants that depended on it solely through
+/// the in-template uncle chain must be removed too; unrelated valid uncles
+/// remain available.
+#[test]
+fn pending_proposals_filter_conflicting_uncle_subtree() {
+    use ckb_types::packed::ProposalShortId;
+
+    let snapshot = genesis_snapshot();
+    let genesis = snapshot.consensus().genesis_block();
+    let epoch = snapshot
+        .consensus()
+        .genesis_epoch_ext()
+        .number_with_fraction(1);
+    let pending_id = ProposalShortId::from_tx_hash(&Byte32::new([1; 32]));
+    let other_id = ProposalShortId::from_tx_hash(&Byte32::new([2; 32]));
+
+    let conflicting = BlockBuilder::default()
+        .number(1)
+        .epoch(epoch)
+        .parent_hash(genesis.hash())
+        .proposals(vec![pending_id.clone()])
+        .build()
+        .as_uncle();
+    let independent = BlockBuilder::default()
+        .number(1)
+        .epoch(epoch)
+        .timestamp(1)
+        .parent_hash(genesis.hash())
+        .proposals(vec![other_id])
+        .build()
+        .as_uncle();
+    let descendant = BlockBuilder::default()
+        .number(2)
+        .epoch(epoch)
+        .parent_hash(conflicting.hash())
+        .build()
+        .as_uncle();
+    let uncles = vec![conflicting.clone(), independent.clone(), descendant.clone()];
+
+    let all = super::BlockAssembler::filter_uncles_conflicting_with_proposals(
+        &snapshot,
+        &uncles,
+        &HashSet::new(),
+    );
+    assert_eq!(all, uncles, "a conflict-free uncle chain must be preserved");
+
+    let filtered = super::BlockAssembler::filter_uncles_conflicting_with_proposals(
+        &snapshot,
+        &uncles,
+        &HashSet::from([pending_id]),
+    );
+    assert_eq!(filtered, vec![independent]);
+    assert!(!filtered.contains(&conflicting));
+    assert!(!filtered.contains(&descendant));
+}
+
+#[test]
+fn optional_content_uses_one_budget_and_filters_only_published_conflicts() {
+    use ckb_types::packed::ProposalShortId;
+
+    let snapshot = genesis_snapshot();
+    let genesis = snapshot.consensus().genesis_block();
+    let epoch = snapshot
+        .consensus()
+        .genesis_epoch_ext()
+        .number_with_fraction(1);
+    let proposal = ProposalShortId::from_tx_hash(&Byte32::new([3; 32]));
+    let conflicting = BlockBuilder::default()
+        .number(1)
+        .epoch(epoch)
+        .parent_hash(genesis.hash())
+        .proposals(vec![proposal.clone()])
+        .build()
+        .as_uncle();
+    let independent = BlockBuilder::default()
+        .number(1)
+        .epoch(epoch)
+        .timestamp(1)
+        .parent_hash(genesis.hash())
+        .build()
+        .as_uncle();
+    let base = 1_000;
+    let expected_uncle_size = ckb_types::core::UncleBlockView::serialized_size_in_block();
+    let max = base + ProposalShortId::serialized_size() + expected_uncle_size;
+
+    let fitted = super::BlockAssembler::fit_optional_content(
+        &snapshot,
+        vec![proposal.clone()],
+        &[conflicting, independent.clone()],
+        base,
+        max,
+    )
+    .expect("mandatory template content fits");
+
+    assert_eq!(fitted.proposals, vec![proposal]);
+    assert_eq!(fitted.uncles, vec![independent]);
+    assert_eq!(fitted.total_size, max);
+
+    let proposals_size = fitted.proposals.len() * ProposalShortId::serialized_size();
+    let uncles_size = fitted.uncles.len() * expected_uncle_size;
+    let used = base
+        .checked_add(proposals_size)
+        .and_then(|bytes| bytes.checked_add(uncles_size))
+        .expect("the bounded optional-content accounting fits usize");
+    assert_eq!(used, fitted.total_size);
+    assert_eq!(used, max);
+    assert!(
+        used.checked_add(1).is_none_or(|bytes| bytes > max),
+        "proposal priority over optional uncles does not imply that a commit package still fits"
+    );
+}
+
+#[test]
+fn optional_prefixes_follow_canonical_byte_boundaries() {
+    use ckb_types::{core::UncleBlockView, packed::ProposalShortId};
+
+    let snapshot = genesis_snapshot();
+    let genesis = snapshot.consensus().genesis_block();
+    let cellbase = genesis.transactions()[0].data();
+    let proposals: Vec<_> = (0..3)
+        .map(|byte| ProposalShortId::from_tx_hash(&Byte32::new([byte; 32])))
+        .collect();
+    let parent = BlockBuilder::default()
+        .number(1)
+        .epoch(snapshot.epoch_ext().number_with_fraction(1))
+        .parent_hash(genesis.hash())
+        .build()
+        .as_uncle();
+    let child = BlockBuilder::default()
+        .number(2)
+        .epoch(snapshot.epoch_ext().number_with_fraction(2))
+        .parent_hash(parent.hash())
+        .proposals((64..96).map(|byte| ProposalShortId::from_tx_hash(&Byte32::new([byte; 32]))))
+        .build()
+        .as_uncle();
+    let uncles = [parent, child];
+    let base =
+        super::BlockAssembler::basic_block_size(cellbase.clone(), &[], std::iter::empty(), None);
+    let proposal_bytes = ProposalShortId::serialized_size();
+    let uncle_bytes = UncleBlockView::serialized_size_in_block();
+    let all_proposals = 3 * proposal_bytes;
+    for (available, proposal_count, uncle_count) in [
+        (0, 0, 0),
+        (proposal_bytes - 1, 0, 0),
+        (proposal_bytes, 1, 0),
+        (2 * proposal_bytes - 1, 1, 0),
+        (2 * proposal_bytes, 2, 0),
+        (all_proposals, 3, 0),
+        (all_proposals + uncle_bytes - 1, 3, 0),
+        (all_proposals + uncle_bytes, 3, 1),
+        (all_proposals + 2 * uncle_bytes - 1, 3, 1),
+        (all_proposals + 2 * uncle_bytes, 3, 2),
+    ] {
+        let fitted = super::BlockAssembler::fit_optional_content(
+            &snapshot,
+            proposals.clone(),
+            &uncles,
+            base,
+            base + available,
+        )
+        .unwrap();
+        assert_eq!(fitted.proposals, proposals[..proposal_count]);
+        assert_eq!(fitted.uncles, uncles[..uncle_count]);
+        let canonical = super::BlockAssembler::basic_block_size(
+            cellbase.clone(),
+            &fitted.uncles,
+            fitted.proposals.iter(),
+            None,
+        );
+        assert_eq!(fitted.total_size, canonical);
+        assert!(canonical <= base + available);
+    }
+    assert!(
+        super::BlockAssembler::fit_optional_content(&snapshot, proposals, &uncles, base, base - 1,)
+            .is_none()
+    );
+}

@@ -1,7 +1,4 @@
-use std::{
-    collections::{HashSet, VecDeque},
-    sync::Arc,
-};
+use std::sync::Arc;
 
 use ckb_app_config::{BlockAssemblerConfig, NetworkConfig};
 use ckb_chain::{ChainController, ChainServiceScope};
@@ -23,6 +20,9 @@ use ckb_types::{
 use crate::{LightClientProtocol, tests::prelude::*};
 
 pub(crate) struct MockChain {
+    // Field order is intentional: quiesce tx-pool before joining the chain
+    // service and releasing the store retained by its snapshots.
+    _tx_pool: ckb_tx_pool::internal_test_support::BlockingTxPoolTestScope,
     chain: ChainServiceScope,
     shared: Shared,
     always_success_cell_dep: packed::CellDep,
@@ -86,11 +86,16 @@ impl MockChain {
         };
 
         let network = dummy_network(&shared);
-        pack.take_tx_pool_builder().start(network);
+        let tx_pool = ckb_tx_pool::internal_test_support::start_blocking_test_service(
+            pack.take_tx_pool_builder(),
+            network,
+            pack.take_relay_tx_receiver(),
+        );
 
         let chain = ChainServiceScope::new(pack.take_chain_services_builder());
 
         Self {
+            _tx_pool: tx_pool,
             chain,
             shared,
             always_success_cell_dep,
@@ -157,31 +162,10 @@ impl MockChain {
         block_number
     }
 
-    pub(crate) fn rollback_to(
-        &self,
-        target_number: BlockNumber,
-        detached_proposal_ids: HashSet<packed::ProposalShortId>,
-    ) {
+    pub(crate) fn rollback_to(&self, target_number: BlockNumber) {
         let snapshot = self.shared().snapshot();
-
-        let chain_tip_number = snapshot.tip_number();
-
-        let mut detached_blocks = VecDeque::default();
-        for num in (target_number + 1)..=chain_tip_number {
-            let detached_block = snapshot.get_block_by_number(num).unwrap();
-            detached_blocks.push_back(detached_block);
-        }
-
         let target_hash = snapshot.get_header_by_number(target_number).unwrap().hash();
         self.controller().truncate(target_hash).unwrap();
-        self.tx_pool()
-            .update_tx_pool_for_reorg(
-                detached_blocks,
-                VecDeque::default(),
-                detached_proposal_ids,
-                Arc::clone(&self.shared().snapshot()),
-            )
-            .unwrap();
 
         while self.shared().snapshot().tip_number() != target_number {}
         while self

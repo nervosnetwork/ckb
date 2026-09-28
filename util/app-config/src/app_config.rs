@@ -94,7 +94,7 @@ pub struct CKBAppConfig {
     #[serde(default)]
     pub notify: NotifyConfig,
     /// Indexer config options.
-    #[serde(default)]
+    #[serde(default, rename = "indexer_v2")]
     pub indexer: IndexerConfig,
     /// Fee estimator config options.
     #[serde(default)]
@@ -259,6 +259,7 @@ impl AppConfig {
     fn with_ckb(config: CKBAppConfig) -> AppConfig {
         AppConfig::CKB(Box::new(config))
     }
+
     fn with_miner(config: MinerAppConfig) -> AppConfig {
         AppConfig::Miner(Box::new(config))
     }

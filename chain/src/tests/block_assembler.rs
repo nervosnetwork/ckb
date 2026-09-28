@@ -1,5 +1,5 @@
 use crate::ChainServiceScope;
-use crate::tests::util::dummy_network;
+use crate::tests::util::{ChainTestScope, dummy_network};
 use ckb_app_config::BlockAssemblerConfig;
 use ckb_chain_spec::consensus::Consensus;
 use ckb_dao_utils::genesis_dao_data;
@@ -21,7 +21,7 @@ use ckb_verification::{BlockVerifier, HeaderVerifier};
 use ckb_verification_traits::{Switch, Verifier};
 use std::sync::Arc;
 
-fn start_chain(consensus: Option<Consensus>) -> (ChainServiceScope, Shared) {
+fn start_chain(consensus: Option<Consensus>) -> (ChainTestScope, Shared) {
     let mut builder = SharedBuilder::with_temp_db();
     if let Some(consensus) = consensus {
         builder = builder.consensus(consensus);
@@ -45,7 +45,11 @@ fn start_chain(consensus: Option<Consensus>) -> (ChainServiceScope, Shared) {
         .unwrap();
 
     let network = dummy_network(&shared);
-    pack.take_tx_pool_builder().start(network);
+    let tx_pool = ckb_tx_pool::internal_test_support::start_blocking_test_service(
+        pack.take_tx_pool_builder(),
+        network,
+        pack.take_relay_tx_receiver(),
+    );
 
     let chain_services_builder: ChainServicesBuilder = pack.take_chain_services_builder();
     let chain = ChainServiceScope::new(chain_services_builder);
@@ -55,7 +59,7 @@ fn start_chain(consensus: Option<Consensus>) -> (ChainServiceScope, Shared) {
         std::thread::sleep(std::time::Duration::from_millis(10));
     }
 
-    (chain, shared)
+    (ChainTestScope::new(tx_pool, chain), shared)
 }
 
 #[test]
@@ -314,7 +318,9 @@ fn test_candidate_uncles_retain() {
             .next_epoch_ext(&block1_1.header(), &shared.store().borrow_as_data_loader())
             .unwrap()
             .epoch();
-        let uncles = candidate_uncles.prepare_uncles(&snapshot, &epoch);
+        let uncles = candidate_uncles
+            .prepare_and_commit_for_test(&snapshot, &epoch)
+            .expect("candidate-uncle preparation must remain available in this fixture");
 
         assert_eq!(uncles[0].hash(), block0_0.hash());
     }
@@ -329,10 +335,14 @@ fn test_candidate_uncles_retain() {
 
     {
         let snapshot = shared.snapshot();
-        let uncles = candidate_uncles.prepare_uncles(&snapshot, &epoch);
+        let uncles = candidate_uncles
+            .prepare_and_commit_for_test(&snapshot, &epoch)
+            .expect("candidate-uncle preparation must remain available in this fixture");
         assert!(uncles.is_empty());
-        // candidate uncles should retain
-        assert!(candidate_uncles.contains(&block0_0.as_uncle()));
+        // block0_0 is now on the main chain: prepare_uncles removes stale
+        // entries (on main chain or already embedded as uncle) immediately
+        // instead of retaining them until the epoch boundary.
+        assert!(!candidate_uncles.contains(&block0_0.as_uncle()));
     }
 
     let epoch = shared
@@ -353,9 +363,13 @@ fn test_candidate_uncles_retain() {
             .next_epoch_ext(&block3_0.header(), &shared.store().borrow_as_data_loader())
             .unwrap()
             .epoch();
-        let uncles = candidate_uncles.prepare_uncles(&snapshot, &epoch);
+        let uncles = candidate_uncles
+            .prepare_and_commit_for_test(&snapshot, &epoch)
+            .expect("candidate-uncle preparation must remain available in this fixture");
         assert!(uncles.is_empty());
-        // candidate uncles should remove by next epoch
+        // Already empty: the stale entry was removed in the previous
+        // prepare_uncles call (main-chain detection), not deferred to
+        // the epoch boundary.
         assert!(candidate_uncles.is_empty());
     }
 }

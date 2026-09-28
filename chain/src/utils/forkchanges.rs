@@ -1,8 +1,7 @@
 use ckb_types::core::{BlockExt, BlockView};
-use ckb_types::packed::ProposalShortId;
 #[cfg(debug_assertions)]
 use is_sorted::IsSorted;
-use std::collections::{HashSet, VecDeque};
+use std::collections::VecDeque;
 
 /// The struct represent fork
 #[derive(Debug, Default)]
@@ -11,8 +10,6 @@ pub struct ForkChanges {
     pub(crate) attached_blocks: VecDeque<BlockView>,
     /// Blocks detached from index after forks
     pub(crate) detached_blocks: VecDeque<BlockView>,
-    /// HashSet with proposal_id detached to index after forks
-    pub(crate) detached_proposal_id: HashSet<ProposalShortId>,
     /// to be updated exts
     pub(crate) dirty_exts: VecDeque<BlockExt>,
 }
@@ -26,11 +23,6 @@ impl ForkChanges {
     /// blocks detached from index after forks
     pub fn detached_blocks(&self) -> &VecDeque<BlockView> {
         &self.detached_blocks
-    }
-
-    /// proposal_id detached to index after forks
-    pub fn detached_proposal_id(&self) -> &HashSet<ProposalShortId> {
-        &self.detached_proposal_id
     }
 
     /// are there any block should be detached

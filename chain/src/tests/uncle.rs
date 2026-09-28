@@ -1,4 +1,5 @@
 use crate::ChainServiceScope;
+use crate::tests::util::start_tx_pool;
 use ckb_chain_spec::consensus::Consensus;
 use ckb_shared::SharedBuilder;
 use ckb_store::ChainStore;
@@ -10,6 +11,7 @@ use std::sync::Arc;
 fn test_get_block_body_after_inserting() {
     let builder = SharedBuilder::with_temp_db();
     let (shared, mut pack) = builder.consensus(Consensus::default()).build().unwrap();
+    let _tx_pool = start_tx_pool(&shared, &mut pack);
     let chain = ChainServiceScope::new(pack.take_chain_services_builder());
     let chain_controller = chain.chain_controller();
 

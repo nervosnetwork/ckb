@@ -19,9 +19,10 @@ pub fn build_chain(tip: BlockNumber) -> (SyncShared, ChainServiceScope) {
         .consensus(always_success_consensus())
         .build()
         .unwrap();
-    let chain_scope = ChainServiceScope::new(pack.take_chain_services_builder());
+    let relay_receiver = pack.take_relay_tx_receiver();
+    let chain_scope = ChainServiceScope::new(pack.into_chain_services_builder());
     generate_blocks(&shared, chain_scope.chain_controller(), tip);
-    let sync_shared = SyncShared::new(shared, Default::default(), pack.take_relay_tx_receiver());
+    let sync_shared = SyncShared::new(shared, Default::default(), relay_receiver);
     (sync_shared, chain_scope)
 }
 

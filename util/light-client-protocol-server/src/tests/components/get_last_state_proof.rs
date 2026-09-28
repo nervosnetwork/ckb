@@ -11,8 +11,8 @@ use crate::tests::{
     utils::{MockChain, MockNetworkContext},
 };
 
-#[tokio::test(flavor = "multi_thread")]
-async fn get_last_state_proof_with_the_genesis_block() {
+#[test]
+fn get_last_state_proof_with_the_genesis_block() {
     let chain = MockChain::new();
     let nc = MockNetworkContext::new(SupportProtocols::LightClient);
 
@@ -43,7 +43,10 @@ async fn get_last_state_proof_with_the_genesis_block() {
     assert!(nc.sent_messages().borrow().is_empty());
 
     let peer_index = PeerIndex::new(1);
-    protocol.received(nc.context(), peer_index, data).await;
+    chain
+        .shared()
+        .async_handle()
+        .block_on(protocol.received(nc.context(), peer_index, data));
 
     assert!(nc.not_banned(peer_index));
 
@@ -94,8 +97,8 @@ async fn get_last_state_proof_with_the_genesis_block() {
     assert!(verifiable_header.header().is_genesis());
 }
 
-#[tokio::test(flavor = "multi_thread")]
-async fn get_last_state_proof_panics_when_start_number_exceeds_last_block() {
+#[test]
+fn get_last_state_proof_panics_when_start_number_exceeds_last_block() {
     let chain = MockChain::new();
     let nc = MockNetworkContext::new(SupportProtocols::LightClient);
 
@@ -122,7 +125,10 @@ async fn get_last_state_proof_panics_when_start_number_exceeds_last_block() {
     .as_bytes();
 
     let peer_index = PeerIndex::new(1);
-    protocol.received(nc.context(), peer_index, data).await;
+    chain
+        .shared()
+        .async_handle()
+        .block_on(protocol.received(nc.context(), peer_index, data));
 
     assert!(nc.sent_messages().borrow().is_empty());
     assert!(!nc.not_banned(peer_index));

@@ -33,27 +33,23 @@ where
     ];
     let script_version = &sg_data.sg_info.script_version;
     if script_version >= &ScriptVersion::V1 {
-        syscalls.append(&mut vec![
-            Box::new(VMVersion::new()),
-            Box::new(CurrentCycles::new(vm_context)),
-        ]);
+        syscalls.push(Box::new(VMVersion::new()));
+        syscalls.push(Box::new(CurrentCycles::new(vm_context)));
     }
     if script_version == &ScriptVersion::V1 {
         syscalls.push(Box::new(Exec::new(sg_data)));
     }
     if script_version >= &ScriptVersion::V2 {
-        syscalls.append(&mut vec![
-            Box::new(ExecV2::new(vm_id, vm_context)),
-            Box::new(LoadBlockExtension::new(sg_data)),
-            Box::new(Spawn::new(vm_id, vm_context)),
-            Box::new(ProcessID::new(vm_id)),
-            Box::new(Pipe::new(vm_id, vm_context)),
-            Box::new(Wait::new(vm_id, vm_context)),
-            Box::new(Write::new(vm_id, vm_context)),
-            Box::new(Read::new(vm_id, vm_context)),
-            Box::new(InheritedFd::new(vm_id, vm_context)),
-            Box::new(Close::new(vm_id, vm_context)),
-        ]);
+        syscalls.push(Box::new(ExecV2::new(vm_id, vm_context)));
+        syscalls.push(Box::new(LoadBlockExtension::new(sg_data)));
+        syscalls.push(Box::new(Spawn::new(vm_id, vm_context)));
+        syscalls.push(Box::new(ProcessID::new(vm_id)));
+        syscalls.push(Box::new(Pipe::new(vm_id, vm_context)));
+        syscalls.push(Box::new(Wait::new(vm_id, vm_context)));
+        syscalls.push(Box::new(Write::new(vm_id, vm_context)));
+        syscalls.push(Box::new(Read::new(vm_id, vm_context)));
+        syscalls.push(Box::new(InheritedFd::new(vm_id, vm_context)));
+        syscalls.push(Box::new(Close::new(vm_id, vm_context)));
     }
     syscalls
 }

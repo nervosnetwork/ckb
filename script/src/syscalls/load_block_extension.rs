@@ -2,7 +2,7 @@ use crate::{
     cost_model::transferred_byte_cycles,
     syscalls::{
         INDEX_OUT_OF_BOUND, ITEM_MISSING, LOAD_BLOCK_EXTENSION, SUCCESS, Source, SourceEntry,
-        utils::store_data,
+        header_visible_origin, utils::store_data,
     },
     types::SgData,
 };
@@ -44,19 +44,10 @@ impl<DL: ExtensionProvider + Clone> LoadBlockExtension<DL> {
     }
 
     fn load_block_extension(&self, cell_meta: &CellMeta) -> Option<packed::Bytes> {
-        // `transaction_info` is absent for unconfirmed cells provided by the
-        // tx-pool (e.g. `PoolCell`). Treat them as missing instead of panicking,
-        // so the syscall surfaces `ITEM_MISSING` to the script VM.
-        let block_hash = &cell_meta.transaction_info.as_ref()?.block_hash;
-        if self
-            .header_deps()
-            .into_iter()
-            .any(|hash| &hash == block_hash)
-        {
-            self.sg_data.data_loader().get_block_extension(block_hash)
-        } else {
-            None
-        }
+        let block_hash = header_visible_origin(cell_meta, |origin| {
+            self.header_deps().into_iter().any(|hash| &hash == origin)
+        })?;
+        self.sg_data.data_loader().get_block_extension(block_hash)
     }
 
     fn fetch_extension(&self, source: Source, index: usize) -> Result<packed::Bytes, u8> {

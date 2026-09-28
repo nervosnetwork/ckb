@@ -18,12 +18,11 @@ use std::sync::Arc;
 #[rpc(openrpc)]
 #[async_trait]
 pub trait PoolRpc {
-    /// Submits a new transaction into the transaction pool. If the transaction is already in the
-    /// pool, rebroadcast it to peers.
+    /// Verifies a transaction and submits it to the transaction pool.
     ///
-    /// Please note that `send_transaction` is an asynchronous process.
-    /// The return of `send_transaction` does NOT indicate that the transaction have been fully verified.
-    /// If you want to track the status of the transaction, please use the `get_transaction`rpc.
+    /// Success means verification and pool admission have completed. An already accepted
+    /// transaction is rejected as a duplicate. Use `get_transaction` to track its status
+    /// after submission; admission does not guarantee inclusion in a block.
     ///
     /// ## Params
     ///
@@ -620,18 +619,15 @@ impl PoolRpc for PoolRpcImpl {
         self.check_output_validator(outputs_validator, &tx)?;
 
         let tx_pool = self.shared.tx_pool_controller();
-        let submit_tx = tx_pool.submit_local_tx(tx.clone());
-
-        if let Err(e) = submit_tx {
+        let submitted = tx_pool.submit_local_tx(tx.clone()).map_err(|e| {
             error!("Send submit_tx request error {}", e);
-            return Err(RPCError::ckb_internal_error(e));
-        }
+            RPCError::ckb_internal_error(e)
+        })?;
 
         let tx_hash = tx.hash();
-        match submit_tx.unwrap() {
-            Ok(_) => Ok(tx_hash.into()),
-            Err(reject) => Err(RPCError::from_submit_transaction_reject(&reject)),
-        }
+        submitted
+            .map(|()| tx_hash.into())
+            .map_err(|reject| RPCError::from_submit_transaction_reject(&reject))
     }
 
     fn test_tx_pool_accept(
@@ -646,17 +642,15 @@ impl PoolRpc for PoolRpcImpl {
 
         let tx_pool = self.shared.tx_pool_controller();
 
-        let test_accept_tx_reslt = tx_pool.test_accept_tx(tx).map_err(|e| {
+        let accepted = tx_pool.test_accept_tx(tx).map_err(|e| {
             error!("Send test_tx_pool_accept_tx request error {}", e);
             RPCError::ckb_internal_error(e)
         })?;
 
-        test_accept_tx_reslt
-            .map(|test_accept_result| test_accept_result.into())
-            .map_err(|reject| {
-                error!("Send test_tx_pool_accept_tx request error {}", reject);
-                RPCError::from_submit_transaction_reject(&reject)
-            })
+        accepted.map(Into::into).map_err(|reject| {
+            error!("Send test_tx_pool_accept_tx request error {}", reject);
+            RPCError::from_submit_transaction_reject(&reject)
+        })
     }
 
     fn remove_transaction(&self, tx_hash: H256) -> Result<bool> {
@@ -670,15 +664,10 @@ impl PoolRpc for PoolRpcImpl {
 
     fn tx_pool_info(&self) -> Result<TxPoolInfo> {
         let tx_pool = self.shared.tx_pool_controller();
-        let get_tx_pool_info = tx_pool.get_tx_pool_info();
-        if let Err(e) = get_tx_pool_info {
+        tx_pool.get_tx_pool_info().map(Into::into).map_err(|e| {
             error!("Send get_tx_pool_info request error {}", e);
-            return Err(RPCError::ckb_internal_error(e));
-        };
-
-        let tx_pool_info = get_tx_pool_info.unwrap();
-
-        Ok(tx_pool_info.into())
+            RPCError::ckb_internal_error(e)
+        })
     }
 
     fn clear_tx_pool(&self) -> Result<()> {

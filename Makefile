@@ -29,14 +29,20 @@ cli-test: prod # Run ckb command line usage bats test
 	./ckb-bin/src/tests/bats_tests/cli_test.sh
 
 .PHONY: test
-test: ## Run all tests, including some tests can be time-consuming to execute (tagged with [ignore])
+test: test-production-config ## Run all tests, including some tests can be time-consuming to execute (tagged with [ignore])
 	cargo nextest run ${VERBOSE} --features ${CKB_FEATURES} --workspace --no-fail-fast --hide-progress-bar --success-output immediate-final --failure-output immediate-final --run-ignored all
 	$(MAKE) doc-test
 
 .PHONY: quick-test
-quick-test: ## Run all tests, excluding some tests can be time-consuming to execute (tagged with [ignore])
+quick-test: test-production-config ## Run all tests, excluding some tests can be time-consuming to execute (tagged with [ignore])
 	cargo nextest run ${VERBOSE} --features ${CKB_FEATURES} --workspace --no-fail-fast --hide-progress-bar --success-output immediate-final --failure-output immediate-final --run-ignored default
 	$(MAKE) doc-test
+
+.PHONY: test-production-config
+# Workspace feature unification enables app-config/test and excludes the
+# production-only parser assertions, so run this package separately.
+test-production-config: ## Check the production parser without workspace integration-test features.
+	cargo nextest run ${VERBOSE} --locked -p ckb-app-config --lib --no-default-features --hide-progress-bar
 
 .PHONY: cov-install-tools
 cov-install-tools:
@@ -82,13 +88,13 @@ integration: integration-release
 
 .PHONY: integration-release
 integration-release: submodule-init
-	cargo build --locked --bin ckb ${VERBOSE} --release --features "deadlock_detection"
+	cargo build --locked --bin ckb ${VERBOSE} --release --features "test,deadlock_detection"
 	RUST_BACKTRACE=1 RUST_LOG=${INTEGRATION_RUST_LOG} cargo run -p ckb-test --features "deadlock_detection" --release -- --bin '${CARGO_TARGET_DIR}/release/${BINARY_NAME}' ${CKB_TEST_ARGS}
 
 .PHONY: integration-cov
 integration-cov: cov-install-tools submodule-init ## Run integration tests and generate coverage report.
 	mkdir -p "${COV_PROFRAW_DIR}"; rm -f "${COV_PROFRAW_DIR}/*.profraw"
-	RUSTFLAGS="-Zinstrument-coverage" LLVM_PROFILE_FILE="${COV_PROFRAW_DIR}/ckb-cov-%p-%m.profraw" cargo +nightly-2022-03-22 build --bin ckb --features deadlock_detection
+	RUSTFLAGS="-Zinstrument-coverage" LLVM_PROFILE_FILE="${COV_PROFRAW_DIR}/ckb-cov-%p-%m.profraw" cargo +nightly-2022-03-22 build --bin ckb --features test,deadlock_detection
 	RUST_BACKTRACE=1 RUST_LOG=${INTEGRATION_RUST_LOG} cargo run -p ckb-test --features "deadlock_detection" -- --bin '${CARGO_TARGET_DIR}/debug/${BINARY_NAME}' ${CKB_TEST_ARGS}
 	GRCOV_OUTPUT=lcov-integration-test.info make cov-collect-data
 

@@ -127,4 +127,12 @@ fn test_if_is_malformed_tx() {
         let reject = Reject::Verification(error.into());
         assert_eq!(reject.is_malformed_tx(), is_malformed);
     }
+
+    // Error kind and dynamic payload are a fallible external representation.
+    // Policy inspection must remain total and conservatively avoid peer blame
+    // when they do not agree.
+    let mismatched_transaction = ErrorKind::Transaction.because(DefaultError);
+    assert!(!Reject::Verification(mismatched_transaction).is_malformed_tx());
+    let mismatched_internal = ErrorKind::Internal.because(OtherError::new("mismatched"));
+    assert!(!Reject::Verification(mismatched_internal).is_malformed_tx());
 }

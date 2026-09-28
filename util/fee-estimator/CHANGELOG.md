@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- `FeeSample` and `estimate_fee_rate_with_samples` let callers supply the size,
+  cycles and fee used by estimation without computing transaction graph statistics.
+  The existing `estimate_fee_rate` entry points remain available.
+
 ## [1.1.2](https://github.com/nervosnetwork/ckb/compare/ckb-fee-estimator-v1.1.1...ckb-fee-estimator-v1.1.2) - 2026-07-28
 
 ### Fixed
