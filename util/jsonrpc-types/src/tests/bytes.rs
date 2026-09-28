@@ -61,3 +61,15 @@ fn test_de_error() {
         test_de_error_for(kind, input);
     }
 }
+
+#[test]
+fn test_fixed_hex_invalid_character() {
+    let byte32 = serde_json::json!(format!("0x{}g0", "00".repeat(31)));
+    let proposal = serde_json::json!(format!("0x{}g0", "00".repeat(9)));
+    for error in [
+        serde_json::from_value::<crate::Byte32>(byte32).unwrap_err(),
+        serde_json::from_value::<crate::ProposalShortId>(proposal).unwrap_err(),
+    ] {
+        assert_eq!(error.to_string(), "Invalid character");
+    }
+}
