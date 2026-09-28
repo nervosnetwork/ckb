@@ -10,6 +10,8 @@ use crate::tests::{
 
 #[tokio::test(flavor = "multi_thread")]
 async fn get_transactions_proof_with_missing_txs() {
+    let faketime = ckb_systemtime::faketime();
+    faketime.set_faketime(1_700_000_000_000);
     let chain = MockChain::new();
     let nc = MockNetworkContext::new(SupportProtocols::LightClient);
 
@@ -53,6 +55,8 @@ async fn get_transactions_proof_with_missing_txs() {
         let cellbase = block.transactions().get(0).unwrap();
         block
             .as_advanced_builder()
+            // Start a distinct fork even when the detached block has the same timestamp.
+            .nonce(1)
             .set_transactions(vec![cellbase.into_view()])
             .build()
     });
