@@ -20,7 +20,9 @@ impl BlockAssembler {
         if !self.notifications_enabled() {
             return;
         }
-        let template = self.get_current();
+        let Some(template) = self.get_current() else {
+            return;
+        };
         if let Ok(template_json) = serde_json::to_string(&template) {
             let notify_timeout = Duration::from_millis(self.config.notify_timeout_millis);
             // The existing Notification lane owns this complete batch. All

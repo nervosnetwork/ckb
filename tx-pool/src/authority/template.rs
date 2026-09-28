@@ -150,8 +150,9 @@ impl Driver {
             if tokio::time::Instant::now() >= deadline {
                 return Err(Error::Full("template refresh timeout".into()));
             }
-            let current = Arc::clone(&self.assembler.current.read());
-            if let Some(source) = &current.source {
+            let current = self.assembler.current.read().clone();
+            if let Some(current) = &current {
+                let source = &current.source;
                 match self.store.read_selected(source.view, &source.reads, || ()) {
                     Ok(()) => {
                         let mut output: JsonBlockTemplate = (&current.template).into();
@@ -207,10 +208,9 @@ impl Driver {
         let reused = {
             let current = self.assembler.current.read();
             current
-                .source
                 .as_ref()
-                .filter(|source| source.view == view)
-                .map(|_| {
+                .filter(|current| current.source.view == view)
+                .map(|current| {
                     (
                         current.template.cellbase.clone(),
                         current.template.extension.clone(),
@@ -275,10 +275,7 @@ impl Driver {
         template.proposals = optional.proposals;
         template.uncles = optional.uncles;
         Ok(PreparedTemplate {
-            current: Arc::new(CurrentTemplate {
-                template,
-                source: Some(source),
-            }),
+            current: Arc::new(CurrentTemplate { template, source }),
             prune,
         })
     }
@@ -292,10 +289,7 @@ impl Driver {
 
     fn publish(&self, prepared: PreparedTemplate) -> Result<(), Error> {
         let PreparedTemplate { current, prune } = prepared;
-        let source = current
-            .source
-            .as_ref()
-            .ok_or(Error::Fault("template source"))?;
+        let source = &current.source;
         let retired: Result<_, CandidateUnclePrune> =
             self.store.read_selected(source.view, &source.reads, || {
                 let mut uncles = self.assembler.candidate_uncles.lock();
@@ -304,7 +298,7 @@ impl Driver {
                 // synchronous mutations. Payload destruction follows guard release.
                 Ok((
                     pruned,
-                    std::mem::replace(&mut *self.assembler.current.write(), Arc::clone(&current)),
+                    self.assembler.current.write().replace(Arc::clone(&current)),
                 ))
             })?;
         // A stale plan also owns uncle payloads; discard it only after the
@@ -336,9 +330,8 @@ impl Driver {
                 .assembler
                 .current
                 .read()
-                .source
                 .as_ref()
-                .map(|source| source.view);
+                .map(|current| current.source.view);
             if !first && current_view == Some(view) {
                 // Coalesce same-chain membership bursts. A new chain view
                 // needs fresh mining work immediately; readers can also wake

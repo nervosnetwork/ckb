@@ -55,6 +55,11 @@ selected proposals consume bytes before compatible uncles, and only selected pro
 participate in conflict filtering. `TemplateSource::from_content` owns invalidation
 premises for the final DAO-filtered transactions and selected proposals.
 
+For template startup changes, preserve `BlockAssembler::new` validation and its
+initial work-ID allocation. The current output is absent until publication;
+test both a reader waiting for that first publication and a mandatory byte-limit
+failure returned directly from construction.
+
 For a packing rule, start in [PackingRun](../src/authority/packing/run.rs).
 It owns candidate queues, package selection, retirement and repricing under the
 remaining block limits. [Graph](../src/authority/packing/graph.rs) checks the

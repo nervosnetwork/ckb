@@ -50,7 +50,30 @@ fn deadline() -> tokio::time::Instant {
 }
 
 fn selected(driver: &Driver) -> Arc<CurrentTemplate> {
-    Arc::clone(&driver.assembler.current.read())
+    driver
+        .assembler
+        .current
+        .read()
+        .clone()
+        .expect("a template has been published")
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn initial_reader_waits_for_the_first_publication() {
+    let driver = fixture();
+    let transaction = tx(7184);
+    accept(&driver.store, transaction.clone(), 1, 1, Status::Pending);
+    assert!(driver.assembler.get_current().is_none());
+    let mut reader = Box::pin(driver.read(deadline()));
+    assert!(futures_util::poll!(reader.as_mut()).is_pending());
+    let task = tokio::spawn(Arc::clone(&driver).run());
+    let output = within(reader).await.unwrap();
+    assert_eq!(
+        output.proposals,
+        vec![transaction.proposal_short_id().into()]
+    );
+    driver.store.stop();
+    within(task).await.unwrap().unwrap();
 }
 
 #[test]
@@ -69,7 +92,7 @@ fn published_template_retains_miner_content_without_resolved_metadata() {
 
     driver.store.apply(delete(&driver.store, owner)).unwrap();
     assert!(resolved.upgrade().is_none());
-    let source = current.source.as_ref().unwrap();
+    let source = &current.source;
     assert!(matches!(
         driver
             .store
@@ -157,6 +180,7 @@ async fn missing_parent_in_a_coherent_capture_faults_and_releases_template_reade
     ));
     assert!(driver.store.is_faulted());
     assert!(matches!(within(reader).await, Err(Error::Fault(_))));
+    assert!(driver.assembler.get_current().is_none());
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -195,7 +219,7 @@ fn uncle_arriving_after_preparation_retries_without_publishing_or_faulting() {
         .as_uncle();
     driver
         .uncle(crate::block_assembler::BoundedCandidateUncle::try_new(uncle, usize::MAX).unwrap());
-    let source = prepared.current.source.as_ref().unwrap();
+    let source = &prepared.current.source;
     driver
         .store
         .read_selected(source.view, &source.reads, || ())
@@ -218,8 +242,9 @@ fn template_bytes(current: &CurrentTemplate) -> usize {
 
 #[test]
 fn mandatory_template_accepts_exact_byte_limit_and_rejects_one_byte_less() {
-    let initial = BlockAssembler::new(template_config(), template_snapshot()).unwrap();
-    let required = template_bytes(&initial.current.read());
+    let initial = fixture();
+    initial.rebuild(&mut Cache::default()).unwrap();
+    let required = template_bytes(&selected(&initial));
     assert!(required > 0);
     let snapshot = |limit| {
         template_snapshot_with_consensus(
@@ -227,14 +252,22 @@ fn mandatory_template_accepts_exact_byte_limit_and_rejects_one_byte_less() {
             Arc::new(ConsensusBuilder::default().max_block_bytes(limit).build()),
         )
     };
-    let exact = BlockAssembler::new(template_config(), snapshot(required as u64)).unwrap();
-    let current = exact.current.read();
+    let exact_snapshot = snapshot(required as u64);
+    let assembler = BlockAssembler::new(template_config(), Arc::clone(&exact_snapshot)).unwrap();
+    let exact = Driver::new(
+        Store::new(exact_snapshot, &config()).unwrap(),
+        assembler,
+        config().max_ancestors_count,
+    );
+    exact.rebuild(&mut Cache::default()).unwrap();
+    let current = selected(&exact);
+    // Construction consumes work ID zero while checking the empty template.
+    assert_eq!(current.template.work_id, 1);
     assert_eq!(template_bytes(&current), required);
     assert_eq!(current.template.bytes_limit, required as u64);
     assert!(current.template.transactions.is_empty());
     assert!(current.template.proposals.is_empty());
     assert!(current.template.uncles.is_empty());
-    drop(current);
     let error = BlockAssembler::new(template_config(), snapshot((required - 1) as u64))
         .err()
         .expect("mandatory content cannot exceed the consensus byte limit");
@@ -267,7 +300,7 @@ fn template_build_reproposes_a_recovered_gap_then_packs_it_after_proposal() {
             .collect::<BTreeSet<_>>(),
         [pending.proposal_short_id()].into()
     );
-    let source = output.source.as_ref().unwrap();
+    let source = &output.source;
     driver
         .store
         .read_selected(source.view, &source.reads, || ())
@@ -322,7 +355,7 @@ async fn removing_a_selected_proposal_requires_a_fresh_publication_before_read()
         .store
         .apply(membership::removal(&driver.store, &entry, &config(), None).unwrap())
         .unwrap();
-    let source = old.source.as_ref().unwrap();
+    let source = &old.source;
     assert!(matches!(
         driver
             .store
@@ -349,7 +382,7 @@ fn prepared_template_cannot_rebind_a_reentered_selected_owner() {
         .apply(membership::removal(&driver.store, &old, &config(), None).unwrap())
         .unwrap();
     accept(&driver.store, transaction, 1, 1, Status::Pending);
-    let source = prepared.source.as_ref().unwrap();
+    let source = &prepared.source;
     assert!(matches!(
         driver
             .store
@@ -357,7 +390,7 @@ fn prepared_template_cannot_rebind_a_reentered_selected_owner() {
         Err(Error::Stale)
     ));
     let replacement = driver.prepare(&mut cache).unwrap().current;
-    let source = replacement.source.as_ref().unwrap();
+    let source = &replacement.source;
     driver
         .store
         .read_selected(source.view, &source.reads, || ())
@@ -375,7 +408,7 @@ async fn identical_tip_clear_still_requires_a_new_template_source_and_joins() {
         .store
         .apply(chain::clear(&driver.store, None, ClearScope::All).unwrap())
         .unwrap();
-    let source = old.source.as_ref().unwrap();
+    let source = &old.source;
     assert!(matches!(
         driver
             .store
@@ -475,10 +508,7 @@ fn same_view_reuses_only_mandatory_payloads_and_consumes_a_fresh_work_id() {
     let point = old.template.cellbase.data().as_slice().as_ptr();
     accept(&driver.store, tx(7190), 1, 1, Status::Pending);
     let prepared = driver.prepare(&mut Cache::default()).unwrap().current;
-    assert_eq!(
-        prepared.source.as_ref().unwrap().view,
-        old.source.as_ref().unwrap().view
-    );
+    assert_eq!(prepared.source.view, old.source.view);
     assert_eq!(prepared.template.cellbase.data().as_slice().as_ptr(), point);
     assert_eq!(prepared.template.extension, old.template.extension);
     assert_eq!(prepared.template.work_id, old.template.work_id + 1);
@@ -510,10 +540,7 @@ fn identical_tip_new_view_rebuilds_mandatory_parts_and_enforces_its_byte_limit()
         .apply(chain::clear(&driver.store, None, ClearScope::All).unwrap())
         .unwrap();
     let prepared = driver.prepare(&mut Cache::default()).unwrap().current;
-    assert_ne!(
-        prepared.source.as_ref().unwrap().view,
-        old.source.as_ref().unwrap().view
-    );
+    assert_ne!(prepared.source.view, old.source.view);
     assert_eq!(prepared.template.parent_hash, old.template.parent_hash);
     assert_ne!(prepared.template.cellbase.data().as_slice().as_ptr(), point);
     assert_eq!(prepared.template.cellbase, old.template.cellbase);

@@ -84,7 +84,7 @@ impl BlockTemplate {
 
 pub(crate) struct CurrentTemplate {
     pub(crate) template: BlockTemplate,
-    pub(crate) source: Option<crate::authority::TemplateSource>,
+    pub(crate) source: crate::authority::TemplateSource,
 }
 
 impl<'a> From<&'a BlockTemplate> for JsonBlockTemplate {

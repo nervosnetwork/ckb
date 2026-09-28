@@ -377,6 +377,11 @@ carries one 30-second deadline from controller entry through queueing and refres
 The caller's wait ends at that deadline even before dispatch; the driver does not
 renew it. This does not interrupt synchronous work or stop the shared driver.
 
+`BlockAssembler::new` validates an empty template and consumes its initial work
+ID before startup succeeds. It retains no current output until the driver first
+publishes. Every prepared or published `CurrentTemplate` carries its required
+source; readers wait for publication and miner notifications follow publication.
+
 Each uncle cleanup plan carries its source receipt. Under the candidate lock,
 `CandidateUncles::try_prune` validates that receipt before applying cleanup;
 an obsolete plan is returned intact for destruction outside Store guards.

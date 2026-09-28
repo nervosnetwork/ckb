@@ -65,10 +65,10 @@ pub struct BlockAssembler {
     /// after releasing it. Pruning occurs only inside a successful template
     /// publication Apply.
     pub(crate) candidate_uncles: Arc<Mutex<CandidateUncles>>,
-    /// Current template snapshot. Readers clone the inner `Arc` under a read
-    /// lock; updaters build a new `CurrentTemplate` without holding the lock,
-    /// then swap the `Arc` under a write lock.
-    pub(crate) current: Arc<RwLock<Arc<CurrentTemplate>>>,
+    /// Published template and its validated source, absent until first publication.
+    /// Readers clone the inner `Arc` under a read lock; updaters build without
+    /// holding the lock, then swap the `Arc` under a write lock.
+    pub(crate) current: Arc<RwLock<Option<Arc<CurrentTemplate>>>>,
     /// Shared per-tip memo of chain-cell liveness for `calc_dao`. Its short
     /// synchronous critical sections never cross `.await`.
     pub(crate) cell_liveness_memo: Arc<Mutex<CellLivenessMemo>>,
@@ -99,7 +99,7 @@ impl BlockAssembler {
             let cell_liveness_memo = Arc::new(Mutex::new(CellLivenessMemo::for_block_bytes(
                 Self::max_block_bytes(&snapshot)?,
             )));
-            let current = Self::build_base_template(
+            Self::build_base_template(
                 &config,
                 &work_id,
                 snapshot,
@@ -110,7 +110,7 @@ impl BlockAssembler {
                 config: Arc::new(config),
                 work_id: Arc::new(work_id),
                 candidate_uncles: Arc::new(Mutex::new(CandidateUncles::new())),
-                current: Arc::new(RwLock::new(Arc::new(current))),
+                current: Arc::new(RwLock::new(None)),
                 cell_liveness_memo,
                 poster: Arc::new(
                     Client::builder(hyper_util::rt::TokioExecutor::new())
@@ -124,16 +124,16 @@ impl BlockAssembler {
 
     /// Build a fresh base template from `snapshot`.
     ///
-    /// Construction needs a valid empty template before the driver starts.
-    /// The driver reuses mandatory parts within one lifecycle view and computes
-    /// DAO for its final selected contents.
+    /// Construction validates an empty template before the driver starts,
+    /// preserving initialization errors and the first work-ID allocation.
+    /// Only the driver can pair a template with a source for publication.
     pub(crate) fn build_base_template(
         config: &BlockAssemblerConfig,
         work_id: &AtomicU64,
         snapshot: Arc<Snapshot>,
         current_epoch: &EpochExt,
         memo: &Mutex<CellLivenessMemo>,
-    ) -> Result<CurrentTemplate, AnyError> {
+    ) -> Result<BlockTemplate, AnyError> {
         let cellbase = Self::build_cellbase(config, &snapshot)?;
         let extension = Self::build_extension(&snapshot)?;
         let fixed_size =
@@ -155,10 +155,7 @@ impl BlockAssembler {
         )?;
         template.extension = extension;
 
-        Ok(CurrentTemplate {
-            template,
-            source: None,
-        })
+        Ok(template)
     }
 
     pub(crate) fn take_counter(
@@ -224,11 +221,11 @@ impl BlockAssembler {
         used_bytes.checked_add(items.len().checked_mul(item_bytes)?)
     }
 
-    pub(crate) fn get_current(&self) -> JsonBlockTemplate {
+    pub(crate) fn get_current(&self) -> Option<JsonBlockTemplate> {
         // Only clone the inner Arc while holding the read lock; the lock is
         // released immediately after this statement.
         let current = self.current.read().clone();
-        (&current.template).into()
+        current.as_ref().map(|current| (&current.template).into())
     }
 
     pub(crate) fn build_cellbase_witness(
