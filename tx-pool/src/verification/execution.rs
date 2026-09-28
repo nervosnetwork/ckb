@@ -3,7 +3,7 @@
 use super::cpu_clock::CpuTime;
 use crate::util::block_offload;
 use ckb_script::{
-    ChunkCommand, RunMode, Scheduler, SchedulerRunner,
+    ChunkCommand, RunMode, Scheduler, SchedulerRunner, VM_INTERRUPTED_MESSAGE,
     types::{DebugPrinter, Machine, TerminatedResult},
 };
 use ckb_snapshot::Snapshot;
@@ -74,7 +74,7 @@ impl VmRunner<'_> {
             }
             while desired != ChunkCommand::Resume {
                 if desired == ChunkCommand::Stop {
-                    return Err(Error::External("stopped".into()));
+                    return Err(Error::External(VM_INTERRUPTED_MESSAGE.into()));
                 }
                 desired = self
                     .command
@@ -161,8 +161,7 @@ fn unmeasured_result(
 
 fn clock_failure(error: io::Error) -> Error {
     ckb_logger::warn!("VM CPU measurement failed: {error}");
-    // The canonical verifier recognizes this exact value as local interruption.
-    Error::External("stopped".into())
+    Error::External(VM_INTERRUPTED_MESSAGE.into())
 }
 
 /// Wait for observed CPU exhaustion, without repeatedly pausing off-CPU work.
@@ -227,7 +226,7 @@ impl<T> VmTask<T> {
         match completed {
             Ok(completed) => Ok(completed),
             Err(error) if error.is_panic() => std::panic::resume_unwind(error.into_panic()),
-            Err(_) => Err(Error::External("stopped".into())),
+            Err(_) => Err(Error::External(VM_INTERRUPTED_MESSAGE.into())),
         }
     }
 }

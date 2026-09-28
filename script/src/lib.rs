@@ -18,5 +18,5 @@ pub use crate::types::{
 };
 #[cfg(not(target_family = "wasm"))]
 pub use crate::verify::SchedulerRunner;
-pub use crate::verify::TransactionScriptsVerifier;
+pub use crate::verify::{TransactionScriptsVerifier, VM_INTERRUPTED_MESSAGE};
 pub use crate::verify_env::TxVerifyEnv;

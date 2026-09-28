@@ -47,6 +47,59 @@ async fn stopped_verification_is_retryable_without_a_persistent_rejection() {
     assert!(ckb_jsonrpc_types::PoolTransactionReject::try_from(reject).is_err());
 }
 
+#[tokio::test]
+async fn runner_external_errors_preserve_interruption_and_script_attribution() {
+    use ckb_script::{
+        SchedulerRunner, ScriptError, VM_INTERRUPTED_MESSAGE, types::TerminatedResult,
+    };
+
+    struct ExternalError(&'static str);
+
+    impl<S: Send> SchedulerRunner<S> for ExternalError {
+        async fn run(
+            &mut self,
+            _scheduler: S,
+            _max_cycles: Cycle,
+        ) -> Result<Option<TerminatedResult>, ckb_vm::Error> {
+            Err(ckb_vm::Error::External(self.0.into()))
+        }
+    }
+
+    let snapshot = snapshot(Arc::new(ConsensusBuilder::default().build()));
+    let env = Arc::new(TxVerifyEnv::new_submit(snapshot.tip_header()));
+    let verifier = TransactionScriptsVerifier::new(
+        program_transaction(
+            ScriptVersion::V0,
+            &[include_bytes!("../../../script/testdata/always_success")],
+        ),
+        snapshot.as_data_loader(),
+        snapshot.cloned_consensus(),
+        env,
+    );
+
+    for (message, interrupted) in [
+        (VM_INTERRUPTED_MESSAGE, true),
+        // Preserve the existing payload independently of the shared constant.
+        ("stopped", true),
+        ("ordinary VM failure", false),
+        ("stopped ", false),
+    ] {
+        let error = verifier
+            .verify_with_runner(u64::MAX, &mut ExternalError(message))
+            .await
+            .unwrap_err();
+        let expected: ckb_error::Error = if interrupted {
+            ScriptError::Interrupts
+        } else {
+            ScriptError::VMInternalError(ckb_vm::Error::External(message.into()))
+        }
+        .input_lock_script(0)
+        .into();
+        assert_eq!(error.kind(), expected.kind(), "{message:?}");
+        ckb_error::assert_error_eq!(error, expected, "{message:?}");
+    }
+}
+
 pub(super) fn snapshot(consensus: Arc<ckb_chain_spec::consensus::Consensus>) -> Arc<Snapshot> {
     let tmp = TempDir::new().unwrap();
     let store = ChainDB::new(RocksDB::open_in(&tmp, 1), Default::default());

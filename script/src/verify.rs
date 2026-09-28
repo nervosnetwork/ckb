@@ -25,6 +25,12 @@ use std::sync::Arc;
 #[cfg(test)]
 mod tests;
 
+/// The [`ckb_vm::Error::External`] payload for node-local VM interruption.
+///
+/// The verifier maps this exact value to [`ScriptError::Interrupts`]. Other
+/// external-error payloads retain their script-failure attribution.
+pub const VM_INTERRUPTED_MESSAGE: &str = "stopped";
+
 /// This struct leverages CKB VM to verify transaction inputs.
 pub struct TransactionScriptsVerifier<
     DL: CellDataProvider,
@@ -262,7 +268,9 @@ where
     fn map_vm_internal_error(&self, error: VMInternalError, max_cycles: Cycle) -> ScriptError {
         match error {
             VMInternalError::CyclesExceeded => ScriptError::ExceededMaximumCycles(max_cycles),
-            VMInternalError::External(reason) if reason.eq("stopped") => ScriptError::Interrupts,
+            VMInternalError::External(reason) if reason.eq(VM_INTERRUPTED_MESSAGE) => {
+                ScriptError::Interrupts
+            }
             _ => ScriptError::VMInternalError(error),
         }
     }
@@ -271,6 +279,7 @@ where
 /// Controls how a script group's scheduler is executed.
 ///
 /// Returning `None` stops verification without declaring the transaction invalid.
+/// Use [`VM_INTERRUPTED_MESSAGE`] for an external error reporting local interruption.
 /// The verifier retains Type ID validation, cycle accounting and script error attribution.
 #[cfg(not(target_family = "wasm"))]
 pub trait SchedulerRunner<S>: Send {
