@@ -67,6 +67,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Skip pool publication when a chain-only import/replay has no pool consumer,
   while retaining reliable publication during ordinary node startup.
 
+## [1.3.1](https://github.com/nervosnetwork/ckb/compare/ckb-tx-pool-v1.3.0...ckb-tx-pool-v1.3.1) - 2026-09-28
+
+### Fixed
+
+- prevent overflow in various calculations and add validation  (#5325) (by @chenyukang)
+- Verify DAO lock size before tx-pool script execution (#5236) (by @Officeyutong)
+
+### Contributors
+
+- @chenyukang
+- @Officeyutong
+
 ## [1.3.0](https://github.com/nervosnetwork/ckb/compare/ckb-tx-pool-v1.2.2...ckb-tx-pool-v1.3.0) - 2026-07-28
 
 ### Added

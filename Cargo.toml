@@ -229,7 +229,7 @@ eaglesong = "0.1"
 ed25519-dalek = "2.1"
 env_logger = "0.10"
 fail = "0.4"
-faster-hex = "0.6"
+faster-hex = { version = "1.0", default-features = false, features = ["std"] }
 faux = "0.1"
 fdlimit = "0.2.1"
 fs2 = "0.4.3"
