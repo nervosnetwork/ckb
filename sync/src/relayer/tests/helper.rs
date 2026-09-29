@@ -300,6 +300,7 @@ pub(crate) fn gen_block(
 pub(crate) struct MockProtocolContext {
     protocol: SupportProtocols,
     sent_messages: RefCell<Vec<(ProtocolId, PeerIndex, P2pBytes)>>,
+    disconnected_peers: RefCell<Vec<PeerIndex>>,
 }
 
 // test mock context with single thread
@@ -312,6 +313,7 @@ impl MockProtocolContext {
         Self {
             protocol,
             sent_messages: Default::default(),
+            disconnected_peers: Default::default(),
         }
     }
 
@@ -328,6 +330,10 @@ impl MockProtocolContext {
 
     pub(crate) fn sent_messages_len(&self) -> usize {
         self.sent_messages.borrow().len()
+    }
+
+    pub(crate) fn disconnected_peers(&self) -> Vec<PeerIndex> {
+        self.disconnected_peers.borrow().clone()
     }
 }
 
@@ -477,8 +483,9 @@ impl CKBProtocolContext for MockProtocolContext {
     fn filter_broadcast(&self, target: TargetSession, data: P2pBytes) -> Result<(), Error> {
         self.quick_filter_broadcast(target, data)
     }
-    fn disconnect(&self, _peer_index: PeerIndex, _message: &str) -> Result<(), Error> {
-        unimplemented!();
+    fn disconnect(&self, peer_index: PeerIndex, _message: &str) -> Result<(), Error> {
+        self.disconnected_peers.borrow_mut().push(peer_index);
+        Ok(())
     }
     fn get_peer(&self, _peer_index: PeerIndex) -> Option<Peer> {
         unimplemented!();
