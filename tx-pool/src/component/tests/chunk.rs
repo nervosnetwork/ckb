@@ -91,6 +91,22 @@ async fn verify_queue_basic() {
     assert!(!queue.contains_key(&id));
 }
 
+#[test]
+fn verify_queue_rejects_when_transaction_count_limit_is_reached() {
+    let mut queue = VerifyQueue::new(MAX_TX_VERIFY_CYCLES);
+    queue.set_max_transactions_for_test(1);
+
+    let tx0 = TransactionBuilder::default().build();
+    let tx1 = TransactionBuilder::default().version(1u32).build();
+
+    assert!(queue.add_tx(tx0, false, None).unwrap());
+    assert!(matches!(
+        queue.add_tx(tx1, false, None),
+        Err(crate::error::Reject::Full(_))
+    ));
+    assert_eq!(queue.len(), 1);
+}
+
 #[tokio::test]
 async fn test_verify_different_cycles() {
     let (exit_tx, mut exit_rx) = watch::channel(());
