@@ -23,7 +23,7 @@ ckb-metrics.workspace = true
 futures.workspace = true
 log.workspace = true
 sql-builder.workspace = true
-sqlx = { workspace = true, features = ["runtime-tokio-rustls", "any", "sqlite", "postgres"] }
+sqlx = { workspace = true, features = ["runtime-tokio-rustls", "any", "sqlite", "postgres", "tls-rustls-aws-lc-rs"] }
 include_dir.workspace = true
 tempfile.workspace = true
 

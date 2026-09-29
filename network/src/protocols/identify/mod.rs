@@ -2,6 +2,7 @@ use std::borrow::Cow;
 use std::collections::HashMap;
 use std::sync::Arc;
 
+use crate::multiaddr_to_ip_socketaddr;
 use ckb_logger::{debug, error, trace, warn};
 use ckb_systemtime::{Duration, Instant};
 use p2p::{
@@ -11,7 +12,7 @@ use p2p::{
     multiaddr::{Multiaddr, Protocol},
     service::TargetProtocol,
     traits::ServiceProtocol,
-    utils::{extract_peer_id, is_reachable, multiaddr_to_socketaddr},
+    utils::{extract_peer_id, is_reachable},
 };
 
 mod protocol;
@@ -30,7 +31,7 @@ const DEFAULT_TIMEOUT: u64 = 8;
 const MAX_ADDRS: usize = 10;
 
 pub(super) fn is_remote_listen_addr_allowed(addr: &Multiaddr, global_ip_only: bool) -> bool {
-    if let Some(socket_addr) = multiaddr_to_socketaddr(addr) {
+    if let Some(socket_addr) = multiaddr_to_ip_socketaddr(addr) {
         !global_ip_only || is_reachable(socket_addr.ip())
     } else {
         addr.iter()
@@ -107,7 +108,6 @@ impl<T: Callback> IdentifyProtocol<T> {
         }
     }
 
-    #[cfg(test)]
     pub fn global_ip_only(mut self, only: bool) -> Self {
         self.global_ip_only = only;
         self
@@ -221,7 +221,9 @@ impl<T: Callback> ServiceProtocol for IdentifyProtocol<T> {
                 .local_listen_addrs()
                 .iter()
                 .filter(|addr| {
-                    if let Some(socket_addr) = multiaddr_to_socketaddr(addr) {
+                    // Covers both TCP-based and UDP-based (QUIC) transports, so
+                    // that QUIC listen addresses are announced to peers too.
+                    if let Some(socket_addr) = multiaddr_to_ip_socketaddr(addr) {
                         !self.global_ip_only || is_reachable(socket_addr.ip())
                     } else {
                         // allow /onion3 address
@@ -491,9 +493,41 @@ impl Callback for IdentifyCallback {
                 Flags::COMPATIBILITY
             }
         });
+        let inbound_quic_ip = session
+            .ty
+            .is_inbound()
+            .then(|| multiaddr_to_ip_socketaddr(&session.address))
+            .flatten()
+            .filter(|_| {
+                session
+                    .address
+                    .iter()
+                    .any(|protocol| matches!(protocol, Protocol::QuicV1))
+            })
+            .map(|socket_addr| socket_addr.ip());
+
         self.network_state.with_peer_store_mut(|peer_store| {
             for addr in addrs {
-                if let Err(err) = peer_store.add_addr(addr.clone(), flags) {
+                // A QUIC dial uses an ephemeral UDP source port, so the address
+                // of an inbound session is not dialable. Once Identify proves
+                // the remote peer's identity, prefer its advertised QUIC
+                // listener when it is on the same IP as the established
+                // session. Restricting this promotion to the connected IP
+                // prevents a peer from making us advertise arbitrary hosts.
+                let is_same_host_quic_listener = inbound_quic_ip.is_some_and(|session_ip| {
+                    addr.iter()
+                        .any(|protocol| matches!(protocol, Protocol::QuicV1))
+                        && multiaddr_to_ip_socketaddr(&addr)
+                            .is_some_and(|listen_addr| listen_addr.ip() == session_ip)
+                });
+
+                let result = if is_same_host_quic_listener {
+                    peer_store.add_outbound_addr(addr.clone(), flags);
+                    Ok(())
+                } else {
+                    peer_store.add_addr(addr.clone(), flags)
+                };
+                if let Err(err) = result {
                     error!("IdentifyProtocol failed to add address to peer store, address: {}, error: {:?}", addr, err);
                 }
             }
