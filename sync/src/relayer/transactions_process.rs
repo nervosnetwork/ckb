@@ -1,9 +1,10 @@
-use crate::Status;
 use crate::relayer::Relayer;
 use crate::types::KnownRemoteBatch;
+use crate::{Status, StatusCode};
 use ckb_logger::error;
 use ckb_network::{CKBProtocolContext, PeerIndex};
 use ckb_types::{packed, prelude::*};
+use itertools::Itertools;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -56,6 +57,12 @@ impl<'a> TransactionsProcess<'a> {
                 String::from("relay declared cycles greater than max_block_cycles"),
             );
             return Status::ok();
+        }
+
+        // One requested raw hash must not become multiple pool inputs.
+        if !txs.iter().map(|(tx, _)| tx.hash()).all_unique() {
+            return StatusCode::Ignored
+                .with_context("duplicate transaction hashes in relay response");
         }
 
         let mut known = KnownRemoteBatch::mark(

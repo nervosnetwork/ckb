@@ -2,12 +2,15 @@
 
 use crate::relayer::tests::helper::{MockProtocolContext, build_chain, new_transaction};
 use crate::relayer::{
-    MAX_RELAY_PEERS, transaction_hashes_process::TransactionHashesProcess,
+    MAX_RELAY_PEERS, MAX_RELAY_TXS_BYTES_PER_BATCH, MAX_RELAY_TXS_NUM_PER_BATCH, Relayer,
+    transaction_hashes_process::TransactionHashesProcess,
     transactions_process::TransactionsProcess,
 };
 use crate::types::KnownRemoteBatch;
+use crate::{Status, StatusCode};
 use ckb_network::{CKBProtocolContext, PeerIndex, SupportProtocols};
-use ckb_types::{packed, prelude::*};
+use ckb_tx_pool::service::TxVerificationResult;
+use ckb_types::{bytes::Bytes, core::tx_pool::TRANSACTION_SIZE_LIMIT, packed, prelude::*};
 use std::{
     sync::Arc,
     time::{Duration, Instant},
@@ -40,6 +43,200 @@ fn requested_bodies_require_the_current_source_and_an_unknown_hash() {
 }
 
 #[test]
+fn duplicate_requested_bodies_never_reach_tx_pool() {
+    let (_chain, mut relayer, always_success) = build_chain(1);
+    let shared = Arc::clone(&relayer.shared);
+    let state = shared.state();
+    let peer = PeerIndex::from(21);
+    let other_peer = PeerIndex::from(22);
+    let parent = new_transaction(&relayer, 801, &always_success);
+    let parent = parent
+        .as_advanced_builder()
+        .set_outputs(vec![
+            parent
+                .outputs()
+                .get(0)
+                .unwrap()
+                .as_builder()
+                .lock(ckb_test_chain_utils::always_success_cell().2.clone())
+                .build(),
+        ])
+        .build();
+    let child = new_transaction(&relayer, 800, &always_success)
+        .as_advanced_builder()
+        .set_inputs(vec![packed::CellInput::new(
+            parent.output_pts()[0].clone(),
+            0,
+        )])
+        .build();
+    for transaction in [&parent, &child] {
+        shared
+            .shared()
+            .tx_pool_controller()
+            .submit_local_tx(transaction.clone())
+            .expect("local submission completes")
+            .expect("the parent and child are accepted");
+    }
+    // Accepted owners publish exactly one acknowledgement per remote ingress,
+    // without asynchronous verification adding results to this observation.
+    state.take_relay_tx_verify_results(MAX_RELAY_TXS_NUM_PER_BATCH);
+
+    let announcement = packed::RelayTransactionHashes::new_builder()
+        .tx_hashes(vec![parent.hash(), child.hash()])
+        .build();
+    assert!(
+        TransactionHashesProcess::new(announcement.as_reader(), &relayer, peer)
+            .execute()
+            .is_ok()
+    );
+    let requested = state.pop_ask_for_txs();
+    assert_eq!(requested[&peer].len(), 2);
+    assert!(requested[&peer].contains(&parent.hash()));
+    assert!(requested[&peer].contains(&child.hash()));
+
+    let body = |transaction: &ckb_types::core::TransactionView, cycles: u64| {
+        packed::RelayTransaction::new_builder()
+            .transaction(transaction.data())
+            .cycles(cycles)
+            .build()
+    };
+    let first = body(&parent, 1);
+    let second = body(&child, 1);
+    let alternate_witness = parent
+        .as_advanced_builder()
+        .witness(Bytes::from_static(b"another witness"))
+        .build();
+    assert_eq!(parent.hash(), alternate_witness.hash());
+    assert_ne!(parent.witness_hash(), alternate_witness.witness_hash());
+    let oversized_witness = parent
+        .as_advanced_builder()
+        .witness(Bytes::from(vec![0; TRANSACTION_SIZE_LIMIT as usize + 1]))
+        .build();
+    let oversized_batch = MAX_RELAY_TXS_BYTES_PER_BATCH / parent.data().total_size() + 1;
+
+    let (status, outcomes) =
+        receive_response(&mut relayer, other_peer, vec![first.clone(), first.clone()]);
+    assert!(status.is_ok(), "another peer cannot answer this request");
+    assert!(outcomes.is_empty());
+
+    for (case, bodies) in [
+        ("repeated body", vec![first.clone(); 64]),
+        (
+            "non-adjacent duplicate",
+            vec![first.clone(), second.clone(), first.clone()],
+        ),
+        (
+            "same raw hash with another witness",
+            vec![first.clone(), body(&alternate_witness, 1)],
+        ),
+        (
+            "same raw hash with another cycle declaration",
+            vec![first.clone(), body(&parent, 2)],
+        ),
+        (
+            "oversized duplicate witness",
+            vec![first.clone(), body(&oversized_witness, 1)],
+        ),
+        (
+            "oversized duplicate batch",
+            vec![first.clone(); oversized_batch],
+        ),
+    ] {
+        let (status, outcomes) = receive_response(&mut relayer, peer, bodies);
+        assert_eq!(
+            outcomes.len(),
+            0,
+            "{case}: duplicate bodies reached ingress"
+        );
+        assert_eq!(status.code(), StatusCode::Ignored, "{case}");
+        assert!(status.should_ban().is_none(), "{case}");
+        for hash in [parent.hash(), child.hash()] {
+            assert!(!state.already_known_tx(&hash), "{case}");
+            assert_eq!(
+                state
+                    .unknown_tx_hashes()
+                    .get_priority(&hash)
+                    .unwrap()
+                    .requesting_peer(),
+                Some(peer),
+                "{case}: an ignored batch must leave the request available"
+            );
+        }
+    }
+
+    // Unrequested duplicates remain irrelevant, including their declarations.
+    let unrequested = new_transaction(&relayer, 802, &always_success);
+    let irrelevant = body(&unrequested, shared.consensus().max_block_cycles() + 1);
+    let (status, outcomes) = receive_response(
+        &mut relayer,
+        peer,
+        vec![second, irrelevant.clone(), first.clone(), irrelevant],
+    );
+    assert!(status.is_ok());
+    let received: Vec<_> = outcomes
+        .into_iter()
+        .map(|outcome| match outcome {
+            TxVerificationResult::Ok {
+                original_peer,
+                tx_hash,
+            } => {
+                assert_eq!(original_peer, Some(peer));
+                tx_hash
+            }
+            other => panic!("unexpected relay outcome: {other:?}"),
+        })
+        .collect();
+    assert_eq!(received, vec![child.hash(), parent.hash()]);
+
+    let (status, outcomes) = receive_response(&mut relayer, peer, vec![first.clone(), first]);
+    assert!(status.is_ok(), "already-known duplicates remain ignored");
+    assert!(outcomes.is_empty());
+}
+
+fn receive_response(
+    relayer: &mut Relayer,
+    peer: PeerIndex,
+    bodies: Vec<packed::RelayTransaction>,
+) -> (Status, Vec<TxVerificationResult>) {
+    let message = packed::RelayMessage::new_builder()
+        .set(
+            packed::RelayTransactions::new_builder()
+                .transactions(bodies)
+                .build(),
+        )
+        .build();
+    assert!(message.as_slice().len() < SupportProtocols::RelayV3.max_frame_length());
+    let context = Arc::new(MockProtocolContext::new(SupportProtocols::RelayV3));
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .unwrap();
+    runtime.block_on(async {
+        let status = relayer
+            .try_process(context, peer, message.as_reader().to_enum())
+            .await;
+        // The handler acquires its permit synchronously. Reacquiring every
+        // permit observes completion and publication of any admitted batch.
+        let _settled = tokio::time::timeout(
+            Duration::from_secs(5),
+            relayer
+                .remote_batch_admission
+                .acquire_many(MAX_RELAY_PEERS as u32),
+        )
+        .await
+        .expect("the remote batch settles")
+        .expect("the admission semaphore stays open");
+        (
+            status,
+            relayer
+                .shared
+                .state()
+                .take_relay_tx_verify_results(MAX_RELAY_TXS_NUM_PER_BATCH),
+        )
+    })
+}
+
+#[test]
 fn relay_rejects_a_cycle_declaration_above_consensus_before_tx_pool_handoff() {
     let (_chain, relayer, always_success_out_point) = build_chain(1);
     let transaction = new_transaction(&relayer, 700, &always_success_out_point);
@@ -58,34 +255,41 @@ fn relay_rejects_a_cycle_declaration_above_consensus_before_tx_pool_handoff() {
         .max_block_cycles()
         .checked_add(1)
         .expect("the consensus maximum leaves one hostile declaration");
-    let relay_transaction = packed::RelayTransaction::new_builder()
-        .cycles(declared_cycles)
-        .transaction(transaction.data())
-        .build();
-    let content = packed::RelayTransactions::new_builder()
-        .transactions(
-            packed::RelayTransactionVec::new_builder()
-                .set(vec![relay_transaction])
-                .build(),
-        )
-        .build();
-    let context = Arc::new(MockProtocolContext::new(SupportProtocols::RelayV3));
-    let context_handle = Arc::clone(&context);
-    let protocol_context: Arc<dyn CKBProtocolContext + Sync> = context_handle;
-    TransactionsProcess::new(content.as_reader(), &relayer, protocol_context, source_peer)
-        .execute();
+    for declarations in [
+        vec![declared_cycles],
+        vec![0, declared_cycles],
+        vec![declared_cycles, 0],
+    ] {
+        let bodies: Vec<_> = declarations
+            .into_iter()
+            .map(|cycles| {
+                packed::RelayTransaction::new_builder()
+                    .cycles(cycles)
+                    .transaction(transaction.data())
+                    .build()
+            })
+            .collect();
+        let content = packed::RelayTransactions::new_builder()
+            .transactions(bodies)
+            .build();
+        let context = Arc::new(MockProtocolContext::new(SupportProtocols::RelayV3));
+        let context_handle = Arc::clone(&context);
+        let protocol_context: Arc<dyn CKBProtocolContext + Sync> = context_handle;
+        TransactionsProcess::new(content.as_reader(), &relayer, protocol_context, source_peer)
+            .execute();
 
-    assert_eq!(
-        context.banned_peer_reasons(),
-        vec![(
-            source_peer,
-            String::from("relay declared cycles greater than max_block_cycles"),
-        )]
-    );
-    assert!(
-        !state.already_known_tx(&hash),
-        "the precheck returns before the relay publishes a known mark or tx-pool handoff"
-    );
+        assert_eq!(
+            context.banned_peer_reasons(),
+            vec![(
+                source_peer,
+                String::from("relay declared cycles greater than max_block_cycles"),
+            )]
+        );
+        assert!(
+            !state.already_known_tx(&hash),
+            "the precheck returns before the relay publishes a known mark or tx-pool handoff"
+        );
+    }
 }
 
 #[test]
@@ -226,23 +430,14 @@ fn remote_known_batch_drop_releases_only_the_uncommitted_suffix() {
 }
 
 #[test]
-fn duplicate_remote_body_in_a_completed_prefix_survives_suffix_cancellation() {
+fn duplicate_known_claim_in_a_completed_prefix_survives_suffix_cancellation() {
     let (_chain, relayer, always_success) = build_chain(1);
     let transaction = new_transaction(&relayer, 710, &always_success);
     let hash = transaction.hash();
     let state = relayer.shared.state();
-    let peer = PeerIndex::from(11);
-    state.add_ask_for_txs(peer, vec![hash.clone()]);
-    state.pop_ask_for_txs();
-    // The real body gate permits repeated requested transactions in one batch.
-    let bodies = state.requested_transactions(
-        peer,
-        [(transaction.clone(), 1), (transaction, 1)].into_iter(),
-    );
-    assert_eq!(bodies.len(), 2);
     let mut batch = KnownRemoteBatch::mark(
         Arc::clone(&relayer.shared),
-        bodies.iter().map(|(transaction, _)| transaction.hash()),
+        vec![hash.clone(), hash.clone()],
     );
     batch.complete_prefix(1);
     drop(batch);
