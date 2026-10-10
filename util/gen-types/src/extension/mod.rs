@@ -3,7 +3,7 @@ mod rust_core_traits;
 #[cfg(any(feature = "calc-hash", feature = "std"))]
 mod calc_hash;
 #[cfg(any(feature = "calc-hash", feature = "std"))]
-mod shortcut;
+pub(crate) mod shortcut;
 
 #[cfg(any(feature = "check-data", feature = "std"))]
 mod check_data;

@@ -6,7 +6,7 @@ use ckb_channel::Receiver;
 use ckb_channel::select;
 use ckb_channel::unbounded;
 use ckb_db::{ReadOnlyDB, RocksDB};
-use ckb_db_schema::{COLUMN_META, META_TIP_HEADER_KEY, MIGRATION_VERSION_KEY};
+use ckb_db_schema::{COLUMN_META, META_TIP_HEADER_KEY, MIGRATION_VERSION_KEY, legacy};
 use ckb_error::{Error, InternalErrorKind};
 use ckb_logger::{debug, error, info};
 use ckb_stop_handler::register_thread;
@@ -200,21 +200,17 @@ impl Migrations {
     }
 
     fn is_non_empty_rdb(&self, db: &ReadOnlyDB) -> bool {
-        if let Ok(v) = db.get_pinned(COLUMN_META, META_TIP_HEADER_KEY)
-            && v.is_some()
-        {
-            return true;
-        }
-        false
+        db.get_pinned(COLUMN_META, META_TIP_HEADER_KEY)
+            .or_else(|_| db.get_pinned(legacy::COLUMN_META, META_TIP_HEADER_KEY))
+            .map(|v| v.is_some())
+            .unwrap_or(false)
     }
 
     fn is_non_empty_db(&self, db: &RocksDB) -> bool {
-        if let Ok(v) = db.get_pinned(COLUMN_META, META_TIP_HEADER_KEY)
-            && v.is_some()
-        {
-            return true;
-        }
-        false
+        db.get_pinned(COLUMN_META, META_TIP_HEADER_KEY)
+            .or_else(|_| db.get_pinned(legacy::COLUMN_META, META_TIP_HEADER_KEY))
+            .map(|v| v.is_some())
+            .unwrap_or(false)
     }
 
     fn run_migrate(&self, mut db: RocksDB, v: &str) -> Result<RocksDB, Error> {
