@@ -1,12 +1,9 @@
 use crate::Status;
 use crate::relayer::Relayer;
+use crate::types::KnownRemoteBatch;
 use ckb_logger::error;
 use ckb_network::{CKBProtocolContext, PeerIndex};
-use ckb_types::{
-    core::{Cycle, TransactionView},
-    packed,
-    prelude::*,
-};
+use ckb_types::{packed, prelude::*};
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -36,25 +33,13 @@ impl<'a> TransactionsProcess<'a> {
 
     pub fn execute(self) -> Status {
         let shared_state = self.relayer.shared().state();
-        let txs: Vec<(TransactionView, Cycle)> = {
-            // ignore the tx if it's already known or it has never been requested before
-            let mut tx_filter = shared_state.tx_filter();
-            tx_filter.remove_expired();
-            let unknown_tx_hashes = shared_state.unknown_tx_hashes();
-
+        let txs = shared_state.requested_transactions(
+            self.peer,
             self.message
                 .transactions()
                 .iter()
-                .map(|tx| (tx.transaction().to_entity().into_view(), tx.cycles().into()))
-                .filter(|(tx, _)| {
-                    !tx_filter.contains(&tx.hash())
-                        && unknown_tx_hashes
-                            .get_priority(&tx.hash())
-                            .map(|priority| priority.requesting_peer() == Some(self.peer))
-                            .unwrap_or_default()
-                })
-                .collect()
-        };
+                .map(|tx| (tx.transaction().to_entity().into_view(), tx.cycles().into())),
+        );
 
         if txs.is_empty() {
             return Status::ok();
@@ -73,22 +58,42 @@ impl<'a> TransactionsProcess<'a> {
             return Status::ok();
         }
 
-        shared_state.mark_as_known_txs(txs.iter().map(|(tx, _)| tx.hash()));
-
+        let mut known = KnownRemoteBatch::mark(
+            Arc::clone(self.relayer.shared()),
+            txs.iter().map(|(tx, _)| tx.hash()),
+        );
         let tx_pool = self.relayer.shared.shared().tx_pool_controller().clone();
         let peer = self.peer;
+        let admission = match Arc::clone(&self.relayer.remote_batch_admission).try_acquire_owned() {
+            Ok(admission) => admission,
+            Err(_) => {
+                error!("remote transaction batch admission is at capacity");
+                return Status::ok();
+            }
+        };
+        let response = match tx_pool.submit_remote_txs(txs, peer) {
+            Ok(response) => response,
+            Err(error) => {
+                error!("submit remote transaction batch error {error}");
+                return Status::ok();
+            }
+        };
         self.relayer
             .shared
             .shared()
             .async_handle()
             .spawn(async move {
-                for (tx, declared_cycles) in txs {
-                    if let Err(e) = tx_pool
-                        .submit_remote_tx(tx.clone(), declared_cycles, peer)
-                        .await
-                    {
-                        error!("submit_tx error {}", e);
+                let _admission = admission;
+                let (completed, error) = match response.await {
+                    Ok(outcome) => {
+                        let (_, completed, error) = outcome.into_parts();
+                        (completed, error)
                     }
+                    Err(error) => (0, Some(error)),
+                };
+                known.complete_prefix(completed);
+                if let Some(error) = error {
+                    error!("submit remote transaction batch error {error}");
                 }
             });
 

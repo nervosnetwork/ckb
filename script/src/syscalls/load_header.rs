@@ -2,7 +2,7 @@ use crate::{
     cost_model::transferred_byte_cycles,
     syscalls::{
         HeaderField, INDEX_OUT_OF_BOUND, ITEM_MISSING, LOAD_HEADER_BY_FIELD_SYSCALL_NUMBER,
-        LOAD_HEADER_SYSCALL_NUMBER, SUCCESS, Source, SourceEntry,
+        LOAD_HEADER_SYSCALL_NUMBER, SUCCESS, Source, SourceEntry, header_visible_origin,
         utils::{store_data, store_u64},
     },
     types::SgData,
@@ -29,10 +29,6 @@ impl<DL: HeaderProvider + Clone> LoadHeader<DL> {
         }
     }
 
-    // This can only be used for liner search
-    // header_deps: Byte32Vec,
-    // resolved_inputs: &'a [CellMeta],
-    // resolved_cell_deps: &'a [CellMeta],
     #[inline]
     fn group_inputs(&self) -> &[usize] {
         self.sg_data.group_inputs()
@@ -54,19 +50,10 @@ impl<DL: HeaderProvider + Clone> LoadHeader<DL> {
     }
 
     fn load_header(&self, cell_meta: &CellMeta) -> Option<HeaderView> {
-        // `transaction_info` is absent for unconfirmed cells provided by the
-        // tx-pool (e.g. `PoolCell`). Treat them as missing instead of panicking,
-        // so the syscall surfaces `ITEM_MISSING` to the script VM.
-        let block_hash = &cell_meta.transaction_info.as_ref()?.block_hash;
-        if self
-            .header_deps()
-            .into_iter()
-            .any(|hash| &hash == block_hash)
-        {
-            self.sg_data.tx_info.data_loader.get_header(block_hash)
-        } else {
-            None
-        }
+        let block_hash = header_visible_origin(cell_meta, |origin| {
+            self.header_deps().into_iter().any(|hash| &hash == origin)
+        })?;
+        self.sg_data.tx_info.data_loader.get_header(block_hash)
     }
 
     fn fetch_header(&self, source: Source, index: usize) -> Result<HeaderView, u8> {

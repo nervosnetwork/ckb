@@ -35,6 +35,7 @@ LIB_BUILDER_DOCKER := nervos/ckb-riscv-gnu-toolchain@sha256:2341ea4e98836b40c382
 # TODO How to build other binaries?
 # Such as `always_success`, `always_failure`, `verify` and `defected_binary`.
 ALL_BINS := jalr_zero \
+            load_cell_origin \
             cadd_hint_lock \
             cpop_lock \
             mop_adc_lock \

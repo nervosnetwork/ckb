@@ -1,3 +1,4 @@
+use super::utils::get_pool_entries;
 use crate::{
     Node, Spec,
     util::{cell::gen_spendable, transaction::always_success_transaction},
@@ -8,7 +9,6 @@ use ckb_types::{
     core::{DepType, FeeRate, cell::CellMetaBuilder},
     packed::CellDepBuilder,
 };
-use std::{thread::sleep, time::Duration};
 
 use ckb_types::{packed::OutPoint, prelude::*};
 
@@ -47,11 +47,24 @@ impl Spec for SizeLimit {
             let tx = node.new_transaction(hash.clone());
             hash = node.rpc_client().send_transaction(tx.data().into());
             txs_hash.push(hash.clone());
-            sleep(Duration::from_millis(10));
         });
 
         info!("The next tx reach size limit");
-        let _tx = node.new_transaction(hash);
+        let overflow = node.new_transaction(hash);
+        let before = get_pool_entries(node);
+        let error = node
+            .rpc_client()
+            .send_transaction_result(overflow.data().into())
+            .expect_err("the dependent beyond the serialized limit must be rejected");
+        assert!(
+            error.to_string().contains("PoolIsFull"),
+            "unexpected capacity rejection: {error}"
+        );
+        assert_eq!(
+            get_pool_entries(node),
+            before,
+            "rejected admission must preserve every incumbent"
+        );
         node.assert_tx_pool_serialized_size((max_tx_num) * one_tx_size);
         let last =
             node.mine_with_blocking(|template| template.proposals.len() != max_tx_num as usize);
@@ -59,6 +72,8 @@ impl Spec for SizeLimit {
         node.mine_with_blocking(|template| template.number.value() != (last + 1));
         node.mine_with_blocking(|template| template.transactions.len() != max_tx_num as usize);
         node.assert_tx_pool_serialized_size(0);
+        node.submit_transaction(&overflow);
+        node.assert_tx_pool_serialized_size(one_tx_size);
     }
 
     fn modify_app_config(&self, config: &mut ckb_app_config::CKBAppConfig) {
@@ -87,8 +102,9 @@ impl Spec for TxPoolLimitAncestorCount {
             .out_point(OutPoint::new(tx_a.hash(), 0))
             .build();
 
-        // Create 250 transactions cell dep on tx_a
-        // we can have more than config.max_ancestors_count number of txs using one cell ref
+        // Create 2,000 transactions that read tx_a's output as a cell dep. A
+        // reader is not a causal ancestor of a later spender, so this fanout
+        // must not consume the spender's ancestor budget.
         let mut cell_ref_txs = vec![];
         for i in 1..=2000 {
             let cur = always_success_transaction(node0, initial_inputs.get(i).unwrap());
@@ -100,29 +116,34 @@ impl Spec for TxPoolLimitAncestorCount {
             cell_ref_txs.push(cur.clone());
         }
 
-        // Create a new transaction consume the cell dep, it will be succeed in submit
+        // Create a new transaction that consumes the shared cell dep.
         let input = CellMetaBuilder::from_cell_output(tx_a.output(0).unwrap(), Default::default())
             .out_point(OutPoint::new(tx_a.hash(), 0))
             .build();
         let last = always_success_transaction(node0, &input);
 
-        // now there are 2002 ancestors for the last tx in the pool:
-        // 2002 = 2000 ref cell + 1 parent + 1 for self
-        // to make sure this consuming cell dep transaction submitted,
-        // we need to evict 1002 = 2002 - 1000 cell ref transactions
+        // The spender has one genuine causal parent (tx_a). The 2,000 readers
+        // coexist and are ordered before the spender only if selected into
+        // the same block template.
+        let before = node0.get_tip_tx_pool_info();
         let res = node0
             .rpc_client()
             .send_transaction_result(last.data().into());
-        assert!(res.is_ok());
-
-        // assert the first 127 in 250 transactions are evicated.
-        for (i, tx) in cell_ref_txs.iter().enumerate() {
-            let res = node0
+        assert!(
+            res.is_ok(),
+            "conditional readers are not ancestors: {res:?}"
+        );
+        let after = node0.get_tip_tx_pool_info();
+        assert_eq!(after.pending.value(), before.pending.value() + 1);
+        assert_eq!(before.proposed, after.proposed);
+        assert_eq!(before.orphan, after.orphan);
+        assert!(after.total_tx_size > before.total_tx_size);
+        assert!(after.total_tx_cycles > before.total_tx_cycles);
+        for tx in &cell_ref_txs {
+            let result = node0
                 .rpc_client()
                 .get_transaction_with_verbosity(tx.hash(), 2);
-            if i < 1002 {
-                assert!(matches!(res.tx_status.status, Status::Rejected));
-            }
+            assert!(matches!(result.tx_status.status, Status::Pending));
         }
 
         // create a transaction chain

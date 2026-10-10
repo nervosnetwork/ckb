@@ -17,12 +17,41 @@ fn mkdir() -> tempfile::TempDir {
 #[test]
 fn test_bundled_config_files() {
     let resource = Resource::bundled_ckb_config();
-    CKBAppConfig::load_from_slice(&resource.get().expect("read bundled file"))
+    let config = CKBAppConfig::load_from_slice(&resource.get().expect("read bundled file"))
         .expect("deserialize config");
+    assert_eq!(
+        config.tx_pool.verify_ordering,
+        crate::VerifyOrdering::FeeRate
+    );
 
     let resource = Resource::bundled_miner_config();
     MinerAppConfig::load_from_slice(&resource.get().expect("read bundled file"))
         .expect("deserialize config");
+}
+
+#[test]
+fn indexer_config_survives_serialization() {
+    let resource = Resource::bundled_ckb_config();
+    let mut config = CKBAppConfig::load_from_slice(&resource.get().unwrap()).unwrap();
+    config.indexer.index_tx_pool = true;
+    config.indexer.poll_interval = 7;
+
+    let encoded = toml::to_string(&toml::Value::try_from(&config).unwrap()).unwrap();
+    let reloaded = CKBAppConfig::load_from_slice(encoded.as_bytes()).unwrap();
+    assert!(reloaded.indexer.index_tx_pool);
+    assert_eq!(reloaded.indexer.poll_interval, 7);
+}
+
+#[test]
+fn retired_indexer_section_does_not_configure_the_current_indexer() {
+    let mut encoded = Resource::bundled_ckb_config().get().unwrap().into_owned();
+    encoded.extend_from_slice(b"\n[indexer]\nindex_tx_pool = true\npoll_interval = 7\n");
+    let config = CKBAppConfig::load_from_slice(&encoded).unwrap();
+    assert!(!config.indexer.index_tx_pool);
+    assert_eq!(
+        config.indexer.poll_interval,
+        crate::IndexerConfig::default().poll_interval
+    );
 }
 
 #[test]

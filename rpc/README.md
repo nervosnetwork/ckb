@@ -781,8 +781,13 @@ Returns the information about a transaction requested by transaction hash.
 
 ###### Returns
 
-This RPC returns `null` if the transaction is not committed in the
-[canonical chain](#canonical-chain) nor the transaction memory pool.
+If the transaction is absent from the [canonical chain](#canonical-chain)
+and the accepted transaction pool, `transaction` is `null` and the status
+is `rejected` when a retained rejection exists, or `unknown` otherwise.
+With `only_committed`, a transaction absent from the chain is `unknown`.
+
+Only transactions accepted by tx-pool are reported as `pending` or `proposed`.
+Internal validation and waiting phases do not establish a public transaction status.
 
 If the transaction is in the chain, the block hash is also returned.
 
@@ -3562,8 +3567,9 @@ Response
     * `outputs_validator`: [`OutputsValidator`](#type-outputsvalidator) `|` `null`
 * result: [`H256`](#type-h256)
 
-Submits a new test local transaction into the transaction pool, only for testing.
-If the transaction is already in the pool, rebroadcast it to peers.
+Resolves a local test transaction and queues its script verification.
+Missing or spent dependencies are rejected before queueing. A successful
+response acknowledges the queue; final validity is reported by `get_transaction`.
 
 ###### Params
 
@@ -4440,12 +4446,11 @@ RPC Module Pool for transaction memory pool.
     * `outputs_validator`: [`OutputsValidator`](#type-outputsvalidator) `|` `null`
 * result: [`H256`](#type-h256)
 
-Submits a new transaction into the transaction pool. If the transaction is already in the
-pool, rebroadcast it to peers.
+Verifies a transaction and submits it to the transaction pool.
 
-Please note that `send_transaction` is an asynchronous process.
-The return of `send_transaction` does NOT indicate that the transaction have been fully verified.
-If you want to track the status of the transaction, please use the `get_transaction`rpc.
+Success means verification and pool admission have completed. An already accepted
+transaction is rejected as a duplicate. Use `get_transaction` to track its status
+after submission; admission does not guarantee inclusion in a block.
 
 ###### Params
 
@@ -5244,6 +5249,9 @@ The type of the `params.result` in the push message is [`BlockView`](../../ckb_j
 ###### `new_transaction`
 
 Subscribers will get notified when a new transaction is submitted to the pool.
+Transaction notifications (`new_transaction`, `proposed_transaction`, and
+`rejected_transaction`) are best effort: a full notification channel
+immediately omits the event for that delivery path.
 
 The type of the `params.result` in the push message is [`PoolTransactionEntry`](../../ckb_jsonrpc_types/struct.PoolTransactionEntry.html).
 
@@ -6978,7 +6986,7 @@ An enum value from one of:
   - `LowFeeRate` :  Transaction fee lower than config
   - `ExceededMaximumAncestorsCount` :  Transaction exceeded maximum ancestors count limit
   - `ExceededTransactionSizeLimit` :  Transaction exceeded maximum size limit
-  - `Full` :  Transactions are replaced because the pool is full
+  - `Full` :  The transaction pool is full
   - `Duplicated` :  Transaction already exists in transaction_pool
   - `Malformed` :  Malformed transaction
   - `DeclaredWrongCycles` :  Declared wrong cycles
@@ -7005,7 +7013,7 @@ A Tx details info in tx-pool.
 
 * `proposed_count`: [`Uint64`](#type-uint64) - The proposed count
 
-* `rank_in_pending`: [`Uint64`](#type-uint64) - The rank in pending, starting from 0
+* `rank_in_pending`: [`Uint64`](#type-uint64) - The one-based rank among pending and gap entries; zero for proposed or unknown.
 
 * `score_sortkey`: [`AncestorsScoreSortKey`](#type-ancestorsscoresortkey) - The score key details, useful to debug
 
@@ -7400,13 +7408,13 @@ It's an enum value from one of:
 Status for transaction
 
 It's an enum value from one of:
-  - pending : Status "pending". The transaction is in the pool, and not proposed yet.
-  - proposed : Status "proposed". The transaction is in the pool and has been proposed.
+  - pending : Status "pending". Accepted by the pool, with no proposal eligible for the next block.
+  - proposed : Status "proposed". Accepted by the pool, with a proposal eligible for the next block.
   - committed : Status "committed". The transaction has been committed to the canonical chain.
-  - unknown : Status "unknown". The node has not seen the transaction,
-or it should be rejected but was cleared due to storage limitations.
-  - rejected : Status "rejected". The transaction has been recently removed from the pool.
-Due to storage limitations, the node can only hold the most recently removed transactions.
+  - unknown : Status "unknown". No committed transaction, accepted pool entry or retained
+rejection was found within the query scope.
+  - rejected : Status "rejected". A recent rejection reason is retained by the node.
+The transaction need not have been accepted into the pool.
 
 ### Type `SyncState`
 The overall chain synchronization state of this local node.
@@ -7505,12 +7513,11 @@ Transaction pool information.
 
 * `orphan`: [`Uint64`](#type-uint64) - Count of orphan transactions.
 
-    An orphan transaction has an input cell from the transaction which is neither in the chain
-    nor in the transaction pool.
+    These transactions are waiting for missing cells.
 
 * `pending`: [`Uint64`](#type-uint64) - Count of transactions in the pending state.
 
-    The pending transactions must be proposed in a new block first.
+    These accepted transactions have no proposal eligible for the next block.
 
 * `proposed`: [`Uint64`](#type-uint64) - Count of transactions in the proposed state.
 
@@ -7519,9 +7526,9 @@ Transaction pool information.
 
 * `total_recent_reject_num`: [`Uint64`](#type-uint64) - Total count of recent reject transactions by pool
 
-* `total_tx_cycles`: [`Uint64`](#type-uint64) - Total consumed VM cycles of all the transactions in the pool (excluding orphan transactions).
+* `total_tx_cycles`: [`Uint64`](#type-uint64) - Total consumed VM cycles of accepted transactions.
 
-* `total_tx_size`: [`Uint64`](#type-uint64) - Total size of transactions bytes in the pool of all the different kinds of states (excluding orphan transactions).
+* `total_tx_size`: [`Uint64`](#type-uint64) - Total serialized bytes of accepted transactions.
 
 ### Type `Timestamp`
 
@@ -7720,7 +7727,8 @@ Tx-pool entries object
 
 `TxPoolEntries` is a JSON object with the following fields.
 
-* `conflicted`: `Array<` [`H256`](#type-h256) `>` - Conflicted tx hash vec
+* `conflicted`: `Array<` [`H256`](#type-h256) `>` - Successfully displaced accepted transaction hashes retained as replacement history.
+Failed replacement candidates are reported through recent-reject status instead.
 
 * `pending`:  - Pending tx verbose info
 
@@ -7782,12 +7790,11 @@ Transaction pool information.
 
 * `orphan`: [`Uint64`](#type-uint64) - Count of orphan transactions.
 
-    An orphan transaction has an input cell from the transaction which is neither in the chain
-    nor in the transaction pool.
+    These transactions are waiting for missing cells.
 
 * `pending`: [`Uint64`](#type-uint64) - Count of transactions in the pending state.
 
-    The pending transactions must be proposed in a new block first.
+    These accepted transactions have no proposal eligible for the next block.
 
 * `proposed`: [`Uint64`](#type-uint64) - Count of transactions in the proposed state.
 
@@ -7801,9 +7808,9 @@ Transaction pool information.
 
 * `tip_number`: [`Uint64`](#type-uint64) - The block number of the block `tip_hash`.
 
-* `total_tx_cycles`: [`Uint64`](#type-uint64) - Total consumed VM cycles of all the transactions in the pool (excluding orphan transactions).
+* `total_tx_cycles`: [`Uint64`](#type-uint64) - Total consumed VM cycles of accepted transactions.
 
-* `total_tx_size`: [`Uint64`](#type-uint64) - Total size of transactions bytes in the pool of all the different kinds of states (excluding orphan transactions).
+* `total_tx_size`: [`Uint64`](#type-uint64) - Total serialized bytes of accepted transactions.
 
 * `tx_size_limit`: [`Uint64`](#type-uint64) - Limiting transactions to tx_size_limit
 
@@ -7811,7 +7818,7 @@ Transaction pool information.
     because the block header and cellbase are occupied,
     so the tx-pool is limited to accepting transaction up to tx_size_limit.
 
-* `verify_queue_size`: [`Uint64`](#type-uint64) - verify_queue size
+* `verify_queue_size`: [`Uint64`](#type-uint64) - Transactions queued for resolution or script verification; excludes active jobs.
 
 ### Type `TxStatus`
 Transaction status and the block hash if it is committed.
