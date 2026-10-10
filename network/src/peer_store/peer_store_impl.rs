@@ -1,7 +1,7 @@
 use crate::{
     Flags, PeerId, SessionType,
     errors::{PeerStoreError, Result},
-    extract_peer_id, multiaddr_to_socketaddr,
+    extract_peer_id, multiaddr_to_ip_socketaddr,
     network_group::Group,
     peer_store::{
         ADDR_COUNT_LIMIT, ADDR_TIMEOUT_MS, ADDR_TRY_TIMEOUT_MS, Behaviour, DIAL_INTERVAL,
@@ -284,7 +284,7 @@ impl PeerStore {
 
     /// Ban an addr
     pub(crate) fn ban_addr(&mut self, addr: &Multiaddr, timeout_ms: u64, ban_reason: String) {
-        if let Some(addr) = multiaddr_to_socketaddr(addr) {
+        if let Some(addr) = multiaddr_to_ip_socketaddr(addr) {
             let network = ip_to_network(addr.ip());
             self.ban_network(network, timeout_ms, ban_reason)
         }
