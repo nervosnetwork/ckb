@@ -42,7 +42,6 @@ url.workspace = true
 p2p = { workspace = true, default-features = false, features = [
     "upnp",
     "parking_lot",
-    "openssl-vendored",
     "tokio-runtime",
     "tokio-timer",
     "ws",
@@ -57,6 +56,7 @@ serde-wasm-bindgen = "0.6.5"
 
 
 [features]
+openssl-vendored = ["p2p/openssl-vendored"]
 with_sentry = ["sentry"]
 with_dns_seeding = ["bs58", "faster-hex", "hickory-resolver", "secp256k1"]
 fuzz = []

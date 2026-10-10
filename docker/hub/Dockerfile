@@ -1,11 +1,29 @@
-FROM nervos/ckb-docker-builder:focal-rust-1.92.0 as ckb-docker-builder
+FROM ubuntu:22.04 AS ckb-docker-builder
+
+ARG DEBIAN_FRONTEND=noninteractive
+ENV CARGO_HOME=/usr/local/cargo
+ENV RUSTUP_HOME=/usr/local/rustup
+ENV PATH=/usr/local/cargo/bin:${PATH}
+
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends \
+    build-essential \
+    ca-certificates \
+    curl \
+    libclang-dev \
+    libssl-dev \
+    pkg-config \
+ && rm -rf /var/lib/apt/lists/*
+
+RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs \
+    | sh -s -- -y --default-toolchain 1.92.0 --profile minimal
 
 WORKDIR /ckb
 COPY ./ .
 
-RUN make OPENSSL_STATIC=1 OPENSSL_LIB_DIR=/usr/local/lib64 OPENSSL_INCLUDE_DIR=/usr/local/include prod-docker
+RUN make prod-docker
 
-FROM ubuntu:focal
+FROM ubuntu:22.04
 LABEL description="Nervos CKB is a public permissionless blockchain, the common knowledge layer of Nervos network."
 LABEL maintainer="Nervos Core Dev <dev@nervos.org>"
 
