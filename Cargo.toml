@@ -1,6 +1,6 @@
 [package]
 name = "ckb"
-version = "0.209.0"
+version = "0.210.0"
 license = "MIT"
 authors = ["Nervos Core Dev <dev@nervos.org>"]
 edition = "2024"
@@ -88,7 +88,6 @@ members = [
   "notify",
   "util/memory-tracker",
   "db-migration",
-  "util/network-alert",
   "store",
   "util/indexer-sync",
   "util/indexer",
@@ -179,9 +178,7 @@ ckb-metrics-service = { path = "util/metrics-service", version = "1" }
 ckb-migrate = { path = "util/migrate", version = "1" }
 ckb-migration-template = { path = "util/migrate/migration-template", version = "1" }
 ckb-miner = { path = "miner", version = "1" }
-ckb-multisig = { path = "util/multisig", version = "1" }
 ckb-network = { path = "network", version = "1" }
-ckb-network-alert = { path = "util/network-alert", version = "1" }
 ckb-notify = { path = "notify", version = "1" }
 ckb-occupied-capacity = { path = "util/occupied-capacity", version = "1" }
 ckb-occupied-capacity-core = { path = "util/occupied-capacity/core", version = "1" }
@@ -212,7 +209,7 @@ ckb-util = { path = "util", version = "1" }
 ckb-verification = { path = "verification", version = "1" }
 ckb-verification-contextual = { path = "verification/contextual", version = "1" }
 ckb-verification-traits = { path = "verification/traits", version = "1" }
-ckb-vm = { version = "=0.24.14", default-features = false }
+ckb-vm = { version = "=0.24.15", default-features = false }
 clap = "=4.4"
 console = ">=0.9.1, <1.0.0"
 console-subscriber = "0.4.0"
@@ -228,7 +225,7 @@ eaglesong = "0.1"
 ed25519-dalek = "2.1"
 env_logger = "0.10"
 fail = "0.4"
-faster-hex = "0.6"
+faster-hex = { version = "1.0", default-features = false, features = ["std"] }
 faux = "0.1"
 fdlimit = "0.2.1"
 fs2 = "0.4.3"
@@ -289,7 +286,6 @@ rocksdb = { version = "=0.21.1", package = "ckb-rocksdb", default-features = fal
 rustc-hash = "1.1"
 secio = { version = "0.6.8", package = "tentacle-secio" }
 secp256k1 = "0.30"
-semver = "1.0"
 sentry = "0.34.0"
 sha2 = "0.10"
 serde = "1.0"

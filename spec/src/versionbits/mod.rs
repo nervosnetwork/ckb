@@ -420,7 +420,11 @@ impl<'a> Versionbits<'a> {
 
     /// return bit mask corresponding deployment
     pub fn mask(&self) -> u32 {
-        1u32 << self.deployment().bit as u32
+        let bit = u32::from(self.deployment().bit);
+        debug_assert!(bit < VERSIONBITS_NUM_BITS);
+        1u32.checked_shl(bit)
+            .filter(|_| bit < VERSIONBITS_NUM_BITS)
+            .unwrap_or(0)
     }
 }
 

@@ -115,7 +115,7 @@ impl InnerPool {
             .get(parent_hash)
             .and_then(|map| {
                 map.iter().next().map(|(_, lonely_block)| {
-                    lonely_block.epoch_number() + EXPIRED_EPOCH < tip_epoch
+                    tip_epoch.saturating_sub(lonely_block.epoch_number()) > EXPIRED_EPOCH
                 })
             })
             .unwrap_or_default()

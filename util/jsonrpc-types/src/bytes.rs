@@ -102,7 +102,7 @@ impl<'b> serde::de::Visitor<'b> for BytesVisitor {
             return Ok(JsonBytes::default());
         }
         let mut buffer = vec![0; bytes.len() >> 1]; // we checked length
-        hex_decode(bytes, &mut buffer).map_err(|e| E::custom(format_args!("{e:?}")))?;
+        hex_decode(bytes, &mut buffer).map_err(|_| E::custom("Invalid character"))?;
         Ok(JsonBytes::from_vec(buffer))
     }
 

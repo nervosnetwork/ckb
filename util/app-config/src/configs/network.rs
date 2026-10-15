@@ -226,6 +226,7 @@ pub enum SupportProtocol {
     Sync,
     Relay,
     Time,
+    /// Deprecated. The alert protocol has been removed and this value is ignored.
     Alert,
     LightClient,
     Filter,
@@ -243,7 +244,6 @@ pub fn default_support_all_protocols() -> Vec<SupportProtocol> {
         SupportProtocol::Sync,
         SupportProtocol::Relay,
         SupportProtocol::Time,
-        SupportProtocol::Alert,
         SupportProtocol::LightClient,
         SupportProtocol::Filter,
         SupportProtocol::HolePunching,

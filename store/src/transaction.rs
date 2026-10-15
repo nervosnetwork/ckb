@@ -13,7 +13,7 @@ use ckb_db_schema::{
     COLUMN_TRANSACTION_INFO, COLUMN_UNCLES, Col, META_CURRENT_EPOCH_KEY,
     META_LATEST_BUILT_FILTER_DATA_KEY, META_TIP_HEADER_KEY,
 };
-use ckb_error::Error;
+use ckb_error::{Error, InternalErrorKind};
 use ckb_freezer::Freezer;
 use ckb_merkle_mountain_range::{Error as MMRError, MMRStore, Result as MMRResult};
 use ckb_types::{
@@ -171,6 +171,9 @@ impl StoreTransaction {
     /// Inserts a block into the store.
     pub fn insert_block(&self, block: &BlockView) -> Result<(), Error> {
         let hash = block.hash();
+        if self.get(COLUMN_BLOCK_HEADER, hash.as_slice()).is_some() {
+            return self.ensure_block_body_identical(block);
+        }
         let header = Into::<packed::HeaderView>::into(block.header());
         let uncles = Into::<packed::UncleBlockVecView>::into(block.uncles());
         let proposals = block.data().proposals();
@@ -207,6 +210,19 @@ impl StoreTransaction {
             self.insert_raw(COLUMN_BLOCK_BODY, key.as_slice(), tx_data.as_slice())?;
         }
         Ok(())
+    }
+
+    fn ensure_block_body_identical(&self, block: &BlockView) -> Result<(), Error> {
+        let hash = block.hash();
+        match self.get_block(&hash) {
+            Some(stored) if stored.data().as_slice() == block.data().as_slice() => Ok(()),
+            _ => Err(InternalErrorKind::Other
+                .other(format!(
+                    "a different block body is already stored under hash {:#x}",
+                    hash
+                ))
+                .into()),
+        }
     }
 
     /// Deletes a block from the store.

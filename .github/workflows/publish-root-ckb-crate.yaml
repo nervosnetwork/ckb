@@ -12,7 +12,7 @@ jobs:
   publish:
     name: Publish ckb crate
     runs-on: ubuntu-latest
-    if: ${{ github.repository_owner == 'nervosnetwork' }}
+    if: ${{ github.repository == 'nervosnetwork/ckb' }}
     permissions:
       contents: read
       id-token: write

@@ -79,9 +79,22 @@ fn extra_fields_are_valid_bytes(slice: &[u8], field_count: usize, extra_count: u
     })
 }
 
+impl<'r> packed::UncleBlockReader<'r> {
+    fn check_data(&self) -> bool {
+        self.count_extra_fields() == 0
+    }
+}
+
+impl<'r> packed::UncleBlockVecReader<'r> {
+    fn check_data(&self) -> bool {
+        self.iter().all(|i| i.check_data())
+    }
+}
+
 impl<'r> packed::BlockReader<'r> {
     fn check_data(&self) -> bool {
         self.transactions().check_data()
+            && self.uncles().check_data()
             && extra_fields_are_valid_bytes(
                 self.as_slice(),
                 Self::FIELD_COUNT,
@@ -97,7 +110,7 @@ impl<'r> packed::BlockReader<'r> {
 impl<'r> packed::BlockTransactionsReader<'r> {
     /// Recursively checks whether the structure of the binary data is correct.
     pub fn check_data(&self) -> bool {
-        self.transactions().check_data()
+        self.transactions().check_data() && self.uncles().check_data()
     }
 }
 

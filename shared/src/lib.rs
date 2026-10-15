@@ -18,3 +18,6 @@ pub mod types;
 
 pub use types::header_map::HeaderMap;
 pub use types::{HeaderIndex, HeaderIndexView};
+
+#[cfg(test)]
+mod tests;

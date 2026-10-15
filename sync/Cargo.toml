@@ -1,6 +1,6 @@
 [package]
 name = "ckb-sync"
-version = "1.3.2"
+version = "1.3.3"
 license = "MIT"
 authors = ["Nervos Core Dev <dev@nervos.org>"]
 edition = "2024"
@@ -26,6 +26,7 @@ ckb-channel.workspace = true
 ckb-traits.workspace = true
 ckb-error.workspace = true
 ckb-tx-pool.workspace = true
+ckb-hash.workspace = true
 sentry = { workspace = true, optional = true }
 ckb-constant.workspace = true
 ckb-stop-handler.workspace = true

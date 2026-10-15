@@ -973,9 +973,14 @@ fn test_collision() {
         relayer.shared.active_chain().tip_header()
     };
 
-    let header = new_header_builder(relayer.shared.shared(), &parent).build();
-
     let proposal_id = ProposalShortId::new([1u8; 10]);
+
+    let header = new_header_builder(relayer.shared.shared(), &parent)
+        .proposals_hash({
+            let ids: packed::ProposalShortIdVec = vec![proposal_id.clone()].into();
+            ids.as_reader().calc_proposals_hash()
+        })
+        .build();
 
     let block = BlockBuilder::default()
         .header(header)

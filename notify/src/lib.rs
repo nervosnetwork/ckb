@@ -1,17 +1,14 @@
 //! Notification service for blockchain events.
 //!
 //! This crate provides a publish-subscribe notification system for CKB blockchain events,
-//! including new blocks, transactions, and network alerts. Components can register to receive
+//! including new blocks and transactions. Components can register to receive
 //! notifications about these events asynchronously.
 use ckb_app_config::NotifyConfig;
 use ckb_async_runtime::Handle;
 use ckb_logger::{Level, debug, error, info, trace};
 use ckb_stop_handler::{CancellationToken, new_tokio_exit_rx};
+use ckb_types::core::{BlockView, tx_pool::Reject};
 use ckb_types::packed::Byte32;
-use ckb_types::{
-    core::{BlockView, tx_pool::Reject},
-    packed::Alert,
-};
 use std::{collections::HashMap, time::Duration};
 use tokio::process::Command;
 use tokio::sync::watch;
@@ -75,12 +72,10 @@ pub type NotifyWatcher<M> = Sender<Request<String, watch::Receiver<M>>>;
 #[derive(Copy, Clone)]
 pub(crate) struct NotifyTimeout {
     pub(crate) tx: Duration,
-    pub(crate) alert: Duration,
     pub(crate) script: Duration,
 }
 
 const DEFAULT_TX_NOTIFY_TIMEOUT: Duration = Duration::from_millis(300);
-const DEFAULT_ALERT_NOTIFY_TIMEOUT: Duration = Duration::from_millis(10_000);
 const DEFAULT_SCRIPT_TIMEOUT: Duration = Duration::from_millis(10_000);
 
 impl NotifyTimeout {
@@ -90,10 +85,6 @@ impl NotifyTimeout {
                 .notify_tx_timeout
                 .map(Duration::from_millis)
                 .unwrap_or(DEFAULT_TX_NOTIFY_TIMEOUT),
-            alert: config
-                .notify_alert_timeout
-                .map(Duration::from_millis)
-                .unwrap_or(DEFAULT_ALERT_NOTIFY_TIMEOUT),
             script: config
                 .script_timeout
                 .map(Duration::from_millis)
@@ -105,7 +96,7 @@ impl NotifyTimeout {
 /// Controller for the notification service.
 ///
 /// Provides methods to subscribe to various blockchain events and notify subscribers
-/// of new blocks, transactions, and network alerts.
+/// of new blocks and transactions.
 #[derive(Clone)]
 pub struct NotifyController {
     new_block_register: NotifyRegister<BlockView>,
@@ -117,8 +108,6 @@ pub struct NotifyController {
     proposed_transaction_notifier: Sender<PoolTransactionEntry>,
     reject_transaction_register: NotifyRegister<(PoolTransactionEntry, Reject)>,
     reject_transaction_notifier: Sender<(PoolTransactionEntry, Reject)>,
-    network_alert_register: NotifyRegister<Alert>,
-    network_alert_notifier: Sender<Alert>,
     log_register: NotifyRegister<LogEntry>,
     log_notifier: Sender<LogEntry>,
     handle: Handle,
@@ -134,7 +123,6 @@ pub struct NotifyService {
     new_transaction_subscribers: HashMap<String, Sender<PoolTransactionEntry>>,
     proposed_transaction_subscribers: HashMap<String, Sender<PoolTransactionEntry>>,
     reject_transaction_subscribers: HashMap<String, Sender<(PoolTransactionEntry, Reject)>>,
-    network_alert_subscribers: HashMap<String, Sender<Alert>>,
     log_subscribers: HashMap<String, Sender<LogEntry>>,
     timeout: NotifyTimeout,
     handle: Handle,
@@ -152,7 +140,6 @@ impl NotifyService {
             new_transaction_subscribers: HashMap::default(),
             proposed_transaction_subscribers: HashMap::default(),
             reject_transaction_subscribers: HashMap::default(),
-            network_alert_subscribers: HashMap::default(),
             log_subscribers: HashMap::default(),
             timeout,
             handle,
@@ -185,10 +172,6 @@ impl NotifyService {
         let (reject_transaction_sender, mut reject_transaction_receiver) =
             mpsc::channel(NOTIFY_CHANNEL_SIZE);
 
-        let (network_alert_register, mut network_alert_register_receiver) =
-            mpsc::channel(REGISTER_CHANNEL_SIZE);
-        let (network_alert_sender, mut network_alert_receiver) = mpsc::channel(NOTIFY_CHANNEL_SIZE);
-
         let (log_register, mut log_register_receiver) = mpsc::channel(REGISTER_CHANNEL_SIZE);
         let (log_sender, mut log_receiver) = mpsc::channel(NOTIFY_CHANNEL_SIZE);
 
@@ -205,8 +188,6 @@ impl NotifyService {
                     Some(msg) = proposed_transaction_receiver.recv() => { self.handle_notify_proposed_transaction(msg) },
                     Some(msg) = reject_transaction_register_receiver.recv() => { self.handle_register_reject_transaction(msg) },
                     Some(msg) = reject_transaction_receiver.recv() => { self.handle_notify_reject_transaction(msg) },
-                    Some(msg) = network_alert_register_receiver.recv() => { self.handle_register_network_alert(msg) },
-                    Some(msg) = network_alert_receiver.recv() => { self.handle_notify_network_alert(msg) },
                     Some(msg) = log_register_receiver.recv() => { self.handle_register_log(msg) },
                     Some(msg) = log_receiver.recv() => { self.handle_notify_log(msg) },
                     _ = stop_token_clone.cancelled() => {
@@ -228,8 +209,6 @@ impl NotifyService {
             proposed_transaction_notifier: proposed_transaction_sender,
             reject_transaction_register,
             reject_transaction_notifier: reject_transaction_sender,
-            network_alert_register,
-            network_alert_notifier: network_alert_sender,
             log_register,
             log_notifier: log_sender,
             handle,
@@ -388,59 +367,6 @@ impl NotifyService {
         }
     }
 
-    fn handle_register_network_alert(&mut self, msg: Request<String, Receiver<Alert>>) {
-        let Request {
-            responder,
-            arguments: name,
-        } = msg;
-        debug!("Register network_alert {:?}", name);
-        let (sender, receiver) = mpsc::channel(NOTIFY_CHANNEL_SIZE);
-        self.network_alert_subscribers.insert(name, sender);
-        let _ = responder.send(receiver);
-    }
-
-    fn handle_notify_network_alert(&self, alert: Alert) {
-        trace!("Network alert event {:?}", alert);
-        let alert_timeout = self.timeout.alert;
-        let message = alert
-            .as_reader()
-            .raw()
-            .message()
-            .as_utf8()
-            .expect("alert message should be utf8")
-            .to_owned();
-        // notify all subscribers
-        for subscriber in self.network_alert_subscribers.values() {
-            let subscriber = subscriber.clone();
-            let alert = alert.clone();
-            self.handle.spawn(async move {
-                if let Err(e) = subscriber.send_timeout(alert, alert_timeout).await {
-                    error!("Failed to notify network_alert, error: {}", e);
-                }
-            });
-        }
-
-        // notify script
-        if let Some(script) = self.config.network_alert_notify_script.clone() {
-            let script_timeout = self.timeout.script;
-            self.handle.spawn(async move {
-                let args = [message];
-                match timeout(script_timeout, Command::new(&script).args(&args).status()).await {
-                    Ok(ret) => match ret {
-                        Ok(status) => {
-                            debug!("the network_alert_notify script exited with: {}", status)
-                        }
-                        Err(e) => error!(
-                            "failed to run network_alert_notify_script: {} {}, error: {}",
-                            script, args[0], e
-                        ),
-                    },
-                    Err(_) => ckb_logger::warn!("network_alert_notify_script {} timed out", script),
-                }
-            });
-        }
-    }
-
     fn handle_register_log(&mut self, msg: Request<String, Receiver<LogEntry>>) {
         let Request {
             responder,
@@ -551,25 +477,6 @@ impl NotifyController {
         self.handle.spawn(async move {
             if let Err(e) = reject_transaction_notifier.send((tx_entry, reject)).await {
                 error!("notify_reject_transaction channel is closed: {}", e);
-            }
-        });
-    }
-
-    /// Subscribes to network alert notifications with the given name.
-    ///
-    /// Returns a receiver channel that will receive network alert events.
-    pub async fn subscribe_network_alert<S: ToString>(&self, name: S) -> Receiver<Alert> {
-        Request::call(&self.network_alert_register, name.to_string())
-            .await
-            .expect("Subscribe network alert should be OK")
-    }
-
-    /// Notifies all subscribers of a network alert.
-    pub fn notify_network_alert(&self, alert: Alert) {
-        let network_alert_notifier = self.network_alert_notifier.clone();
-        self.handle.spawn(async move {
-            if let Err(e) = network_alert_notifier.send(alert).await {
-                error!("notify_network_alert channel is closed: {}", e);
             }
         });
     }

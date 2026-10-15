@@ -12,7 +12,7 @@ mod transaction_verifier;
 #[cfg(test)]
 mod tests;
 
-pub use crate::block_verifier::{BlockVerifier, NonContextualBlockTxsVerifier};
+pub use crate::block_verifier::{BlockVerifier, NonContextualBlockTxsVerifier, UnclesBodyVerifier};
 pub use crate::error::{
     BlockError, BlockErrorKind, BlockTransactionsError, BlockVersionError, CellbaseError,
     CommitError, EpochError, HeaderError, HeaderErrorKind, InvalidParentError, NumberError,

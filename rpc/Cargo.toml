@@ -1,6 +1,6 @@
 [package]
 name = "ckb-rpc"
-version = "1.3.0"
+version = "1.3.1"
 license = "MIT"
 authors = ["Nervos Core Dev <dev@nervos.org>"]
 edition = "2024"
@@ -20,7 +20,6 @@ ckb-sync.workspace = true
 ckb-chain.workspace = true
 ckb-logger.workspace = true
 ckb-logger-service.workspace = true
-ckb-network-alert.workspace = true
 ckb-app-config.workspace = true
 ckb-constant.workspace = true
 jsonrpc-core.workspace = true

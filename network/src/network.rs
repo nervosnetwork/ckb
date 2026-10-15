@@ -992,7 +992,7 @@ impl NetworkService {
                     .tcp_proxy_random_auth(config.proxy.proxy_random_auth);
                 info!(
                     "set tcp_proxy_config: {:?}, proxy_random_auth: {}",
-                    config.proxy.proxy_url.clone(),
+                    proxy::redact_proxy_url(proxy_url),
                     config.proxy.proxy_random_auth
                 );
             };
@@ -1007,7 +1007,10 @@ impl NetworkService {
                 })
             };
             if let Some(onion_proxy_url) = onion_proxy_url {
-                info!("set tcp_onion_config: {:?}", onion_proxy_url);
+                info!(
+                    "set tcp_onion_config: {:?}",
+                    proxy::redact_proxy_url(&onion_proxy_url)
+                );
                 service_builder = service_builder.tcp_onion_config(&onion_proxy_url);
             }
         }

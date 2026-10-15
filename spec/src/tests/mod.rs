@@ -228,6 +228,70 @@ fn test_default_params() {
 }
 
 #[test]
+fn test_invalid_consensus_params_are_rejected() {
+    fn assert_invalid_params(mut spec: ChainSpec, params: Params, expected: &str) {
+        spec.params = params;
+        let err = match spec.build_consensus() {
+            Ok(_) => panic!("invalid params were accepted"),
+            Err(err) => err,
+        };
+        assert!(
+            err.to_string().contains(expected),
+            "unexpected error: {err}"
+        );
+    }
+
+    let spec = load_spec_by_name("ckb_dev");
+
+    assert_invalid_params(
+        spec.clone(),
+        Params {
+            genesis_epoch_length: Some(0),
+            ..Default::default()
+        },
+        "genesis_epoch_length must be non-zero",
+    );
+
+    assert_invalid_params(
+        spec.clone(),
+        Params {
+            epoch_duration_target: Some(0),
+            ..Default::default()
+        },
+        "epoch_duration_target must be non-zero",
+    );
+
+    assert_invalid_params(
+        spec.clone(),
+        Params {
+            orphan_rate_target: Some((1, 0)),
+            ..Default::default()
+        },
+        "orphan_rate_target denominator must be non-zero",
+    );
+
+    assert_invalid_params(
+        spec.clone(),
+        Params {
+            genesis_epoch_length: Some(u64::MAX),
+            orphan_rate_target: Some((u32::MAX, 1)),
+            ..Default::default()
+        },
+        "genesis_epoch_length * orphan_rate_target numerator overflows",
+    );
+
+    assert_invalid_params(
+        spec,
+        Params {
+            genesis_epoch_length: Some(u64::MAX),
+            orphan_rate_target: Some((1, u32::MAX)),
+            ..Default::default()
+        },
+        "genesis_epoch_length + genesis_orphan_count overflows",
+    );
+}
+
+#[test]
 fn test_params_skip_serializing_if_option_is_none() {
     let default = Params::default();
 

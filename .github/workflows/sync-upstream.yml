@@ -1,0 +1,65 @@
+# Fast-forwards this private repo's develop to nervosnetwork/ckb develop when it is strictly behind.
+name: Sync upstream develop
+
+on:
+  schedule:
+    - cron: '0 */3 * * *'
+  workflow_dispatch: {}
+
+permissions:
+  contents: write
+  issues: write
+
+jobs:
+  sync-upstream:
+    name: Sync upstream develop
+    if: github.repository == 'nervosnetwork/ckb-private'
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Generate GitHub token
+        uses: actions/create-github-app-token@v3
+        id: app-token
+        with:
+          app-id: ${{ secrets.RELEASE_PLZ_APP_ID }}
+          private-key: ${{ secrets.RELEASE_PLZ_APP_PRIVATE_KEY }}
+
+      - name: Checkout private develop
+        uses: actions/checkout@v6
+        with:
+          ref: develop
+          fetch-depth: 0
+          token: ${{ steps.app-token.outputs.token }}
+
+      - name: Fetch upstream
+        run: |
+          git remote add upstream https://github.com/nervosnetwork/ckb.git
+          git fetch upstream develop
+
+      - name: Compare with upstream
+        id: compare
+        run: |
+          BEHIND=$(git rev-list --count develop..upstream/develop)
+          AHEAD=$(git rev-list --count upstream/develop..develop)
+          echo "develop is behind by $BEHIND and ahead by $AHEAD commit(s)."
+          echo "behind=$BEHIND" >> "$GITHUB_OUTPUT"
+          echo "ahead=$AHEAD" >> "$GITHUB_OUTPUT"
+
+      # Strictly behind (no private-only commits): fast-forward, so no extra commit is created.
+      - name: Fast-forward develop to upstream
+        if: steps.compare.outputs.behind != '0' && steps.compare.outputs.ahead == '0'
+        run: |
+          git merge --ff-only upstream/develop
+          git push origin HEAD:develop
+
+      # Diverged: a fast-forward is impossible without rewriting shared history, so hand off to a human.
+      - name: Open divergence issue
+        if: steps.compare.outputs.behind != '0' && steps.compare.outputs.ahead != '0'
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+        run: |
+          echo "::warning::develop diverged from upstream (behind ${{ steps.compare.outputs.behind }}, ahead ${{ steps.compare.outputs.ahead }}); manual rebase or merge needed."
+          if [ -z "$(gh issue list --state open --search 'Upstream sync needs manual rebase/merge in:title' --json number --jq '.[].number')" ]; then
+            gh issue create \
+              --title 'Upstream sync needs manual rebase/merge' \
+              --body "develop is behind upstream by ${{ steps.compare.outputs.behind }} commit(s) and has ${{ steps.compare.outputs.ahead }} private commit(s), so an automatic fast-forward isn't possible. Rebase the private commits onto upstream/develop (linear history, force-push) or merge upstream/develop in, then close this issue."
+          fi

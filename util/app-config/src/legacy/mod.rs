@@ -54,7 +54,8 @@ pub(crate) struct CKBAppConfig {
     #[serde(default)]
     store: store::StoreConfig,
 
-    alert_signature: Option<crate::NetworkAlertConfig>,
+    #[serde(default)]
+    alert_signature: Option<serde_json::Value>,
     #[serde(default)]
     notify: crate::NotifyConfig,
     #[serde(default)]

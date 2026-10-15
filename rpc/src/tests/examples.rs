@@ -279,41 +279,6 @@ impl RpcTestSuite {
         self.wait_block_template_array_ge("proposals", 1)
     }
 
-    fn wait_sync_state_unverified_tip(&self) {
-        use ckb_jsonrpc_types::Uint64;
-        use std::{
-            thread::sleep,
-            time::{Duration, Instant},
-        };
-
-        let started = Instant::now();
-        let timeout = Duration::from_secs(60);
-        loop {
-            let response = self.rpc(&RpcTestRequest {
-                id: 42,
-                jsonrpc: "2.0".to_string(),
-                method: "sync_state".to_string(),
-                params: vec![],
-            });
-            let tip_number: Uint64 =
-                serde_json::from_value(response.result["tip_number"].clone()).unwrap();
-            let unverified_tip_number: Uint64 =
-                serde_json::from_value(response.result["unverified_tip_number"].clone()).unwrap();
-
-            if unverified_tip_number.value() >= tip_number.value() {
-                break;
-            }
-
-            assert!(
-                started.elapsed() < timeout,
-                "sync_state unverified tip did not reach tip within {:?}: {}",
-                timeout,
-                response.json(),
-            );
-            sleep(Duration::from_millis(100));
-        }
-    }
-
     fn run_example(&self, example: &RpcTestExample) {
         let mut actual = self.rpc(&example.request);
         mock_rpc_response(example, &mut actual);
@@ -398,7 +363,6 @@ fn mock_rpc_response(example: &RpcTestExample, response: &mut RpcTestResponse) {
         "get_blockchain_info" => {
             response.result["chain"] = example.response.result["chain"].clone()
         }
-        "send_alert" => response.error["data"] = example.response.error["data"].clone(),
         "get_raw_tx_pool" => {
             response.result["pending"][example_tx_hash.as_str()]["timestamp"] =
                 example.response.result["pending"][example_tx_hash.as_str()]["timestamp"].clone()
@@ -436,7 +400,6 @@ fn before_rpc_example(suite: &RpcTestSuite, example: &mut RpcTestExample) -> boo
         ("notify_transaction", 42) => return false,
         ("truncate", 42) => return false,
         ("get_block_template", 42) => suite.wait_block_template_update(),
-        ("sync_state", 42) => suite.wait_sync_state_unverified_tip(),
         _ => return true,
     }
 

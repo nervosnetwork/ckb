@@ -110,7 +110,6 @@
 //! JSON, `Status` can be one of "pending", "proposed" or "committed".
 #![allow(deprecated)]
 
-mod alert;
 pub(crate) mod chain;
 mod debug;
 mod experiment;
@@ -124,7 +123,6 @@ mod subscription;
 mod terminal;
 mod test;
 
-pub(crate) use self::alert::AlertRpcImpl;
 pub(crate) use self::chain::ChainRpcImpl;
 pub(crate) use self::debug::DebugRpcImpl;
 pub(crate) use self::experiment::ExperimentRpcImpl;
@@ -138,7 +136,6 @@ pub(crate) use self::subscription::SubscriptionRpcImpl;
 pub(crate) use self::terminal::TerminalRpcImpl;
 pub(crate) use self::test::IntegrationTestRpcImpl;
 
-pub use self::alert::{AlertRpc, add_alert_rpc_methods, alert_rpc_doc};
 pub use self::chain::{ChainRpc, add_chain_rpc_methods, chain_rpc_doc};
 pub use self::debug::{DebugRpc, add_debug_rpc_methods, debug_rpc_doc};
 pub use self::experiment::{ExperimentRpc, add_experiment_rpc_methods, experiment_rpc_doc};
