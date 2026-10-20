@@ -113,7 +113,6 @@ where
     terminated_vms: BTreeMap<VmId, i8>,
     /// Root vm's arguments. Provided for compatibility with surrounding tools. You should not
     /// read it anywhere except when initializing the root vm.
-    /// Note: This field is intentionally not serialized in FullSuspendedState.
     root_vm_args: Vec<Bytes>,
 
     /// MessageBox is expected to be empty before returning from `run`
@@ -369,8 +368,6 @@ where
         //
         // * Move `self.process_io` call to the very end of `iterate_outer` method, which is
         // exactly current location
-        // * For now we have to live with the fact that `iteration_cycles` will not always be
-        // zero at iteration boundaries, and also preserve its value in `FullSuspendedState`.
         //
         // One expected change is that +process_io+ is now called once more
         // after the whole scheduler terminates, and not called at the very beginning
