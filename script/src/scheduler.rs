@@ -515,6 +515,7 @@ where
                     );
                 }
                 Message::Pipe(vm_id, args) => {
+                    // Note: In practice, the maximum number of pipes is MAX_FDS + 1.
                     if self.fds.len() as u64 >= MAX_FDS {
                         let (_, machine) = self.ensure_get_instantiated(&vm_id)?;
                         machine
