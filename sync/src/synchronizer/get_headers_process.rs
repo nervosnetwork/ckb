@@ -1,9 +1,8 @@
 use crate::synchronizer::Synchronizer;
-use crate::utils::{async_send_message, async_send_message_to};
 use crate::{Status, StatusCode};
 use ckb_constant::sync::MAX_LOCATOR_SIZE;
 use ckb_logger::{debug, info};
-use ckb_network::{CKBProtocolContext, PeerIndex, SupportProtocols};
+use ckb_network::{CKBProtocolContext, PeerIndex};
 use ckb_types::{
     core,
     packed::{self, Byte32},
@@ -85,32 +84,19 @@ impl<'a> GetHeadersProcess<'a> {
                 .headers(headers.into_iter().map(|x| x.data()).collect::<Vec<_>>())
                 .build();
             let message = packed::SyncMessage::new_builder().set(content).build();
-            let nc = Arc::clone(self.nc);
             self.synchronizer
-                .shared()
-                .shared()
-                .async_handle()
-                .spawn(async move { async_send_message_to(&nc, self.peer, &message).await });
+                .send_sync_response(Arc::clone(self.nc), self.peer, message)
         } else {
-            return StatusCode::GetHeadersMissCommonAncestors
-                .with_context(format!("{block_locator_hashes:#x?}"));
+            StatusCode::GetHeadersMissCommonAncestors
+                .with_context(format!("{block_locator_hashes:#x?}"))
         }
-        Status::ok()
     }
 
     fn send_in_ibd(&self) {
         let content = packed::InIBD::new_builder().build();
         let message = packed::SyncMessage::new_builder().set(content).build();
-        let nc = Arc::clone(self.nc);
-        let peer = self.peer;
-        self.synchronizer
-            .shared()
-            .shared()
-            .async_handle()
-            .spawn(async move {
-                let _ignore =
-                    async_send_message(SupportProtocols::Sync.protocol_id(), &nc, peer, &message)
-                        .await;
-            });
+        let _ignore = self
+            .synchronizer
+            .send_sync_response(Arc::clone(self.nc), self.peer, message);
     }
 }
