@@ -1,15 +1,18 @@
 use super::*;
 use crate::authority::chain::ClearScope;
 use crate::authority::{
-    chain, membership,
-    model::{FullReason, Phase, Status},
+    chain, jobs, membership,
+    model::{FullReason, Phase, Resolved, Source, Status},
+    service::ComputePermit,
     tests::common::*,
 };
 use ckb_app_config::BlockAssemblerConfig;
 use ckb_chain_spec::consensus::ConsensusBuilder;
 use ckb_jsonrpc_types::ScriptHashType;
 use ckb_snapshot::Snapshot;
-use ckb_types::h256;
+use ckb_store::data_loader_wrapper::AsDataLoader;
+use ckb_types::{bytes::Bytes, h256, packed::OutPoint, prelude::*};
+use ckb_verification::{ContextualTransactionVerifier, cache::init_cache};
 use std::{collections::BTreeSet, sync::Arc, time::Duration};
 
 fn template_config() -> BlockAssemblerConfig {
@@ -36,7 +39,12 @@ fn fixture() -> Arc<Driver> {
     let snapshot = template_snapshot();
     let store = Store::new(Arc::clone(&snapshot), &config()).unwrap();
     let assembler = BlockAssembler::new(template_config(), snapshot).unwrap();
-    Driver::new(store, assembler, config().max_ancestors_count)
+    Driver::new(
+        store,
+        assembler,
+        Arc::new(RwLock::new(ckb_verification::cache::init_cache())),
+        config().max_ancestors_count,
+    )
 }
 
 async fn within<T>(future: impl std::future::Future<Output = T>) -> T {
@@ -56,6 +64,163 @@ fn selected(driver: &Driver) -> Arc<CurrentTemplate> {
         .read()
         .clone()
         .expect("a template has been published")
+}
+
+async fn accept_canonical_child(
+    driver: &Driver,
+    nonce: u32,
+) -> (Arc<Resolved>, ScriptVerificationProof) {
+    let parent = funded_parent(nonce, 20_000_000_000);
+    accept(&driver.store, parent.clone(), 1, 1, Status::Proposed);
+    let candidate = entry(
+        &driver.store,
+        funded_tx(OutPoint::new(parent.hash(), 0), 19_999_999_000),
+        Source::Local,
+    );
+    let jobs::Resolution::Ready(resolved) =
+        jobs::resolve(&driver.store, &candidate, &config()).unwrap()
+    else {
+        panic!("canonical child resolves its pool input and genesis script");
+    };
+    let (_commands, mut commands) = tokio::sync::watch::channel(ckb_script::ChunkCommand::Resume);
+    let verified = jobs::verify(
+        &driver.store,
+        &candidate,
+        Arc::clone(&resolved),
+        &config(),
+        &driver.cache,
+        &mut commands,
+        &ComputePermit::for_test(crate::verification::ComputeMode::Inline),
+    )
+    .await
+    .unwrap();
+    let (plan, rejection) =
+        membership::admission(&driver.store, &candidate, None, &verified, &config(), false)
+            .unwrap();
+    assert!(rejection.is_none());
+    driver.store.apply(plan).unwrap();
+    let owner = driver.store.point(&candidate.hash()).1.unwrap();
+    let mut accepted = owner.accepted().unwrap().clone();
+    let proof = accepted.scripts.proof().unwrap();
+    assert_eq!(proof, verified.scripts().proof().unwrap());
+    accepted.forced_status = Some(Status::Proposed);
+    // Replace the fixture's proposal phase without changing its verified body.
+    let mut plan = crate::authority::store::Plan::new(
+        driver.store.snapshot().0,
+        crate::authority::notice::Class::Trusted,
+        Default::default(),
+    );
+    plan.edit(
+        Some(Arc::clone(&owner)),
+        Some(owner.with_phase(Phase::Accepted(accepted))),
+        None,
+    )
+    .unwrap();
+    driver.store.apply(plan).unwrap();
+    (resolved, proof)
+}
+
+fn canonical_fixture() -> Arc<Driver> {
+    let snapshot = chain_snapshot();
+    Driver::new(
+        Store::new(Arc::clone(&snapshot), &config()).unwrap(),
+        BlockAssembler::new(template_config(), snapshot).unwrap(),
+        Arc::new(RwLock::new(init_cache())),
+        config().max_ancestors_count,
+    )
+}
+
+#[tokio::test]
+async fn selected_proof_survives_cache_loss_and_contention_without_bypassing_identity() {
+    let driver = canonical_fixture();
+    let (resolved, proof) = accept_canonical_child(&driver, 7190).await;
+    assert!(proof.cycles() > 0);
+    *driver.cache.write().await = init_cache();
+    assert!(driver.cache.read().await.lookup(&proof.key()).is_none());
+    let mut packing = Cache::default();
+    driver.rebuild(&mut packing).unwrap();
+    assert!(
+        selected(&driver)
+            .template
+            .transactions
+            .iter()
+            .any(|(transaction, _)| transaction.hash() == resolved.transaction.transaction.hash())
+    );
+    assert_eq!(driver.cache.read().await.lookup(&proof.key()), Some(proof));
+
+    let snapshot = driver.store.snapshot().1;
+    let env = Arc::new(jobs::environment(Status::Proposed, &snapshot));
+    let verify = |rtx| {
+        ContextualTransactionVerifier::new(
+            rtx,
+            snapshot.cloned_consensus(),
+            snapshot.as_data_loader(),
+            Arc::clone(&env),
+        )
+    };
+    assert!(
+        verify(Arc::clone(&resolved.transaction))
+            .verify_scripts(proof.cycles(), Some(proof))
+            .unwrap()
+            .was_reused()
+    );
+    let mut changed = resolved.transaction.as_ref().clone();
+    changed.transaction = changed
+        .transaction
+        .as_advanced_builder()
+        .witness(Bytes::from_static(b"changed witness").pack())
+        .build();
+    assert!(
+        verify(Arc::new(changed))
+            .verify_scripts(0, Some(proof))
+            .is_err()
+    );
+
+    let previous_work = selected(&driver).template.work_id;
+    let mut guard = driver.cache.write().await;
+    *guard = init_cache();
+    // A held writer is an observable contention condition on a one-worker
+    // runtime. Publishing another template must not wait for that writer.
+    driver.rebuild(&mut packing).unwrap();
+    assert!(selected(&driver).template.work_id > previous_work);
+    assert!(guard.lookup(&proof.key()).is_none());
+    drop(guard);
+    driver.rebuild(&mut packing).unwrap();
+    assert_eq!(driver.cache.read().await.lookup(&proof.key()), Some(proof));
+}
+
+#[tokio::test]
+async fn template_refreshes_only_final_transaction_proofs() {
+    let driver = canonical_fixture();
+    let (kept, proof) = accept_canonical_child(&driver, 7191).await;
+    let (proposal, _) = accept_canonical_child(&driver, 7192).await;
+    let (filtered, _) = accept_canonical_child(&driver, 7193).await;
+    let Captured {
+        view,
+        snapshot,
+        owners,
+        ..
+    } = driver.store.capture_accepted();
+    let selection = Selection::new(&owners, &snapshot, config().max_ancestors_count).unwrap();
+    let transactions = selection
+        .pack_transactions(TemplatePackingLimits::new(usize::MAX, u64::MAX))
+        .unwrap()
+        .into_iter()
+        .filter(|entry| entry.transaction().hash() == kept.transaction.transaction.hash())
+        .collect::<Vec<_>>();
+    assert_eq!(transactions.len(), 1);
+    let (_, proofs) = TemplateSource::from_content(
+        view,
+        &selection,
+        &transactions,
+        &[proposal.transaction.transaction.proposal_short_id()],
+    )
+    .unwrap();
+    assert_eq!(proofs, [proof]);
+    assert_ne!(
+        kept.transaction.transaction.hash(),
+        filtered.transaction.transaction.hash()
+    );
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -128,13 +293,17 @@ fn template_sources_follow_final_contents_and_overlapping_proposals() {
         .filter(|entry| entry.transaction().hash() == kept.hash())
         .collect::<Vec<_>>();
     assert_eq!(transactions.len(), 1);
-    let source = TemplateSource::from_content(
+    let (source, proofs) = TemplateSource::from_content(
         view,
         &selection,
         &transactions,
         &[kept.proposal_short_id(), proposal.proposal_short_id()],
     )
     .unwrap();
+    assert!(
+        proofs.is_empty(),
+        "trusted fixtures cannot seed canonical proof"
+    );
 
     // A DAO-filtered owner is irrelevant unless its proposal was selected.
     driver
@@ -257,6 +426,7 @@ fn mandatory_template_accepts_exact_byte_limit_and_rejects_one_byte_less() {
     let exact = Driver::new(
         Store::new(exact_snapshot, &config()).unwrap(),
         assembler,
+        Arc::new(RwLock::new(ckb_verification::cache::init_cache())),
         config().max_ancestors_count,
     );
     exact.rebuild(&mut Cache::default()).unwrap();

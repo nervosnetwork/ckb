@@ -54,7 +54,7 @@ impl Aggregate {
         Self {
             count: 1,
             bytes: entry.size,
-            cycles: entry.cycles,
+            cycles: entry.scripts.cycles(),
             fee: u128::from(entry.fee.as_u64()),
         }
     }
@@ -250,7 +250,7 @@ pub(super) fn entry_snapshot(
         .map_err(|_| overflow())?;
     Ok(TxEntrySnapshot {
         transaction: entry.transaction.as_ref().clone(),
-        cycles: accepted.cycles,
+        cycles: accepted.scripts.cycles(),
         size: accepted.size,
         fee: accepted.fee,
         ancestors_size: ancestors.bytes,
@@ -296,8 +296,10 @@ impl EvictionRank {
         arrival: u64,
         hash: Byte32,
     ) -> Self {
-        let own_rate =
-            FeeRate::calculate(value.fee, get_transaction_weight(value.size, value.cycles));
+        let own_rate = FeeRate::calculate(
+            value.fee,
+            get_transaction_weight(value.size, value.scripts.cycles()),
+        );
         let descendants_rate = FeeRate::calculate(
             descendants.fee(),
             get_transaction_weight(descendants.bytes, descendants.cycles),
@@ -596,7 +598,7 @@ fn prepare_admission(
     }
     let value = Accepted {
         transaction: residency::accepted_resolution(&verified.resolved().transaction),
-        cycles: verified.cycles(),
+        scripts: verified.scripts(),
         fee: verified.resolved().fee,
         size: verified.serialized_size(),
         timestamp: verified.timestamp(),

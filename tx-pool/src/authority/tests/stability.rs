@@ -250,7 +250,7 @@ async fn persistence_replay_keeps_readers_before_spenders() {
             }
             for transaction in &transactions {
                 let owner = pool.store.point(&transaction.hash()).1.unwrap();
-                assert!(owner.accepted().unwrap().cycles > 0);
+                assert!(owner.accepted().unwrap().scripts.cycles() > 0);
             }
             shutdown(&pool, JoinSet::new(), publisher).await;
         }
@@ -511,7 +511,8 @@ async fn round(
         .unwrap()
         .accepted()
         .unwrap()
-        .cycles;
+        .scripts
+        .cycles();
     assert!(cycles > 0, "initial transactions ran the canonical VM");
 
     let late_parent = chain.root(COHORTS, index);

@@ -4,7 +4,7 @@
 use super::{
     jobs::environment,
     membership::{self, Members},
-    model::{DependencyKey, Entry, Error, Phase, Source, status},
+    model::{DependencyKey, Entry, Error, Phase, Source, Status, status},
     notice::{Class, Effect},
     store::{Captured, Plan, Store},
 };
@@ -246,6 +246,15 @@ fn affected_owners(
     previous: &Snapshot,
     snapshot: &Snapshot,
 ) -> Result<Affected, Error> {
+    // Canonical VM activation uses the next block's epoch for every inflight
+    // phase. Derive that view-wide rule once, independently of proposal phase.
+    let rules = |snapshot: &Snapshot| {
+        ScriptVerificationRules::from_env(
+            snapshot.consensus(),
+            &environment(Status::Pending, snapshot),
+        )
+    };
+    let rules_changed = rules(previous) != rules(snapshot);
     let child_index = membership::children(accepted);
     let mut conflicts = BTreeMap::new();
     let mut recovery = BTreeSet::new();
@@ -280,10 +289,6 @@ fn affected_owners(
             .transaction
             .header_deps_iter()
             .any(|hash| facts.detached_headers.contains(&hash));
-        let old_env = environment(value.status(previous), previous);
-        let new_env = environment(value.status(snapshot), snapshot);
-        let rules_changed = ScriptVerificationRules::from_env(previous.consensus(), &old_env)
-            != ScriptVerificationRules::from_env(snapshot.consensus(), &new_env);
         if detached_producer
             || detached_header
             || rules_changed
@@ -521,12 +526,20 @@ pub(super) fn reconcile(
     let mut final_accepted = after;
     final_accepted.retain(|_, entry| entry.accepted().is_some());
     let mut final_totals = None;
+    let previous_status = old_snapshot.proposals().status_lookup(final_accepted.len());
+    let next_status = snapshot.proposals().status_lookup(final_accepted.len());
     for (hash, entry) in &final_accepted {
         let Some(previous) = old.get(hash).and_then(|entry| entry.accepted()) else {
             continue;
         };
-        let status = entry.accepted().ok_or(Error::Stale)?.status(snapshot);
-        if previous.status(&old_snapshot) == status {
+        let accepted = entry.accepted().ok_or(Error::Stale)?;
+        let status = accepted.status_with(|| {
+            next_status(accepted.transaction.transaction.proposal_short_id_reader())
+        });
+        if previous.status_with(|| {
+            previous_status(previous.transaction.transaction.proposal_short_id_reader())
+        }) == status
+        {
             continue;
         }
         if final_totals.is_none() {

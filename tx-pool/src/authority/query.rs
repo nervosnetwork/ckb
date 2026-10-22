@@ -101,7 +101,10 @@ pub(super) fn transaction_status(
     let (snapshot, entry) = store.point(hash);
     let entry = entry?;
     let value = entry.accepted()?;
-    Some((public_status(value.status(&snapshot)), Some(value.cycles)))
+    Some((
+        public_status(value.status(&snapshot)),
+        Some(value.scripts.cycles()),
+    ))
 }
 
 fn live_transaction(entry: &Entry, snapshot: &Snapshot) -> Option<TransactionWithStatus> {
@@ -109,7 +112,7 @@ fn live_transaction(entry: &Entry, snapshot: &Snapshot) -> Option<TransactionWit
     Some(TransactionWithStatus {
         transaction: Some(entry.transaction.as_ref().clone()),
         tx_status: public_status(value.status(snapshot)),
-        cycles: Some(value.cycles),
+        cycles: Some(value.scripts.cycles()),
         fee: Some(value.fee),
         min_replace_fee: None,
         time_added_to_pool: Some(value.timestamp),
@@ -233,7 +236,7 @@ pub(super) fn entry_info(store: &Store, config: &TxPoolConfig) -> Result<TxPoolE
             descendants,
         } = totals.get(&hash).ok_or(Error::Stale)?;
         let info = TxEntryInfo {
-            cycles: value.cycles,
+            cycles: value.scripts.cycles(),
             size: value.size as u64,
             fee: value.fee,
             ancestors_size: ancestors.bytes as u64,
@@ -327,7 +330,7 @@ fn score(
 ) -> Result<AncestorsScoreSortKey, Error> {
     Ok(AncestorsScoreSortKey {
         fee: value.fee,
-        weight: get_transaction_weight(value.size, value.cycles),
+        weight: get_transaction_weight(value.size, value.scripts.cycles()),
         ancestors_fee: Capacity::shannons(
             u64::try_from(ancestors.fee).map_err(|_| Error::Full("query fee".into()))?,
         ),
@@ -382,7 +385,7 @@ pub(super) fn accepted_with_cycles(
         .filter_map(|entry| {
             entry
                 .accepted()
-                .map(|value| (entry.transaction.as_ref().clone(), value.cycles))
+                .map(|value| (entry.transaction.as_ref().clone(), value.scripts.cycles()))
         })
         .collect()
 }
@@ -395,7 +398,7 @@ pub(super) fn fee_samples(store: &Store) -> Vec<FeeSample> {
         .filter_map(|entry| {
             entry
                 .accepted()
-                .map(|value| FeeSample::new(value.size, value.cycles, value.fee))
+                .map(|value| FeeSample::new(value.size, value.scripts.cycles(), value.fee))
         })
         .collect()
 }
@@ -425,7 +428,7 @@ pub(super) fn estimate_fee(
             .checked_add(value.size)
             .ok_or(Error::Full("fee estimate bytes".into()))?;
         cycles = cycles
-            .checked_add(value.cycles)
+            .checked_add(value.scripts.cycles())
             .ok_or(Error::Full("fee estimate cycles".into()))?;
         // Approximate each block boundary with the crossing candidate's rate;
         // unlike packing, this includes a candidate that would not fit.
@@ -436,11 +439,11 @@ pub(super) fn estimate_fee(
             if remaining == 0 {
                 return Ok(FeeRate::calculate(
                     value.fee,
-                    get_transaction_weight(value.size, value.cycles),
+                    get_transaction_weight(value.size, value.scripts.cycles()),
                 ));
             }
             bytes = value.size;
-            cycles = value.cycles;
+            cycles = value.scripts.cycles();
         }
     }
     Ok(config.min_fee_rate)

@@ -20,6 +20,7 @@ use ckb_types::{
     packed::ProposalShortId,
     prelude::{Entity, Reader},
 };
+use ckb_verification::cache::{ScriptVerificationProof, TxVerificationCache};
 use std::{
     collections::HashSet,
     sync::{
@@ -28,7 +29,7 @@ use std::{
     },
     time::Duration,
 };
-use tokio::sync::Notify;
+use tokio::sync::{Notify, RwLock};
 
 /// Validity follows the lifecycle and selected transaction/proposal owners.
 /// Unrelated admissions may trigger a refresh without invalidating this template.
@@ -46,17 +47,20 @@ impl TemplateSource {
         selection: &Selection<'_>,
         transactions: &[TxEntry],
         proposals: &[ProposalShortId],
-    ) -> Result<Self, Error> {
+    ) -> Result<(Self, Vec<ScriptVerificationProof>), Error> {
         let mut reads = ReadSet::default();
+        let mut proofs = Vec::with_capacity(transactions.len());
         let mut selected: HashSet<_> = transactions
             .iter()
             .map(|transaction| transaction.transaction().hash())
             .collect();
         let proposals: HashSet<_> = proposals.iter().map(Entity::as_slice).collect();
         for candidate in selection.candidates() {
-            if selected.remove(candidate.hash())
-                || proposals.contains(candidate.proposal_short_id().as_slice())
-            {
+            let transaction = selected.remove(candidate.hash());
+            if transaction && let Some(proof) = candidate.accepted.scripts.proof() {
+                proofs.push(proof);
+            }
+            if transaction || proposals.contains(candidate.proposal_short_id().as_slice()) {
                 reads.observe_owner(candidate.hash(), Some(candidate.owner()))?;
             }
         }
@@ -66,7 +70,7 @@ impl TemplateSource {
                 "selected transaction outside template candidates",
             ));
         }
-        Ok(Self { view, reads })
+        Ok((Self { view, reads }, proofs))
     }
 }
 
@@ -74,6 +78,7 @@ impl TemplateSource {
 struct PreparedTemplate {
     current: Arc<CurrentTemplate>,
     prune: CandidateUnclePrune,
+    proofs: Vec<ScriptVerificationProof>,
 }
 
 /// Pool(Stale) yields and retries; Pool(Fault) faults the generation. Other
@@ -96,6 +101,7 @@ impl From<BlockAssemblerError> for BuildError {
 pub(super) struct Driver {
     store: Arc<Store>,
     assembler: BlockAssembler,
+    cache: Arc<RwLock<TxVerificationCache>>,
     max_ancestors: usize,
     pub(super) requested: Notify,
     updated: Notify,
@@ -106,11 +112,13 @@ impl Driver {
     pub(super) fn new(
         store: Arc<Store>,
         assembler: BlockAssembler,
+        cache: Arc<RwLock<TxVerificationCache>>,
         max_ancestors: usize,
     ) -> Arc<Self> {
         Arc::new(Self {
             store,
             assembler,
+            cache,
             max_ancestors,
             requested: Notify::new(),
             updated: Notify::new(),
@@ -255,7 +263,7 @@ impl Driver {
             selected,
             &self.assembler.cell_liveness_memo,
         )?;
-        let source =
+        let (source, proofs) =
             TemplateSource::from_content(view, &selection, &transactions, &optional.proposals)?;
         // Compute DAO only for the final selected contents. Work IDs and time
         // belong to this publication attempt, not the reused mandatory parts.
@@ -277,6 +285,7 @@ impl Driver {
         Ok(PreparedTemplate {
             current: Arc::new(CurrentTemplate { template, source }),
             prune,
+            proofs,
         })
     }
 
@@ -288,7 +297,22 @@ impl Driver {
     }
 
     fn publish(&self, prepared: PreparedTemplate) -> Result<(), Error> {
-        let PreparedTemplate { current, prune } = prepared;
+        let PreparedTemplate {
+            current,
+            prune,
+            proofs,
+        } = prepared;
+        // An accepted owner keeps its sealed proof even after shared-cache
+        // eviction. Refresh only the final selected transactions before miners
+        // can submit this template. Cache contention must not delay publication;
+        // a miss still takes the canonical VM path. No Store guard is held here.
+        if !proofs.is_empty()
+            && let Ok(mut cache) = self.cache.try_write()
+        {
+            for proof in proofs {
+                cache.insert(proof);
+            }
+        }
         let source = &current.source;
         let retired: Result<_, CandidateUnclePrune> =
             self.store.read_selected(source.view, &source.reads, || {

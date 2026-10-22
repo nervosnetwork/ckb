@@ -64,10 +64,6 @@ impl Selection<'_> {
             .collect())
     }
 
-    #[expect(
-        clippy::indexing_slicing,
-        reason = "The compiled precedence graph and activity mask share checked candidate indices."
-    )]
     pub(super) fn precedence(&self) -> Result<Precedence, PackingError> {
         let len = self.candidates.len();
         let mut active = vec![true; len];
@@ -75,27 +71,8 @@ impl Selection<'_> {
         let mut cycle_round = 0usize;
         let mut eviction = None;
         loop {
-            let ordered = topological_active_order(&active, &graph, |index| {
-                package_order_key(index, &self.candidates[index], self.graph.ancestors[index])
-            })?;
-            if ordered.len() == active.iter().filter(|is_active| **is_active).count() {
-                let parents = graph.reversed(&active)?;
-                let mut positions = vec![0usize; len];
-                let mut proposed = vec![false; len];
-                let mut eligible = Vec::new();
-                for (position, index) in ordered.into_iter().enumerate() {
-                    positions[index] = position;
-                    proposed[index] = self.candidates[index].status == Status::Proposed
-                        && parents[index].iter().all(|parent| proposed[*parent]);
-                    if proposed[index] {
-                        eligible.push(index);
-                    }
-                }
-                return Ok(Precedence {
-                    parents,
-                    positions,
-                    eligible,
-                });
+            if let Some(precedence) = self.order_proposed(&active, &graph)? {
+                return Ok(precedence);
             }
             let mut cyclic = strongly_connected_active(&active, &graph)?;
             cyclic.retain(|component| component.len() > 1);
@@ -110,6 +87,81 @@ impl Selection<'_> {
             let roots = self.cycle_drop_roots(eviction, cyclic, cycle_round)?;
             drop_package_descendants(&mut active, roots, &self.graph.children)?;
         }
+    }
+
+    /// Rank only the complete proposed closure. Other ready vertices propagate
+    /// ineligibility without entering the priority heap. They cannot unlock an
+    /// eligible vertex, so this preserves the global order among eligible work.
+    #[expect(
+        clippy::indexing_slicing,
+        reason = "The compiled graph and activity mask use candidate indices; each vertex becomes ready once after its active parents finish."
+    )]
+    fn order_proposed(
+        &self,
+        active: &[bool],
+        graph: &Links,
+    ) -> Result<Option<Precedence>, PackingError> {
+        let mut indegree = active_indegrees(active, graph)?;
+        let mut proposed: Vec<_> = self
+            .candidates
+            .iter()
+            .zip(active)
+            .map(|(candidate, active)| *active && candidate.status == Status::Proposed)
+            .collect();
+        let priority =
+            |index| package_order_key(index, &self.candidates[index], self.graph.ancestors[index]);
+        let mut ready = Vec::new();
+        let mut unranked = Vec::new();
+        for (index, active) in active.iter().copied().enumerate() {
+            if active && indegree[index] == 0 {
+                if proposed[index] {
+                    ready.push(priority(index));
+                } else {
+                    unranked.push(index);
+                }
+            }
+        }
+        let mut ready = BinaryHeap::from(ready);
+        let mut eligible = Vec::new();
+        let mut remaining = active.iter().filter(|active| **active).count();
+        while let Some(index) = unranked
+            .pop()
+            .or_else(|| ready.pop().map(|(_, Reverse(index))| index))
+        {
+            remaining = remaining.checked_sub(1).ok_or(PackingError::Projection)?;
+            if proposed[index] {
+                eligible.push(index);
+            }
+            for &child in &graph[index] {
+                if !active[child] {
+                    continue;
+                }
+                proposed[child] &= proposed[index];
+                indegree[child] = indegree[child]
+                    .checked_sub(1)
+                    .ok_or(PackingError::Projection)?;
+                if indegree[child] == 0 {
+                    if proposed[child] {
+                        ready.push(priority(child));
+                    } else {
+                        unranked.push(child);
+                    }
+                }
+            }
+        }
+        if remaining != 0 {
+            return Ok(None);
+        }
+        let parents = graph.reversed(&proposed)?;
+        let mut positions = vec![0usize; self.candidates.len()];
+        for (position, &index) in eligible.iter().enumerate() {
+            positions[index] = position;
+        }
+        Ok(Some(Precedence {
+            parents,
+            positions,
+            eligible,
+        }))
     }
 
     fn precedence_graph(&self) -> Result<Links, PackingError> {
@@ -200,11 +252,7 @@ impl Selection<'_> {
     clippy::indexing_slicing,
     reason = "Links validates every endpoint; the activity mask is checked against its node count before traversal."
 )]
-fn topological_active_order<K: Ord>(
-    active: &[bool],
-    children: &Links,
-    priority: impl Fn(usize) -> K,
-) -> Result<Vec<usize>, PackingError> {
+fn active_indegrees(active: &[bool], children: &Links) -> Result<Vec<usize>, PackingError> {
     if active.len() != children.len() {
         return Err(PackingError::Projection);
     }
@@ -221,7 +269,19 @@ fn topological_active_order<K: Ord>(
             *degree = degree.checked_add(1).ok_or(PackingError::Arithmetic)?;
         }
     }
+    Ok(indegree)
+}
 
+#[expect(
+    clippy::indexing_slicing,
+    reason = "Links validates endpoints and active_indegrees checks the activity mask before traversal."
+)]
+fn topological_active_order<K: Ord>(
+    active: &[bool],
+    children: &Links,
+    priority: impl Fn(usize) -> K,
+) -> Result<Vec<usize>, PackingError> {
+    let mut indegree = active_indegrees(active, children)?;
     // Rank only ready entries, directly by package priority. Each entry becomes
     // ready once, so neither a separate ordinal table nor set deduplication is needed.
     let mut ready = Vec::new();

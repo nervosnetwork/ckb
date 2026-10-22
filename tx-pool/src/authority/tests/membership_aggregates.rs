@@ -1,7 +1,7 @@
 //! Full-graph totals agree with independent per-owner closure calculations.
 use super::super::{
     membership::{self, Members, NeighborhoodTotals},
-    model::{Accepted, Entry, Error, Phase, Source, Status},
+    model::{Accepted, Entry, Error, Phase, Source, Status, VerifiedScripts},
 };
 use super::common::spend;
 use crate::error::Reject;
@@ -27,7 +27,7 @@ fn fixture(parents: &[Vec<usize>]) -> Members {
                 transaction.as_ref().clone(),
             )),
             size: transaction.data().serialized_size_in_block(),
-            cycles: index as u64 * 17 + 1,
+            scripts: VerifiedScripts::Fixture(index as u64 * 17 + 1),
             fee: Capacity::shannons(index as u64 * 23 + 1),
             timestamp: index as u64,
             parents: parents
@@ -186,7 +186,9 @@ fn complete_totals_keep_wide_fees_and_reject_byte_or_cycle_overflow() {
         Err(Error::Rejected(Reject::Full(_)))
     ));
     let mut cycles = members;
-    change(&mut cycles, &parent, |value| value.cycles = u64::MAX);
+    change(&mut cycles, &parent, |value| {
+        value.scripts = VerifiedScripts::Fixture(u64::MAX)
+    });
     assert!(matches!(
         membership::aggregates(&cycles, 2),
         Err(Error::Rejected(Reject::Full(_)))

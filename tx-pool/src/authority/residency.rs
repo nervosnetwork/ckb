@@ -137,6 +137,7 @@ pub(crate) fn accepted_transaction_charge_bytes(
 
     resolved_transaction_charge_bytes(tx_size, rtx)
         .saturating_add(ACCEPTED_ENTRY_INDEX_BASE_CHARGE)
+        .saturating_add(std::mem::size_of::<super::model::VerifiedScripts>())
         .saturating_add(input_count.saturating_mul(ACCEPTED_INPUT_INDEX_CHARGE))
         .saturating_add(dep_count.saturating_mul(ACCEPTED_DEP_INDEX_CHARGE))
         .saturating_add(header_count.saturating_mul(ACCEPTED_HEADER_INDEX_CHARGE))

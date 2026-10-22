@@ -3,13 +3,13 @@
 use super::model::DependencyKey;
 use super::{
     budget::ActivePermit,
-    model::{Entry, Error, Resolved, Status, status},
+    model::{Entry, Error, Resolved, Status, VerifiedScripts, status},
     service::ComputePermit,
     store::{ReadSet, Store},
 };
 use crate::{
     error::Reject,
-    verification::{TxPoolVerificationBudget, verify_rtx},
+    verification::{VerificationExecution, verify_rtx},
 };
 use ckb_app_config::TxPoolConfig;
 use ckb_script::ChunkCommand;
@@ -18,7 +18,10 @@ use ckb_snapshot::Snapshot;
 use ckb_types::{core::TransactionView, packed::OutPoint};
 use ckb_verification::{
     TxVerifyEnv,
-    cache::{ScriptVerificationRules, TxVerificationCache, TxVerificationCacheKey},
+    cache::{
+        ScriptVerificationOutcome, ScriptVerificationRules, TxVerificationCache,
+        TxVerificationCacheKey,
+    },
 };
 use std::{collections::BTreeSet, sync::Arc};
 use tokio::sync::{RwLock, watch};
@@ -81,7 +84,7 @@ pub(super) enum Resolution {
 #[derive(Clone)]
 pub(super) struct Verified {
     resolved: Arc<Resolved>,
-    cycles: u64,
+    scripts: VerifiedScripts,
     timestamp: u64,
     // Trusted internal fixtures supply status and serialized size before policy
     // planning; live verification derives both from the chain/transaction.
@@ -94,7 +97,11 @@ impl Verified {
     }
 
     pub(super) fn cycles(&self) -> u64 {
-        self.cycles
+        self.scripts.cycles()
+    }
+
+    pub(super) fn scripts(&self) -> VerifiedScripts {
+        self.scripts
     }
 
     #[cfg(any(test, feature = "internal"))]
@@ -163,10 +170,8 @@ pub(super) async fn verify(
     let rules = ScriptVerificationRules::from_env(snapshot.consensus(), &environment);
     let key = TxVerificationCacheKey::from_resolved(&resolved.transaction, rules);
     let cached = cache.read().await.lookup(&key);
-    let budget = entry
-        .source
-        .verification_time_limit(config)
-        .map(|limit| TxPoolVerificationBudget::new(limit, compute.mode()));
+    let execution =
+        VerificationExecution::new(entry.source.verification_time_limit(config), compute.mode());
     let max_cycles = entry
         .source
         .declared_cycles()
@@ -179,7 +184,7 @@ pub(super) async fn verify(
         cached,
         max_cycles,
         commands,
-        budget,
+        execution,
     )
     .await?;
     if let Some(declared) = entry.source.declared_cycles()
@@ -190,9 +195,14 @@ pub(super) async fn verify(
     if let Some(proof) = outcome.executed_proof() {
         cache.write().await.insert(proof);
     }
+    let proof = match outcome {
+        ScriptVerificationOutcome::Executed(proof) | ScriptVerificationOutcome::Reused(proof) => {
+            proof
+        }
+    };
     Ok(Verified {
         resolved,
-        cycles: outcome.cycles(),
+        scripts: VerifiedScripts::Vm(proof),
         timestamp,
         #[cfg(any(test, feature = "internal"))]
         fixture: None,
@@ -218,7 +228,7 @@ pub(super) fn fixture(
             reads,
             pool_cells,
         }),
-        cycles: entry.cycles,
+        scripts: VerifiedScripts::Fixture(entry.cycles),
         timestamp: entry.timestamp,
         fixture: Some((status, entry.size)),
     }

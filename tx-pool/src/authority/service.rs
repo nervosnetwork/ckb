@@ -196,7 +196,12 @@ impl Pool {
         .map_err(|_| Error::Full("relay mailbox configuration".into()))?;
         let drain = RelayDrain::new(receiver, &store);
         let template = assembler.map(|assembler| {
-            Driver::new(Arc::clone(&store), assembler, config.max_ancestors_count)
+            Driver::new(
+                Arc::clone(&store),
+                assembler,
+                Arc::clone(&cache),
+                config.max_ancestors_count,
+            )
         });
         Ok((
             Arc::new(Self {

@@ -3,7 +3,7 @@ use super::super::{
     chain::{self, ClearScope},
     model::{
         Accepted, DependencyKey, Entry, Error, FullReason, Phase, RecoveryTriggers, Resolved,
-        Source, Status,
+        Source, Status, VerifiedScripts,
     },
     notice::Class,
     queue::{WorkSelection, WorkStage},
@@ -462,7 +462,7 @@ fn dependency_results_preserve_unique_order_and_phase_edge_charges() {
         (
             Phase::Accepted(Accepted {
                 transaction: resolved,
-                cycles: 1,
+                scripts: VerifiedScripts::Fixture(1),
                 fee: Capacity::shannons(1),
                 size: owner.transaction.data().serialized_size_in_block(),
                 timestamp: 0,

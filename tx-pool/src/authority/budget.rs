@@ -324,7 +324,7 @@ pub(super) fn owner_amount(entry: &Entry) -> Result<Amount, Error> {
                     )
                     .ok_or(Error::Full("accepted byte arithmetic".into()))?;
             serialized = accepted.size;
-            cycles = accepted.cycles;
+            cycles = accepted.scripts.cycles();
         }
         Phase::Verify(resolved) => {
             edges = entry.dependencies().len().max(raw_edges);

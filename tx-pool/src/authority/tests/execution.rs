@@ -790,7 +790,7 @@ async fn internal_insertion_preserves_supplied_metadata_and_duplicates_without_e
     let value = owner.accepted().unwrap();
     assert_eq!(value.timestamp, 123);
     assert_eq!(value.size, 1234);
-    assert_eq!(value.cycles, 7);
+    assert_eq!(value.scripts.cycles(), 7);
     assert_eq!(value.status(&pool.store.snapshot().1), Status::Proposed);
     entry.fee = ckb_types::core::Capacity::shannons(200);
     pool.plug(vec![entry], crate::PlugTarget::Pending)
@@ -2212,7 +2212,7 @@ async fn saved_replacement_history_reenters_through_verified_recovery() {
     .unwrap();
     assert_eq!(result, (1, 0));
     let accepted = restored.store.point(&transaction.hash()).1.unwrap();
-    assert!(accepted.accepted().unwrap().cycles > 0);
+    assert!(accepted.accepted().unwrap().scripts.cycles() > 0);
     restored.stop();
     restored.close_outbox();
     within(publisher).await.unwrap().unwrap();

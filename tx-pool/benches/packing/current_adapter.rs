@@ -1,7 +1,7 @@
 //! Fixture adapter compiled inside authority only by the packing benchmark.
 
 use super::{
-    model::{Accepted, Entry, Phase, Source},
+    model::{Accepted, Entry, Phase, Source, VerifiedScripts},
     packing::{Selection, TemplatePackingLimits},
 };
 use crate::TxEntry;
@@ -54,7 +54,7 @@ impl PackingSource {
                 source: Source::Local,
                 phase: Phase::Accepted(Accepted {
                     transaction: Arc::clone(&entry.rtx),
-                    cycles: entry.cycles,
+                    scripts: VerifiedScripts::Fixture(entry.cycles),
                     fee: entry.fee,
                     size: entry.size,
                     timestamp: entry.timestamp,

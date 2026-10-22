@@ -4,7 +4,7 @@ use super::*;
 use crate::authority::{
     budget::{OwnerUsage, owner_amount},
     chain::ClearScope,
-    model::{Accepted, Phase, RecoveryTriggers, RemoteOrigin, Source, Status},
+    model::{Accepted, Phase, RecoveryTriggers, RemoteOrigin, Source, Status, VerifiedScripts},
     notice::Class,
     tests::common::{
         config, delete, entry, insert, output_tx, spend, store_with_pipeline_limit,
@@ -177,7 +177,7 @@ impl Fixture {
             }
             Shape::Pending | Shape::Gap | Shape::Proposed => Phase::Accepted(Accepted {
                 transaction: Arc::clone(&self.resolved),
-                cycles: 19,
+                scripts: VerifiedScripts::Fixture(19),
                 fee: Capacity::shannons(11),
                 size: self.transaction.data().serialized_size_in_block(),
                 timestamp,
@@ -456,7 +456,7 @@ fn every_phase_and_source_pair_preserves_projections_and_rejects_stale_replay() 
     let parent = entry(&store, fixture.parent.clone(), Source::Local);
     let parent = parent.with_phase(Phase::Accepted(Accepted {
         transaction: Arc::new(ResolvedTransaction::dummy_resolve(fixture.parent.clone())),
-        cycles: 1,
+        scripts: VerifiedScripts::Fixture(1),
         fee: Capacity::shannons(1),
         size: fixture.parent.data().serialized_size_in_block(),
         timestamp: 0,

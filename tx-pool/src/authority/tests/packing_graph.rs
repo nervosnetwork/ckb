@@ -1,6 +1,6 @@
 //! Independent graph, greedy-policy and lifetime checks for compiled packing.
 use super::*;
-use crate::authority::model::{Entry, Phase, Source};
+use crate::authority::model::{Entry, Phase, Source, VerifiedScripts};
 use crate::error::Reject;
 use ckb_proposal_table::ProposalView;
 use ckb_test_chain_utils::MockStore;
@@ -44,7 +44,7 @@ pub(super) fn fixture(
             transaction: Arc::new(ResolvedTransaction::dummy_resolve(
                 transaction.as_ref().clone(),
             )),
-            cycles,
+            scripts: VerifiedScripts::Fixture(cycles),
             fee: Capacity::shannons(fee),
             size,
             timestamp: index as u64,
@@ -123,7 +123,7 @@ fn totals(owners: &[Arc<Entry>], package: &BTreeSet<usize>) -> (usize, u64, u64)
             let value = owners[*index].accepted().unwrap();
             (
                 bytes + value.size,
-                cycles + value.cycles,
+                cycles + value.scripts.cycles(),
                 fee + value.fee.as_u64(),
             )
         })
@@ -144,7 +144,7 @@ fn preference(
         let own = owners[index].accepted().unwrap();
         let (bytes, cycles, fee) = totals(owners, package);
         let package_weight = get_transaction_weight(bytes, cycles);
-        let own_weight = get_transaction_weight(own.size, own.cycles);
+        let own_weight = get_transaction_weight(own.size, own.scripts.cycles());
         let own_fee = own.fee.as_u64();
         let (fee, weight) = if u128::from(own_fee) * u128::from(package_weight)
             < u128::from(fee) * u128::from(own_weight)
@@ -199,7 +199,12 @@ fn reference_pack(
     let parents = semantic_parents(owners);
     let ordered = reference_order(owners, &parents);
     let mut queued: BTreeSet<_> = (0..owners.len())
-        .filter(|index| fits(totals(owners, &closure(*index, &parents)), limits))
+        .filter(|index| {
+            let package = closure(*index, &parents);
+            package.iter().all(|member| {
+                owners[*member].accepted().unwrap().forced_status == Some(Status::Proposed)
+            }) && fits(totals(owners, &package), limits)
+        })
         .collect();
     let mut selected = BTreeSet::new();
     let mut output = Vec::new();
@@ -330,6 +335,53 @@ fn compiled_packing_matches_stateless_policy_on_every_five_node_dag() {
 }
 
 #[test]
+fn mixed_proposal_phases_preserve_global_package_priority_in_every_four_vertex_dag() {
+    let snapshot = crate::test_support::genesis_snapshot();
+    for mask in 0..(1 << 6) {
+        for equal_fees in [false, true] {
+            let owners = fixture(&dag(4, mask), |index, size| {
+                (
+                    if equal_fees {
+                        size as u64 * 17
+                    } else {
+                        [1, 100_000, 60_000, 1_000_000][index]
+                    },
+                    1,
+                    index as u64,
+                )
+            });
+            for encoding in 0..81 {
+                let mut digits = encoding;
+                let mut phased: Vec<_> = owners
+                    .iter()
+                    .map(|owner| {
+                        let mut accepted = owner.accepted().unwrap().clone();
+                        accepted.forced_status =
+                            Some([Status::Pending, Status::Gap, Status::Proposed][digits % 3]);
+                        digits /= 3;
+                        owner.with_phase(Phase::Accepted(accepted))
+                    })
+                    .collect();
+                for reverse in [false, true] {
+                    if reverse {
+                        phased.reverse();
+                    }
+                    let selection = Selection::new(&phased, &snapshot, 4).unwrap();
+                    for cycles in [1, 3, u64::MAX] {
+                        let limits = TemplatePackingLimits::new(usize::MAX, cycles);
+                        assert_eq!(
+                            packed(&selection, limits, MAX_CONSECUTIVE_PACKING_FAILURES),
+                            reference_pack(&phased, limits, MAX_CONSECUTIVE_PACKING_FAILURES),
+                            "mask={mask} equal_fees={equal_fees} phases={encoding} reverse={reverse} cycles={cycles}"
+                        );
+                    }
+                }
+            }
+        }
+    }
+}
+
+#[test]
 fn already_selected_ancestors_still_determine_local_package_order() {
     let owners = fixture(
         &[vec![], vec![], vec![1], vec![0, 2], vec![1]],
@@ -386,7 +438,7 @@ fn overlapping_ancestor_closures_preserve_the_thousand_entry_boundary() {
             transaction: Arc::new(ResolvedTransaction::dummy_resolve(
                 transaction.as_ref().clone(),
             )),
-            cycles: index as u64 + 1,
+            scripts: VerifiedScripts::Fixture(index as u64 + 1),
             fee: Capacity::shannons(index as u64 + 1),
             size: transaction.data().serialized_size_in_block(),
             timestamp: index as u64,
@@ -507,7 +559,7 @@ fn budget_exhaustion_preserves_projected_arithmetic_rejection() {
         for index in 0..2 {
             change(&mut owners, index, |value| {
                 value.size = if bytes { usize::MAX / 2 + 1 } else { 1 };
-                value.cycles = if bytes { 1 } else { u64::MAX / 2 + 1 };
+                value.scripts = VerifiedScripts::Fixture(if bytes { 1 } else { u64::MAX / 2 + 1 });
             });
         }
         let selection = Selection::new(&owners, &snapshot, 2).unwrap();
@@ -556,7 +608,7 @@ fn conditional_eviction_ranks_match_independent_descendant_sets() {
                         value.status(&snapshot),
                         FeeRate::calculate(
                             value.fee,
-                            get_transaction_weight(value.size, value.cycles),
+                            get_transaction_weight(value.size, value.scripts.cycles()),
                         )
                         .max(FeeRate::calculate(
                             Capacity::shannons(fee),
@@ -622,7 +674,7 @@ fn conditional_eviction_clamps_wide_fees_and_rejects_resource_overflow() {
                 if bytes {
                     value.size = usize::MAX / 2;
                 } else {
-                    value.cycles = u64::MAX / 2 + 1;
+                    value.scripts = VerifiedScripts::Fixture(u64::MAX / 2 + 1);
                 }
             });
         }
@@ -682,7 +734,7 @@ fn compiled_graph_checks_limits_sources_cycles_and_arithmetic() {
         let mut overflow = owners[..2].to_vec();
         change(&mut overflow, 0, |value| match field {
             0 => value.size = usize::MAX,
-            1 => value.cycles = u64::MAX,
+            1 => value.scripts = VerifiedScripts::Fixture(u64::MAX),
             _ => value.fee = Capacity::shannons(u64::MAX),
         });
         assert!(matches!(

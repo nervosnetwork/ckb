@@ -7,6 +7,7 @@ use ckb_types::{
     core::{Capacity, Cycle, TransactionView, cell::ResolvedTransaction},
     packed::{Byte32, OutPoint, ProposalShortId},
 };
+use ckb_verification::cache::ScriptVerificationProof;
 use std::{
     collections::BTreeSet,
     fmt,
@@ -223,10 +224,37 @@ pub(super) struct Resolved {
     pub(super) pool_cells: BTreeSet<OutPoint>,
 }
 
+/// Retain the canonical script proof for the lifetime of an accepted owner.
+/// A bounded shared cache may evict it before the transaction reaches a block.
+#[derive(Clone, Copy, Debug)]
+pub(super) enum VerifiedScripts {
+    Vm(ScriptVerificationProof),
+    #[cfg(any(test, feature = "internal", feature = "packing-bench"))]
+    Fixture(Cycle),
+}
+
+impl VerifiedScripts {
+    pub(super) fn cycles(self) -> Cycle {
+        match self {
+            Self::Vm(proof) => proof.cycles(),
+            #[cfg(any(test, feature = "internal", feature = "packing-bench"))]
+            Self::Fixture(cycles) => cycles,
+        }
+    }
+
+    pub(super) fn proof(self) -> Option<ScriptVerificationProof> {
+        match self {
+            Self::Vm(proof) => Some(proof),
+            #[cfg(any(test, feature = "internal", feature = "packing-bench"))]
+            Self::Fixture(_) => None,
+        }
+    }
+}
+
 #[derive(Clone, Debug)]
 pub(super) struct Accepted {
     pub(super) transaction: Arc<ResolvedTransaction>,
-    pub(super) cycles: Cycle,
+    pub(super) scripts: VerifiedScripts,
     pub(super) fee: Capacity,
     pub(super) size: usize,
     pub(super) timestamp: u64,
@@ -240,7 +268,7 @@ impl Accepted {
     pub(super) fn projection(&self) -> TxEntry {
         TxEntry::new_with_timestamp(
             Arc::clone(&self.transaction),
-            self.cycles,
+            self.scripts.cycles(),
             self.fee,
             self.size,
             self.timestamp,
@@ -252,11 +280,17 @@ impl Accepted {
     }
 
     pub(super) fn status(&self, snapshot: &Snapshot) -> Status {
+        self.status_with(|| status(snapshot, &self.transaction.transaction.proposal_short_id()))
+    }
+
+    /// A captured population can share one proposal lookup. Synthetic fixtures
+    /// retain the same explicit override at every projection boundary.
+    pub(super) fn status_with(&self, canonical: impl FnOnce() -> Status) -> Status {
         #[cfg(any(test, feature = "internal"))]
         if let Some(status) = self.forced_status {
             return status;
         }
-        status(snapshot, &self.transaction.transaction.proposal_short_id())
+        canonical()
     }
 }
 

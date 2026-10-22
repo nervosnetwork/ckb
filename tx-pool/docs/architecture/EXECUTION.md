@@ -33,7 +33,7 @@ missing or spent dependencies instead of creating Waiting owners.
 | Resolve | Raw payload awaiting or undergoing canonical resolution |
 | Verify | Compact resolved cells, fee and original observations |
 | Waiting | Current missing cell keys; no VM capability |
-| Accepted | Verified cycles/fee, retained input cells, compact dependency identities and direct producer ancestry |
+| Accepted | Sealed script proof and current fee, retained input cells, compact dependency identities and direct producer ancestry |
 | Replaced | Optional transaction body with `BlockedDependencies` (all) or `RetryInputs` (any) |
 
 [Queue](../../src/authority/queue.rs) selection transfers an immutable owner and
@@ -90,9 +90,11 @@ have their own progress requirements, described below, and remain outside this g
 
 The transaction source selects a CPU-time budget only for network relay and
 proposal verification. Local RPC submission, test submission, dry-run and recovery
-have no time limit and use synchronous canonical verification through the existing
-blocking adapter. They pass the computation gate before starting and retain their
-work until verification returns. Network verification uses the controlled VM child
+have no time limit and use synchronous canonical verification. All sources use
+the execution mode granted by their computation permit: the admitted count leaves
+a runtime worker for controls, while a one-worker runtime hands computation off.
+They pass the computation gate before starting and retain their work until
+verification returns. Network verification uses the controlled VM child
 with pause/stop/join. Proposal promotion preserves local and recovery sources.
 
 Before accepting work, the pool calibrates the node's VM backend once per process.
@@ -123,6 +125,12 @@ Header/extension syscalls and cache identity share
 [`header_visible_origin`](../../../script/src/syscalls/mod.rs). Changes to this
 rule must preserve the independent syscall visibility and cache identity tests.
 Expanded dep-group members have cell-dep indexes; group containers do not.
+
+An Accepted owner retains its canonical script proof and derives cycles from that
+proof. Shared-cache eviction therefore does not erase the result while the
+transaction is waiting for proposal or block space. Internal fixtures carry only
+synthetic cycles and cannot publish a canonical proof. Recovery verifies again;
+neither persistence nor a declared cycle count can reconstruct this authority.
 
 The [pool executor](../../src/verification/execution.rs) shares one remaining
 CPU budget across ordinary VM groups and resumptions. Each task owns a scheduler
@@ -230,8 +238,9 @@ A blocked callback can therefore leave committed local work occupying every acti
 slot; queued verification then resumes when a caller settles. Reconciliation and
 publication do not acquire these compute slots.
 
-Accepted owners retain input cells, but reduce cell-dep and dep-group cells to
-identity/provenance fields. A selected Verify job keeps its full resolved owner
+Accepted owners retain input cells and an inline script proof, but reduce cell-dep
+and dep-group cells to identity/provenance fields. Retained-byte charges include the
+proof representation. A selected Verify job keeps its full resolved owner
 charge until replacement. Detached cell backing must remain shared through the
 resolver; a final owner check cannot bound an earlier duplicate allocation.
 Bounds include source/destination overlap, container capacity and concurrent producers.
@@ -397,6 +406,15 @@ separate, block-size-bounded LRU keyed by compact outpoints; a tip change clears
 it, and unknown results are cached too. Hits refresh recency. This preserves hot
 entries through same-tip churn but adds LRU maintenance to full scans.
 
+Before publishing, the driver attempts to refresh the shared script cache with
+the retained proofs of the final DAO-selected transactions. Proposal-only and
+filtered owners contribute no proofs. This temporary collection is bounded by
+the selected block contents and is released during publication. Cache contention
+skips the refresh without waiting or holding Store guards. A later block verifier
+still derives and checks the full semantic key; a miss or a changed origin/rule
+executes canonical verification. An unpublished stale template can leave valid
+proofs in this bounded cache, just as an admission attempt can.
+
 [Packing](../../src/authority/packing.rs) borrows the immutable accepted owners
 from that capture. One [compiled causal graph](../../src/authority/packing/graph.rs)
 supplies numeric parents, children, a topological order and exact ancestor totals.
@@ -432,7 +450,10 @@ package selection require these earlier readers, so block capacity can defer the
 spender while readers commit over several blocks. Causal ancestry and its fee
 aggregates remain separate from this block prerequisite graph.
 
-One preference-ordered topological pass supplies package order. Traversal stops
+One topological pass propagates proposal eligibility across every prerequisite
+and ranks only its complete Proposed closure. Ineligible ready entries bypass
+the priority heap; they cannot unlock an eligible entry, so the eligible order
+is the same as in a global preference-ordered pass. Package traversal stops
 at selected members or when a package exceeds remaining bytes/cycles; it can
 still inspect a wide reader fanout. Conditional cycles use complete causal
 package drops and a bounded fallback, reusing the causal graph for eviction totals.

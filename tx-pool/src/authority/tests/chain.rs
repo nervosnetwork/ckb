@@ -759,23 +759,26 @@ fn detached_header_requeues_its_dependent_owner_and_causal_children_only() {
 }
 
 #[test]
-fn script_hardfork_transition_requeues_the_current_accepted_proof_without_changing_payload() {
+fn script_rule_transition_rechecks_each_phase_only_when_the_next_block_changes_vm() {
     use ckb_chain_spec::consensus::ConsensusBuilder;
     use ckb_types::{
         U256,
         core::{EpochNumberWithFraction, hardfork::HardForks},
     };
     let hardfork = HardForks::new_mirana();
-    let boundary = hardfork.ckb2023.vm_version_2_and_syscalls_3();
+    let boundaries = [
+        hardfork.ckb2021.vm_version_1_and_syscalls_2(),
+        hardfork.ckb2023.vm_version_2_and_syscalls_3(),
+    ];
     let consensus = Arc::new(
         ConsensusBuilder::default()
             .hardfork_switch(hardfork)
             .build(),
     );
-    let at = |epoch| {
+    let at = |epoch, index| {
         let block = BlockBuilder::default()
             .number(1)
-            .epoch(EpochNumberWithFraction::new(epoch, 0, 1000))
+            .epoch(EpochNumberWithFraction::new(epoch, index, 1000))
             .build();
         let snapshot = Arc::new(Snapshot::new(
             block.header(),
@@ -787,24 +790,38 @@ fn script_hardfork_transition_requeues_the_current_accepted_proof_without_changi
         ));
         (block, snapshot)
     };
-    let (_, old_snapshot) = at(boundary - 1);
-    let store = Store::new(Arc::clone(&old_snapshot), &config()).unwrap();
-    let hash = accept(&store, output_tx(8603), 1, 1, Status::Pending);
-    let old = store.point(&hash).1.unwrap();
-    let (block, new_snapshot) = at(boundary);
-    assert_ne!(
-        ScriptVerificationRules::from_env(&consensus, &environment(Status::Pending, &old_snapshot)),
-        ScriptVerificationRules::from_env(&consensus, &environment(Status::Pending, &new_snapshot))
-    );
-    apply(
-        &store,
-        &ChainReorgArgs::for_test(Default::default(), [block].into(), new_snapshot),
-    );
-    let current = store.point(&hash).1.unwrap();
-    assert!(matches!(current.phase, Phase::Resolve));
-    assert_eq!(current.source, Source::Recovery);
-    assert!(Arc::ptr_eq(&old.transaction, &current.transaction));
-    assert!(!Arc::ptr_eq(&old, &current));
+    for boundary in boundaries {
+        for phase in [Status::Pending, Status::Gap, Status::Proposed] {
+            // Activation happens one block before the boundary for inflight
+            // work. Crossing the epoch itself then preserves the same proof.
+            // A rollback across activation must also recover the old owner.
+            for (before_epoch, before_index, epoch, index, changed) in [
+                (boundary - 1, 998, boundary - 1, 999, true),
+                (boundary - 1, 999, boundary, 0, false),
+                (boundary, 0, boundary - 1, 998, true),
+                (boundary, 0, boundary, 1, false),
+            ] {
+                let (_, old_snapshot) = at(before_epoch, before_index);
+                let store = Store::new(old_snapshot, &config()).unwrap();
+                let hash = accept(&store, output_tx(8603), 1, 1, phase);
+                let old = store.point(&hash).1.unwrap();
+                let (block, new_snapshot) = at(epoch, index);
+                apply(
+                    &store,
+                    &ChainReorgArgs::for_test(Default::default(), [block].into(), new_snapshot),
+                );
+                let current = store.point(&hash).1.unwrap();
+                assert!(Arc::ptr_eq(&old.transaction, &current.transaction));
+                if changed {
+                    assert!(matches!(current.phase, Phase::Resolve));
+                    assert_eq!(current.source, Source::Recovery);
+                    assert!(!Arc::ptr_eq(&old, &current));
+                } else {
+                    assert!(Arc::ptr_eq(&old, &current));
+                }
+            }
+        }
+    }
 }
 
 #[test]

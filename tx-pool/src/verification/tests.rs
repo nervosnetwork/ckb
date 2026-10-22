@@ -33,10 +33,10 @@ async fn stopped_verification_is_retryable_without_a_persistent_rejection() {
         None,
         u64::MAX,
         &mut command_rx,
-        Some(TxPoolVerificationBudget::new(
-            Duration::from_secs(1),
+        VerificationExecution::new(
+            Some(Duration::from_secs(1)),
             ComputeMode::YieldRuntimeWorker,
-        )),
+        ),
     )
     .await
     .unwrap_err();
@@ -169,7 +169,7 @@ fn transaction(lock: Script, programs: &[&'static [u8]]) -> Arc<ResolvedTransact
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn budgeted_verification_preserves_vm_versions_cycles_and_errors() {
+async fn local_and_budgeted_verification_preserve_vm_versions_cycles_and_errors() {
     let snapshot = snapshot(Arc::new(
         ConsensusBuilder::default()
             .hardfork_switch(HardForks::new_dev())
@@ -184,13 +184,23 @@ async fn budgeted_verification_preserves_vm_versions_cycles_and_errors() {
         ] {
             let rtx = program_transaction(version, &[program]);
             let verifier = TransactionScriptsVerifier::new(
-                rtx,
+                Arc::clone(&rtx),
                 snapshot.as_data_loader(),
                 snapshot.cloned_consensus(),
                 Arc::clone(&env),
             );
             for mode in [ComputeMode::Inline, ComputeMode::YieldRuntimeWorker] {
                 let expected = verifier.verify(u64::MAX);
+                let local = verify_rtx(
+                    Arc::clone(&snapshot),
+                    Arc::clone(&rtx),
+                    Arc::clone(&env),
+                    None,
+                    u64::MAX,
+                    &mut commands,
+                    VerificationExecution::new(None, mode),
+                )
+                .await;
                 let mut runner = execution::VmRunner {
                     command: &mut commands,
                     remaining: Duration::from_secs(2),
@@ -199,6 +209,7 @@ async fn budgeted_verification_preserves_vm_versions_cycles_and_errors() {
                 let actual = verifier.verify_with_runner(u64::MAX, &mut runner).await;
                 match expected {
                     Ok(cycles) => {
+                        assert_eq!(local.unwrap().cycles(), cycles);
                         assert_eq!(actual.unwrap(), Some(cycles));
                         ckb_error::assert_error_eq!(
                             verifier
@@ -208,7 +219,13 @@ async fn budgeted_verification_preserves_vm_versions_cycles_and_errors() {
                             verifier.verify(cycles - 1).unwrap_err(),
                         );
                     }
-                    Err(error) => ckb_error::assert_error_eq!(actual.unwrap_err(), error),
+                    Err(error) => {
+                        let Reject::Verification(local) = local.unwrap_err() else {
+                            panic!("local verification lost the canonical script error");
+                        };
+                        assert_eq!(local.to_string(), error.to_string());
+                        ckb_error::assert_error_eq!(actual.unwrap_err(), error);
+                    }
                 }
             }
         }

@@ -101,14 +101,16 @@ fn verify_dao_script_size(
     }
 }
 
+/// Execution admitted by the pool's computation gate. A missing CPU limit
+/// keeps canonical synchronous verification, with the same runtime capacity.
 #[derive(Clone, Copy, Debug)]
-pub(crate) struct TxPoolVerificationBudget {
-    cpu_time: std::time::Duration,
+pub(crate) struct VerificationExecution {
+    cpu_time: Option<std::time::Duration>,
     mode: ComputeMode,
 }
 
-impl TxPoolVerificationBudget {
-    pub(crate) const fn new(cpu_time: std::time::Duration, mode: ComputeMode) -> Self {
+impl VerificationExecution {
+    pub(crate) const fn new(cpu_time: Option<std::time::Duration>, mode: ComputeMode) -> Self {
         Self { cpu_time, mode }
     }
 }
@@ -120,7 +122,7 @@ pub(crate) async fn verify_rtx(
     cache_entry: Option<ScriptVerificationProof>,
     max_cycles: Cycle,
     command_rx: &mut watch::Receiver<ChunkCommand>,
-    budget: Option<TxPoolVerificationBudget>,
+    execution: VerificationExecution,
 ) -> Result<ScriptVerificationOutcome, Reject> {
     let consensus = snapshot.cloned_consensus();
     let data_loader = snapshot.as_data_loader();
@@ -128,19 +130,21 @@ pub(crate) async fn verify_rtx(
     verify_dao_script_size(&snapshot, Arc::clone(&rtx)).map_err(Reject::Verification)?;
     let verifier =
         ContextualTransactionVerifier::new(rtx, consensus, data_loader, Arc::clone(&tx_env));
-    match budget {
-        // Local submissions verify synchronously. Reuse the blocking boundary
-        // so this work cannot occupy the executor needed by chain controls.
-        None => block_offload(|| verifier.verify_scripts(max_cycles, cache_entry))
+    match execution.cpu_time {
+        // The admitted computation count leaves a worker for chain controls.
+        // A one-worker runtime yields its worker through the same mode.
+        None => execution
+            .mode
+            .run(|| verifier.verify_scripts(max_cycles, cache_entry))
             .map_err(Reject::Verification),
-        Some(budget) => verifier
+        Some(cpu_time) => verifier
             .verify_with_runner(
                 max_cycles,
                 cache_entry,
                 &mut execution::VmRunner {
                     command: command_rx,
-                    remaining: budget.cpu_time,
-                    mode: budget.mode,
+                    remaining: cpu_time,
+                    mode: execution.mode,
                 },
             )
             .await

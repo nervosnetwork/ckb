@@ -67,7 +67,7 @@ fn only_network_sources_select_a_time_budget() {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn dao_lock_size_is_checked_before_local_and_network_script_execution() {
-    use crate::verification::TxPoolVerificationBudget;
+    use crate::verification::VerificationExecution;
     use ckb_types::{
         core::{
             ScriptHashType, TransactionBuilder, cell::CellMetaBuilder, error::TransactionError,
@@ -107,16 +107,14 @@ async fn dao_lock_size_is_checked_before_local_and_network_script_execution() {
         resolved_dep_groups: vec![],
     });
     let env = Arc::new(environment(Status::Pending, &snapshot));
-    for budget in [
-        None,
-        Some(TxPoolVerificationBudget::new(
-            Duration::from_secs(1),
-            ComputeMode::Inline,
-        )),
-        Some(TxPoolVerificationBudget::new(
-            Duration::from_secs(1),
+    for execution in [
+        VerificationExecution::new(None, ComputeMode::Inline),
+        VerificationExecution::new(None, ComputeMode::YieldRuntimeWorker),
+        VerificationExecution::new(Some(Duration::from_secs(1)), ComputeMode::Inline),
+        VerificationExecution::new(
+            Some(Duration::from_secs(1)),
             ComputeMode::YieldRuntimeWorker,
-        )),
+        ),
     ] {
         let (_sender, mut commands) = watch::channel(ChunkCommand::Resume);
         // No script deps and no VM cycles are available. Reaching script
@@ -128,7 +126,7 @@ async fn dao_lock_size_is_checked_before_local_and_network_script_execution() {
             None,
             0,
             &mut commands,
-            budget,
+            execution,
         )
         .await
         .unwrap_err();
@@ -180,6 +178,7 @@ async fn canonical_vm_success_produces_witness_bound_cache_proof_and_current_fee
     .await
     .unwrap();
     assert_eq!(second.cycles(), first.cycles());
+    assert_eq!(second.scripts().proof(), first.scripts().proof());
     let changed = candidate
         .transaction
         .as_ref()

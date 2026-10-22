@@ -60,9 +60,7 @@ impl<'a> Candidate<'a> {
             .filter_map(|owner| {
                 owner.accepted().map(|accepted| {
                     let proposal = owner.transaction.proposal_short_id_reader();
-                    let phase = status(proposal);
-                    #[cfg(any(test, feature = "internal"))]
-                    let phase = accepted.forced_status.unwrap_or(phase);
+                    let phase = accepted.status_with(|| status(proposal));
                     Candidate {
                         hash: owner.transaction.hash_ref(),
                         proposal,
@@ -282,7 +280,7 @@ impl PackageAggregate {
         Self {
             entries: 1,
             serialized_bytes: candidate.accepted.size,
-            cycles: candidate.accepted.cycles,
+            cycles: candidate.accepted.scripts.cycles(),
             fee: candidate.accepted.fee,
         }
     }
@@ -325,7 +323,10 @@ fn package_order_key<'a>(
         TransactionPriority {
             score: AncestorsScoreSortKey {
                 fee: candidate.accepted.fee,
-                weight: get_transaction_weight(candidate.accepted.size, candidate.accepted.cycles),
+                weight: get_transaction_weight(
+                    candidate.accepted.size,
+                    candidate.accepted.scripts.cycles(),
+                ),
                 ancestors_fee: aggregate.fee,
                 ancestors_weight: get_transaction_weight(
                     aggregate.serialized_bytes,
