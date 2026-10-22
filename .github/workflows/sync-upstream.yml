@@ -1,4 +1,9 @@
-# Fast-forwards this private repo's develop to nervosnetwork/ckb develop when it is strictly behind.
+# Keeps this private repo's develop in sync with nervosnetwork/ckb develop.
+#
+# - Strictly behind (no private-only commits): fast-forward, no extra commit.
+# - Diverged (private commits present): rebase the private commits onto upstream/develop and
+#   force-push, because a fast-forward is impossible without rewriting history anyway.
+# - Rebase conflicts: abort, leave develop untouched, and open an issue for a human.
 name: Sync upstream develop
 
 on:
@@ -9,6 +14,10 @@ on:
 permissions:
   contents: write
   issues: write
+
+concurrency:
+  group: sync-upstream
+  cancel-in-progress: false
 
 jobs:
   sync-upstream:
@@ -43,6 +52,7 @@ jobs:
           echo "develop is behind by $BEHIND and ahead by $AHEAD commit(s)."
           echo "behind=$BEHIND" >> "$GITHUB_OUTPUT"
           echo "ahead=$AHEAD" >> "$GITHUB_OUTPUT"
+          echo "original=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
 
       # Strictly behind (no private-only commits): fast-forward, so no extra commit is created.
       - name: Fast-forward develop to upstream
@@ -51,15 +61,50 @@ jobs:
           git merge --ff-only upstream/develop
           git push origin HEAD:develop
 
-      # Diverged: a fast-forward is impossible without rewriting shared history, so hand off to a human.
-      - name: Open divergence issue
+      # Diverged: replay the private commits on top of upstream/develop. Only history this
+      # workflow itself cannot be fast-forwarded is rewritten, i.e. the private commits.
+      - name: Rebase develop onto upstream
+        id: rebase
         if: steps.compare.outputs.behind != '0' && steps.compare.outputs.ahead != '0'
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          if git rebase upstream/develop; then
+            echo "status=rebased" >> "$GITHUB_OUTPUT"
+          else
+            git rebase --abort
+            echo "status=conflict" >> "$GITHUB_OUTPUT"
+            echo "::warning::rebase onto upstream/develop conflicts; develop left untouched."
+          fi
+
+      - name: Push rebased develop
+        if: steps.rebase.outputs.status == 'rebased'
+        run: |
+          git push \
+            --force-with-lease=refs/heads/develop:${{ steps.compare.outputs.original }} \
+            origin HEAD:refs/heads/develop
+
+      - name: Close stale divergence issue
+        if: steps.rebase.outputs.status == 'rebased'
         env:
           GH_TOKEN: ${{ steps.app-token.outputs.token }}
         run: |
-          echo "::warning::develop diverged from upstream (behind ${{ steps.compare.outputs.behind }}, ahead ${{ steps.compare.outputs.ahead }}); manual rebase or merge needed."
-          if [ -z "$(gh issue list --state open --search 'Upstream sync needs manual rebase/merge in:title' --json number --jq '.[].number')" ]; then
+          for NUMBER in $(gh issue list --state open --search 'Upstream sync needs manual rebase in:title' --json number --jq '.[].number'); do
+            gh issue close "$NUMBER" --comment 'develop was rebased onto upstream/develop automatically; closing.'
+          done
+
+      # Rebase conflicted: a human has to resolve it, so record it once.
+      - name: Open divergence issue
+        if: steps.rebase.outputs.status == 'conflict'
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+        run: |
+          echo "::warning::develop cannot be rebased onto upstream/develop (behind ${{ steps.compare.outputs.behind }}, ahead ${{ steps.compare.outputs.ahead }}); manual resolution needed."
+          if [ -z "$(gh issue list --state open --search 'Upstream sync needs manual rebase in:title' --json number --jq '.[].number')" ]; then
             gh issue create \
-              --title 'Upstream sync needs manual rebase/merge' \
-              --body "develop is behind upstream by ${{ steps.compare.outputs.behind }} commit(s) and has ${{ steps.compare.outputs.ahead }} private commit(s), so an automatic fast-forward isn't possible. Rebase the private commits onto upstream/develop (linear history, force-push) or merge upstream/develop in, then close this issue."
+              --title 'Upstream sync needs manual rebase' \
+              --body "develop is behind upstream by ${{ steps.compare.outputs.behind }} commit(s) and has ${{ steps.compare.outputs.ahead }} private commit(s). The automatic rebase onto upstream/develop conflicted, so develop was left untouched. Resolve the conflict locally (\`git rebase upstream/develop\`), or merge upstream/develop in, then push and close this issue." \
+              --assignee '${{ github.actor }}' || gh issue create \
+              --title 'Upstream sync needs manual rebase' \
+              --body "develop is behind upstream by ${{ steps.compare.outputs.behind }} commit(s) and has ${{ steps.compare.outputs.ahead }} private commit(s). The automatic rebase onto upstream/develop conflicted, so develop was left untouched. Resolve the conflict locally (\`git rebase upstream/develop\`), or merge upstream/develop in, then push and close this issue."
           fi
