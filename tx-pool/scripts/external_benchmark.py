@@ -70,6 +70,7 @@ def configure_seed(node, config):
     path = node / "ckb.toml"
     contents = path.read_text()
     parsed = tomllib.loads(contents)
+    require(parsed.get("data_dir") == "data", "dev seed requires its owned relative data_dir = data")
     spec = parsed["chain"]["spec"]
     require(spec == {"file": "specs/dev.toml"}
             and tomllib.loads((node / "specs/dev.toml").read_text())["pow"]["func"] == "Dummy",
@@ -238,8 +239,6 @@ def run_owned(config, output):
         save(output / "child-shutdown.json", stopped)
         if node is not None:
             save(output / "node-usage.json", stop_node(node))
-        if (node_dir / "logs").exists():
-            shutil.copytree(node_dir / "logs", output / "node-logs")
 
 
 def corpus_identity(path):
@@ -255,13 +254,39 @@ def artifacts(output):
             and "node-data" not in path.relative_to(output).parts}
 
 
+def validate_node_logs(output):
+    logger = tomllib.loads((output / "ckb.toml").read_text()).get("logger", {})
+    if logger.get("log_to_file", False):
+        require((output / "node-logs/run.log").is_file(), "configured node file log was not retained")
+
+
+def finish_capture(output, receipt):
+    """Archive evidence after the owned group stops, before deleting its database."""
+    node_dir = output / "node-data"
+    try:
+        logs = node_dir / "data/logs"
+        if logs.is_dir():
+            shutil.copytree(logs, output / "node-logs")
+        if receipt["state"] == "complete":
+            validate_node_logs(output)
+    except BaseException as error:
+        receipt.update(state="failed", log_retention_error=f"{type(error).__name__}: {error}")
+        raise
+    finally:
+        receipt["artifacts"] = artifacts(output)
+        save(output / "receipt.json", receipt)
+    # A failed archive leaves the complete source directory available for repair.
+    if node_dir.exists():
+        shutil.rmtree(node_dir)
+
+
 def capture(config, output):
     validate_config(config)
     require(all(not output.resolve().is_relative_to(Path(config[name]).resolve()) for name in ("root", "seed")),
             "capture artifacts must be outside the source checkout and frozen seed")
     output.mkdir(parents=True, exist_ok=False)
     save(output / "config.json", config)
-    receipt = {"schema": 1, "contract": "fixed_corpus_observed_confirmation_v1", "state": "preparing", "config": config}
+    receipt = {"schema": 1, "contract": "fixed_corpus_observed_confirmation_v2", "state": "preparing", "config": config}
     save(output / "receipt.json", receipt)
     try:
         bench_build = json.loads(Path(config["bench_build"]).read_text())
@@ -305,19 +330,16 @@ def capture(config, output):
         receipt["error"] = f"{type(error).__name__}: {error}"
         raise
     finally:
-        receipt["artifacts"] = artifacts(output)
-        save(output / "receipt.json", receipt)
-        # Only the copy made in this fresh capture directory is disposable.
-        if (output / "node-data").exists():
-            shutil.rmtree(output / "node-data")
+        finish_capture(output, receipt)
     return receipt
 
 
 def replay(output):
     receipt = json.loads((output / "receipt.json").read_text())
-    require(receipt.get("schema") == 1 and receipt.get("contract") == "fixed_corpus_observed_confirmation_v1"
+    require(receipt.get("schema") == 1 and receipt.get("contract") == "fixed_corpus_observed_confirmation_v2"
             and receipt.get("state") == "complete", "capture is incomplete or unsupported")
     require(artifacts(output) == receipt["artifacts"], "capture artifacts changed")
+    validate_node_logs(output)
     require(json.loads((output / "config.json").read_text()) == receipt["config"], "saved configuration differs")
     validate_config(receipt["config"])
     corpus = Path(receipt["config"]["corpus"])

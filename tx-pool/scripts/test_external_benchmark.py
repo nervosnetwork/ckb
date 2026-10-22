@@ -1,4 +1,5 @@
 import copy
+import json
 import os
 import signal
 import subprocess
@@ -6,11 +7,21 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
-from external_benchmark import capture, external_build, stop_node, validate_shutdown, validate_usage
+from external_benchmark import (capture, configure_seed, external_build, finish_capture, stop_node,
+                                validate_node_logs, validate_shutdown, validate_usage)
 
 
 class CaptureQualificationTests(unittest.TestCase):
+    def test_seed_cannot_redirect_node_data_outside_its_owned_copy(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            node = Path(temporary)
+            for value in ("/tmp/shared-node", "../other-node", "alternate"):
+                (node / "ckb.toml").write_text(f'data_dir = "{value}"\n')
+                with self.assertRaisesRegex(ValueError, "owned relative data_dir"):
+                    configure_seed(node, {})
+
     def test_capture_cannot_write_into_its_frozen_inputs(self):
         with tempfile.TemporaryDirectory() as temporary:
             directory = Path(temporary).resolve()
@@ -59,6 +70,62 @@ class CaptureQualificationTests(unittest.TestCase):
             changed[name][field] = value
             with self.assertRaises(ValueError):
                 validate_shutdown(changed)
+
+
+class CaptureLogRetentionTests(unittest.TestCase):
+    def setUp(self):
+        temporary = tempfile.TemporaryDirectory()
+        self.addCleanup(temporary.cleanup)
+        self.output = Path(temporary.name)
+        (self.output / "ckb.toml").write_text('[logger]\nlog_to_file = true\n')
+        self.node = self.output / "node-data"
+        logs = self.node / "data/logs"
+        logs.mkdir(parents=True)
+        (logs / "run.log").write_text("complete node diagnostics\n")
+
+    def test_archives_actual_data_logs_before_disposal_and_binds_their_hashes(self):
+        receipt = {"state": "complete"}
+        finish_capture(self.output, receipt)
+        self.assertFalse(self.node.exists())
+        self.assertEqual((self.output / "node-logs/run.log").read_text(), "complete node diagnostics\n")
+        self.assertIn("node-logs/run.log", receipt["artifacts"])
+        self.assertEqual(json.loads((self.output / "receipt.json").read_text()), receipt)
+        validate_node_logs(self.output)
+        (self.output / "node-logs/run.log").unlink()
+        with self.assertRaisesRegex(ValueError, "file log was not retained"):
+            validate_node_logs(self.output)
+
+    def test_failed_workload_still_archives_diagnostics_and_retains_original_error(self):
+        receipt = {"state": "failed", "error": "original executor deadline"}
+        finish_capture(self.output, receipt)
+        self.assertEqual(receipt["error"], "original executor deadline")
+        self.assertIn("node-logs/run.log", receipt["artifacts"])
+        self.assertFalse(self.node.exists())
+
+    def test_missing_file_log_fails_capture_and_keeps_the_source_directory(self):
+        (self.node / "data/logs/run.log").unlink()
+        receipt = {"state": "complete"}
+        with self.assertRaisesRegex(ValueError, "file log was not retained"):
+            finish_capture(self.output, receipt)
+        self.assertTrue(self.node.exists())
+        self.assertEqual(receipt["state"], "failed")
+        self.assertIn("log_retention_error", receipt)
+
+    def test_archive_failure_or_cancellation_keeps_the_complete_node_copy(self):
+        for failure in (OSError("copy failed"), KeyboardInterrupt()):
+            with self.subTest(failure=type(failure).__name__):
+                receipt = {"state": "failed", "error": "original workload failure"}
+                with mock.patch("external_benchmark.shutil.copytree", side_effect=failure):
+                    with self.assertRaises(type(failure)):
+                        finish_capture(self.output, receipt)
+                self.assertEqual(receipt["state"], "failed")
+                self.assertEqual(receipt["error"], "original workload failure")
+                self.assertTrue((self.node / "data/logs/run.log").is_file())
+                self.assertIn("log_retention_error", receipt)
+
+    def test_stdout_only_configuration_does_not_require_a_file_logger(self):
+        (self.output / "ckb.toml").write_text('[logger]\nlog_to_stdout = true\n')
+        validate_node_logs(self.output)
 
 
 @unittest.skipUnless(os.name == "posix", "node resource ownership uses POSIX wait4")

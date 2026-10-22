@@ -518,7 +518,11 @@ exact unique corpus to appear in a continuous canonical prefix, a final canonica
 hash check, and an empty pool aligned with the node tip. Forks, refusals, duplicate
 confirmations, deadlines and abnormal process exits fail the capture. Failed
 attempts retain partial native records and logs. Owned process groups bound
-cancellation; only each run's fresh database copy is deleted.
+cancellation. The dev seed must use the owned relative `data_dir = "data"`.
+After the process group stops, capture archives `data/logs` before recording
+artifact hashes and deleting the fresh database copy. A configured file logger
+must leave a retained `run.log`; missing logs fail both capture and replay. If
+archiving fails, the original node directory remains available for recovery.
 
 Every transaction records monotonic submission and RPC completion. Each observed
 block records a visibility interval: the start of the last tip RPC excluding it
