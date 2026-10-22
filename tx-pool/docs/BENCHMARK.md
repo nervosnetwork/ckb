@@ -456,6 +456,119 @@ cargo clippy -p ckb-tx-pool --all-targets --features packing-bench -- -D warning
 python3 -m unittest discover -s tx-pool/scripts -p test_packing_benchmark.py
 ```
 
+## Fixed-corpus external confirmation
+
+`profile_one_shot external-corpus` produces finite, independent, presigned
+1in1out or 2in2out transactions from an exported local development chain. Each
+input has a distinct secp signing group; each pays 10,000 shannons. The producer
+uses the public deterministic key-chain convention of `ckb-bench`, selects live
+empty-data cells with no type script, and never overwrites a corpus. This is a
+development fixture, not a wallet or a mainnet load generator.
+
+Freeze a stopped Dummy-PoW node directory after funding. Export its canonical
+blocks before starting any miner, using a fixture JSON with `seed_key`, `users`,
+`lock_code_hash` and JSON-RPC `cell_dep` fields. Build the uninstrumented prod
+executor with [benchmark_build.py](../scripts/benchmark_build.py), as above:
+
+```sh
+python3 tx-pool/scripts/external_benchmark.py export-funding \
+  http://127.0.0.1:35110 /tmp/fixture.json /tmp/funding.json
+/absolute/path/to/profile_one_shot external-corpus \
+  /tmp/funding.json /tmp/1in.jsonl 40000 1
+/absolute/path/to/profile_one_shot external-corpus \
+  /tmp/funding.json /tmp/2in.jsonl 40000 2
+```
+
+The corpus contains the exact signed bytes, transaction order, genesis/tip and
+length-prefixed packed-byte digest. Counts are 1–65,536, subject to available
+independent cells. The reader rejects duplicate hashes/inputs, dependent
+transactions, changed witnesses, wrong shape, digest mismatch and truncation.
+Both node versions must consume the **same corpus file and stopped seed**.
+
+[external_benchmark.py](../scripts/external_benchmark.py) accepts a JSON config
+with exactly these fields:
+
+| Fields | Meaning |
+|---|---|
+| `root`, `bench`, `bench_build` | Absolute frozen checkout, executor and Cargo receipt paths |
+| `node`, `node_build`, `miner`, `miner_build` | Absolute executables and producer build receipts |
+| `seed`, `corpus` | Absolute stopped node directory and signed JSONL corpus |
+| `workers`, `concurrency` | Node verify workers and bounded simultaneous submission RPCs |
+| `poll_ms`, `mine_ms`, `timeout_s`, `rpc_port` | Observer/miner intervals, deadline and dedicated local RPC port; P2P uses the next port |
+
+Node receipts bind `sha256`, clean Git `base`/`status`/`patch`, the `command`
+array with `--locked --profile prod`, and Cargo `artifact.target.name=ckb` plus
+`artifact.profile.debug_assertions=false`. Miner receipts bind `sha256`,
+`source_sha`, the complete `patch` string and locked-build `command` array.
+Retain their toolchain, features, build flags and original build output when
+comparing versions; the receipt cannot prove a build that was not recorded.
+
+```sh
+python3 tx-pool/scripts/external_benchmark.py capture /tmp/fixed-config.json /tmp/fixed-run
+python3 tx-pool/scripts/external_benchmark.py replay /tmp/fixed-run
+```
+
+Capture verifies the seed copy, binaries and build identities, starts one node,
+waits for the executor to verify the empty pool and exact tip, then starts the
+frozen miner and releases submission. The native executor prepares RPC bodies
+before timing, runs two Tokio threads and disables HTTP connection retries.
+Opening submission connections remains inside the timed window. A successful
+run requires all RPCs to return the expected hashes, the
+exact unique corpus to appear in a continuous canonical prefix, a final canonical
+hash check, and an empty pool aligned with the node tip. Forks, refusals, duplicate
+confirmations, deadlines and abnormal process exits fail the capture. Failed
+attempts retain partial native records and logs. Owned process groups bound
+cancellation; only each run's fresh database copy is deleted.
+
+Every transaction records monotonic submission and RPC completion. Each observed
+block records a visibility interval: the start of the last tip RPC excluding it
+through the end of the first block-body RPC containing it. The transaction's
+lower bound is also no earlier than its submission. These are **observation
+bounds, not node commit timestamps**. Report their widths with confirmation TPS
+and latency bounds. Windows below one second are functional evidence only.
+CPU and peak RSS come from `wait4` for the whole node lifetime, including startup,
+drain and shutdown; do not label them as CPU inside the confirmation window.
+
+Freeze load/miner settings, source/build identities, observation bounds, paired
+AB/BA schedule, repetition counts and an A/A equivalence rule before collecting
+performance samples. Run without concurrent builds or other measurements. A/A
+noise or unresolved completion gates prevent ranking; retain descriptive results
+and failures without substituting another endpoint or discarding slow samples.
+
+## Real chain-transition measurements
+
+`profile_one_shot chain-transition` drives the production controller with real
+attached/detached cell state in `MockStore`. It uses trusted synthetic blocks;
+storage preparation, PoW and full-block consensus verification are outside the
+window. This isolates reconciliation and its required ordered publication.
+
+| Mode | Work and checks |
+|---|---|
+| `roundtrip COUNT ROOTS WORKERS` | Complete depth-four forests; pending → gap → proposed, commit roots, pause and detach roots with descendant recovery, resume verification, roll proposals back. Exact accepted/proposed sets, affected closure and callback generations are checked. Count 4–65,536, divisible by four; 1–1,024 roots, bounded by forest size. |
+| `recovery-pressure COUNT WORKERS` | 1,100–2,048 independent transactions with 256 KiB witnesses, committed two per block. Detach all while paused, inspect the exact bounded retained set, then require the accepted/capacity-refused partition and serialized pool bound. |
+
+Workers are 1–64. Recovery completion waits for callback notifications and durable
+queue/membership predicates, including publication of capacity victims. It has a
+separate resume-to-completion clock. No busy polling is included in that clock.
+Per-stage wall/CPU observations include controller acknowledgment and required
+callbacks; whole-process resource observations include setup and shutdown.
+
+```sh
+python3 tx-pool/scripts/chain_benchmark.py capture \
+  --root /absolute/path/to/frozen-checkout --build-receipt /tmp/profile-build.json \
+  --mode roundtrip --count 16000 --roots 128 --workers 13 --output /tmp/chain-roundtrip
+python3 tx-pool/scripts/chain_benchmark.py capture \
+  --root /absolute/path/to/frozen-checkout --build-receipt /tmp/profile-build.json \
+  --mode recovery-pressure --count 1100 --workers 13 --output /tmp/chain-pressure
+python3 tx-pool/scripts/chain_benchmark.py replay /tmp/chain-roundtrip
+```
+
+Replay checks raw-log hashes, build identity, stage order, real block deltas,
+restored tip identity and exact recovery sets. Controller stages below one
+millisecond remain functional evidence. Compare equal fixture digests and a frozen
+balanced process schedule; the pressure terminal partition can vary with worker
+completion order, so validate each partition instead of requiring identical victims.
+
 ## Maintenance gates
 
 ### Calibration observations

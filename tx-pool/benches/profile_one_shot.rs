@@ -2,6 +2,9 @@
 
 mod allocation_observation;
 #[cfg(not(feature = "cross-version-legacy-bench-adapter"))]
+mod chain_transition;
+mod external;
+#[cfg(not(feature = "cross-version-legacy-bench-adapter"))]
 mod rbf_pressure;
 mod rejection_diagnostics;
 mod scenario;
@@ -1948,7 +1951,17 @@ fn expected_unknown_parents(
 }
 
 fn main() -> BenchResult<()> {
+    if let Some(result) = external::command(std::env::args().skip(1).collect()) {
+        return result;
+    }
     let capture = rejection_diagnostics::install()?;
+    #[cfg(not(feature = "cross-version-legacy-bench-adapter"))]
+    if std::env::args().nth(1).as_deref() == Some("chain-transition") {
+        chain_transition::run(std::env::args().skip(2).collect())?;
+    } else {
+        run()?;
+    }
+    #[cfg(feature = "cross-version-legacy-bench-adapter")]
     run()?;
     drop(capture);
     rejection_diagnostics::check()?;
