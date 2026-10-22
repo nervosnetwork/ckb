@@ -82,6 +82,7 @@ fn build_tx_data_with_loader(
             lock_groups: BTreeMap::default(),
             type_groups: BTreeMap::default(),
             outputs: Vec::new(),
+            script_hash_cache: Default::default(),
         }),
     }
 }
@@ -101,6 +102,32 @@ pub(crate) fn build_sg_data_with_loader(
     output_indices: Vec<usize>,
 ) -> SgData<MockDataLoader> {
     let tx_data = build_tx_data_with_loader(rtx, data_loader);
+    build_sg_data_from_tx_data(tx_data, input_indices, output_indices)
+}
+
+/// Builds SgData from a TxData created by `TxData::new`, so derived
+/// information such as the script hash cache is populated as in production.
+pub(crate) fn build_sg_data_with_derived_tx_info(
+    rtx: Arc<ResolvedTransaction>,
+    input_indices: Vec<usize>,
+    output_indices: Vec<usize>,
+) -> SgData<MockDataLoader> {
+    let consensus = ConsensusBuilder::default().build();
+    let tx_env = TxVerifyEnv::new_commit(&HeaderBuilder::default().build());
+    let tx_data = TxData::new(
+        rtx,
+        new_mock_data_loader(),
+        Arc::new(consensus),
+        Arc::new(tx_env),
+    );
+    build_sg_data_from_tx_data(tx_data, input_indices, output_indices)
+}
+
+fn build_sg_data_from_tx_data(
+    tx_data: TxData<MockDataLoader>,
+    input_indices: Vec<usize>,
+    output_indices: Vec<usize>,
+) -> SgData<MockDataLoader> {
     let script_group = ScriptGroup {
         script: Script::default(),
         group_type: ScriptGroupType::Lock,
