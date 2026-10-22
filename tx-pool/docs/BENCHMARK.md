@@ -547,9 +547,13 @@ window. This isolates reconciliation and its required ordered publication.
 | `roundtrip COUNT ROOTS WORKERS` | Complete depth-four forests; pending → gap → proposed, commit roots, pause and detach roots with descendant recovery, resume verification, roll proposals back. Exact accepted/proposed sets, affected closure and callback generations are checked. Count 4–65,536, divisible by four; 1–1,024 roots, bounded by forest size. |
 | `recovery-pressure COUNT WORKERS` | 1,100–2,048 independent transactions with 256 KiB witnesses, committed two per block. Detach all while paused, inspect the exact bounded retained set, then require the accepted/capacity-refused partition and serialized pool bound. |
 
-Workers are 1–64. Recovery completion waits for callback notifications and durable
-queue/membership predicates, including publication of capacity victims. It has a
-separate resume-to-completion clock. No busy polling is included in that clock.
+Workers are 1–64. Recovery completion waits for callback and committed-refusal
+notifications, durable queue/membership predicates and publication of capacity
+victims. Candidates refused before acceptance have no reject callback; the streamed
+committed-refusal count includes them. Replay requires the complete logged refusal
+hash set to match the retained-but-unaccepted set, without duplicates or non-capacity
+refusals. It has a separate resume-to-completion clock. No busy polling is included
+in that clock.
 Per-stage wall/CPU observations include controller acknowledgment and required
 callbacks; whole-process resource observations include setup and shutdown.
 

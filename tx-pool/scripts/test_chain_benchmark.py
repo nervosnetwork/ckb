@@ -36,6 +36,13 @@ def example(pressure=False):
     if not pressure:
         records.append(("CHAIN_SAMPLE", samples[-1]))
     records.append(("CHAIN_COMPLETE", {"schema": 1, "validated": True}))
+    for index, tx_hash in enumerate(recovery["refused"]):
+        records.append(("BENCH_REJECTION", {"schema": 1, "event": "committed_rejection", "hash": tx_hash,
+                        "reason": 'Full("pipeline")' if index == 0 else 'Full("size")',
+                        "stage": "resolve" if index == 0 else "policy", "source": "recovery" if index == 0 else None,
+                        "peer": None, "resource_observation": "rejection_preparation", "accounts": []}))
+    records.append(("BENCH_REJECTION_CAPTURE", {"schema": 1, "logger": "rejections_and_warnings_v1",
+                    "records": len(recovery["refused"]), "service_records": 0, "write_failed": False}))
     return options, records
 
 
@@ -73,7 +80,7 @@ class ChainObservationTests(unittest.TestCase):
             lambda r: r[5][1].update(retained=r[5][1]["retained"][:-1]),
             lambda r: r[5][1].update(accepted=r[5][1]["accepted"][:-1]),
             lambda r: r[5][1].update(offered=r[5][1]["offered"] + ["a" * 64]),
-            lambda r: r[-1][1].update(validated=False),
+            lambda r: r[-2][1].update(validated=False),
             lambda r: r[0][1].update(profiling=True),
             lambda r: r[2][1].update(scope="enqueue_only"),
         ):
@@ -93,6 +100,29 @@ class ChainObservationTests(unittest.TestCase):
             mutation(records[2][1])
             with self.assertRaises(ValueError):
                 parse(log(records), options)
+
+    def test_pressure_requires_complete_unique_capacity_refusal_evidence(self):
+        for mutation in (
+            lambda r: r.pop(4),
+            lambda r: r[4][1].update(hash=r[2][1]["accepted"][0]),
+            lambda r: r[5][1].update(hash=r[4][1]["hash"]),
+            lambda r: r[4][1].update(reason="Invalid transaction"),
+        ):
+            options, records = copy.deepcopy(example(True))
+            mutation(records)
+            records[-1][1]["records"] = sum(prefix == "BENCH_REJECTION" for prefix, _ in records)
+            with self.assertRaisesRegex(ValueError, "committed capacity refusals"):
+                parse(log(records), options)
+
+    def test_missing_capture_or_unexpected_roundtrip_refusal_fails_closed(self):
+        options, records = example()
+        with self.assertRaises(ValueError):
+            parse(log(records[:-1]), options)
+        _, pressure = example(True)
+        records.insert(-1, pressure[4])
+        records[-1][1]["records"] = 1
+        with self.assertRaisesRegex(ValueError, "unexpected policy rejection"):
+            parse(log(records), options)
 
 
 if __name__ == "__main__":

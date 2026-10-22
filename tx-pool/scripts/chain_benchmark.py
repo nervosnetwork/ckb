@@ -12,6 +12,7 @@ from pathlib import Path
 from benchmark_build import binary_record, git_record, host_identity, load_build, sha256, validate_build
 from cross_version_benchmark import RESOURCE_RESULT, harness_bundle
 from measurement_process import run_process
+from rejection_diagnostics import validate_success
 
 
 def require(condition, message):
@@ -36,6 +37,7 @@ def parse(output, options, *, minimum_sample_ns=1_000_000):
                     and record["schema"] == 1, "unsupported chain observation schema")
             records.append((prefix, record))
     pressure = options[0] == "recovery-pressure"
+    rejections = validate_success(output, allow_rejections=pressure)
     count, workers = int(options[1]), int(options[-1])
     expected_order = (["CHAIN_CORPUS", "CHAIN_SAMPLE", "CHAIN_RECOVERY", "CHAIN_COMPLETE"] if pressure else
                       ["CHAIN_CORPUS"] + ["CHAIN_SAMPLE"] * 4 + ["CHAIN_RECOVERY", "CHAIN_SAMPLE", "CHAIN_COMPLETE"])
@@ -84,6 +86,9 @@ def parse(output, options, *, minimum_sample_ns=1_000_000):
                 and accepted | refused == retained, "bounded recovery terminals differ from retained input")
         require(type(recovery.get("serialized_bytes")) is int and type(recovery.get("serialized_limit")) is int
                 and 0 < recovery["serialized_bytes"] <= recovery["serialized_limit"], "accepted recovery exceeded its byte bound")
+        require(len(rejections) == len(refused) and {event["hash"] for event in rejections} == refused
+                and all(event["reason"].startswith('Full("') and event["reason"].endswith('")') for event in rejections),
+                "committed capacity refusals differ from the exact recovery terminal set")
     else:
         require(recovery.get("stage") == "recover_detached_roots_and_descendants"
                 and offered == set(corpus["transaction_hashes"][:4 * roots]) and retained == offered
@@ -113,7 +118,8 @@ def capture(root, build_path, supplied, output, options, timeout):
         binary, build = load_build(build_path, root, "profile_one_shot", build["features"], supplied)
         receipt.update({"binary": binary, "build": build, "harness": harness_bundle(root), "host": host_identity(),
                         "tools": {name: sha256(Path(__file__).with_name(name)) for name in
-                                  ("chain_benchmark.py", "benchmark_build.py", "measurement_process.py", "cross_version_benchmark.py")}})
+                                  ("chain_benchmark.py", "benchmark_build.py", "measurement_process.py", "cross_version_benchmark.py",
+                                   "rejection_diagnostics.py", "measurement_observation.py")}})
         command = [sys.executable, str(Path(__file__).with_name("cross_version_benchmark.py")),
                    "__measure_child__", binary["path"], "chain-transition", *options]
         receipt.update({"state": "running", "command": command})

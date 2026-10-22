@@ -270,13 +270,18 @@ fn wait_recovery(
                 // Register before reading durable state, so publication between
                 // the check and await cannot be missed.
                 let changed = events.changed.notified();
-                tokio::pin!(changed);
+                let rejected = rejection_diagnostics::notified();
+                tokio::pin!(changed, rejected);
                 changed.as_mut().enable();
+                rejected.as_mut().enable();
                 let info = controller.get_tx_pool_info().map_err(bench_error)?;
                 if info.verify_queue_size == 0 && info.orphan_size == 0 && complete()? {
                     return Ok(());
                 }
-                changed.await;
+                tokio::select! {
+                    _ = changed => {},
+                    _ = rejected => {},
+                }
             }
         })
         .await?
@@ -483,7 +488,8 @@ fn pressure(
         require(
             info.verify_queue_size == retained.len()
                 && info.pending_size == 0
-                && info.proposed_size == 0,
+                && info.proposed_size == 0
+                && rejection_diagnostics::count() == 0,
             "paused recovery counts differ from retained bodies",
         )?;
         Ok::<_, Box<dyn Error>>(retained)
@@ -494,9 +500,6 @@ fn pressure(
     wait_recovery(runtime, controller, events, || {
         let published = {
             let records = lock(&events.records);
-            if !retained.iter().all(|hash| records.contains_key(hash)) {
-                return Ok(false);
-            }
             records
                 .iter()
                 .filter_map(|(hash, record)| {
@@ -506,8 +509,12 @@ fn pressure(
         };
         // Admission may publish a candidate before its capacity victims. Do not
         // finish until those rejection callbacks catch up with public membership.
+        // Unaccepted candidates have no reject callback; the committed diagnostic
+        // counts them too. Replay checks their exact hashes against the final set.
         let (pending, proposed) = accepted(controller)?;
-        Ok(proposed.is_empty() && published == pending)
+        Ok(proposed.is_empty()
+            && published == pending
+            && pending.len() + rejection_diagnostics::count() == retained.len())
     })?;
     let elapsed = start.elapsed().as_nanos();
     let (pending, proposed) = accepted(controller)?;
@@ -515,25 +522,21 @@ fn pressure(
         proposed.is_empty() && !pending.is_empty() && pending.is_subset(&retained),
         "recovered accepted population differs",
     )?;
-    let refused = {
+    let refused = retained
+        .difference(&pending)
+        .cloned()
+        .collect::<HashSet<_>>();
+    {
         let records = lock(&events.records);
-        let mut refused = HashSet::new();
         for (hash, record) in records.iter() {
             if let Outcome::Rejected(reason) = &record.outcome {
                 require(
-                    retained.contains(hash) && matches!(reason, Reject::Full(_)),
+                    refused.contains(hash) && matches!(reason, Reject::Full(_)),
                     "recovery pressure emitted a non-capacity refusal",
                 )?;
-                refused.insert(hash.clone());
             }
         }
-        refused
-    };
-    require(
-        pending.union(&refused).cloned().collect::<HashSet<_>>() == retained
-            && pending.is_disjoint(&refused),
-        "retained recovery transactions lack exact final terminals",
-    )?;
+    }
     let info = controller.get_tx_pool_info().map_err(bench_error)?;
     require(
         info.total_tx_size as u64 <= info.max_tx_pool_size,

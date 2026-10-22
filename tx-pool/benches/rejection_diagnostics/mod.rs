@@ -7,15 +7,18 @@ use std::{
     sync::atomic::{AtomicBool, AtomicUsize, Ordering},
 };
 
+#[derive(Default)]
 struct RejectionLogger {
     records: AtomicUsize,
     service_records: AtomicUsize,
     write_failed: AtomicBool,
+    changed: tokio::sync::Notify,
 }
 static LOGGER: RejectionLogger = RejectionLogger {
     records: AtomicUsize::new(0),
     service_records: AtomicUsize::new(0),
     write_failed: AtomicBool::new(false),
+    changed: tokio::sync::Notify::const_new(),
 };
 
 impl Log for RejectionLogger {
@@ -35,6 +38,7 @@ impl Log for RejectionLogger {
                 self.write_failed.store(true, Ordering::SeqCst);
             }
             self.records.fetch_add(1, Ordering::SeqCst);
+            self.changed.notify_one();
         } else if self.enabled(record.metadata()) {
             let mut message = record.args().to_string();
             message.truncate(message.floor_char_boundary(8192));
@@ -84,10 +88,46 @@ pub(super) fn observation() -> serde_json::Value {
     })
 }
 
+/// Published committed refusals, including candidates never accepted by the pool.
+pub(super) fn count() -> usize {
+    LOGGER.records.load(Ordering::SeqCst)
+}
+
+pub(super) fn notified() -> tokio::sync::futures::Notified<'static> {
+    LOGGER.changed.notified()
+}
+
 pub(super) fn check() -> Result<(), std::io::Error> {
     if LOGGER.write_failed.load(Ordering::SeqCst) {
         Err(std::io::Error::other("rejection diagnostic output failed"))
     } else {
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn committed_rejection_publishes_count_and_wakes_registered_or_later_waiter() {
+        use super::*;
+        use futures_util::FutureExt;
+
+        let logger = RejectionLogger::default();
+        let changed = logger.changed.notified();
+        tokio::pin!(changed);
+        changed.as_mut().enable();
+        assert_eq!(logger.records.load(Ordering::SeqCst), 0);
+        let record = Record::builder()
+            .target("ckb_tx_pool::rejection")
+            .args(format_args!("committed before awaiting"))
+            .build();
+        logger.log(&record);
+        assert_eq!(logger.records.load(Ordering::SeqCst), 1);
+        assert!(changed.now_or_never().is_some());
+
+        logger.log(&record);
+        assert_eq!(logger.records.load(Ordering::SeqCst), 2);
+        assert!(logger.changed.notified().now_or_never().is_some());
+        assert!(!logger.write_failed.load(Ordering::SeqCst));
     }
 }
