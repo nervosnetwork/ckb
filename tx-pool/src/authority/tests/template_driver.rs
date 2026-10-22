@@ -170,11 +170,14 @@ async fn selected_proof_survives_cache_loss_and_contention_without_bypassing_ide
         .as_advanced_builder()
         .witness(Bytes::from_static(b"changed witness").pack())
         .build();
+    let changed = Arc::new(changed);
     assert!(
-        verify(Arc::new(changed))
-            .verify_scripts(0, Some(proof))
-            .is_err()
+        !verify(Arc::clone(&changed))
+            .verify_scripts(u64::MAX, Some(proof))
+            .unwrap()
+            .was_reused()
     );
+    assert!(verify(changed).verify_scripts(0, Some(proof)).is_err());
 
     let previous_work = selected(&driver).template.work_id;
     let mut guard = driver.cache.write().await;
