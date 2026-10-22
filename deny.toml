@@ -88,11 +88,6 @@ ignore = [
   # and recovery through catch_unwind. All CKB LRU keys are plain value types
   # without custom Drop implementations, so the vulnerable path is unreachable.
   { id = "RUSTSEC-2026-0253", reason = "CKB only uses LRU keys with non-panicking Drop implementations" },
-  # webpki-roots 0.26.11 is a semver-compatibility shim that re-exports
-  # webpki-roots v1 (`pub use parent::TLS_SERVER_ROOTS`); the actual certificate
-  # data comes from the patched webpki-roots 1.0.10 crate. The advisory only
-  # lists >=1.0.10 as patched, so the unfixable 0.26 shim is ignored here.
-  { id = "RUSTSEC-2026-0381", reason = "webpki-roots 0.26.11 is a shim re-exporting the patched webpki-roots 1.0.10" },
   #"RUSTSEC-0000-0000",
   #{ id = "RUSTSEC-0000-0000", reason = "you can specify a reason the advisory is ignored" },
   #"a-crate-that-is-yanked@0.1.1", # you can also ignore yanked crate versions if you wish
