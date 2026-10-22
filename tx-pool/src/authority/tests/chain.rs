@@ -935,3 +935,115 @@ fn chain_status_callback_uses_final_graph_after_parent_commit() {
     assert_eq!(callbacks[0].ancestors_fee.as_u64(), 20);
     assert_eq!(callbacks[0].descendants_count, 1);
 }
+
+#[test]
+fn reorg_conflict_wins_where_recovery_and_conflict_descendants_intersect() {
+    let store = store();
+    let time_locked = output_tx(8700)
+        .as_advanced_builder()
+        .input(CellInput::new(OutPoint::new(tx(8790).hash(), 0), 1))
+        .build();
+    let recovering = accept(&store, time_locked, 1, 1, Status::Pending);
+    let spent = OutPoint::new(tx(8791).hash(), 0);
+    let conflicting = accept(
+        &store,
+        spend(8701, std::slice::from_ref(&spent), &[]),
+        1,
+        1,
+        Status::Pending,
+    );
+    let shared = accept(
+        &store,
+        spend(
+            8702,
+            &[OutPoint::new(recovering.clone(), 0)],
+            &[OutPoint::new(conflicting.clone(), 0)],
+        ),
+        1,
+        1,
+        Status::Pending,
+    );
+    let descendant = accept(
+        &store,
+        spend(8703, &[OutPoint::new(shared.clone(), 0)], &[]),
+        1,
+        1,
+        Status::Pending,
+    );
+    let unrelated = accept(&store, output_tx(8704), 1, 1, Status::Pending);
+    let stable = store.point(&unrelated).1.unwrap();
+    let detached = BlockBuilder::default().transaction(tx(0)).build();
+    let attached = BlockBuilder::default()
+        .transaction(tx(0))
+        .transaction(spend(8705, &[spent], &[]))
+        .build();
+    let next = snapshot(
+        &store.snapshot().1,
+        &attached,
+        HashSet::new(),
+        HashSet::new(),
+    );
+    let command = ChainReorgArgs::for_test([detached].into(), [attached].into(), next);
+    let _pause = store.begin_chain().unwrap();
+    let plan = reconcile(&store, &command, &config()).unwrap();
+    let rejected: BTreeSet<_> = plan
+        .effects()
+        .iter()
+        .filter_map(|effect| match effect.callback() {
+            Some(CallbackEvent::Reject(entry, _)) => Some(entry.transaction.hash()),
+            _ => None,
+        })
+        .collect();
+    let removed = [conflicting, shared, descendant];
+    assert_eq!(rejected, removed.iter().cloned().collect());
+    store.apply(plan).unwrap();
+    for hash in removed {
+        assert!(store.point(&hash).1.is_none());
+    }
+    let recovered = store.point(&recovering).1.unwrap();
+    assert_eq!(recovered.source, Source::Recovery);
+    assert!(matches!(recovered.phase, Phase::Resolve));
+    assert!(Arc::ptr_eq(&stable, &store.point(&unrelated).1.unwrap()));
+    assert_eq!(accepted_hashes(&store), [unrelated].into());
+}
+
+#[test]
+fn committed_spend_retires_live_waiter_but_preserves_replacement_history() {
+    use crate::authority::model::RecoveryTriggers;
+
+    let store = store();
+    let spent = OutPoint::new(tx(8792).hash(), 0);
+    let missing = DependencyKey::Cell(OutPoint::new(tx(8793).hash(), 0));
+    let waiting = entry(
+        &store,
+        spend(8710, std::slice::from_ref(&spent), &[]),
+        Source::Recovery,
+    );
+    insert(&store, Arc::clone(&waiting));
+    let waiting = replace(&store, waiting, Phase::Waiting([missing.clone()].into()));
+    let history = entry(
+        &store,
+        spend(8711, std::slice::from_ref(&spent), &[]),
+        Source::Recovery,
+    );
+    insert(&store, Arc::clone(&history));
+    let history = replace(
+        &store,
+        history,
+        Phase::Replaced(RecoveryTriggers::RetryInputs([missing].into())),
+    );
+    let _pause = store.begin_chain().unwrap();
+    let plan = reconcile(
+        &store,
+        &command(&store, vec![spend(8712, &[spent], &[])]),
+        &config(),
+    )
+    .unwrap();
+    store.apply(plan).unwrap();
+    assert!(store.point(&waiting.hash()).1.is_none());
+    assert!(Arc::ptr_eq(
+        &history,
+        &store.point(&history.hash()).1.unwrap()
+    ));
+    assert!(accepted_hashes(&store).is_empty());
+}

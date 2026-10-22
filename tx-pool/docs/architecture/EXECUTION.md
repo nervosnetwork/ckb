@@ -278,6 +278,15 @@ selects bounded parent-first recovery. Success logs the refusal and does not imp
 every candidate was retained. An oversized command replaces the generation against
 the exact successor snapshot.
 
+Reconciliation classifies the captured owners directly. It builds the accepted
+child index only when a conflict or recovery root needs descendant closure;
+conflict removal takes precedence when those closures intersect. The old accepted
+graph and its aggregates are constructed only for rejection callbacks. Proposal
+status callbacks use the final accepted graph after committed producers are
+removed. Ordinary attachment skips detached-backing checks, while VM activation
+is compared once between the previous and next snapshots regardless of proposal
+phase.
+
 Reorg invalidates cell backing by the producer hashes in detached blocks,
 excluding transactions reattached on the new chain. A cell first resolved from
 the pool has no block-location metadata even after its producer commits. Its

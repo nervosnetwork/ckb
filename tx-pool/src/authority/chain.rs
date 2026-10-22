@@ -240,12 +240,10 @@ struct Affected {
 /// over descendants without crossing a newly committed producer.
 fn affected_owners(
     old: &BTreeMap<Byte32, Arc<Entry>>,
-    accepted: &Members,
     facts: &ChainFacts,
-    detached_any: bool,
     previous: &Snapshot,
     snapshot: &Snapshot,
-) -> Result<Affected, Error> {
+) -> Affected {
     // Canonical VM activation uses the next block's epoch for every inflight
     // phase. Derive that view-wide rule once, independently of proposal phase.
     let rules = |snapshot: &Snapshot| {
@@ -255,67 +253,73 @@ fn affected_owners(
         )
     };
     let rules_changed = rules(previous) != rules(snapshot);
-    let child_index = membership::children(accepted);
     let mut conflicts = BTreeMap::new();
     let mut recovery = BTreeSet::new();
-    for (hash, entry) in accepted {
+    for (hash, entry) in old {
         if facts.attached.contains(hash) {
             continue;
         }
-        let value = entry.accepted().ok_or(Error::Stale)?;
-        let conflict = entry
-            .transaction
-            .input_pts_iter()
-            .chain(value.dependencies())
-            .find(|point| facts.spent.contains(point));
-        if let Some(point) = conflict {
+        let Some(value) = entry.accepted() else {
+            // Waiting owners retain only missing triggers; their full declared
+            // reads must still reject a now-committed spend. Replacement history
+            // remains optional recovery work, not a live dependency reader.
+            if entry.preaccepted()
+                && !facts.spent.is_empty()
+                && let Some(point) = entry
+                    .declared_dependencies()
+                    .into_iter()
+                    .chain(entry.dependencies())
+                    .filter_map(|key| match key {
+                        DependencyKey::Cell(point) => Some(point),
+                        _ => None,
+                    })
+                    .find(|point| facts.spent.contains(point))
+            {
+                conflicts.insert(hash.clone(), compact_packed(&point));
+            }
+            continue;
+        };
+        if !facts.spent.is_empty()
+            && let Some(point) = entry
+                .transaction
+                .input_pts_iter()
+                .chain(value.dependencies())
+                .find(|point| facts.spent.contains(point))
+        {
             conflicts.insert(hash.clone(), compact_packed(&point));
             continue;
         }
-        // A pool-resolved cell retains its outpoint identity after its
-        // producer commits, including dep-group members.
-        let detached_producer = value
-            .transaction
-            .resolved_inputs
-            .iter()
-            .chain(&value.transaction.resolved_cell_deps)
-            .chain(&value.transaction.resolved_dep_groups)
-            .any(|cell| {
-                facts
-                    .detached_transactions
-                    .contains(&cell.out_point.tx_hash())
-            });
-        let detached_header = entry
-            .transaction
-            .header_deps_iter()
-            .any(|hash| facts.detached_headers.contains(&hash));
-        if detached_producer
-            || detached_header
-            || rules_changed
-            || (detached_any && value.context_sensitive)
-        {
+        // A pool-resolved cell retains its outpoint identity after its producer
+        // commits, including dep-group members. Only a detachment can invalidate
+        // that backing, a referenced header or a satisfied time condition.
+        let detached_dependency = !facts.detached_headers.is_empty()
+            && (value.context_sensitive
+                || value
+                    .transaction
+                    .resolved_inputs
+                    .iter()
+                    .chain(&value.transaction.resolved_cell_deps)
+                    .chain(&value.transaction.resolved_dep_groups)
+                    .any(|cell| {
+                        facts
+                            .detached_transactions
+                            .contains(&cell.out_point.tx_hash())
+                    })
+                || entry
+                    .transaction
+                    .header_deps_iter()
+                    .any(|hash| facts.detached_headers.contains(&hash)));
+        if rules_changed || detached_dependency {
             recovery.insert(hash.clone());
         }
     }
-    // Waiting owners retain only missing triggers; their full declared reads
-    // must still reject a now-committed spend.
-    for (hash, entry) in old {
-        if !entry.preaccepted() || facts.attached.contains(hash) {
-            continue;
-        }
-        if let Some(point) = entry
-            .declared_dependencies()
-            .into_iter()
-            .chain(entry.dependencies())
-            .filter_map(|key| match key {
-                DependencyKey::Cell(point) => Some(point),
-                _ => None,
-            })
-            .find(|point| facts.spent.contains(point))
-        {
-            conflicts.insert(hash.clone(), compact_packed(&point));
-        }
+    if conflicts.is_empty() && recovery.is_empty() {
+        return Affected {
+            conflicts,
+            recovery,
+        };
     }
+    let child_index = membership::children(old);
     let mut stack: Vec<_> = conflicts
         .iter()
         .map(|(hash, point)| (hash.clone(), point.clone()))
@@ -344,10 +348,10 @@ fn affected_owners(
             }
         }
     }
-    Ok(Affected {
+    Affected {
         conflicts,
         recovery,
-    })
+    }
 }
 
 /// Produce the next owner population; only detached transactions acquire a new
@@ -365,40 +369,31 @@ fn successor_population(
         if facts.attached.contains(hash) || affected.conflicts.contains_key(hash) {
             continue;
         }
-        if let Some(value) = entry.accepted() {
+        let next = if let Some(value) = entry.accepted() {
             if affected.recovery.contains(hash) {
-                after.insert(
-                    hash.clone(),
-                    Arc::new(Entry {
-                        transaction: Arc::clone(&entry.transaction),
-                        arrival: entry.arrival,
-                        source: Source::Recovery,
-                        phase: Phase::Resolve,
-                    }),
-                );
-            } else {
-                let next = if value
+                Arc::new(Entry {
+                    transaction: Arc::clone(&entry.transaction),
+                    arrival: entry.arrival,
+                    source: Source::Recovery,
+                    phase: Phase::Resolve,
+                })
+            } else if value
+                .parents
+                .iter()
+                .any(|parent| facts.attached.contains(parent))
+            {
+                let mut value = value.clone();
+                value
                     .parents
-                    .iter()
-                    .any(|parent| facts.attached.contains(parent))
-                {
-                    let mut value = value.clone();
-                    value
-                        .parents
-                        .retain(|parent| !facts.attached.contains(parent));
-                    entry.with_phase(Phase::Accepted(value))
-                } else {
-                    Arc::clone(entry)
-                };
-                after.insert(hash.clone(), next);
+                    .retain(|parent| !facts.attached.contains(parent));
+                entry.with_phase(Phase::Accepted(value))
+            } else {
+                Arc::clone(entry)
             }
-            continue;
-        }
-        let Some(source) = current_source(entry, previous, snapshot) else {
-            continue;
-        };
-        after.insert(
-            hash.clone(),
+        } else {
+            let Some(source) = current_source(entry, previous, snapshot) else {
+                continue;
+            };
             if source != entry.source || matches!(entry.phase, Phase::Verify(_)) {
                 Arc::new(Entry {
                     transaction: Arc::clone(&entry.transaction),
@@ -408,8 +403,9 @@ fn successor_population(
                 })
             } else {
                 Arc::clone(entry)
-            },
-        );
+            }
+        };
+        after.insert(hash.clone(), next);
     }
     for transaction in facts.detached.drain(..) {
         let hash = compact_packed(&transaction.hash());
@@ -462,35 +458,28 @@ pub(super) fn reconcile(
         .into_iter()
         .map(|entry| (entry.hash(), entry))
         .collect();
-    let accepted: Members = old
-        .iter()
-        .filter(|(_, entry)| entry.accepted().is_some())
-        .map(|(hash, entry)| (hash.clone(), Arc::clone(entry)))
-        .collect();
     let mut facts = ChainFacts::from_blocks(detached_blocks, attached_blocks)?;
-    let affected = affected_owners(
-        &old,
-        &accepted,
-        &facts,
-        !detached_blocks.is_empty(),
-        &old_snapshot,
-        snapshot,
-    )?;
+    let affected = affected_owners(&old, &facts, &old_snapshot, snapshot);
     let after = successor_population(store, &old, &mut facts, &affected, &old_snapshot, snapshot)?;
     let mut old_totals = None;
     let mut plan = Plan::new(view, Class::Critical, reads);
-    for (hash, old) in &old {
+    for (hash, entry) in &old {
         let next = after.get(hash);
         let effect = if facts.attached.contains(hash) {
-            old.preaccepted_peer().map(|peer| {
+            entry.preaccepted_peer().map(|peer| {
                 Effect::relay(TxVerificationResult::Ok {
                     original_peer: Some(peer),
                     tx_hash: hash.clone(),
                 })
             })
         } else if let Some(point) = affected.conflicts.get(hash) {
-            let callback = if old.accepted().is_some() {
+            let callback = if entry.accepted().is_some() {
                 if old_totals.is_none() {
+                    let accepted: Members = old
+                        .iter()
+                        .filter(|(_, entry)| entry.accepted().is_some())
+                        .map(|(hash, entry)| (hash.clone(), Arc::clone(entry)))
+                        .collect();
                     old_totals = Some(membership::aggregates(
                         &accepted,
                         config.max_ancestors_count,
@@ -500,24 +489,27 @@ pub(super) fn reconcile(
                     .as_ref()
                     .and_then(|totals| totals.get(hash))
                     .ok_or(Error::Stale)?;
-                Some(membership::entry_snapshot(old, *totals)?)
+                Some(membership::entry_snapshot(entry, *totals)?)
             } else {
                 None
             };
             Some(Effect::removed(
-                old,
+                entry,
                 Reject::Resolve(OutPointError::Dead(point.clone())),
                 callback,
             )?)
         } else {
             None
         };
-        if !next.is_some_and(|next| Arc::ptr_eq(next, old)) {
-            plan.edit(Some(Arc::clone(old)), next.cloned(), effect)?;
+        if !next.is_some_and(|next| Arc::ptr_eq(next, entry)) {
+            plan.edit(Some(Arc::clone(entry)), next.cloned(), effect)?;
         } else if let Some(effect) = effect {
             plan.notify(effect);
         }
     }
+    // Rejection effects own their projections; release the old graph scratch
+    // before deriving any successor aggregates for status callbacks.
+    drop(old_totals);
     for (hash, entry) in &after {
         if !old.contains_key(hash) {
             plan.edit(None, Some(Arc::clone(entry)), None)?;

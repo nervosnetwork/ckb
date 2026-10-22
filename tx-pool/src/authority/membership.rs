@@ -127,9 +127,13 @@ pub(super) fn ancestor_hashes(
     Ok(seen)
 }
 
-pub(super) fn children(members: &Members) -> BTreeMap<Byte32, BTreeSet<Byte32>> {
+/// Index accepted producer edges within a captured population. Preaccepted
+/// owners and replacement history do not contribute accepted children.
+pub(super) fn children(
+    owners: &BTreeMap<Byte32, Arc<Entry>>,
+) -> BTreeMap<Byte32, BTreeSet<Byte32>> {
     let mut children: BTreeMap<_, BTreeSet<_>> = BTreeMap::new();
-    for (hash, entry) in members {
+    for (hash, entry) in owners {
         if let Some(entry) = entry.accepted() {
             for parent in &entry.parents {
                 children
