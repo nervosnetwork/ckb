@@ -145,7 +145,8 @@ pub(super) struct Summary {
     pub(super) last_updated: u64,
 }
 
-/// One coherent owner population and its original observations, without guards.
+/// One coherent owner population, accepted charge and original observations,
+/// without guards.
 /// A caller's worker/handler/capture permit or fixed background task bounds the
 /// entire use of these values, including fields moved out. The sole template
 /// driver bounds its own captures by building one template at a time.
@@ -153,6 +154,7 @@ pub(super) struct Captured {
     pub(super) view: u64,
     pub(super) snapshot: Arc<Snapshot>,
     pub(super) owners: Vec<Arc<Entry>>,
+    pub(super) accepted: Amount,
     pub(super) reads: ReadSet,
 }
 
@@ -834,6 +836,9 @@ impl Store {
             view: view.revision,
             snapshot: Arc::clone(&view.snapshot),
             owners: entries,
+            // Reservations settle before owner guards open. The account and
+            // captured population therefore describe the same complete cut.
+            accepted: self.budget.accepted_usage(),
             reads,
         }
     }

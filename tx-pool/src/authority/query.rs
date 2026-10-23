@@ -54,6 +54,7 @@ impl InputSnapshotCache {
             snapshot,
             owners,
             reads,
+            ..
         } = store.capture_accepted();
         let count = owners.iter().try_fold(0usize, |count, entry| {
             count

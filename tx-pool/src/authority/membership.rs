@@ -487,14 +487,6 @@ fn apply_virtual(
     Ok(entries)
 }
 
-fn total_charge(entries: &Members) -> Result<Amount, Error> {
-    entries
-        .values()
-        .try_fold(Amount::default(), |total, entry| {
-            total.checked_add(owner_amount(entry)?).ok_or_else(overflow)
-        })
-}
-
 /// The same policy prepares both real admission and dry-run validation.
 pub(super) fn admission(
     store: &Store,
@@ -653,8 +645,26 @@ fn prepare_admission(
         // changed ancestors cannot pass commit validation. Release this
         // map before rebuilding it.
         drop(observed_successors);
-        graph.capture_accepted()?;
+        let mut charge = graph.capture_accepted()?;
         observed_successors = apply_virtual(graph.observed(), &admitted.entry, &late, &removed)?;
+        // Virtual insertion replaces an existing same-hash accepted owner.
+        // Normal ingress excludes duplicates, but admission's captured graph
+        // must account for that replacement too, without releasing it twice.
+        if !removed.contains(&candidate_hash)
+            && let Some(previous) = graph.observed().get(&candidate_hash)
+        {
+            charge = charge
+                .checked_sub(owner_amount(previous)?)
+                .ok_or(Error::Stale)?;
+        }
+        // The full cut makes the account authoritative. Retain all original
+        // observations: a removed predecessor can make this subtraction stale,
+        // and any other concurrent change must still fail commit validation.
+        let charge = charge
+            .checked_sub(released)
+            .ok_or(Error::Stale)?
+            .checked_add(added)
+            .ok_or_else(overflow)?;
         trim_virtual(
             &mut observed_successors,
             snapshot,
@@ -662,7 +672,7 @@ fn prepare_admission(
             &mut removed,
             &late_descendants,
             &admitted,
-            graph.limits().accepted,
+            charge.positive_difference(graph.limits().accepted),
         )?;
     }
     validate_backing(verified, &removed)?;
@@ -794,6 +804,7 @@ impl<'a> EvictionRanks<'a> {
     }
 }
 
+/// Retire complete victim closures until every over-limit coordinate is released.
 fn trim_virtual(
     entries: &mut Members,
     snapshot: &Snapshot,
@@ -801,10 +812,9 @@ fn trim_virtual(
     removed: &mut BTreeSet<Byte32>,
     late: &BTreeSet<Byte32>,
     candidate: &AdmissionCandidate,
-    limit: Amount,
+    mut excess: Amount,
 ) -> Result<(), Error> {
-    let mut charge = total_charge(entries)?;
-    if charge.fits(limit) {
+    if excess == Amount::default() {
         return Ok(());
     }
     let mut ranks = EvictionRanks::new(entries, snapshot, config.max_ancestors_count)?;
@@ -815,7 +825,7 @@ fn trim_virtual(
         snapshot,
     )?
     .fee;
-    while !charge.fits(limit) {
+    while excess != Amount::default() {
         // A root that cannot fit this mutation remains unaffordable: removed
         // descendants move into `removed`, and the touched union never shrinks.
         let closure = loop {
@@ -873,9 +883,7 @@ fn trim_virtual(
         for hash in closure {
             let entry = entries.remove(&hash).ok_or(Error::Stale)?;
             ranks.retire(&entry)?;
-            charge = charge
-                .checked_sub(owner_amount(&entry)?)
-                .ok_or_else(overflow)?;
+            excess = excess.positive_difference(owner_amount(&entry)?);
             removed.insert(hash);
         }
     }

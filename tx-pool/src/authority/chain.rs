@@ -65,6 +65,7 @@ pub(super) fn recover_bounded(store: &Store, command: &ChainReorgArgs) -> Result
         snapshot: old_snapshot,
         owners,
         reads,
+        ..
     } = store.capture_all();
     let mut attached = BTreeSet::new();
     for block in attached_blocks {
@@ -161,6 +162,7 @@ pub(super) fn clear(
         snapshot: current,
         owners,
         reads,
+        ..
     } = store.capture_all();
     let mut plan = Plan::new(view, Class::Critical, reads);
     for entry in owners {
@@ -453,6 +455,7 @@ pub(super) fn reconcile(
         snapshot: old_snapshot,
         owners,
         reads,
+        ..
     } = store.capture_all();
     let old: BTreeMap<_, _> = owners
         .into_iter()

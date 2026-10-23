@@ -62,7 +62,7 @@ impl Amount {
         })
     }
 
-    fn positive_difference(self, rhs: Self) -> Self {
+    pub(super) fn positive_difference(self, rhs: Self) -> Self {
         Self {
             items: self.items.saturating_sub(rhs.items),
             bytes: self.bytes.saturating_sub(rhs.bytes),

@@ -41,14 +41,14 @@ impl<'a> Graph<'a> {
         self.plan.readers(self.store, point)
     }
 
-    pub(super) fn capture_accepted(&mut self) -> Result<(), Error> {
-        self.observed = self
-            .plan
-            .capture_accepted(self.store)?
+    /// Capture the full accepted graph and its charge, preserving earlier premises.
+    pub(super) fn capture_accepted(&mut self) -> Result<Amount, Error> {
+        let (entries, charge) = self.plan.capture_accepted(self.store)?;
+        self.observed = entries
             .into_iter()
             .map(|entry| (entry.hash(), entry))
             .collect();
-        Ok(())
+        Ok(charge)
     }
 
     pub(in crate::authority) fn get(&mut self, hash: &Byte32) -> Result<Option<Arc<Entry>>, Error> {

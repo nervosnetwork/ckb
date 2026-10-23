@@ -4,6 +4,7 @@
 use super::{Captured, Roles, Shards, Store, WakePage, compact_dependency, compact_relation};
 use crate::{
     authority::{
+        budget::Amount,
         model::{DependencyKey, Entry, Error, RelationKey},
         notice::{Class, Effect},
     },
@@ -436,10 +437,11 @@ impl Plan {
     pub(in crate::authority) fn capture_accepted(
         &mut self,
         store: &Store,
-    ) -> Result<Vec<Arc<Entry>>, Error> {
+    ) -> Result<(Vec<Arc<Entry>>, Amount), Error> {
         let Captured {
             view,
             owners: entries,
+            accepted,
             reads,
             ..
         } = store.capture_accepted();
@@ -450,7 +452,7 @@ impl Plan {
         for entry in &entries {
             self.observe_owner(&entry.hash(), Some(entry))?;
         }
-        Ok(entries)
+        Ok((entries, accepted))
     }
 
     /// A refused policy keeps every premise, including peer eligibility, while

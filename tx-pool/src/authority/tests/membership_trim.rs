@@ -1,6 +1,29 @@
 use super::*;
 use crate::authority::tests::common::{accept, config, spend, store};
 
+fn charge(entries: &Members) -> Amount {
+    entries.values().fold(Amount::default(), |total, entry| {
+        total.checked_add(owner_amount(entry).unwrap()).unwrap()
+    })
+}
+
+#[test]
+fn a_fresh_capacity_capture_keeps_prior_removed_owner_observations() {
+    use crate::authority::{notice::Class, tests::common};
+
+    let store = store();
+    let hash = accept(&store, common::tx(10620), 1, 1, Status::Pending);
+    let mut plan = Plan::new(store.snapshot().0, Class::Trusted, Default::default());
+    {
+        let mut graph = Graph::new(&store, &mut plan);
+        let previous = graph.require(&hash).unwrap();
+        store.apply(common::delete(&store, previous)).unwrap();
+        assert_eq!(graph.capture_accepted().unwrap(), Amount::default());
+        assert!(graph.observed().is_empty());
+    }
+    assert!(matches!(store.apply(plan), Err(Error::Stale)));
+}
+
 fn ranked_member(store: &Store, nonce: u32, fee: u64, parents: &[Byte32]) -> Arc<Entry> {
     let deps: Vec<_> = parents
         .iter()
@@ -58,6 +81,7 @@ fn trim_batch_updates_shared_ancestor_before_the_next_round() {
     };
     // First remove b+c: their average rate is 5, below a's 27.5.
     // Then a's remaining average is 50, so e (45) must be selected next.
+    let charge = charge(&entries);
     trim_virtual(
         &mut entries,
         &store.snapshot().1,
@@ -65,7 +89,7 @@ fn trim_batch_updates_shared_ancestor_before_the_next_round() {
         &mut removed,
         &BTreeSet::new(),
         &admission,
-        item_limit(3),
+        charge.positive_difference(item_limit(3)),
     )
     .unwrap();
     assert_eq!(removed, BTreeSet::from([b, c, e]));
@@ -84,6 +108,33 @@ fn trim_batch_updates_shared_ancestor_before_the_next_round() {
 }
 
 #[test]
+fn trimming_continues_until_every_excess_coordinate_is_released() {
+    let (store, mut entries, [_, b, c, _, e, candidate]) = rank_fixture();
+    let mut removed = BTreeSet::new();
+    let admission = AdmissionCandidate {
+        entry: Arc::clone(entries.get(&candidate).unwrap()),
+        ancestors: BTreeSet::from([candidate]),
+    };
+    // The first b+c closure covers the item excess, but its 200 serialized
+    // bytes leave 50 more to release. The next eligible owner is e.
+    trim_virtual(
+        &mut entries,
+        &store.snapshot().1,
+        &config(),
+        &mut removed,
+        &BTreeSet::new(),
+        &admission,
+        Amount {
+            items: 1,
+            serialized: 250,
+            ..Amount::default()
+        },
+    )
+    .unwrap();
+    assert_eq!(removed, BTreeSet::from([b, c, e]));
+}
+
+#[test]
 fn trim_late_protected_rejection_keeps_the_original_notification_graph() {
     let (store, original, [a, b, c, d, e, candidate]) = rank_fixture();
     let mut entries = original.clone();
@@ -93,6 +144,7 @@ fn trim_late_protected_rejection_keeps_the_original_notification_graph() {
         ancestors: BTreeSet::from([candidate.clone()]),
     };
     let before = aggregates(&original, config().max_ancestors_count).unwrap();
+    let charge = charge(&entries);
     let result = trim_virtual(
         &mut entries,
         &store.snapshot().1,
@@ -100,7 +152,7 @@ fn trim_late_protected_rejection_keeps_the_original_notification_graph() {
         &mut removed,
         &BTreeSet::new(),
         &admission,
-        item_limit(0),
+        charge.positive_difference(item_limit(0)),
     );
     assert!(matches!(result, Err(Error::Rejected(Reject::Full(_)))));
     assert_eq!(removed, BTreeSet::from([a, b, c, d, e]));
@@ -131,6 +183,7 @@ fn trim_singleton_round_still_updates_its_surviving_ancestor() {
         entry: Arc::clone(entries.get(&candidate_hash).unwrap()),
         ancestors: BTreeSet::from([candidate_hash]),
     };
+    let charge = charge(&entries);
     trim_virtual(
         &mut entries,
         &store.snapshot().1,
@@ -138,7 +191,7 @@ fn trim_singleton_round_still_updates_its_surviving_ancestor() {
         &mut removed,
         &BTreeSet::new(),
         &admission,
-        item_limit(3),
+        charge.positive_difference(item_limit(3)),
     )
     .unwrap();
     assert_eq!(removed, expected);

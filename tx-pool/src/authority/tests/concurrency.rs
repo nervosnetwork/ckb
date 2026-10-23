@@ -266,6 +266,7 @@ fn owner_edit_groups_cover_mixed_guards_and_empty_clear_shards() {
             snapshot,
             owners,
             reads,
+            ..
         } = store.capture_all();
         let mut clear = Plan::new(view, Class::Trusted, reads);
         clear.lifecycle = Some(super::plan::LifecycleWrite {
@@ -1215,65 +1216,84 @@ fn projection_versions_do_not_alias_after_complete_relation_or_peer_reentry() {
 
 #[test]
 fn full_query_waits_for_an_atomic_multi_shard_change_and_returns_one_coherent_cut() {
-    let store = store();
-    let a = accept(&store, tx(6406), 1000, 7, Status::Pending);
-    let b = (6407..6500)
-        .map(tx)
-        .find(|tx| store.owner_shard(tx.hash().as_slice()) != store.owner_shard(a.as_slice()))
-        .unwrap();
-    let b = accept(&store, b, 2000, 11, Status::Pending);
-    let mut plan = Plan::new(store.snapshot().0, Class::Trusted, Default::default());
-    for hash in [&a, &b] {
-        let before = store.point(hash).1.unwrap();
-        plan.edit(
-            Some(Arc::clone(&before)),
-            Some(before.with_phase(Phase::Resolve)),
-            None,
-        )
-        .unwrap();
+    type ReadUsage = fn(&Store) -> (usize, usize, u64);
+
+    fn captured_usage(captured: Captured) -> (usize, usize, u64) {
+        use crate::authority::budget::{Amount, owner_amount};
+        let expected = captured
+            .owners
+            .iter()
+            .filter(|entry| entry.accepted().is_some())
+            .fold(Amount::default(), |total, entry| {
+                total.checked_add(owner_amount(entry).unwrap()).unwrap()
+            });
+        assert_eq!(captured.accepted, expected);
+        (expected.items, expected.serialized, expected.cycles)
     }
-    let (entered, ready) = std::sync::mpsc::channel();
-    let (release, wait) = std::sync::mpsc::channel();
-    let wait = Mutex::new(wait);
-    *store.commit_observer.lock() = Some(Arc::new(move |_, locked| {
-        if locked {
-            entered.send(()).unwrap();
-            wait.lock().recv_timeout(Duration::from_secs(5)).unwrap();
-        }
-    }));
-    std::thread::scope(|scope| {
-        let writer = scope.spawn(|| store.apply(plan));
-        ready.recv_timeout(Duration::from_secs(5)).unwrap();
-        let (started, beginning) = std::sync::mpsc::channel();
-        let (result, received) = std::sync::mpsc::channel();
-        let observed = &store;
-        let reader = scope.spawn(move || {
-            started.send(()).unwrap();
-            result
-                .send(crate::authority::query::summary(observed, &config()).unwrap())
-                .unwrap();
-        });
-        beginning.recv_timeout(Duration::from_secs(5)).unwrap();
-        assert!(received.try_recv().is_err());
-        release.send(()).unwrap();
-        writer.join().unwrap().unwrap();
-        let summary = received.recv_timeout(Duration::from_secs(5)).unwrap();
-        assert_eq!(
+    let readers: [ReadUsage; 3] = [
+        |store| {
+            let summary = crate::authority::query::summary(store, &config()).unwrap();
             (
                 summary.pending_size,
                 summary.total_tx_size,
-                summary.total_tx_cycles
-            ),
-            (0, 0, 0)
-        );
-        reader.join().unwrap();
-    });
-    *store.commit_observer.lock() = None;
-    for hash in [a, b] {
-        assert!(matches!(
-            store.point(&hash).1.unwrap().phase,
-            Phase::Resolve
-        ));
+                summary.total_tx_cycles,
+            )
+        },
+        |store| captured_usage(store.capture_accepted()),
+        |store| captured_usage(store.capture_all()),
+    ];
+    for read in readers {
+        let store = store();
+        let a = accept(&store, tx(6406), 1000, 7, Status::Pending);
+        let b = (6407..6500)
+            .map(tx)
+            .find(|tx| store.owner_shard(tx.hash().as_slice()) != store.owner_shard(a.as_slice()))
+            .unwrap();
+        let b = accept(&store, b, 2000, 11, Status::Pending);
+        let mut plan = Plan::new(store.snapshot().0, Class::Trusted, Default::default());
+        for hash in [&a, &b] {
+            let before = store.point(hash).1.unwrap();
+            plan.edit(
+                Some(Arc::clone(&before)),
+                Some(before.with_phase(Phase::Resolve)),
+                None,
+            )
+            .unwrap();
+        }
+        let (entered, ready) = std::sync::mpsc::channel();
+        let (release, wait) = std::sync::mpsc::channel();
+        let wait = Mutex::new(wait);
+        *store.commit_observer.lock() = Some(Arc::new(move |_, locked| {
+            if locked {
+                entered.send(()).unwrap();
+                wait.lock().recv_timeout(Duration::from_secs(5)).unwrap();
+            }
+        }));
+        std::thread::scope(|scope| {
+            let writer = scope.spawn(|| store.apply(plan));
+            ready.recv_timeout(Duration::from_secs(5)).unwrap();
+            let (started, beginning) = std::sync::mpsc::channel();
+            let (result, received) = std::sync::mpsc::channel();
+            let observed = &store;
+            let reader = scope.spawn(move || {
+                started.send(()).unwrap();
+                result.send(read(observed)).unwrap();
+            });
+            beginning.recv_timeout(Duration::from_secs(5)).unwrap();
+            assert!(received.try_recv().is_err());
+            release.send(()).unwrap();
+            writer.join().unwrap().unwrap();
+            let summary = received.recv_timeout(Duration::from_secs(5)).unwrap();
+            assert_eq!(summary, (0, 0, 0));
+            reader.join().unwrap();
+        });
+        *store.commit_observer.lock() = None;
+        for hash in [a, b] {
+            assert!(matches!(
+                store.point(&hash).1.unwrap().phase,
+                Phase::Resolve
+            ));
+        }
     }
 }
 
@@ -2065,6 +2085,7 @@ fn dirty_retirement_preserves_a_spender_and_clear_releases_all_queued_keys() {
         snapshot,
         owners,
         reads,
+        ..
     } = store.capture_all();
     let mut clear = Plan::new(view, Class::Trusted, reads);
     clear.lifecycle = Some(super::plan::LifecycleWrite {

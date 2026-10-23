@@ -227,6 +227,12 @@ before removing queue work; refusal changes neither counters nor selection.
 The permit retains its original peer until drop, even if a later owner promotion
 changes the transaction's source.
 
+Complete owner captures include the accepted account while all owner read guards
+remain held. Reservations settle before those guards open, so capacity admission
+can adjust that captured charge for its virtual edits without recounting every
+accepted owner. Earlier owner observations remain in the plan: the coherent account
+does not make stale replacement or dependency premises valid.
+
 Active waiters observe `Budget::active_changed`: permit release or a quota fault
 wakes them. Returning retained owner quota wakes maintenance through
 `Store.changed`; it does not make another active job admissible.

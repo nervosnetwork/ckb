@@ -247,6 +247,24 @@ fn stale_replacement_rejection_rechecks_the_conflict_that_caused_it() {
 }
 
 #[test]
+fn virtual_capacity_counts_a_replaced_hash_once() {
+    let transaction = tx(90_020);
+    let config = TxPoolConfig {
+        max_tx_pool_size: transaction.data().serialized_size_in_block(),
+        ..config()
+    };
+    let store = Store::new(crate::test_support::genesis_snapshot(), &config).unwrap();
+    let hash = accept(&store, transaction.clone(), 1000, 1, Status::Pending);
+    let before = store.budget.accepted_usage();
+    let candidate = entry(&store, transaction, Source::Local);
+    let (plan, reject) = admission(&store, &candidate, 1000, 1, Status::Pending, &config).unwrap();
+    assert!(reject.is_none());
+    store.apply(plan).unwrap();
+    assert_eq!(hashes(&store), BTreeSet::from([hash]));
+    assert_eq!(store.budget.accepted_usage(), before);
+}
+
+#[test]
 fn capacity_self_eviction_does_not_evict_an_incumbent() {
     let incumbent = tx(12);
     let config = TxPoolConfig {
