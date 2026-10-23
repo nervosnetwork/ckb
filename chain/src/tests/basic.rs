@@ -1,5 +1,4 @@
-use crate::ChainServiceScope;
-use crate::tests::util::start_chain;
+use crate::tests::util::{ChainTestScope, start_chain};
 use ckb_chain_spec::consensus::{Consensus, ConsensusBuilder};
 use ckb_dao_utils::genesis_dao_data;
 use ckb_error::assert_error_eq;
@@ -563,7 +562,7 @@ fn prepare_context_chain(
     consensus: Consensus,
     orphan_count: u64,
     timestep: u64,
-) -> (ChainServiceScope, Shared, HeaderView) {
+) -> (ChainTestScope, Shared, HeaderView) {
     let (chain, shared, genesis) = start_chain(Some(consensus));
     let chain_controller = chain.chain_controller();
     let final_number = shared.consensus().genesis_epoch_ext().length();

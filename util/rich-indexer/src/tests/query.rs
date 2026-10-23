@@ -540,7 +540,7 @@ async fn get_cells_capacity() {
 async fn rpc() {
     let store = connect_sqlite(MEMORY_DB).await;
     let pool = Arc::new(RwLock::new(Pool::default()));
-    let indexer = AsyncRichIndexer::new(store.clone(), None, CustomFilters::new(None, None));
+    let indexer = AsyncRichIndexer::new(store.clone(), CustomFilters::new(None, None));
     let rpc = AsyncRichIndexerHandle::new(store, Some(Arc::clone(&pool)), usize::MAX);
 
     // setup test data
@@ -1100,7 +1100,12 @@ async fn rpc() {
         )
         .output_data(Bytes::default())
         .build();
-    pool.write().unwrap().new_transaction(&pool_tx);
+    *pool.write().unwrap() = Arc::new(
+        pool_tx
+            .input_pts_iter()
+            .collect::<std::collections::HashSet<_>>(),
+    )
+    .into();
 
     let cells_page_1 = rpc
         .get_cells(
@@ -1153,7 +1158,7 @@ async fn rpc() {
 #[test]
 async fn script_search_mode_rpc() {
     let pool = connect_sqlite(MEMORY_DB).await;
-    let indexer = AsyncRichIndexer::new(pool.clone(), None, CustomFilters::new(None, None));
+    let indexer = AsyncRichIndexer::new(pool.clone(), CustomFilters::new(None, None));
     let rpc = AsyncRichIndexerHandle::new(pool, None, usize::MAX);
 
     // setup test data
@@ -1403,7 +1408,7 @@ async fn script_search_mode_rpc() {
 #[test]
 async fn output_data_filter_mode_rpc() {
     let pool = connect_sqlite(MEMORY_DB).await;
-    let indexer = AsyncRichIndexer::new(pool.clone(), None, CustomFilters::new(None, None));
+    let indexer = AsyncRichIndexer::new(pool.clone(), CustomFilters::new(None, None));
     let rpc = AsyncRichIndexerHandle::new(pool, None, usize::MAX);
 
     // setup test data
@@ -1619,7 +1624,7 @@ async fn output_data_filter_mode_rpc() {
 async fn get_cells_with_pool_overlay_and_filter() {
     let store = connect_sqlite(MEMORY_DB).await;
     let pool = Arc::new(RwLock::new(Pool::default()));
-    let indexer = AsyncRichIndexer::new(store.clone(), None, CustomFilters::new(None, None));
+    let indexer = AsyncRichIndexer::new(store.clone(), CustomFilters::new(None, None));
     let rpc = AsyncRichIndexerHandle::new(store, Some(Arc::clone(&pool)), usize::MAX);
 
     // Scripts
@@ -1705,7 +1710,12 @@ async fn get_cells_with_pool_overlay_and_filter() {
         )
         .output_data(Bytes::default())
         .build();
-    pool.write().unwrap().new_transaction(&pool_tx);
+    *pool.write().unwrap() = Arc::new(
+        pool_tx
+            .input_pts_iter()
+            .collect::<std::collections::HashSet<_>>(),
+    )
+    .into();
 
     // The bug: SQL placeholders are emitted as script → dead_cells → filter,
     // but the bind loop emitted script → filter → dead_cells.

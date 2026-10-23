@@ -54,6 +54,11 @@ impl DBWithTTL {
         Ok(DBWithTTL { inner })
     }
 
+    /// Returns whether the database has the given column family.
+    pub fn has_cf(&self, col: &str) -> bool {
+        self.inner.cf_handle(col).is_some()
+    }
+
     /// Return the value associated with a key using RocksDB's PinnableSlice from the given column
     /// so as to avoid unnecessary memory copy.
     pub fn get_pinned(&self, col: &str, key: &[u8]) -> Result<Option<DBPinnableSlice<'_>>> {

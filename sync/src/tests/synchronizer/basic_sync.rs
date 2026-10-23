@@ -118,8 +118,9 @@ fn setup_node(height: u64) -> (TestNode, Shared, ChainServiceScope) {
         .consensus(consensus)
         .build()
         .unwrap();
+    let relay_receiver = pack.take_relay_tx_receiver();
 
-    let chain = ChainServiceScope::new(pack.take_chain_services_builder());
+    let chain = ChainServiceScope::new(pack.into_chain_services_builder());
 
     while chain
         .chain_controller()
@@ -201,7 +202,7 @@ fn setup_node(height: u64) -> (TestNode, Shared, ChainServiceScope) {
     let sync_shared = Arc::new(SyncShared::new(
         shared.clone(),
         Default::default(),
-        pack.take_relay_tx_receiver(),
+        relay_receiver,
     ));
     let synchronizer = Synchronizer::new(chain.chain_controller().clone(), sync_shared);
     let mut node = TestNode::new();

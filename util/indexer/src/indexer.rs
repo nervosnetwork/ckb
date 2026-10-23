@@ -1,16 +1,13 @@
 use crate::service::SUBSCRIBER_NAME;
 use crate::store::{Batch, IteratorDirection, Store};
-use ckb_indexer_sync::{CustomFilters, Error, IndexerSync, Pool};
+use ckb_indexer_sync::{CustomFilters, Error, IndexerSync};
 use ckb_types::{
     core::{BlockNumber, BlockView},
     packed::{Byte32, Bytes, CellOutput, OutPoint, Script},
     prelude::*,
 };
+use std::collections::HashMap;
 use std::convert::TryInto;
-use std::{
-    collections::HashMap,
-    sync::{Arc, RwLock},
-};
 
 /// Tx index alias
 pub type TxIndex = u32;
@@ -277,9 +274,6 @@ pub(crate) struct Indexer<S> {
     keep_num: u64,
     /// prune interval
     prune_interval: u64,
-    /// An optional overlay to index the pending txs in the ckb tx pool
-    /// currently only supports removals of dead cells from the pending txs
-    pool: Option<Arc<RwLock<Pool>>>,
     /// custom filters
     custom_filters: CustomFilters,
 }
@@ -290,14 +284,12 @@ impl<S> Indexer<S> {
         store: S,
         keep_num: u64,
         prune_interval: u64,
-        pool: Option<Arc<RwLock<Pool>>>,
         custom_filters: CustomFilters,
     ) -> Self {
         Self {
             store,
             keep_num,
             prune_interval,
-            pool,
             custom_filters,
         }
     }
@@ -317,14 +309,9 @@ where
     fn append(&self, block: &BlockView) -> Result<(), Error> {
         let mut batch = self.store.batch()?;
         let transactions = block.transactions();
-        let pool = self.pool.as_ref().map(|p| p.write().expect("acquire lock"));
         if !self.custom_filters.is_block_filter_match(block) {
             batch.put_kv(Key::Header(block.number(), &block.hash(), true), vec![])?;
             batch.commit()?;
-
-            if let Some(mut pool) = pool {
-                pool.transactions_committed(&transactions);
-            }
 
             return Ok(());
         }
@@ -509,10 +496,6 @@ where
             )?;
         }
         batch.commit()?;
-
-        if let Some(mut pool) = pool {
-            pool.transactions_committed(&transactions);
-        }
 
         if block_number.is_multiple_of(self.prune_interval) {
             self.prune()?;
@@ -957,7 +940,7 @@ mod tests {
     fn new_indexer<S: Store>(prefix: &str) -> Indexer<S> {
         let tmp_dir = tempfile::Builder::new().prefix(prefix).tempdir().unwrap();
         let store = S::new(&S::default_options(), tmp_dir.path().to_str().unwrap());
-        Indexer::new(store, KEEP_NUM, 1, None, CustomFilters::new(None, None))
+        Indexer::new(store, KEEP_NUM, 1, CustomFilters::new(None, None))
     }
 
     #[test]
@@ -1948,7 +1931,6 @@ mod tests {
             store,
             10,
             1,
-            None,
             CustomFilters::new(block_filter_str, cell_filter_str),
         )
     }

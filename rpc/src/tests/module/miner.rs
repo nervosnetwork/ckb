@@ -35,12 +35,21 @@ fn test_get_block_template_cache() {
                     .build(),
             )
             .build();
+        let fork_hash = format!("{:#x}", fork_block.hash());
+        let old_uncles = response_old.result["uncles"]
+            .as_array()
+            .expect("block-template uncles should be an array");
+        assert!(
+            old_uncles
+                .iter()
+                .all(|uncle| uncle["hash"] != json!(fork_hash)),
+            "the template captured before the fork must not contain the future fork block"
+        );
         suite
             .chain_controller
             .blocking_process_block(Arc::new(fork_block))
             .expect("processing new block should be ok");
 
-        assert_eq!(response_old.result["uncles"].to_string(), "[]");
         sleep(Duration::from_secs(4));
         let response_new = suite.rpc(&RpcTestRequest {
             id: 42,
@@ -48,7 +57,15 @@ fn test_get_block_template_cache() {
             method: "get_block_template".to_string(),
             params: vec![],
         });
-        assert_ne!(response_new.result["uncles"].to_string(), "[]");
+        let new_uncles = response_new.result["uncles"]
+            .as_array()
+            .expect("block-template uncles should be an array");
+        assert!(
+            new_uncles
+                .iter()
+                .any(|uncle| uncle["hash"] == json!(fork_hash)),
+            "the refreshed template must contain the newly observed fork block"
+        );
     }
 
     // block template cache will expire when new transaction is added to the pool

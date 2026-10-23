@@ -14,3 +14,4 @@ rust-version = "1.95.0"
 ckb-logger.workspace = true
 ckb-chain-spec.workspace = true
 ckb-types.workspace = true
+imbl.workspace = true

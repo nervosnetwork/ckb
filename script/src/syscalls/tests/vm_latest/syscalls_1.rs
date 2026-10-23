@@ -758,49 +758,74 @@ proptest! {
 }
 
 #[test]
-fn test_load_header_missing_transaction_info() {
-    for syscall_number in [
-        LOAD_HEADER_SYSCALL_NUMBER,
-        LOAD_HEADER_BY_FIELD_SYSCALL_NUMBER,
+fn test_load_header_cell_origin_visibility() {
+    let header = HeaderBuilder::default().build();
+    let other = HeaderBuilder::default().nonce(1u128).build();
+    let data_loader = MockDataLoader {
+        headers: [
+            (header.hash(), header.clone()),
+            (other.hash(), other.clone()),
+        ]
+        .into(),
+        ..Default::default()
+    };
+    for (case, origin, has_header_dep, expected) in [
+        ("unconfirmed", None, true, ITEM_MISSING),
+        (
+            "outside header deps",
+            Some(other.hash()),
+            true,
+            ITEM_MISSING,
+        ),
+        ("no header deps", Some(header.hash()), false, ITEM_MISSING),
+        ("visible", Some(header.hash()), true, SUCCESS),
     ] {
-        for source in [
-            Source::Transaction(SourceEntry::Input),
-            Source::Transaction(SourceEntry::CellDep),
-            Source::Group(SourceEntry::Input),
+        let mut cell = build_cell_meta(100, Bytes::new());
+        cell.transaction_info = origin.map(|block_hash| TransactionInfo {
+            block_number: header.number(),
+            block_hash,
+            block_epoch: header.epoch(),
+            index: 1,
+        });
+        let rtx = Arc::new(ResolvedTransaction {
+            transaction: TransactionBuilder::default()
+                .set_header_deps(if has_header_dep {
+                    vec![header.hash()]
+                } else {
+                    vec![]
+                })
+                .build(),
+            resolved_cell_deps: vec![cell.clone()],
+            resolved_inputs: vec![cell],
+            resolved_dep_groups: vec![],
+        });
+        let sg_data = build_sg_data_with_loader(rtx, data_loader.clone(), vec![0], vec![]);
+        for syscall_number in [
+            LOAD_HEADER_SYSCALL_NUMBER,
+            LOAD_HEADER_BY_FIELD_SYSCALL_NUMBER,
         ] {
-            let mut machine = SCRIPT_VERSION.init_core_machine_without_limit();
-            let size_addr: u64 = 0;
-            let addr: u64 = 100;
+            for source in [
+                Source::Transaction(SourceEntry::Input),
+                Source::Transaction(SourceEntry::CellDep),
+                Source::Group(SourceEntry::Input),
+            ] {
+                let mut machine = SCRIPT_VERSION.init_core_machine_without_limit();
+                machine.set_register(A0, 100);
+                machine.set_register(A1, 0);
+                machine.set_register(A2, 0);
+                machine.set_register(A3, 0);
+                machine.set_register(A4, u64::from(source));
+                machine.set_register(A5, HeaderField::EpochNumber as u64);
+                machine.set_register(A7, syscall_number);
+                machine.memory_mut().store64(&0, &0).unwrap();
 
-            machine.set_register(A0, addr);
-            machine.set_register(A1, size_addr);
-            machine.set_register(A2, 0);
-            machine.set_register(A3, 0);
-            machine.set_register(A4, u64::from(source));
-            machine.set_register(A5, HeaderField::EpochNumber as u64);
-            machine.set_register(A7, syscall_number);
-
-            let header = HeaderBuilder::default().build();
-            let cell = build_cell_meta(100, Bytes::new());
-            let mut headers = HashMap::default();
-            headers.insert(header.hash(), header.clone());
-            let data_loader = MockDataLoader {
-                headers,
-                ..Default::default()
-            };
-            let rtx = Arc::new(ResolvedTransaction {
-                transaction: TransactionBuilder::default()
-                    .header_dep(header.hash())
-                    .build(),
-                resolved_cell_deps: vec![cell.clone()],
-                resolved_inputs: vec![cell],
-                resolved_dep_groups: vec![],
-            });
-            let sg_data = build_sg_data_with_loader(rtx, data_loader, vec![0], vec![]);
-            let mut load_header = LoadHeader::new(&sg_data);
-
-            assert!(load_header.ecall(&mut machine).is_ok());
-            assert_eq!(machine.registers()[A0], u64::from(ITEM_MISSING));
+                assert!(LoadHeader::new(&sg_data).ecall(&mut machine).unwrap());
+                assert_eq!(
+                    machine.registers()[A0],
+                    u64::from(expected),
+                    "{case}, {source:?}, syscall {syscall_number}"
+                );
+            }
         }
     }
 }
