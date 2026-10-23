@@ -95,6 +95,25 @@ impl<'a> HeadersProcess<'a> {
         debug!("HeadersProcess begins");
         let shared: &SyncShared = self.synchronizer.shared();
         let consensus = shared.consensus();
+        let headers_len = self.message.headers().len();
+        // Reject oversized batches before allocating or hashing HeaderViews. Keep
+        // the existing invalid-message status even when the peer is rate limited.
+        if headers_len > MAX_HEADERS_LEN {
+            warn!("HeadersProcess is oversized");
+            return StatusCode::HeadersIsInvalid.with_context("oversize");
+        }
+        if !self
+            .synchronizer
+            .headers_rate_limiter
+            .check(self.peer, headers_len)
+        {
+            // A dropped response would otherwise leave header sync waiting for a
+            // timeout. Disconnect without an IP ban so sync can select another peer.
+            let _ = self
+                .nc
+                .disconnect(self.peer, "SendHeaders work budget exceeded");
+            return StatusCode::TooManyRequests.with_context("SendHeaders work budget exceeded");
+        }
         let headers = self
             .message
             .headers()
@@ -102,11 +121,6 @@ impl<'a> HeadersProcess<'a> {
             .into_iter()
             .map(packed::Header::into_view)
             .collect::<Vec<_>>();
-
-        if headers.len() > MAX_HEADERS_LEN {
-            warn!("HeadersProcess is oversized");
-            return StatusCode::HeadersIsInvalid.with_context("oversize");
-        }
 
         if headers.is_empty() {
             // Empty means that the other peer's tip may be consistent with our own best known,
