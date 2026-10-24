@@ -84,7 +84,7 @@ pub struct RunArgs {
     /// Whether start rich-indexer, default false
     pub rich_indexer: bool,
     /// Whether start in daemon mode
-    #[cfg(not(target_os = "windows"))]
+    #[cfg(all(not(target_os = "windows"), not(target_os = "android")))]
     pub daemon: bool,
 }
 

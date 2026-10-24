@@ -20,11 +20,11 @@ use setup::Setup;
 use setup_guard::SetupGuard;
 use time::OffsetDateTime;
 
-#[cfg(not(target_os = "windows"))]
+#[cfg(all(not(target_os = "windows"), not(target_os = "android")))]
 use colored::Colorize;
-#[cfg(not(target_os = "windows"))]
+#[cfg(all(not(target_os = "windows"), not(target_os = "android")))]
 use daemonize_me::Daemon;
-#[cfg(not(target_os = "windows"))]
+#[cfg(all(not(target_os = "windows"), not(target_os = "android")))]
 use subcommand::check_process;
 #[cfg(feature = "with_sentry")]
 pub(crate) const LOG_TARGET_SENTRY: &str = "sentry";
@@ -92,7 +92,7 @@ pub fn run_app(version: Version) -> Result<(), ExitCode> {
         .subcommand()
         .expect("SubcommandRequiredElseHelp");
 
-    #[cfg(not(target_os = "windows"))]
+    #[cfg(all(not(target_os = "windows"), not(target_os = "android")))]
     if run_daemon(cmd, matches) {
         return run_app_in_daemon(version, bin_name, cmd, matches);
     }
@@ -101,7 +101,7 @@ pub fn run_app(version: Version) -> Result<(), ExitCode> {
     run_app_inner(version, bin_name, cmd, matches)
 }
 
-#[cfg(not(target_os = "windows"))]
+#[cfg(all(not(target_os = "windows"), not(target_os = "android")))]
 fn run_app_in_daemon(
     version: Version,
     bin_name: String,
@@ -171,7 +171,7 @@ fn run_app_inner(
         cli::CMD_STATS => subcommand::stats(setup.stats(matches)?, handle.clone()),
         cli::CMD_RESET_DATA => subcommand::reset_data(setup.reset_data(matches)?),
         cli::CMD_MIGRATE => subcommand::migrate(setup.migrate(matches)?),
-        #[cfg(not(target_os = "windows"))]
+        #[cfg(all(not(target_os = "windows"), not(target_os = "android")))]
         cli::CMD_DAEMON => subcommand::daemon(setup.daemon(matches)?),
         _ => unreachable!(),
     };
@@ -198,7 +198,7 @@ fn run_app_inner(
     ret
 }
 
-#[cfg(not(target_os = "windows"))]
+#[cfg(all(not(target_os = "windows"), not(target_os = "android")))]
 fn run_daemon(cmd: &str, matches: &ArgMatches) -> bool {
     match cmd {
         cli::CMD_RUN => matches.get_flag(cli::ARG_DAEMON),
