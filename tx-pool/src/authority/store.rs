@@ -843,6 +843,37 @@ impl Store {
         }
     }
 
+    /// Return the complete zero/one-owner descendant cut when it is a leaf.
+    /// A non-leaf needs the separately bounded full descendant capture.
+    pub(super) fn capture_leaf(
+        &self,
+        hash: &Byte32,
+    ) -> Option<(Arc<Snapshot>, Option<Arc<Entry>>)> {
+        // A leaf is already a complete closure. Its exclusive Children gate
+        // prevents additions/removals while the point owner is captured.
+        let view = self.view.read();
+        let key = RelationKey::Children(hash.clone());
+        let _children = self.dependency_gates.at(self.route(&key)).write();
+        let owner = self.shards.at(self.owner_shard(hash.as_slice())).read();
+        let Some(root) = owner
+            .owners
+            .get(hash.as_slice())
+            .filter(|entry| entry.accepted().is_some())
+        else {
+            return Some((Arc::clone(&view.snapshot), None));
+        };
+        let has_children = self.relation(&key).is_some_and(|row| {
+            row.lock()
+                .members
+                .values()
+                .any(|member| member.roles.intersects(Roles::CHILD))
+        });
+        if !has_children {
+            return Some((Arc::clone(&view.snapshot), Some(Arc::clone(root))));
+        }
+        None
+    }
+
     /// Capture one accepted descendant closure at a coherent cut. Every child
     /// membership update holds an owner writer, so these read guards stabilize
     /// the existing relation rows too. Caller owns a bounded read/capture slot.
@@ -938,6 +969,10 @@ impl Store {
         }
         self.validate_reads(reads, &owners)?;
         Ok(publish())
+    }
+
+    pub(super) fn has_queued_work(&self) -> bool {
+        self.queues.queued_len() != 0
     }
 
     pub(super) fn pop(

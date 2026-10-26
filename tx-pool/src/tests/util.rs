@@ -69,3 +69,42 @@ fn compact_transaction_view_detaches_from_block_backing_without_rehashing() {
     assert_eq!(compact.hash(), shared_hash);
     assert_eq!(compact.witness_hash(), shared_witness_hash);
 }
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 1)]
+async fn computation_handoff_covers_preparation_after_each_pending_poll() {
+    use std::{sync::mpsc, time::Duration};
+    const TEST_TIMEOUT: Duration = Duration::from_secs(10);
+    let (entered, mut entries) = tokio::sync::mpsc::unbounded_channel();
+    let (release, released) = mpsc::channel();
+    let computation = tokio::spawn(super::block_offload_future(async move {
+        for step in 0..2 {
+            entered.send(step).unwrap();
+            released.recv_timeout(TEST_TIMEOUT).unwrap();
+            // Returning Pending separates the two synchronous preparations.
+            tokio::task::yield_now().await;
+        }
+    }));
+    for step in 0..2 {
+        assert_eq!(
+            tokio::time::timeout(TEST_TIMEOUT, entries.recv())
+                .await
+                .unwrap(),
+            Some(step)
+        );
+        // The test's block_on thread must not be the executor making progress.
+        tokio::time::timeout(
+            TEST_TIMEOUT,
+            tokio::spawn(async {
+                tokio::time::sleep(Duration::from_millis(1)).await;
+            }),
+        )
+        .await
+        .unwrap()
+        .unwrap();
+        release.send(()).unwrap();
+    }
+    tokio::time::timeout(TEST_TIMEOUT, computation)
+        .await
+        .unwrap()
+        .unwrap();
+}

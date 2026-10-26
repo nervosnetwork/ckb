@@ -41,10 +41,14 @@ impl Selection<'_> {
         &self,
     ) -> Result<Vec<TransactionView>, PackingError> {
         let mut remaining = vec![true; self.candidates.len()];
-        let mut ordered =
-            topological_active_order(&remaining, &self.precedence_graph()?, |index| {
-                Reverse(self.candidates[index].arrival)
-            })?;
+        // Persistence ranks every active body, regardless of proposal phase.
+        let mut ordered = topological_active_order(
+            &remaining,
+            &self.precedence_graph()?,
+            |_| true,
+            |index| Reverse(self.candidates[index].arrival),
+        )?
+        .eligible;
         for &index in &ordered {
             remaining[index] = false;
         }
@@ -75,26 +79,24 @@ impl Selection<'_> {
         let mut cycle_round = 0usize;
         let mut eviction = None;
         loop {
-            let ordered = topological_active_order(&active, &graph, |index| {
-                package_order_key(index, &self.candidates[index], self.graph.ancestors[index])
-            })?;
-            if ordered.len() == active.iter().filter(|is_active| **is_active).count() {
+            let ordered = topological_active_order(
+                &active,
+                &graph,
+                |index| self.candidates[index].status == Status::Proposed,
+                |index| {
+                    package_order_key(index, &self.candidates[index], self.graph.ancestors[index])
+                },
+            )?;
+            if ordered.complete {
                 let parents = graph.reversed(&active)?;
                 let mut positions = vec![0usize; len];
-                let mut proposed = vec![false; len];
-                let mut eligible = Vec::new();
-                for (position, index) in ordered.into_iter().enumerate() {
+                for (position, &index) in ordered.eligible.iter().enumerate() {
                     positions[index] = position;
-                    proposed[index] = self.candidates[index].status == Status::Proposed
-                        && parents[index].iter().all(|parent| proposed[*parent]);
-                    if proposed[index] {
-                        eligible.push(index);
-                    }
                 }
                 return Ok(Precedence {
                     parents,
                     positions,
-                    eligible,
+                    eligible: ordered.eligible,
                 });
             }
             let mut cyclic = strongly_connected_active(&active, &graph)?;
@@ -196,6 +198,14 @@ impl Selection<'_> {
     }
 }
 
+struct TopologicalOrder {
+    eligible: Vec<usize>,
+    complete: bool,
+}
+
+/// Visit the complete active graph while ranking and retaining only nodes whose
+/// active prerequisite closure is eligible. An unvisited cycle makes the order
+/// incomplete even when no eligible nodes remain.
 #[expect(
     clippy::indexing_slicing,
     reason = "Links validates every endpoint; the activity mask is checked against its node count before traversal."
@@ -203,11 +213,21 @@ impl Selection<'_> {
 fn topological_active_order<K: Ord>(
     active: &[bool],
     children: &Links,
+    eligible: impl Fn(usize) -> bool,
     priority: impl Fn(usize) -> K,
-) -> Result<Vec<usize>, PackingError> {
+) -> Result<TopologicalOrder, PackingError> {
     if active.len() != children.len() {
         return Err(PackingError::Projection);
     }
+    let mut eligible: Vec<_> = (0..active.len()).map(eligible).collect();
+    let mut remaining = active.iter().filter(|is_active| **is_active).count();
+    let mut ordered = Vec::with_capacity(
+        active
+            .iter()
+            .zip(&eligible)
+            .filter(|(active, eligible)| **active && **eligible)
+            .count(),
+    );
     let mut indegree = vec![0usize; active.len()];
     for (parent, next) in children.iter().enumerate() {
         if !active[parent] {
@@ -222,30 +242,49 @@ fn topological_active_order<K: Ord>(
         }
     }
 
-    // Rank only ready entries, directly by package priority. Each entry becomes
-    // ready once, so neither a separate ordinal table nor set deduplication is needed.
+    // An ineligible prerequisite makes its descendants ineligible too. They
+    // still participate in cycle detection, but cannot unlock an eligible node;
+    // visiting them first leaves the eligible priority order unchanged.
     let mut ready = Vec::new();
+    let mut unranked = Vec::new();
     for (index, is_active) in active.iter().copied().enumerate() {
         if is_active && indegree[index] == 0 {
-            ready.push((priority(index), Reverse(index)));
+            if eligible[index] {
+                ready.push((priority(index), Reverse(index)));
+            } else {
+                unranked.push(index);
+            }
         }
     }
     let mut ready = BinaryHeap::from(ready);
-    let mut ordered = Vec::with_capacity(active.iter().filter(|is_active| **is_active).count());
-    while let Some((_priority, Reverse(index))) = ready.pop() {
-        ordered.push(index);
+    while let Some(index) = unranked
+        .pop()
+        .or_else(|| ready.pop().map(|(_, Reverse(index))| index))
+    {
+        remaining = remaining.checked_sub(1).ok_or(PackingError::Projection)?;
+        if eligible[index] {
+            ordered.push(index);
+        }
         for child in &children[index] {
             if !active[*child] {
                 continue;
             }
+            eligible[*child] &= eligible[index];
             let degree = &mut indegree[*child];
             *degree = degree.checked_sub(1).ok_or(PackingError::Projection)?;
             if *degree == 0 {
-                ready.push((priority(*child), Reverse(*child)));
+                if eligible[*child] {
+                    ready.push((priority(*child), Reverse(*child)));
+                } else {
+                    unranked.push(*child);
+                }
             }
         }
     }
-    Ok(ordered)
+    Ok(TopologicalOrder {
+        eligible: ordered,
+        complete: remaining == 0,
+    })
 }
 
 /// Iterative Kosaraju traversal; template input is attacker-shaped, so no

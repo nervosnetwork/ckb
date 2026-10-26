@@ -7,10 +7,7 @@ use super::{
     service::ComputePermit,
     store::{ReadSet, Store},
 };
-use crate::{
-    error::Reject,
-    verification::{VerificationExecution, verify_rtx},
-};
+use crate::{error::Reject, verification::verify_rtx};
 use ckb_app_config::TxPoolConfig;
 use ckb_script::ChunkCommand;
 use ckb_snapshot::Snapshot;
@@ -159,7 +156,8 @@ pub(super) async fn verify(
     config: &TxPoolConfig,
     cache: &RwLock<TxVerificationCache>,
     commands: &mut watch::Receiver<ChunkCommand>,
-    compute: &ComputePermit,
+    // Retain admitted CPU capacity through canonical verification and its VM child.
+    _compute: &ComputePermit,
 ) -> Result<Verified, Error> {
     let (view, snapshot) = store.snapshot();
     if view != resolved.view {
@@ -170,8 +168,6 @@ pub(super) async fn verify(
     let rules = ScriptVerificationRules::from_env(snapshot.consensus(), &environment);
     let key = TxVerificationCacheKey::from_resolved(&resolved.transaction, rules);
     let cached = cache.read().await.lookup(&key);
-    let execution =
-        VerificationExecution::new(entry.source.verification_time_limit(config), compute.mode());
     let max_cycles = entry
         .source
         .declared_cycles()
@@ -184,7 +180,7 @@ pub(super) async fn verify(
         cached,
         max_cycles,
         commands,
-        execution,
+        entry.source.verification_time_limit(config),
     )
     .await?;
     if let Some(declared) = entry.source.declared_cycles()

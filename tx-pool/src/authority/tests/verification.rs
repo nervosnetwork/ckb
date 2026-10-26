@@ -3,7 +3,6 @@ use crate::authority::{
     model::{Phase, RemoteOrigin, Source},
     tests::common::*,
 };
-use crate::verification::ComputeMode;
 use ckb_types::{
     bytes::Bytes,
     core::{Capacity, DepType, cell::ResolvedTransaction, error::OutPointError},
@@ -67,7 +66,6 @@ fn only_network_sources_select_a_time_budget() {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn dao_lock_size_is_checked_before_local_and_network_script_execution() {
-    use crate::verification::VerificationExecution;
     use ckb_types::{
         core::{
             ScriptHashType, TransactionBuilder, cell::CellMetaBuilder, error::TransactionError,
@@ -107,15 +105,7 @@ async fn dao_lock_size_is_checked_before_local_and_network_script_execution() {
         resolved_dep_groups: vec![],
     });
     let env = Arc::new(environment(Status::Pending, &snapshot));
-    for execution in [
-        VerificationExecution::new(None, ComputeMode::Inline),
-        VerificationExecution::new(None, ComputeMode::YieldRuntimeWorker),
-        VerificationExecution::new(Some(Duration::from_secs(1)), ComputeMode::Inline),
-        VerificationExecution::new(
-            Some(Duration::from_secs(1)),
-            ComputeMode::YieldRuntimeWorker,
-        ),
-    ] {
+    for cpu_time in [None, Some(Duration::from_secs(1))] {
         let (_sender, mut commands) = watch::channel(ChunkCommand::Resume);
         // No script deps and no VM cycles are available. Reaching script
         // verification would produce a different error before the DAO check.
@@ -126,7 +116,7 @@ async fn dao_lock_size_is_checked_before_local_and_network_script_execution() {
             None,
             0,
             &mut commands,
-            execution,
+            cpu_time,
         )
         .await
         .unwrap_err();
@@ -152,7 +142,7 @@ async fn canonical_vm_success_produces_witness_bound_cache_proof_and_current_fee
         &config,
         &cache,
         &mut commands,
-        &ComputePermit::for_test(ComputeMode::Inline),
+        &ComputePermit::for_test(),
     )
     .await
     .unwrap();
@@ -173,7 +163,7 @@ async fn canonical_vm_success_produces_witness_bound_cache_proof_and_current_fee
         &config,
         &cache,
         &mut commands,
-        &ComputePermit::for_test(ComputeMode::Inline),
+        &ComputePermit::for_test(),
     )
     .await
     .unwrap();
@@ -222,7 +212,7 @@ async fn local_and_recovery_verification_ignore_network_time_limit() {
             &config,
             &cache,
             &mut commands,
-            &ComputePermit::for_test(ComputeMode::YieldRuntimeWorker),
+            &ComputePermit::for_test(),
         )
         .await
         .unwrap();
@@ -271,7 +261,7 @@ async fn network_time_budget_refusal_is_not_cached_and_allows_a_later_normal_att
             &config,
             &cache,
             &mut commands,
-            &ComputePermit::for_test(ComputeMode::Inline),
+            &ComputePermit::for_test(),
         )
         .await;
         assert!(
@@ -295,7 +285,7 @@ async fn network_time_budget_refusal_is_not_cached_and_allows_a_later_normal_att
             &config,
             &cache,
             &mut commands,
-            &ComputePermit::for_test(ComputeMode::Inline)
+            &ComputePermit::for_test()
         )
         .await
         .is_ok()
@@ -317,7 +307,7 @@ async fn remote_cycle_declaration_is_exact_even_when_reusing_local_cache_success
         &config,
         &cache,
         &mut commands,
-        &ComputePermit::for_test(ComputeMode::Inline),
+        &ComputePermit::for_test(),
     )
     .await
     .unwrap();
@@ -339,7 +329,7 @@ async fn remote_cycle_declaration_is_exact_even_when_reusing_local_cache_success
             &config,
             &cache,
             &mut commands,
-            &ComputePermit::for_test(ComputeMode::Inline)
+            &ComputePermit::for_test()
         )
         .await,
         Err(Error::Rejected(Reject::DeclaredWrongCycles(_, _)))
@@ -369,7 +359,7 @@ async fn producer_reentry_invalidates_queued_resolution_before_vm_or_cache_publi
             &config,
             &cache,
             &mut commands,
-            &ComputePermit::for_test(ComputeMode::Inline)
+            &ComputePermit::for_test()
         )
         .await,
         Err(Error::Stale)
@@ -554,7 +544,7 @@ async fn dependency_spent_after_verification_cannot_commit_the_old_live_observat
         &config,
         &cache,
         &mut commands,
-        &ComputePermit::for_test(ComputeMode::Inline),
+        &ComputePermit::for_test(),
     )
     .await
     .unwrap();
@@ -823,7 +813,7 @@ async fn canonical_conflicting_input_obeys_final_replacement_policy() {
         &configuration,
         &cache,
         &mut commands,
-        &ComputePermit::for_test(ComputeMode::Inline),
+        &ComputePermit::for_test(),
     )
     .await
     .unwrap();

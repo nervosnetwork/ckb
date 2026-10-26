@@ -495,7 +495,6 @@ async fn proposal_promotion_reuses_exact_resolution_and_rechecks_original_produc
         queue::{WorkSelection, WorkStage},
         store::Store,
     };
-    use crate::verification::ComputeMode;
     use ckb_script::ChunkCommand;
     use ckb_verification::cache::init_cache;
     use tokio::sync::{RwLock, watch};
@@ -577,7 +576,7 @@ async fn proposal_promotion_reuses_exact_resolution_and_rechecks_original_produc
             &config(),
             &RwLock::new(init_cache()),
             &mut commands,
-            &ComputePermit::for_test(ComputeMode::Inline),
+            &ComputePermit::for_test(),
         )
         .await;
         if remove_producer {

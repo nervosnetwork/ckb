@@ -85,6 +85,41 @@ fn a_missing_child_in_a_coherent_descendant_capture_is_a_fault() {
     ));
 }
 
+#[test]
+fn a_leaf_query_progresses_while_an_unrelated_owner_shard_is_held() {
+    let store = store();
+    let hash = accept(&store, output_tx(9814), 1, 1, Status::Pending);
+    let root_shard = store.owner_shard(hash.as_slice());
+    let unrelated = (9815..10_000)
+        .map(|nonce| store.owner_shard(tx(nonce).hash().as_slice()))
+        .find(|shard| *shard != root_shard)
+        .unwrap();
+    std::thread::scope(|scope| {
+        let held = store.shards.at(unrelated).write();
+        let (completed, received) = std::sync::mpsc::sync_channel(1);
+        let store = &store;
+        let hash = &hash;
+        let reader = scope.spawn(move || {
+            let configuration = TxPoolConfig {
+                min_rbf_rate: ckb_types::core::FeeRate::from_u64(1000),
+                ..config()
+            };
+            let found = super::super::query::transaction(store, hash, &configuration)
+                .unwrap()
+                .unwrap();
+            assert_eq!(found.transaction.unwrap().hash(), *hash);
+            assert!(found.min_replace_fee.is_some());
+            completed.send(()).unwrap();
+        });
+        // Completion before releasing the unrelated writer proves the narrower
+        // footprint. The deadline only bounds a regression's failure.
+        let progress = received.recv_timeout(Duration::from_secs(5));
+        drop(held);
+        reader.join().unwrap();
+        progress.unwrap();
+    });
+}
+
 // Independent ordered-map reference for lock-footprint selection in these tests.
 fn add_lock_request(footprint: &mut BTreeMap<usize, bool>, index: ShardIndex, write: bool) {
     footprint

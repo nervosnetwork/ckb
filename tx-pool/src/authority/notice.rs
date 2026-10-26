@@ -1,5 +1,5 @@
 //! Immutable, bounded notices are appended with the owner commit and published
-//! by one task after its guards open. There is no preallocated sequence gap.
+//! serially after its guards open. There is no preallocated sequence gap.
 use super::{
     budget::{AccountSnapshot, Amount, Budget, Limits},
     model::{Entry, Error, FullReason, Phase, Source, Status},
@@ -489,6 +489,9 @@ struct State {
 }
 pub(super) struct Outbox {
     state: Mutex<State>,
+    // The background task owns this endpoint lifetime. A direct submitter may
+    // borrow the same exclusive publisher after its commit guards have opened.
+    publisher: Mutex<Option<Endpoints>>,
     remote_batch: BatchLimit,
     trusted_batch: BatchLimit,
     critical_batch: BatchLimit,
@@ -581,6 +584,7 @@ impl Outbox {
                 pending: BTreeMap::new(),
                 closed: false,
             }),
+            publisher: Mutex::new(None),
             remote_batch: BatchLimit {
                 effects,
                 bytes: remote_bytes,
@@ -839,20 +843,75 @@ impl Outbox {
         Ok(())
     }
 
-    pub(super) async fn run(self: Arc<Self>, mut endpoints: Endpoints) -> Result<(), Error> {
+    fn publication_failed(&self) {
+        crate::metrics::record_failure(crate::metrics::FailureBoundary::EffectPublisher);
+        self.faulted.store(true, Ordering::SeqCst);
+        self.failed.notify_waiters();
+        self.room.notify_waiters();
+        self.changed.notify_one();
+    }
+
+    /// Borrow the sole publisher without waiting for another endpoint pass.
+    /// The FIFO prefix and endpoint failure state remain under one exclusive
+    /// lease, including across synchronous callbacks and their nested reads.
+    pub(super) fn try_publish(&self) -> Result<bool, Error> {
+        let Some(mut publisher) = self.publisher.try_lock() else {
+            return Ok(false);
+        };
+        let Some(endpoints) = publisher.as_mut() else {
+            return Ok(false);
+        };
+        struct Completion<'a> {
+            outbox: &'a Outbox,
+            done: bool,
+        }
+        impl Drop for Completion<'_> {
+            fn drop(&mut self) {
+                if !self.done {
+                    self.outbox.publication_failed();
+                }
+            }
+        }
+        let mut completion = Completion {
+            outbox: self,
+            done: false,
+        };
+        let progress = self.publish_ready(endpoints)?;
+        completion.done = true;
+        drop(publisher);
+        if progress {
+            // The background owner can have observed a borrowed publisher and
+            // gone to sleep. Wake it for remaining batches or final drain.
+            self.changed.notify_one();
+        }
+        Ok(progress)
+    }
+
+    pub(super) async fn run(self: Arc<Self>, endpoints: Endpoints) -> Result<(), Error> {
+        {
+            let mut publisher = self.publisher.lock();
+            if publisher.is_some() {
+                return Err(Error::Fault("duplicate notice publisher"));
+            }
+            *publisher = Some(endpoints);
+        }
         struct Completion {
             outbox: Arc<Outbox>,
             done: bool,
         }
         impl Drop for Completion {
             fn drop(&mut self) {
+                // Cancellation cannot release the owner while a submitter is
+                // inside a callback. Once the lease returns, retire endpoints
+                // before the background task reports completion.
+                let endpoints = if let Some(mut publisher) = self.outbox.publisher.try_lock() {
+                    publisher.take()
+                } else {
+                    block_offload(|| self.outbox.publisher.lock().take())
+                };
+                drop(endpoints);
                 if !self.done {
-                    crate::metrics::record_failure(
-                        crate::metrics::FailureBoundary::EffectPublisher,
-                    );
-                    self.outbox.faulted.store(true, Ordering::SeqCst);
-                    self.outbox.failed.notify_waiters();
-                    self.outbox.room.notify_waiters();
+                    self.outbox.publication_failed();
                 }
             }
         }
@@ -862,7 +921,7 @@ impl Outbox {
         };
         loop {
             let changed = self.changed.notified();
-            if self.publish_ready(&mut endpoints)? {
+            if self.try_publish()? {
                 continue;
             }
             if self.drained() {

@@ -138,6 +138,16 @@ impl Pool {
                 if self.store.is_stopped() {
                     return Ok(());
                 }
+                // Empty workers must not compete with local submissions for CPU.
+                // Capacity notifications also carry budget faults, so retain them.
+                if !self.store.has_queued_work() {
+                    tokio::select! {
+                        _ = &mut work => {},
+                        _ = &mut memory => {},
+                        _ = self.stopped.cancelled() => return Ok(())
+                    }
+                    continue;
+                }
                 let cpu = match self.compute().await {
                     Ok(cpu) => cpu,
                     Err(Error::Closed) => return Ok(()),

@@ -67,6 +67,136 @@ async fn within<T>(future: impl Future<Output = T>) -> T {
         .expect("lifecycle event completes")
 }
 
+async fn started(controller: &TxPoolController) {
+    within(async {
+        while !controller.service_started() {
+            tokio::task::yield_now().await;
+        }
+    })
+    .await;
+    // Exercise both lanes before abandoning their owner.
+    let client = controller.clone();
+    within(tokio::task::spawn_blocking(move || {
+        client.get_tx_pool_info().unwrap();
+        assert!(
+            client
+                .submit_local_tx(TransactionBuilder::default().build())
+                .unwrap()
+                .is_err()
+        );
+    }))
+    .await
+    .unwrap();
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 1)]
+async fn aborting_the_builder_cancels_workers_and_releases_publication_endpoints() {
+    let directory = tempfile::tempdir().unwrap();
+    let (mut builder, controller, _relay) = service(directory.path());
+    let pool = builder.pool_for_test();
+    let (release, released) = tokio::sync::oneshot::channel::<()>();
+    builder.register_pending(Box::new(move |_| {
+        let _ = &release;
+    }));
+    let generation = builder.start_with_handle(DummyTxPoolNetwork);
+    started(&controller).await;
+
+    generation.abort();
+    assert!(within(generation).await.unwrap_err().is_cancelled());
+    assert!(!controller.service_started());
+    assert!(pool.is_stopped());
+    assert!(pool.is_faulted());
+    assert!(within(released).await.is_err(), "the endpoint was released");
+    within(async {
+        while !controller.sender.is_closed() || !controller.query_sender.is_closed() {
+            tokio::task::yield_now().await;
+        }
+    })
+    .await;
+    assert!(!pool.config.persisted_data.with_extension("v2").exists());
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 1)]
+async fn stopping_joins_a_request_waiting_for_verification_resume() {
+    use crate::service::{Message, Request};
+    let directory = tempfile::tempdir().unwrap();
+    let (builder, controller, _relay) = service(directory.path());
+    let pool = builder.pool_for_test();
+    let generation = builder.start_with_handle(DummyTxPoolNetwork);
+    started(&controller).await;
+    controller.suspend_chunk_process().unwrap();
+    let (responder, response) = ckb_channel::oneshot::channel();
+    controller
+        .sender
+        .try_send(Message::SubmitLocalTx(Request::call(
+            BoundedTransaction::try_new(TransactionBuilder::default().build()).unwrap(),
+            responder,
+        )))
+        .unwrap();
+    // A later message on the same FIFO lane proves the earlier request has
+    // been taken by a worker. Its result must still await verification resume.
+    let (responder, barrier) = ckb_channel::oneshot::channel();
+    controller
+        .sender
+        .try_send(Message::GetTxPoolInfo(Request::call((), responder)))
+        .unwrap();
+    within(tokio::task::spawn_blocking(move || {
+        barrier.recv().unwrap().unwrap()
+    }))
+    .await
+    .unwrap();
+    assert!(matches!(
+        response.try_recv(),
+        Err(std::sync::mpsc::TryRecvError::Empty)
+    ));
+
+    controller.stop();
+    within(generation).await.unwrap();
+    assert!(response.recv().unwrap().is_err());
+    assert!(!pool.is_faulted());
+    assert!(!controller.service_started());
+}
+
+#[test]
+fn runtime_drop_releases_idle_request_workers() {
+    idle_runtime_shutdown(None);
+}
+
+#[test]
+fn idle_request_workers_do_not_exhaust_runtime_blocking_capacity() {
+    idle_runtime_shutdown(Some(1));
+}
+
+fn idle_runtime_shutdown(blocking_threads: Option<usize>) {
+    let (finished, completion) = std::sync::mpsc::channel();
+    let owner = std::thread::spawn(move || {
+        let directory = tempfile::tempdir().unwrap();
+        let mut builder = tokio::runtime::Builder::new_multi_thread();
+        builder.worker_threads(1).enable_all();
+        if let Some(threads) = blocking_threads {
+            builder.max_blocking_threads(threads);
+        }
+        let runtime = builder.build().unwrap();
+        let (controller, retained) = runtime.block_on(async {
+            let (builder, controller, _relay) = service(directory.path());
+            let retained = Arc::downgrade(&builder.pool_for_test());
+            drop(builder.start_with_handle(DummyTxPoolNetwork));
+            started(&controller).await;
+            (controller, retained)
+        });
+        drop(runtime);
+        assert!(retained.upgrade().is_none());
+        assert!(!controller.service_started());
+        assert!(controller.sender.is_closed());
+        assert!(controller.query_sender.is_closed());
+        finished.send(()).unwrap();
+    });
+    completion
+        .recv_timeout(Duration::from_secs(10))
+        .expect("runtime drop joins idle request workers");
+    owner.join().unwrap();
+}
+
 async fn queue_reorg(
     controller: &TxPoolController,
     attached_blocks: VecDeque<BlockView>,

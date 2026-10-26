@@ -113,6 +113,14 @@ pub(crate) fn block_offload<T>(f: impl FnOnce() -> T) -> T {
     }
 }
 
+/// Hand off synchronous work in every poll, including preparation after a wait.
+/// Pending futures retain no runtime worker; their owned children must hand off
+/// their own blocking work.
+pub(crate) async fn block_offload_future<T>(future: impl std::future::Future<Output = T>) -> T {
+    tokio::pin!(future);
+    std::future::poll_fn(|context| block_offload(|| future.as_mut().poll(context))).await
+}
+
 #[cfg(test)]
 #[path = "tests/util.rs"]
 mod util_tests;

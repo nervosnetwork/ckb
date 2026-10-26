@@ -4,12 +4,10 @@ pub(crate) mod calibration;
 mod cpu_clock;
 mod execution;
 
-pub(crate) use execution::ComputeMode;
-
 #[cfg(test)]
 mod tests;
 
-use crate::{error::Reject, util::block_offload};
+use crate::{error::Reject, util::block_offload_future};
 use ckb_chain_spec::consensus::Consensus;
 use ckb_dao::DaoCalculator;
 use ckb_script::ChunkCommand;
@@ -81,40 +79,6 @@ pub(crate) fn non_contextual_verify(
     Ok(())
 }
 
-fn verify_dao_script_size(
-    snapshot: &Snapshot,
-    rtx: Arc<ResolvedTransaction>,
-) -> Result<(), ckb_error::Error> {
-    let verifier = DaoScriptSizeVerifier::new(
-        rtx,
-        snapshot.cloned_consensus(),
-        snapshot.borrow_as_data_loader(),
-    );
-    // The verifier owns the exact predicate for whether either of its branches
-    // can reach the data provider. Keep only that potentially blocking path off
-    // the async executor; the common non-DAO path still runs the complete
-    // verifier, but avoids a compensating Tokio worker handoff.
-    if verifier.may_load_cell_data() {
-        block_offload(|| verifier.verify())
-    } else {
-        verifier.verify()
-    }
-}
-
-/// Execution admitted by the pool's computation gate. A missing CPU limit
-/// keeps canonical synchronous verification, with the same runtime capacity.
-#[derive(Clone, Copy, Debug)]
-pub(crate) struct VerificationExecution {
-    cpu_time: Option<std::time::Duration>,
-    mode: ComputeMode,
-}
-
-impl VerificationExecution {
-    pub(crate) const fn new(cpu_time: Option<std::time::Duration>, mode: ComputeMode) -> Self {
-        Self { cpu_time, mode }
-    }
-}
-
 pub(crate) async fn verify_rtx(
     snapshot: Arc<Snapshot>,
     rtx: Arc<ResolvedTransaction>,
@@ -122,33 +86,38 @@ pub(crate) async fn verify_rtx(
     cache_entry: Option<ScriptVerificationProof>,
     max_cycles: Cycle,
     command_rx: &mut watch::Receiver<ChunkCommand>,
-    execution: VerificationExecution,
+    cpu_time: Option<std::time::Duration>,
 ) -> Result<ScriptVerificationOutcome, Reject> {
-    let consensus = snapshot.cloned_consensus();
-    let data_loader = snapshot.as_data_loader();
+    block_offload_future(async move {
+        let consensus = snapshot.cloned_consensus();
+        let data_loader = snapshot.as_data_loader();
 
-    verify_dao_script_size(&snapshot, Arc::clone(&rtx)).map_err(Reject::Verification)?;
-    let verifier =
-        ContextualTransactionVerifier::new(rtx, consensus, data_loader, Arc::clone(&tx_env));
-    match execution.cpu_time {
-        // The admitted computation count leaves a worker for chain controls.
-        // A one-worker runtime yields its worker through the same mode.
-        None => execution
-            .mode
-            .run(|| verifier.verify_scripts(max_cycles, cache_entry))
-            .map_err(Reject::Verification),
-        Some(cpu_time) => verifier
-            .verify_with_runner(
-                max_cycles,
-                cache_entry,
-                &mut execution::VmRunner {
-                    command: command_rx,
-                    remaining: cpu_time,
-                    mode: execution.mode,
-                },
-            )
-            .await
-            .map_err(Reject::Verification)?
-            .ok_or(Reject::ExcessiveVerifyTime),
-    }
+        DaoScriptSizeVerifier::new(
+            Arc::clone(&rtx),
+            Arc::clone(&consensus),
+            snapshot.borrow_as_data_loader(),
+        )
+        .verify()
+        .map_err(Reject::Verification)?;
+        let verifier =
+            ContextualTransactionVerifier::new(rtx, consensus, data_loader, Arc::clone(&tx_env));
+        match cpu_time {
+            None => verifier
+                .verify_scripts(max_cycles, cache_entry)
+                .map_err(Reject::Verification),
+            Some(cpu_time) => verifier
+                .verify_with_runner(
+                    max_cycles,
+                    cache_entry,
+                    &mut execution::VmRunner {
+                        command: command_rx,
+                        remaining: cpu_time,
+                    },
+                )
+                .await
+                .map_err(Reject::Verification)?
+                .ok_or(Reject::ExcessiveVerifyTime),
+        }
+    })
+    .await
 }

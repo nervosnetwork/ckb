@@ -90,7 +90,7 @@ async fn accept_canonical_child(
         &config(),
         &driver.cache,
         &mut commands,
-        &ComputePermit::for_test(crate::verification::ComputeMode::Inline),
+        &ComputePermit::for_test(),
     )
     .await
     .unwrap();

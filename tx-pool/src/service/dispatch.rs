@@ -28,7 +28,7 @@ pub(crate) async fn process(pool: Arc<Pool>, message: Message) -> Result<(), Err
             arguments,
         }) => reply(
             responder,
-            pool.submit_local(arguments)
+            pool.submit_local_request(arguments)
                 .await
                 .map(|result| result.map(|_| ())),
             "submit_local_tx",

@@ -899,6 +899,79 @@ fn chain_conflict_callbacks_keep_old_ancestor_and_descendant_totals() {
 }
 
 #[test]
+fn chain_callbacks_follow_public_pending_and_proposed_transitions() {
+    let store = store();
+    let transaction = output_tx(6522);
+    let hash = accept(&store, transaction.clone(), 20, 1, Status::Pending);
+    let old = store.point(&hash).1.unwrap();
+    let mut accepted = old.accepted().unwrap().clone();
+    accepted.forced_status = None;
+    replace(&store, old, Phase::Accepted(accepted));
+
+    for (number, (status, callback)) in [
+        (Status::Gap, None),
+        (Status::Pending, None),
+        (Status::Gap, None),
+        (Status::Proposed, Some(Status::Proposed)),
+        (Status::Proposed, None),
+        (Status::Gap, Some(Status::Pending)),
+        (Status::Pending, None),
+        (Status::Proposed, Some(Status::Proposed)),
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        let block = BlockBuilder::default()
+            .number(number as u64 + 1)
+            .transaction(tx(0))
+            .build();
+        let proposals = |phase| {
+            if status == phase {
+                [transaction.proposal_short_id()].into()
+            } else {
+                HashSet::new()
+            }
+        };
+        let next = snapshot(
+            &store.snapshot().1,
+            &block,
+            proposals(Status::Gap),
+            proposals(Status::Proposed),
+        );
+        let command = ChainReorgArgs::for_test(VecDeque::new(), [block].into(), next);
+        let plan = reconcile(&store, &command, &config()).unwrap();
+        let callbacks: Vec<_> = plan
+            .effects()
+            .iter()
+            .filter_map(|effect| match effect.callback() {
+                Some(CallbackEvent::Pending(entry)) => {
+                    Some((Status::Pending, entry.transaction.hash()))
+                }
+                Some(CallbackEvent::Proposed(entry)) => {
+                    Some((Status::Proposed, entry.transaction.hash()))
+                }
+                Some(CallbackEvent::Reject(..)) => panic!("a proposal change cannot reject"),
+                None => None,
+            })
+            .collect();
+        assert_eq!(
+            callbacks,
+            callback
+                .map(|status| (status, hash.clone()))
+                .into_iter()
+                .collect::<Vec<_>>(),
+            "transition {number}: Gap does not become a second new-transaction event"
+        );
+        store.apply(plan).unwrap();
+        let current = store.point(&hash).1.unwrap();
+        assert_eq!(
+            current.accepted().unwrap().status(&store.snapshot().1),
+            status
+        );
+    }
+}
+
+#[test]
 fn chain_status_callback_uses_final_graph_after_parent_commit() {
     let store = store();
     let parent = output_tx(6520);

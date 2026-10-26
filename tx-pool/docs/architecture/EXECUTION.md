@@ -62,12 +62,17 @@ dedicated Resolve workers can select either size.
 VM execution through shared compute permits. It checks the current pause after
 acquiring a permit, before selecting a queued job or reserving active memory.
 A suspended waiter returns the permit and waits for the control signal; dry-run
-declines without waiting. A multi-thread runtime with one worker hands off its
-core for synchronous compute; larger runtimes retain capacity for control and I/O.
-`ComputePermit` owns the admitted slot and execution mode. Resolution uses its
-`run` method; authority verification borrows it until computation returns. CPU
+declines without waiting. For `N` runtime workers and `W` verification workers,
+at most `max(1, min(W+1, N))` computations run. `ComputePermit` owns one slot;
+synchronous work hands its runtime worker back for controls and I/O. This also
+covers a one-worker runtime. Resolution uses the permit's `run`
+method; authority verification borrows it until computation returns. CPU
 capacity is then released before settlement, while the separate active-memory
 permit remains with its Job or direct request.
+
+An empty background queue does not contend for compute capacity. Its worker
+still observes budget notifications, including accounting faults. Queued work
+which cannot acquire peer or active memory retains the existing capacity wait.
 
 The sole [block consumer](../../../chain/src/verify.rs) owns a scoped pause while
 processing ready blocks and truncations. When that backlog empties, it resumes
@@ -90,9 +95,10 @@ have their own progress requirements, described below, and remain outside this g
 
 The transaction source selects a CPU-time budget only for network relay and
 proposal verification. Local RPC submission, test submission, dry-run and recovery
-have no time limit and use synchronous canonical verification. All sources use
-the execution mode granted by their computation permit: the admitted count leaves
-a runtime worker for controls, while a one-worker runtime hands computation off.
+have no time limit and use synchronous canonical verification. All sources
+hand off their runtime worker during computation. This covers every poll of
+canonical verification, including synchronous
+verifier construction and scheduler preparation, as well as each VM child.
 They pass the computation gate before starting and retain their work until
 verification returns. Network verification uses the controlled VM child
 with pause/stop/join. Proposal promotion preserves local and recovery sources.
@@ -189,6 +195,12 @@ retries this outcome, without assembling separate phase/read/effect values.
 | Ordinary resource or verification rejection | Worker prepares a rejection Plan; stale rejection observations also require requeue |
 | Structural fault | Generation stops normal use and becomes ineligible for persistence |
 | Orderly cancellation | Worker settles/requeues work or observes its successor before leaving |
+
+Capacity waits follow the refused gate. A chain transition waits for Store state
+to change; a full outbox also waits for notice capacity. Apply may reserve notices
+before encountering the chain gate, then refund them on refusal. That refund must
+not wake the same chain-blocked attempt into a planning loop. Both subscriptions
+precede the attempt, so an enabling change before the first wait poll is retained.
 
 `Pool::commit_attempt` returns the successful attempt's result. Local admission
 pairs its rejection outcome with the committed batch; reconciliation pairs the
@@ -289,7 +301,10 @@ child index only when a conflict or recovery root needs descendant closure;
 conflict removal takes precedence when those closures intersect. The old accepted
 graph and its aggregates are constructed only for rejection callbacks. Proposal
 status callbacks use the final accepted graph after committed producers are
-removed. Ordinary attachment skips detached-backing checks, while VM activation
+removed. Pending and Gap share the public pending callback, so moving between
+them emits no second new-transaction notification or fee-estimator sample.
+Entering or leaving Proposed still publishes its corresponding callback.
+Ordinary attachment skips detached-backing checks, while VM activation
 is compared once between the previous and next snapshots regardless of proposal
 phase.
 
@@ -331,6 +346,17 @@ Apply reserves its complete final batch before mutation.
 activates it after guards open. A later ready batch cannot overtake an earlier
 unready one. Each batch settles, returns capacity and releases publisher/FIFO
 references before the next. Callback-owned clones have their own lifetimes.
+The background task owns the endpoints for the generation. An independently
+supervised local request may borrow the same exclusive publisher while its
+response is pending, completing at most one ready prefix of 32 batches per poll.
+It never waits for that lease: a busy publisher continues in its current owner.
+This removes a scheduling round trip when the committing request can publish
+immediately, while preserving FIFO order and endpoint failure state.
+Replay and direct-submission futures keep the independent publication wait so
+their caller can supervise other work within the same poll. Cancelling the
+background owner waits for a borrowed callback to return before retiring its
+endpoints or reporting task completion.
+
 `NoticeBudget::charged_by` owns cumulative quota membership: remote charges
 remote, ordinary and total; trusted charges ordinary and total; critical charges
 total. Per-batch limits are separate from these shared outstanding budgets.
@@ -387,9 +413,16 @@ equal-height reorgs can recover without waiting for another block.
 [Queries](../../src/authority/query.rs) expose transaction status only for accepted
 owners and adapt missing-dependency Waiting to the RPC orphan count. Proposal-window
 Gap and retained history stay separate from Waiting.
-Summary reads use derived counts and accepted charges; replacement-fee reads
-capture only the target's descendants. Both hold the paired view and all owner
-read guards for a coherent cut, avoiding unrelated owner copies and graph work.
+Summary reads use derived counts and accepted charges under the paired view and
+all owner read guards. Replacement-fee reads capture only the target's descendants.
+A leaf needs only its owner and exclusive Children gate under that view: the gate
+prevents a child from appearing during capture. A non-leaf releases this point
+capture before taking the complete owner cut for its closure. Neither path copies
+unrelated owners or builds their graph. Point and leaf transaction projections
+run in place under the existing two read slots. Full descendant capture and fee
+aggregation hand off the runtime worker together; recent-reject database reads
+retain their provider's blocking boundary. Cancellation while acquiring a read
+slot retains neither a slot nor captured owners.
 Optional fee overflow leaves transaction status visible.
 
 The sole [template driver](../../src/authority/template.rs)
@@ -512,6 +545,23 @@ are not total shutdown bounds.
 `stop()` signals cancellation and wakes suspended work; it remains terminal for
 that service generation, including if the block consumer later requests Resume.
 `service_started() == false` precedes complete joins.
+
+Each bounded request lane has fixed native threads: two reserved readers and
+`2 × max(W, 1)` ordinary handlers for `W` verification workers. Each thread drives
+its asynchronous receive/request loop with the service runtime, releasing the
+receive guard before processing. Idle threads occupy no Tokio blocking capacity.
+Reserved readers start before replay so its callbacks can query; ordinary handlers
+start only after successful replay. Thread creation failure ends startup before
+public readiness.
+
+The supervising task owns its native thread and joins it after completion. Normal
+stop finishes an entered request; abandoning the supervisor also cancels that
+request's future, then joins synchronous callbacks still on its stack. Any worker
+exit cancels the service and closes its lane, releasing queued callers even during
+runtime shutdown. Dropping the builder clears readiness, faults the generation and
+closes publication. During normal shutdown the builder closes and drains both
+request queues, joins all producers, then closes and joins the publisher. A callback
+must return before its owning request and publisher can finish joining.
 
 Chain updates remain reliable during normal startup, before public readiness.
 The unstarted builder owns the capacity-one receiver: chain callers wait for

@@ -18,7 +18,6 @@ use super::{
     template::Driver,
     waiting,
 };
-use crate::verification::ComputeMode;
 use crate::{
     block_assembler::{BlockAssembler, BoundedCandidateUncle},
     component::recent_reject::RecentReject,
@@ -117,17 +116,12 @@ impl VerificationControl {
 /// permit stays with the caller while synchronous or asynchronous work runs.
 pub(super) struct ComputePermit {
     _permit: OwnedSemaphorePermit,
-    mode: ComputeMode,
 }
 
 impl ComputePermit {
     /// Preserve runtime capacity for controls while synchronous work runs.
     pub(super) fn run<T>(&self, operation: impl FnOnce() -> T) -> T {
-        self.mode.run(operation)
-    }
-
-    pub(super) fn mode(&self) -> ComputeMode {
-        self.mode
+        block_offload(operation)
     }
 }
 
@@ -137,7 +131,6 @@ pub(crate) struct Pool {
     cache: Arc<RwLock<TxVerificationCache>>,
     pub(crate) verification: VerificationControl,
     commands: watch::Receiver<ChunkCommand>,
-    mode: ComputeMode,
     cpu: Arc<Semaphore>,
     reads: Semaphore,
     input_snapshots: query::InputSnapshotCache,
@@ -181,13 +174,8 @@ impl Pool {
             .limits
             .workers
             .saturating_add(1)
-            .min(workers.saturating_sub(1))
+            .min(workers)
             .max(1);
-        let mode = if workers == 1 {
-            ComputeMode::YieldRuntimeWorker
-        } else {
-            ComputeMode::Inline
-        };
         let (verification, commands) = VerificationControl::channel(ChunkCommand::Resume);
         let (relay, receiver) = production_authority_relay_mailbox(
             crate::service::DEFAULT_CHANNEL_SIZE,
@@ -210,7 +198,6 @@ impl Pool {
                 cache,
                 verification,
                 commands,
-                mode,
                 cpu: Arc::new(Semaphore::new(permits)),
                 reads: Semaphore::new(2),
                 input_snapshots: query::InputSnapshotCache::default(),
@@ -308,10 +295,7 @@ impl Pool {
             // selected until all computation sources pass this same gate.
             match self.computation_ready() {
                 Ok(()) => {
-                    return Ok(ComputePermit {
-                        _permit: cpu,
-                        mode: self.mode,
-                    });
+                    return Ok(ComputePermit { _permit: cpu });
                 }
                 Err(Error::Full(_)) => drop(cpu),
                 Err(error) => return Err(error),
@@ -345,13 +329,7 @@ impl Pool {
             .map_err(|_| Error::Full("active computation".into()))?;
         self.computation_ready()?;
         let memory = self.store.budget.active(Source::Local)?;
-        Ok((
-            ComputePermit {
-                _permit: cpu,
-                mode: self.mode,
-            },
-            memory,
-        ))
+        Ok((ComputePermit { _permit: cpu }, memory))
     }
 
     async fn direct_capacity(&self) -> Result<(ComputePermit, ActivePermit), Error> {
@@ -393,7 +371,10 @@ impl Pool {
             // These planners and Apply operate on bounded in-memory facts.
             // Disk providers, VM execution and callbacks own their blocking cuts.
             match attempt() {
-                Err(Error::Full(FullReason::NoticeOutbox | FullReason::ChainTransition)) => {
+                // Refused Apply can refund its own notice reservation. That
+                // refund cannot release the chain gate and must not retry it.
+                Err(Error::Full(FullReason::ChainTransition)) => changed.await,
+                Err(Error::Full(FullReason::NoticeOutbox)) => {
                     tokio::select! {
                         _ = &mut changed => {},
                         _ = &mut room => {}
@@ -601,12 +582,17 @@ impl Pool {
         }
     }
 
-    async fn read<T>(&self, query: impl FnOnce() -> Result<T, Error>) -> Result<T, Error> {
+    async fn read_permit(&self) -> Result<tokio::sync::SemaphorePermit<'_>, Error> {
         let _permit = tokio::select! {
             permit = self.reads.acquire() => permit.map_err(|_| Error::Closed)?,
             _ = self.stopped.cancelled() => return Err(Error::Closed)
         };
         self.open()?;
+        Ok(_permit)
+    }
+
+    async fn read<T>(&self, query: impl FnOnce() -> Result<T, Error>) -> Result<T, Error> {
+        let _permit = self.read_permit().await?;
         block_offload(query)
     }
 
@@ -723,10 +709,11 @@ impl Pool {
         &self,
         hash: &Byte32,
     ) -> Result<TransactionWithStatus, AnyError> {
-        if let Some(result) = self
-            .read(|| query::transaction(&self.store, hash, &self.config))
-            .await?
-        {
+        let result = {
+            let _permit = self.read_permit().await?;
+            query::transaction(&self.store, hash, &self.config)?
+        };
+        if let Some(result) = result {
             return Ok(result);
         }
         Ok(self.recent_reject(hash)?.map_or_else(

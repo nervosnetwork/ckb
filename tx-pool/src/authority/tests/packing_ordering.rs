@@ -175,6 +175,38 @@ fn replay_retains_conditional_cycles_in_causal_order_in_every_phase() {
 }
 
 #[test]
+fn unproposed_prerequisites_propagate_without_requesting_priority_keys() {
+    let children = Links::from_lists([
+        vec![2],
+        vec![3],
+        vec![4],
+        vec![4],
+        vec![5],
+        Vec::new(),
+        vec![7],
+        Vec::new(),
+    ])
+    .unwrap();
+    let eligible = [true, false, true, true, true, true, true, true];
+    let ranked = std::cell::RefCell::new(Vec::new());
+    let ordered = topological_active_order(
+        &[true; 8],
+        &children,
+        |index| eligible[index],
+        |index| {
+            ranked.borrow_mut().push(index);
+            Reverse(index)
+        },
+    )
+    .unwrap();
+    let mut ranked = ranked.into_inner();
+    ranked.sort_unstable();
+    assert_eq!(ranked, vec![0, 2, 6, 7]);
+    assert!(ordered.complete, "unproposed owners still take part");
+    assert_eq!(ordered.eligible, vec![0, 2, 6, 7]);
+}
+
+#[test]
 fn active_graph_operations_skip_inactive_nodes_and_reject_mismatched_masks() {
     let active = [true, false, true];
     let priority = |index| Reverse([1, 2, 0][index]);
@@ -192,7 +224,9 @@ fn active_graph_operations_skip_inactive_nodes_and_reject_mismatched_masks() {
         Err(PackingError::Projection)
     ));
     assert_eq!(
-        topological_active_order(&active, &children, priority).unwrap(),
+        topological_active_order(&active, &children, |_| true, priority)
+            .unwrap()
+            .eligible,
         vec![0, 2]
     );
     let mut components = strongly_connected_active(
@@ -211,10 +245,10 @@ fn active_graph_operations_skip_inactive_nodes_and_reject_mismatched_masks() {
     .unwrap();
     assert_eq!(remaining, [false, false, true]);
 
-    assert_eq!(
-        topological_active_order(&active[..2], &children, priority),
+    assert!(matches!(
+        topological_active_order(&active[..2], &children, |_| true, priority),
         Err(PackingError::Projection)
-    );
+    ));
     assert_eq!(
         strongly_connected_active(&active[..2], &children),
         Err(PackingError::Projection)
@@ -324,10 +358,40 @@ fn small_graphs_match_reachability_and_ready_node_oracles() {
                 expected_order.push(next);
             }
             assert_eq!(
-                topological_active_order(&active, &graph, Reverse).unwrap(),
+                topological_active_order(&active, &graph, |_| true, Reverse)
+                    .unwrap()
+                    .eligible,
                 expected_order,
                 "edges={edge_bits} mask={mask}"
             );
+
+            for proposed_mask in 0..1 << N {
+                let proposed: [bool; N] =
+                    std::array::from_fn(|index| proposed_mask & (1 << index) != 0);
+                // Reachability gives the complete active prerequisite closure,
+                // independently of when the production traversal visits it.
+                let selectable: [bool; N] = std::array::from_fn(|index| {
+                    active[index]
+                        && (0..N).all(|parent| !reachable[parent][index] || proposed[parent])
+                });
+                let expected: Vec<_> = expected_order
+                    .iter()
+                    .copied()
+                    .filter(|index| selectable[*index])
+                    .collect();
+                let ordered =
+                    topological_active_order(&active, &graph, |index| proposed[index], Reverse)
+                        .unwrap();
+                assert_eq!(
+                    ordered.complete,
+                    expected_order.len() == active.iter().filter(|active| **active).count(),
+                    "cycles remain observable: edges={edge_bits} active={mask} proposed={proposed_mask}"
+                );
+                assert_eq!(
+                    ordered.eligible, expected,
+                    "priority order: edges={edge_bits} active={mask} proposed={proposed_mask}"
+                );
+            }
 
             let mut expected_components = Vec::new();
             let mut assigned = [false; N];

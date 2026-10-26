@@ -144,15 +144,29 @@ fn transaction_with_replacement_fee(
 ) -> Result<Option<TransactionWithStatus>, Error> {
     // A chain update can return the point-read target to resolution. Only
     // owners still accepted in this cut can supply public status and fee.
-    let (snapshot, owners) = store.capture_descendants(hash)?;
+    if let Some((snapshot, entry)) = store.capture_leaf(hash) {
+        return transaction_from_descendants(&snapshot, entry.as_slice(), config);
+    }
+    // Both the complete capture and its aggregation can grow with the pool.
+    crate::util::block_offload(|| {
+        let (snapshot, owners) = store.capture_descendants(hash)?;
+        transaction_from_descendants(&snapshot, &owners, config)
+    })
+}
+
+fn transaction_from_descendants(
+    snapshot: &Snapshot,
+    owners: &[Arc<Entry>],
+    config: &TxPoolConfig,
+) -> Result<Option<TransactionWithStatus>, Error> {
     let Some(entry) = owners.first() else {
         return Ok(None);
     };
-    let Some(mut result) = live_transaction(entry, &snapshot) else {
+    let Some(mut result) = live_transaction(entry, snapshot) else {
         return Ok(None);
     };
     if let Some(value) = entry.accepted()
-        && value.status(&snapshot) != Status::Proposed
+        && value.status(snapshot) != Status::Proposed
     {
         let increment = config.min_rbf_rate.fee(value.size as u64);
         // These owners belong to one accepted cut, so their count, bytes and

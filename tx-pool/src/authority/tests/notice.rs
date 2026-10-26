@@ -145,6 +145,153 @@ async fn later_activation_cannot_overtake_committed_fifo_head() {
     assert!(outbox.drained());
 }
 
+#[test]
+fn direct_publication_respects_activation_fifo_and_the_prefix_bound() {
+    let (outbox, endpoints, receiver) = fixture(Callbacks::new());
+    let mut owner = Box::pin(Arc::clone(&outbox).run(endpoints));
+    poll_pending(owner.as_mut());
+    let batches = (0..=PUBLISH_BATCH_LIMIT)
+        .map(|index| append(&outbox, vec![effect(1000 + u32::try_from(index).unwrap())]))
+        .collect::<Vec<_>>();
+    for batch in &batches[1..] {
+        batch.activate(&outbox);
+    }
+    assert!(!outbox.try_publish().unwrap());
+    assert!(receiver.try_recv().is_none());
+    batches[0].activate(&outbox);
+    assert!(outbox.try_publish().unwrap());
+    for (index, batch) in batches.iter().enumerate() {
+        assert_eq!(
+            batch.published.load(Ordering::SeqCst),
+            index < PUBLISH_BATCH_LIMIT
+        );
+    }
+    outbox.close();
+    assert!(matches!(
+        owner
+            .as_mut()
+            .poll(&mut std::task::Context::from_waker(std::task::Waker::noop())),
+        std::task::Poll::Ready(Ok(()))
+    ));
+    for index in 0..=PUBLISH_BATCH_LIMIT {
+        let expected = tx(1000 + u32::try_from(index).unwrap()).hash();
+        assert!(
+            matches!(receiver.try_recv(), Some(TxVerificationResult::Reject { tx_hash }) if tx_hash == expected)
+        );
+    }
+    assert!(receiver.try_recv().is_none());
+    assert!(outbox.drained());
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 1)]
+async fn cancelling_the_publisher_joins_a_callback_borrowed_by_a_submitter() {
+    // This wrapper observes cancellation before its field drops. With one
+    // runtime worker, the later probe can run only after that drop finishes or
+    // hands the worker back while waiting for the borrowed endpoint lease.
+    struct OnDrop<F> {
+        _owner: F,
+        dropping: Option<tokio::sync::oneshot::Sender<()>>,
+    }
+    impl<F> Drop for OnDrop<F> {
+        fn drop(&mut self) {
+            self.dropping.take().unwrap().send(()).unwrap();
+        }
+    }
+    let (entered, mut events) = tokio::sync::mpsc::unbounded_channel();
+    let (release, waiting) = std::sync::mpsc::channel();
+    let waiting = std::sync::Mutex::new(waiting);
+    let mut callbacks = Callbacks::new();
+    callbacks.register_pending(Box::new(move |_| {
+        entered.send(()).unwrap();
+        waiting
+            .lock()
+            .unwrap()
+            .recv_timeout(Duration::from_secs(5))
+            .unwrap();
+    }));
+    let (outbox, endpoints, receiver) = fixture(callbacks);
+    let mut future = Box::pin(Arc::clone(&outbox).run(endpoints));
+    poll_pending(future.as_mut());
+    let (dropping, cancelled) = tokio::sync::oneshot::channel();
+    let (ready, started) = tokio::sync::oneshot::channel();
+    let owner = tokio::spawn(async move {
+        let _owner = OnDrop {
+            _owner: future,
+            dropping: Some(dropping),
+        };
+        ready.send(()).unwrap();
+        std::future::pending::<()>().await;
+    });
+    started.await.unwrap();
+    let first = append(&outbox, vec![callback_effect(1040)]);
+    let second = append(&outbox, vec![effect(1041)]);
+    let unfinished = append(&outbox, vec![effect(1042)]);
+    first.activate(&outbox);
+    second.activate(&outbox);
+    let borrowed = Arc::clone(&outbox);
+    let submitter = tokio::spawn(async move { borrowed.try_publish() });
+    tokio::time::timeout(Duration::from_secs(5), events.recv())
+        .await
+        .unwrap()
+        .unwrap();
+    owner.abort();
+    cancelled.await.unwrap();
+    let observed = owner.abort_handle();
+    let prematurely_finished = tokio::spawn(async move { observed.is_finished() })
+        .await
+        .unwrap();
+    // Release before asserting so a regression also leaves no blocked callback.
+    release.send(()).unwrap();
+    assert!(!prematurely_finished);
+    assert!(submitter.await.unwrap().unwrap());
+    assert!(owner.await.unwrap_err().is_cancelled());
+    assert!(first.published.load(Ordering::SeqCst));
+    assert!(second.published.load(Ordering::SeqCst));
+    assert!(matches!(
+        unfinished.wait(&outbox).await,
+        Err(Error::Fault(_))
+    ));
+    assert_eq!(outbox.state.lock().budget.total.used.items, 1);
+    for nonce in [1040, 1041] {
+        assert!(
+            matches!(receiver.try_recv(), Some(TxVerificationResult::Reject { tx_hash }) if tx_hash == tx(nonce).hash())
+        );
+    }
+    assert!(receiver.try_recv().is_none());
+    assert!(!outbox.drained());
+}
+
+#[test]
+fn dropping_an_idle_runtime_retires_the_publisher_endpoints() {
+    let retained = Arc::new(());
+    let released = Arc::downgrade(&retained);
+    let mut callbacks = Callbacks::new();
+    callbacks.register_pending(Box::new(move |_| {
+        let _ = &retained;
+    }));
+    let (outbox, endpoints, _) = fixture(callbacks);
+    let owned = Arc::clone(&outbox);
+    let (finished, completion) = std::sync::mpsc::channel();
+    let runtime_owner = std::thread::spawn(move || {
+        let runtime = tokio::runtime::Builder::new_multi_thread()
+            .worker_threads(1)
+            .enable_all()
+            .build()
+            .unwrap();
+        runtime.block_on(async {
+            let mut publisher = Box::pin(owned.run(endpoints));
+            poll_pending(publisher.as_mut());
+            tokio::spawn(publisher);
+        });
+        drop(runtime);
+        finished.send(()).unwrap();
+    });
+    completion.recv_timeout(Duration::from_secs(5)).unwrap();
+    runtime_owner.join().unwrap();
+    assert!(released.upgrade().is_none());
+    assert!(outbox.faulted.load(Ordering::SeqCst));
+}
+
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn dropped_reservation_creates_no_sequence_gap_and_returns_all_capacity() {
     let (outbox, endpoints, receiver) = fixture(Callbacks::new());

@@ -193,6 +193,31 @@ impl Pool {
         self.process_local(transaction, AdmissionMode::Commit).await
     }
 
+    /// An owned request task may help publish while its response is pending.
+    /// Its supervisor and reserved callback reads run independently. Replay and
+    /// callers driving sibling futures use `submit_local` so a callback cannot
+    /// block their own supervision or event handling within the same poll.
+    pub(crate) async fn submit_local_request(
+        &self,
+        transaction: BoundedTransaction,
+    ) -> Result<Result<EntryCompleted, Reject>, Error> {
+        let submission = self.submit_local(transaction);
+        tokio::pin!(submission);
+        std::future::poll_fn(|context| {
+            use std::{future::Future, task::Poll};
+            let result = submission.as_mut().poll(context);
+            if result.is_pending() {
+                match self.store.outbox.try_publish() {
+                    Ok(true) => return submission.as_mut().poll(context),
+                    Ok(false) => {}
+                    Err(error) => return Poll::Ready(Err(error)),
+                }
+            }
+            result
+        })
+        .await
+    }
+
     /// Verify admission without changing membership or waiting for capacity.
     pub(crate) async fn test_accept(
         &self,

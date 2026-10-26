@@ -218,22 +218,18 @@ async fn cpu_monitor_read_failure_is_distinct_from_exhaustion() {
 
 #[tokio::test]
 async fn initial_suspend_and_stop_do_not_enter_the_scheduler() {
-    for mode in [ComputeMode::Inline, ComputeMode::YieldRuntimeWorker] {
-        let (commands, mut receiver) = watch::channel(ChunkCommand::Suspend);
-        let mut runner = VmRunner {
-            command: &mut receiver,
-            remaining: TEST_TIMEOUT,
-            mode,
-        };
-        let mut execution =
-            Box::pin(runner.run_vm(|_| panic!("the scheduler must wait for Resume")));
-        assert!(poll!(&mut execution).is_pending());
-        commands.send(ChunkCommand::Stop).unwrap();
-        assert_eq!(
-            execution.await.unwrap_err(),
-            Error::External("stopped".into())
-        );
-    }
+    let (commands, mut receiver) = watch::channel(ChunkCommand::Suspend);
+    let mut runner = VmRunner {
+        command: &mut receiver,
+        remaining: TEST_TIMEOUT,
+    };
+    let mut execution = Box::pin(runner.run_vm(|_| panic!("the scheduler must wait for Resume")));
+    assert!(poll!(&mut execution).is_pending());
+    commands.send(ChunkCommand::Stop).unwrap();
+    assert_eq!(
+        execution.await.unwrap_err(),
+        Error::External("stopped".into())
+    );
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
@@ -243,7 +239,6 @@ async fn resume_waits_for_the_interrupted_slice_to_return() {
     let mut runner = VmRunner {
         command: &mut receiver,
         remaining: TEST_TIMEOUT,
-        mode: ComputeMode::YieldRuntimeWorker,
     };
     let mut verification = Box::pin(runner.run_vm(execute));
     assert!(poll!(&mut verification).is_pending());
@@ -276,7 +271,6 @@ async fn suspension_can_outlast_the_remaining_budget() {
     let mut runner = VmRunner {
         command: &mut receiver,
         remaining: Duration::from_millis(250),
-        mode: ComputeMode::YieldRuntimeWorker,
     };
     let mut verification = Box::pin(runner.run_vm(execute));
     assert!(poll!(&mut verification).is_pending());
@@ -307,7 +301,6 @@ async fn off_cpu_wait_does_not_interrupt_or_exhaust_execution() {
         let mut runner = VmRunner {
             command: &mut receiver,
             remaining: Duration::from_millis(100),
-            mode: ComputeMode::YieldRuntimeWorker,
         };
         let mut verification = Box::pin(runner.run_vm(execute));
         assert!(poll!(&mut verification).is_pending());
@@ -358,7 +351,6 @@ async fn cancellation_interrupts_and_releases_running_vm_work() {
     let mut runner = VmRunner {
         command: &mut receiver,
         remaining: TEST_TIMEOUT,
-        mode: ComputeMode::YieldRuntimeWorker,
     };
     let mut verification = Box::pin(runner.run_vm(execute));
     assert!(poll!(&mut verification).is_pending());
@@ -380,7 +372,6 @@ async fn stop_and_closed_control_join_running_vm_work_before_returning() {
         let mut runner = VmRunner {
             command: &mut receiver,
             remaining: TEST_TIMEOUT,
-            mode: ComputeMode::YieldRuntimeWorker,
         };
         let mut verification = Box::pin(runner.run_vm(execute));
         assert!(poll!(&mut verification).is_pending());
@@ -413,7 +404,6 @@ async fn cancellation_and_closed_control_release_suspended_vm_work() {
         let mut runner = VmRunner {
             command: &mut receiver,
             remaining: TEST_TIMEOUT,
-            mode: ComputeMode::YieldRuntimeWorker,
         };
         let mut verification = Box::pin(runner.run_vm(execute));
         assert!(poll!(&mut verification).is_pending());
@@ -436,17 +426,17 @@ async fn cancellation_and_closed_control_release_suspended_vm_work() {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
 async fn cpu_limit_survives_resume_flood_and_joins_vm_on_a_single_worker() {
-    cpu_limit_under_resume_flood(ComputeMode::YieldRuntimeWorker).await;
+    cpu_limit_under_resume_flood().await;
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn inline_cpu_monitor_keeps_progress_from_a_local_set() {
+async fn cpu_monitor_keeps_progress_from_a_local_set() {
     tokio::task::LocalSet::new()
-        .run_until(cpu_limit_under_resume_flood(ComputeMode::Inline))
+        .run_until(cpu_limit_under_resume_flood())
         .await;
 }
 
-async fn cpu_limit_under_resume_flood(mode: ComputeMode) {
+async fn cpu_limit_under_resume_flood() {
     let (commands, mut receiver) = watch::channel(ChunkCommand::Resume);
     let (started, start) = mpsc::channel::<Pause>();
     let (stop_watchdog, stopped) = mpsc::channel();
@@ -474,7 +464,6 @@ async fn cpu_limit_under_resume_flood(mode: ComputeMode) {
     let mut runner = VmRunner {
         command: &mut receiver,
         remaining: Duration::from_millis(10),
-        mode,
     };
     let verification = runner.run_vm(execute);
     tokio::pin!(verification);
@@ -503,7 +492,6 @@ async fn groups_share_the_budget_and_exhaustion_precedes_completion() {
     let mut runner = VmRunner {
         command: &mut receiver,
         remaining: TEST_TIMEOUT,
-        mode: ComputeMode::YieldRuntimeWorker,
     };
     assert!(
         runner
@@ -552,7 +540,6 @@ async fn resumed_slices_spend_one_cpu_budget() {
     let mut runner = VmRunner {
         command: &mut receiver,
         remaining: Duration::from_millis(120),
-        mode: ComputeMode::YieldRuntimeWorker,
     };
     let result = runner
         .run_vm(move |_| {
@@ -587,7 +574,6 @@ async fn consuming_the_cpu_interrupt_does_not_rearm_the_monitor() {
     let mut runner = VmRunner {
         command: &mut receiver,
         remaining: Duration::from_millis(10),
-        mode: ComputeMode::YieldRuntimeWorker,
     };
     let mut verification = Box::pin(runner.run_vm(execute));
     assert!(poll!(&mut verification).is_pending());
@@ -660,7 +646,6 @@ fn waiting_for_a_runtime_worker_does_not_spend_vm_time() {
         let mut runner = VmRunner {
             command: &mut receiver,
             remaining: Duration::from_millis(250),
-            mode: ComputeMode::YieldRuntimeWorker,
         };
         let mut verification = Box::pin(runner.run_vm(|_| Ok(success())));
         assert!(poll!(&mut verification).is_pending());
@@ -710,7 +695,6 @@ async fn scheduler_state_and_cycles_survive_joined_pauses() {
         let mut runner = VmRunner {
             command: &mut receiver,
             remaining: TEST_TIMEOUT,
-            mode: ComputeMode::YieldRuntimeWorker,
         };
         let mut attempts = 0;
         let actual = runner
@@ -795,7 +779,6 @@ async fn scheduler_resume_cannot_regrant_consumed_cycles() {
             let mut runner = VmRunner {
                 command: &mut receiver,
                 remaining: TEST_TIMEOUT,
-                mode: ComputeMode::YieldRuntimeWorker,
             };
             let result = runner.run(scheduler, max_cycles).await;
             if max_cycles < expected.consumed_cycles {

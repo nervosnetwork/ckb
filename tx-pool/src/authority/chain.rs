@@ -531,10 +531,12 @@ pub(super) fn reconcile(
         let status = accepted.status_with(|| {
             next_status(accepted.transaction.transaction.proposal_short_id_reader())
         });
-        if previous.status_with(|| {
+        let previous = previous.status_with(|| {
             previous_status(previous.transaction.transaction.proposal_short_id_reader())
-        }) == status
-        {
+        });
+        // Pending and Gap share the public pending callback. Moving between
+        // them is not a new admission or another fee-estimator sample.
+        if (previous == Status::Proposed) == (status == Status::Proposed) {
             continue;
         }
         if final_totals.is_none() {

@@ -20,26 +20,9 @@ use tokio::{
 #[cfg(test)]
 mod tests;
 
-/// Pool computation leaves a runtime worker available for controls and timers.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) enum ComputeMode {
-    Inline,
-    YieldRuntimeWorker,
-}
-
-impl ComputeMode {
-    pub(crate) fn run<T>(self, operation: impl FnOnce() -> T) -> T {
-        match self {
-            Self::Inline => operation(),
-            Self::YieldRuntimeWorker => block_offload(operation),
-        }
-    }
-}
-
 pub(super) struct VmRunner<'a> {
     pub command: &'a mut watch::Receiver<ChunkCommand>,
     pub remaining: Duration,
-    pub mode: ComputeMode,
 }
 
 impl SchedulerRunner<Scheduler<DataLoaderWrapper<Snapshot>, DebugPrinter, Machine>>
@@ -117,14 +100,13 @@ impl VmRunner<'_> {
         F: FnMut(Pause) -> Result<TerminatedResult, Error> + Send + 'static,
     {
         let limit = self.remaining;
-        let mode = self.mode;
         let pause = Pause::new();
         let child_pause = pause.clone();
         let (started, start) = oneshot::channel();
         let child = VmTask {
             pause,
             handle: tokio::spawn(async move {
-                let measured = mode.run(|| {
+                let measured = block_offload(|| {
                     let (clock, monitor) = CpuTime::start_monitored().map_err(clock_failure)?;
                     let _ = started.send(monitor);
                     let result = execute(child_pause);

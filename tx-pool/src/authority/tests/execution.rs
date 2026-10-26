@@ -18,19 +18,22 @@ mod stability;
 
 impl ComputePermit {
     /// Canonical-verifier unit fixtures have no Pool, but still own CPU capacity.
-    pub(in crate::authority) fn for_test(mode: ComputeMode) -> Self {
+    pub(in crate::authority) fn for_test() -> Self {
         Self {
             _permit: Arc::new(Semaphore::new(1)).try_acquire_owned().unwrap(),
-            mode,
         }
     }
 }
 
 fn fixture() -> (Arc<Pool>, RelaySink, RelayDrain, Handle) {
+    fixture_with_config(config())
+}
+
+fn fixture_with_config(config: TxPoolConfig) -> (Arc<Pool>, RelaySink, RelayDrain, Handle) {
     let handle = Handle::new(tokio::runtime::Handle::current(), None);
-    let store = store_with_pipeline_limit(chain_snapshot(), &config(), 64_000_000);
+    let store = store_with_pipeline_limit(chain_snapshot(), &config, 64_000_000);
     let (pool, sink, drain) = Pool::with_store(
-        config(),
+        config,
         store,
         &handle,
         Arc::new(RwLock::new(init_cache())),
@@ -64,6 +67,31 @@ fn endpoints(sink: RelaySink, callbacks: Callbacks) -> Endpoints {
         None,
         FeeEstimator::new_dummy(),
     )
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 1)]
+async fn leaf_transaction_query_retains_read_capacity_without_a_runtime_handoff() {
+    let (pool, _, _, _) = fixture_with_config(TxPoolConfig {
+        min_rbf_rate: ckb_types::core::FeeRate::from_u64(1000),
+        ..config()
+    });
+    let hash = accept(&pool.store, output_tx(9900), 1, 17, Status::Pending);
+    let held = pool.reads.acquire_many(2).await.unwrap();
+    assert!(pool.transaction(&hash).now_or_never().is_none());
+    drop(held);
+    // A blocking handoff is forbidden within LocalSet. The leaf projection is
+    // bounded and in memory, while larger descendant queries keep that boundary.
+    let found = tokio::task::LocalSet::new()
+        .run_until(pool.transaction(&hash))
+        .await
+        .unwrap();
+    assert_eq!(found.transaction.unwrap().hash(), hash);
+    assert_eq!(found.cycles, Some(17));
+    assert!(found.min_replace_fee.is_some());
+    assert_eq!(pool.reads.available_permits(), 2);
+    pool.stop();
+    assert!(pool.transaction(&hash).await.is_err());
+    assert_eq!(pool.reads.available_permits(), 2);
 }
 
 async fn within<T>(future: impl Future<Output = T>) -> T {
@@ -252,6 +280,148 @@ async fn commit_observes_chain_release_before_its_first_wait_poll() {
     ));
     pool.stop();
     pool.close_outbox();
+    assert!(pool.persistence_eligible());
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn chain_wait_ignores_its_own_notice_refund() {
+    use std::cell::Cell;
+
+    let (pool, sink, drain, _) = fixture();
+    let candidate = entry(&pool.store, tx(4112), Source::Local);
+    insert(&pool.store, Arc::clone(&candidate));
+    let pause = pool.store.begin_chain().unwrap();
+    let released = Cell::new(false);
+    let attempts = Cell::new(0);
+    let refund = pool.store.outbox.room.notified();
+    tokio::pin!(refund);
+    let mut commit = Box::pin(pool.commit(|| {
+        attempts.set(attempts.get() + 1);
+        // Bound a broken implementation's self-waking loop within one poll.
+        if attempts.get() > 1 && !released.get() {
+            return Err(Error::Fault("retry before chain progress"));
+        }
+        let mut plan = Plan::new(pool.store.snapshot().0, Class::Trusted, Default::default());
+        plan.edit(
+            Some(Arc::clone(&candidate)),
+            None,
+            Some(Effect::relay(TxVerificationResult::Reject {
+                tx_hash: candidate.hash(),
+            })),
+        )?;
+        Ok(plan)
+    }));
+    assert!(futures_util::poll!(commit.as_mut()).is_pending());
+    assert_eq!(attempts.get(), 1);
+    // Apply reserved the effect before encountering the chain gate. Its refund
+    // really happened, but cannot make another owner commit admissible.
+    assert!(futures_util::poll!(refund.as_mut()).is_ready());
+    assert!(pool.store.outbox.idle_for_test());
+    pool.store.outbox.room.notify_waiters();
+    assert!(futures_util::poll!(commit.as_mut()).is_pending());
+    assert_eq!(attempts.get(), 1);
+    assert!(Arc::ptr_eq(
+        &pool.store.point(&candidate.hash()).1.unwrap(),
+        &candidate
+    ));
+
+    released.set(true);
+    drop(pause);
+    let batch = within(commit).await.unwrap().unwrap();
+    assert_eq!(attempts.get(), 2);
+    assert!(pool.store.point(&candidate.hash()).1.is_none());
+    pool.close_outbox();
+    within(Arc::clone(&pool.store.outbox).run(endpoints(sink, Callbacks::new())))
+        .await
+        .unwrap();
+    within(batch.wait(&pool.store.outbox)).await.unwrap();
+    assert!(
+        matches!(drain.try_recv(), Some(TxVerificationResult::Reject { tx_hash }) if tx_hash == candidate.hash())
+    );
+    assert!(drain.try_recv().is_none());
+    pool.stop();
+    assert!(pool.persistence_eligible());
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 1)]
+async fn empty_workers_observe_budget_faults_while_compute_capacity_is_full() {
+    use crate::authority::budget::OwnerDelta;
+    use std::{
+        sync::atomic::{AtomicBool, Ordering},
+        task::{Context, Wake, Waker},
+    };
+
+    struct Woken(AtomicBool);
+    impl Wake for Woken {
+        fn wake(self: Arc<Self>) {
+            self.0.store(true, Ordering::SeqCst);
+        }
+    }
+
+    let (pool, _, _, _) = fixture();
+    let _capacity = Arc::clone(&pool.cpu)
+        .try_acquire_many_owned(pool.cpu.available_permits() as u32)
+        .unwrap();
+    let woken = Arc::new(Woken(AtomicBool::new(false)));
+    let waker = Waker::from(Arc::clone(&woken));
+    let mut context = Context::from_waker(&waker);
+    let mut worker = Box::pin(Arc::clone(&pool).worker(WorkStage::Resolve, 0));
+    assert!(worker.as_mut().poll(&mut context).is_pending());
+
+    // Ordinary active refunds wake the empty worker without putting it in the
+    // CPU queue. The next budget-only fault must still reach the same waiter.
+    drop(pool.store.budget.active(Source::Local).unwrap());
+    assert!(woken.0.swap(false, Ordering::SeqCst));
+    assert!(worker.as_mut().poll(&mut context).is_pending());
+    let uncharged = entry(&pool.store, tx(4110), Source::Local);
+    OwnerDelta::new(std::iter::once(uncharged.as_ref()), std::iter::empty())
+        .unwrap()
+        .reserve(&pool.store.budget)
+        .unwrap()
+        .commit();
+    assert!(woken.0.load(Ordering::SeqCst));
+    assert!(matches!(
+        worker.as_mut().poll(&mut context),
+        std::task::Poll::Ready(Err(Error::Fault("worker generation")))
+    ));
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn queued_work_still_observes_peer_capacity_refunds() {
+    let (pool, sink, _drain, _) = fixture();
+    let transaction = fund(&pool, 4111);
+    let source = ingress::remote_source(71.into(), 1).unwrap();
+    let mut held = Vec::new();
+    loop {
+        match pool.store.budget.active(source) {
+            Ok(permit) => held.push(permit),
+            Err(Error::Full(FullReason::Other("peer active work"))) => break,
+            Err(error) => panic!("expected the peer limit, got {error:?}"),
+        }
+    }
+    insert(&pool.store, entry(&pool.store, transaction.clone(), source));
+    let capacity = pool.cpu.available_permits();
+    let mut worker = Box::pin(Arc::clone(&pool).worker(WorkStage::Resolve, 0));
+    assert!(futures_util::poll!(worker.as_mut()).is_pending());
+    assert!(pool.store.has_queued_work());
+    assert_eq!(pool.cpu.available_permits(), capacity);
+
+    // No new work is enqueued. Only the actual peer reservation is returned.
+    drop(held.pop().unwrap());
+    let worker = tokio::spawn(worker);
+    observe(&pool, &transaction.hash(), |entry| {
+        matches!(entry.phase, Phase::Verify(_))
+    })
+    .await;
+    pool.stop();
+    within(worker).await.unwrap().unwrap();
+    drop(held);
+    assert_eq!(pool.cpu.available_permits(), capacity);
+    assert!(pool.store.budget.active_is_empty_for_test());
+    pool.close_outbox();
+    within(Arc::clone(&pool.store.outbox).run(endpoints(sink, Callbacks::new())))
+        .await
+        .unwrap();
     assert!(pool.persistence_eligible());
 }
 
@@ -735,6 +905,119 @@ async fn public_callback_queries_dry_runs_and_rejects_reentrant_mutation_then_se
     let saved = crate::persisted::load_persistence_snapshot(&configuration).unwrap();
     assert_eq!(saved.accepted.len(), 3);
     assert!(saved.recovery.is_empty());
+}
+
+#[cfg(feature = "internal")]
+#[test]
+fn runtime_shutdown_joins_an_entered_public_request_callback() {
+    let timeout = Duration::from_secs(10);
+    let (entered, callback_entered) = std::sync::mpsc::channel();
+    let (release, held) = std::sync::mpsc::channel();
+    let (ready, controller) = std::sync::mpsc::channel();
+    let (finished, completion) = std::sync::mpsc::channel();
+    let (endpoint, endpoint_released) = std::sync::mpsc::channel::<()>();
+    let owner = std::thread::spawn(move || {
+        let directory = tempfile::tempdir().unwrap();
+        let runtime = tokio::runtime::Builder::new_multi_thread()
+            .worker_threads(1)
+            .max_blocking_threads(1)
+            .enable_all()
+            .build()
+            .unwrap();
+        let (controller, pool, submission, scheduler, resume) = runtime.block_on(async {
+            let configuration = TxPoolConfig {
+                persisted_data: directory.path().join("pool"),
+                recent_reject: Default::default(),
+                max_tx_verify_workers: 0,
+                ..config()
+            };
+            let handle = Handle::new(tokio::runtime::Handle::current(), None);
+            let (mut builder, controller, _relay) = crate::service::TxPoolServiceBuilder::new(
+                configuration,
+                chain_snapshot(),
+                None,
+                Arc::new(RwLock::new(init_cache())),
+                &handle,
+                FeeEstimator::new_dummy(),
+            )
+            .unwrap();
+            let pool = builder.pool_for_test();
+            let transaction = fund(&pool, 4_021);
+            let target = transaction.hash();
+            let query = controller.clone();
+            let held = Mutex::new(held);
+            builder.register_pending(Box::new(move |entry| {
+                let _ = &endpoint;
+                if entry.transaction.hash() == target {
+                    assert_eq!(query.get_tx_pool_info().unwrap().pending_size, 2);
+                    entered.send(()).unwrap();
+                    held.lock().recv_timeout(timeout).unwrap();
+                }
+            }));
+            drop(builder.start_with_handle(DummyTxPoolNetwork));
+            within(async {
+                while !controller.service_started() {
+                    tokio::task::yield_now().await;
+                }
+            })
+            .await;
+            // Establish the endpoint owner before preventing its next poll.
+            // The held runtime worker forces this request's own execution
+            // thread to enter the callback through publication assistance.
+            assert!(
+                pool.submit_local(bounded(
+                    ckb_types::core::TransactionBuilder::default().build()
+                ))
+                .await
+                .unwrap()
+                .is_err()
+            );
+            let (occupied, occupation) = tokio::sync::oneshot::channel();
+            let (resume, resumed) = std::sync::mpsc::channel();
+            let scheduler = tokio::spawn(async move {
+                occupied.send(()).unwrap();
+                resumed.recv_timeout(timeout).unwrap();
+            });
+            within(occupation).await.unwrap();
+            let submit = controller.clone();
+            let submission = std::thread::spawn(move || submit.submit_local_tx(transaction));
+            (
+                controller,
+                Arc::downgrade(&pool),
+                submission,
+                scheduler,
+                resume,
+            )
+        });
+        // The callback must have entered before runtime cancellation begins.
+        callback_entered.recv_timeout(timeout).unwrap();
+        resume.send(()).unwrap();
+        runtime.block_on(scheduler).unwrap();
+        ready.send(controller).unwrap();
+        drop(runtime);
+        assert!(pool.upgrade().is_none());
+        finished.send(()).unwrap();
+        let _response = submission.join().unwrap();
+    });
+    let controller = controller.recv_timeout(timeout).unwrap();
+    let deadline = Instant::now() + timeout;
+    while !controller.query_sender.is_closed() {
+        assert!(Instant::now() < deadline, "shutdown closes reserved intake");
+        std::thread::yield_now();
+    }
+    // Closed intake establishes that shutdown has reached the workers. It
+    // cannot report completion while this already entered callback is held.
+    assert!(matches!(
+        completion.try_recv(),
+        Err(std::sync::mpsc::TryRecvError::Empty)
+    ));
+    release.send(()).unwrap();
+    completion.recv_timeout(timeout).unwrap();
+    assert!(matches!(
+        endpoint_released.try_recv(),
+        Err(std::sync::mpsc::TryRecvError::Disconnected)
+    ));
+    owner.join().unwrap();
 }
 
 #[cfg(feature = "internal")]
@@ -1486,9 +1769,12 @@ async fn one_runtime_worker_preserves_direct_verification_query_and_shutdown_pro
     shutdown(&pool, tasks, publisher).await;
 }
 
-async fn control_progress_while_sync_computation_is_at_capacity() {
-    let (pool, _, _, _) = fixture();
-    let capacity = pool.cpu.available_permits();
+async fn control_progress_while_sync_computation_is_at_capacity(workers: usize, capacity: usize) {
+    let (pool, _, _, _) = fixture_with_config(TxPoolConfig {
+        max_tx_verify_workers: workers,
+        ..config()
+    });
+    assert_eq!(pool.cpu.available_permits(), capacity);
     let (entered, mut received) = mpsc::unbounded_channel();
     let mut releases = Vec::new();
     let mut tasks = JoinSet::new();
@@ -1513,16 +1799,20 @@ async fn control_progress_while_sync_computation_is_at_capacity() {
         pool.try_direct_capacity(),
         Err(Error::Full(FullReason::Other("active computation")))
     ));
+    let mut waiter = Box::pin(pool.compute());
+    assert!(futures_util::poll!(waiter.as_mut()).is_pending());
     let control = Arc::clone(&pool);
     // Spawn onto a runtime worker: the test's own block_on thread is not the
     // spare executor whose progress this regression must establish.
     within(tokio::spawn(async move {
         control.pool_ids().await.unwrap();
+        tokio::time::sleep(Duration::from_millis(1)).await;
         control.stop();
     }))
     .await
     .unwrap();
     assert!(pool.is_stopped());
+    assert!(matches!(within(waiter).await, Err(Error::Closed)));
     for release in releases {
         release.send(()).unwrap();
     }
@@ -1535,12 +1825,27 @@ async fn control_progress_while_sync_computation_is_at_capacity() {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn full_sync_compute_capacity_leaves_a_runtime_worker_for_query_and_stop() {
-    control_progress_while_sync_computation_is_at_capacity().await;
+    control_progress_while_sync_computation_is_at_capacity(3, 4).await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn configured_compute_capacity_still_preserves_runtime_progress() {
+    control_progress_while_sync_computation_is_at_capacity(2, 3).await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn zero_background_workers_preserve_direct_compute_capacity() {
+    control_progress_while_sync_computation_is_at_capacity(0, 1).await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn two_workers_preserve_runtime_progress_at_full_compute_capacity() {
+    control_progress_while_sync_computation_is_at_capacity(2, 2).await;
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
 async fn one_worker_sync_compute_hands_off_for_query_and_stop() {
-    control_progress_while_sync_computation_is_at_capacity().await;
+    control_progress_while_sync_computation_is_at_capacity(2, 1).await;
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -2052,10 +2357,12 @@ async fn direct_non_contextual_rejection_preserves_empty_membership_for_send_and
         .as_advanced_builder()
         .version(1u32)
         .build();
-    // Resource refusal can precede validation in a nonwaiting dry-run. Control
-    // that premise explicitly; idle background workers also acquire this permit
-    // briefly while looking for work, so they do not belong in this path test.
-    let occupied = pool.compute().await.unwrap();
+    // Resource refusal can precede validation in a nonwaiting dry-run. Hold
+    // every compute slot so that this premise is independent of runtime size.
+    let mut occupied = Vec::new();
+    for _ in 0..pool.cpu.available_permits() {
+        occupied.push(pool.compute().await.unwrap());
+    }
     let refused = within(pool.test_accept(bounded(invalid.clone())))
         .await
         .unwrap();

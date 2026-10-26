@@ -31,7 +31,7 @@ use std::{
     time::Duration,
 };
 use tokio::{
-    sync::{RwLock, mpsc},
+    sync::{Mutex, RwLock, mpsc},
     task::{JoinHandle, JoinSet},
 };
 use tokio_util::sync::CancellationToken;
@@ -42,6 +42,26 @@ use tokio_util::sync::CancellationToken;
 /// dry-runs use this reserve and never wait for publishing jobs' CPU capacity.
 pub(super) const READ_CHANNEL_SIZE: usize = 16;
 const READ_HANDLERS: usize = 2;
+
+/// Cancellation of the generation future must also reach tasks which are
+/// already inside synchronous work and cannot observe JoinSet's abort yet.
+struct GenerationGuard<'a> {
+    pool: &'a Pool,
+    signal: &'a CancellationToken,
+    started: &'a AtomicBool,
+    completed: bool,
+}
+
+impl Drop for GenerationGuard<'_> {
+    fn drop(&mut self) {
+        if !self.completed {
+            self.started.store(false, Ordering::SeqCst);
+            self.signal.cancel();
+            self.pool.fault();
+            self.pool.close_outbox();
+        }
+    }
+}
 
 /// Configures and starts the bounded transaction-pool service.
 pub struct TxPoolServiceBuilder {
@@ -204,8 +224,8 @@ impl TxPoolServiceBuilder {
             pool,
             relay,
             callbacks,
-            mut receiver,
-            mut query_receiver,
+            receiver,
+            query_receiver,
             chain_receiver,
             signal_receiver: signal,
             handle,
@@ -213,6 +233,12 @@ impl TxPoolServiceBuilder {
             recent_reject,
             estimator,
         } = self;
+        let mut generation = GenerationGuard {
+            pool: &pool,
+            signal: &signal,
+            started: &started,
+            completed: false,
+        };
         let Some(handler_limit) = pool
             .config
             .max_tx_verify_workers
@@ -248,7 +274,12 @@ impl TxPoolServiceBuilder {
         );
         let (mut background, publisher) = pool.start_background(&handle, endpoints, chain_receiver);
         let mut publisher = Some(publisher);
-        let mut queries = JoinSet::new();
+        let receiver = Arc::new(Mutex::new(receiver));
+        let query_receiver = Arc::new(Mutex::new(query_receiver));
+        let Ok(mut queries) = request_workers(&pool, &query_receiver, &signal, READ_HANDLERS)
+        else {
+            return;
+        };
         let mut handlers = JoinSet::new();
         let mut startup_complete = false;
         {
@@ -268,6 +299,13 @@ impl TxPoolServiceBuilder {
                                 if signal.is_cancelled() || pool.is_faulted() {
                                     break;
                                 }
+                                handlers = match request_workers(&pool, &receiver, &signal, handler_limit) {
+                                    Ok(workers) => workers,
+                                    Err(_) => {
+                                        pool.fault();
+                                        break;
+                                    }
+                                };
                                 started.store(true, Ordering::SeqCst);
                             }
                             Err(error) => {
@@ -298,28 +336,16 @@ impl TxPoolServiceBuilder {
                             crate::metrics::record_failure(crate::metrics::FailureBoundary::HandlerUnwind);
                             error!("tx-pool message handler failed: {result:?}");
                             pool.fault();
-                            break;
                         }
+                        break;
                     },
                     result = queries.join_next(), if !queries.is_empty() => {
                         if !matches!(result, Some(Ok(Ok(())))) {
                             crate::metrics::record_failure(crate::metrics::FailureBoundary::HandlerUnwind);
                             error!("tx-pool read handler failed: {result:?}");
                             pool.fault();
-                            break;
                         }
-                    },
-                    message = receiver.recv(), if startup_complete && handlers.len() < handler_limit => match message {
-                        Some(message) => {
-                            handlers.spawn(process(Arc::clone(&pool), message));
-                        },
-                        None => break,
-                    },
-                    message = query_receiver.recv(), if queries.len() < READ_HANDLERS => match message {
-                        Some(message) => {
-                            queries.spawn(process(Arc::clone(&pool), message));
-                        },
-                        None => break,
+                        break;
                     },
                 }
             }
@@ -327,10 +353,13 @@ impl TxPoolServiceBuilder {
         started.store(false, Ordering::SeqCst);
         signal.cancel();
         pool.stop();
-        receiver.close();
-        query_receiver.close();
-        while receiver.try_recv().is_ok() {}
-        while query_receiver.try_recv().is_ok() {}
+        // Receivers are held only while waiting for a message. Cancellation
+        // releases idle receives; an executing request owns no queue lock.
+        for receiver in [&receiver, &query_receiver] {
+            let mut receiver = receiver.lock().await;
+            receiver.close();
+            while receiver.try_recv().is_ok() {}
+        }
         let timeout = Duration::from_secs(PIPELINE_SHUTDOWN_TIMEOUT_SECONDS);
         let drain = async {
             while !handlers.is_empty() || !queries.is_empty() || !background.is_empty() {
@@ -381,6 +410,118 @@ impl TxPoolServiceBuilder {
             );
         }
         info!("TxPool service exited");
+        generation.completed = true;
+    }
+}
+
+/// Each admitted handler reuses its task, keeping request ownership bounded
+/// without a dispatcher/spawn/join round trip for every call. The receive lock
+/// is released before processing, including any provider, callback or await.
+fn request_workers(
+    pool: &Arc<Pool>,
+    receiver: &Arc<Mutex<mpsc::Receiver<Message>>>,
+    signal: &CancellationToken,
+    count: usize,
+) -> Result<JoinSet<Result<(), Error>>, Error> {
+    let mut tasks = JoinSet::new();
+    for _ in 0..count {
+        let worker = RequestWorker::spawn(Arc::clone(pool), Arc::clone(receiver), signal.clone())?;
+        tasks.spawn(worker.join());
+    }
+    Ok(tasks)
+}
+
+/// One fixed request thread, owned and joined by its supervised task. Dedicated
+/// threads leave Tokio's shared blocking capacity available even while idle.
+/// Normal stop finishes entered requests; task abandonment cancels their future
+/// and joins any synchronous callback still executing on the same stack.
+struct RequestWorker {
+    thread: Option<std::thread::JoinHandle<Result<(), Error>>>,
+    finished: tokio::sync::oneshot::Receiver<()>,
+    abandoned: CancellationToken,
+    signal: CancellationToken,
+}
+
+impl RequestWorker {
+    fn spawn(
+        pool: Arc<Pool>,
+        receiver: Arc<Mutex<mpsc::Receiver<Message>>>,
+        signal: CancellationToken,
+    ) -> Result<Self, Error> {
+        let runtime = tokio::runtime::Handle::current();
+        let abandoned = CancellationToken::new();
+        let cancellation = abandoned.clone();
+        let stopped = signal.clone();
+        let (finished, completion) = tokio::sync::oneshot::channel();
+        let thread = std::thread::Builder::new()
+            .name("ckb-tx-request".to_owned())
+            .spawn(move || {
+                let result = runtime.block_on(async {
+                    let result = tokio::select! {
+                        biased;
+                        _ = cancellation.cancelled() => Err(Error::Fault("abandoned request worker")),
+                        result = async {
+                            loop {
+                                let message = tokio::select! {
+                                    biased;
+                                    _ = stopped.cancelled() => return Ok(()),
+                                    message = async {
+                                        let mut receiver = receiver.lock().await;
+                                        receiver.recv().await
+                                    } => message,
+                                };
+                                let Some(message) = message else {
+                                    return Ok(());
+                                };
+                                process(Arc::clone(&pool), message).await?;
+                            }
+                        } => result,
+                    };
+                    // Any worker exit ends this fixed service generation.
+                    // Release queued callers even if its supervisor is being
+                    // dropped, including reads made by another worker's callback.
+                    stopped.cancel();
+                    let mut receiver = receiver.lock().await;
+                    receiver.close();
+                    while receiver.try_recv().is_ok() {}
+                    result
+                });
+                let _ = finished.send(());
+                result
+            })
+            .map_err(|error| {
+                error!("failed to start tx-pool request worker: {error}");
+                Error::Fault("request worker thread")
+            })?;
+        Ok(Self {
+            thread: Some(thread),
+            finished: completion,
+            abandoned,
+            signal,
+        })
+    }
+
+    async fn join(mut self) -> Result<(), Error> {
+        let _ = (&mut self.finished).await;
+        self.join_thread()
+    }
+
+    fn join_thread(&mut self) -> Result<(), Error> {
+        match self.thread.take() {
+            Some(thread) => crate::util::block_offload(|| thread.join())
+                .map_err(|_| Error::Fault("request worker panicked"))?,
+            None => Ok(()),
+        }
+    }
+}
+
+impl Drop for RequestWorker {
+    fn drop(&mut self) {
+        if self.thread.is_some() {
+            self.signal.cancel();
+            self.abandoned.cancel();
+            let _ = self.join_thread();
+        }
     }
 }
 
