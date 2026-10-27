@@ -970,9 +970,26 @@ fn duplicate_selected_inputs_are_rejected_even_when_no_reordering_is_needed() {
             phase: Phase::Accepted(value),
         });
     }
-    let selection = Selection::new(&owners, &snapshot, 2).unwrap();
-    assert_eq!(
-        selection.pack_transactions(TemplatePackingLimits::new(usize::MAX, 2)),
-        Err(PackingError::Projection)
-    );
+    for status in [Status::Pending, Status::Gap, Status::Proposed] {
+        for index in 0..owners.len() {
+            change(&mut owners, index, |value| {
+                value.forced_status = Some(status)
+            });
+        }
+        let selection = Selection::new(&owners, &snapshot, 2).unwrap();
+        assert_eq!(
+            selection.proposal_short_ids(2).len(),
+            if status == Status::Pending { 2 } else { 0 }
+        );
+        for cycles in [0, 2] {
+            assert_eq!(
+                selection.pack_transactions(TemplatePackingLimits::new(usize::MAX, cycles)),
+                Err(PackingError::Projection)
+            );
+        }
+        assert_eq!(
+            selection.replay_transactions(),
+            Err(PackingError::Projection)
+        );
+    }
 }

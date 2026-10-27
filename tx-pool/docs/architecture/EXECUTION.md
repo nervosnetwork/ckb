@@ -506,10 +506,13 @@ unfitting spend packages cannot prevent fitting readers from making progress.
 
 [Packing precedence](../../src/authority/packing/ordering.rs) includes every
 accepted reader of a spent cell, including expanded dependency groups. Admission
-closes that reader set when the spender enters the pool. Proposal eligibility and
-package selection require these earlier readers, so block capacity can defer the
-spender while readers commit over several blocks. Causal ancestry and its fee
-aggregates remain separate from this block prerequisite graph.
+closes that reader set when the spender enters the pool. The temporary spender
+index borrows the canonical input outpoints retained by accepted owners. It still
+rejects duplicate inputs before proposal phase or block capacity can exclude an
+entry. Proposal eligibility and package selection require these earlier readers,
+so block capacity can defer the spender while readers commit over several blocks.
+Causal ancestry and its fee aggregates remain separate from this block
+prerequisite graph.
 
 One topological pass propagates proposal eligibility across every prerequisite
 and ranks only its complete Proposed closure. Ineligible ready entries bypass

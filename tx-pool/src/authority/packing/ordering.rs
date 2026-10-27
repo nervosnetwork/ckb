@@ -1,7 +1,7 @@
 //! Complete read-before-spend prerequisites for block selection and replay.
 
 use super::{EvictionRank, Links, PackingError, Selection, Status, package_order_key};
-use ckb_types::{core::TransactionView, prelude::*};
+use ckb_types::{core::TransactionView, packed::OutPoint};
 use std::{
     cmp::Reverse,
     collections::{BinaryHeap, HashMap},
@@ -115,15 +115,11 @@ impl Selection<'_> {
     }
 
     fn precedence_graph(&self) -> Result<Links, PackingError> {
-        let mut spenders = HashMap::<&[u8], usize>::with_capacity(self.candidates.len());
+        let mut spenders = HashMap::<&OutPoint, usize>::with_capacity(self.candidates.len());
         for (index, candidate) in self.candidates.iter().enumerate() {
-            for input in candidate
-                .accepted
-                .transaction
-                .transaction
-                .input_pts_reader_iter()
-            {
-                if spenders.insert(input.as_slice(), index).is_some() {
+            // Accepted resolution preserves every input's outpoint and order.
+            for input in &candidate.accepted.transaction.resolved_inputs {
+                if spenders.insert(&input.out_point, index).is_some() {
                     return Err(PackingError::Projection);
                 }
             }
@@ -134,7 +130,7 @@ impl Selection<'_> {
             // Every retained reader must precede it, including readers that do
             // not fit this block or have not reached the commit window yet.
             for dependency in candidate.accepted.transaction.related_dep_out_points() {
-                if let Some(spender) = spenders.get(dependency.as_slice()).copied()
+                if let Some(spender) = spenders.get(dependency).copied()
                     && spender != reader
                 {
                     edges.push((reader, spender));
