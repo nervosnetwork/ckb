@@ -177,7 +177,8 @@ impl StoreTransaction {
         let header = Into::<packed::HeaderView>::into(block.header());
         let uncles = Into::<packed::UncleBlockVecView>::into(block.uncles());
         let proposals = block.data().proposals();
-        let txs_len: packed::Uint32 = (block.transactions().len() as u32).into();
+        let transactions = block.transactions();
+        let txs_len: packed::Uint32 = (transactions.len() as u32).into();
         self.insert_raw(COLUMN_BLOCK_HEADER, hash.as_slice(), header.as_slice())?;
         self.insert_raw(COLUMN_BLOCK_UNCLE, hash.as_slice(), uncles.as_slice())?;
         if let Some(extension) = block.extension() {
@@ -201,7 +202,7 @@ impl StoreTransaction {
             hash.as_slice(),
             proposals.as_slice(),
         )?;
-        for (index, tx) in block.transactions().into_iter().enumerate() {
+        for (index, tx) in transactions.into_iter().enumerate() {
             let key = packed::TransactionKey::new_builder()
                 .block_hash(hash.clone())
                 .index(index)

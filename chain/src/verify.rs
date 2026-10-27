@@ -735,7 +735,7 @@ impl ConsumeUnverifiedBlockProcessor {
                                         Some(txs_sizes),
                                     )?;
 
-                                    if !switch.disable_script() && b.transactions().len() > 1 {
+                                    if !switch.disable_script() && resolved.len() > 1 {
                                         self.monitor_block_txs_verified(
                                             b, &resolved, &completed, cycles,
                                         );
