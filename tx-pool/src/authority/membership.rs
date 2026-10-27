@@ -191,17 +191,31 @@ pub(super) fn aggregates(
         .map(|hash| (hash.clone(), NeighborhoodTotals::default()))
         .collect();
     let entries: Vec<_> = members.iter().collect();
-    let positions: std::collections::HashMap<_, _> = members
-        .keys()
-        .enumerate()
-        .map(|(index, hash)| (hash, index))
-        .collect();
     let mut rows: Vec<_> = totals.values_mut().collect();
-    let mut seen = vec![usize::MAX; entries.len()];
+    let mut traversal = None;
     let mut ancestors = Vec::new();
     let mut stack = Vec::new();
     for (root, &(hash, entry)) in entries.iter().enumerate() {
         let own = accepted(entry)?;
+        if own.parents.is_empty() {
+            if max_ancestors == 0 {
+                return Err(Reject::ExceededMaximumAncestorsCount.into());
+            }
+            let own = Aggregate::one(own);
+            rows[root].ancestors = own;
+            rows[root].descendants = rows[root].descendants.add(own)?;
+            continue;
+        }
+        // Independent owners need no graph index or traversal marks. Create
+        // this scratch only when the captured population actually has edges.
+        let (positions, seen) = traversal.get_or_insert_with(|| {
+            let positions: std::collections::HashMap<_, _> = members
+                .keys()
+                .enumerate()
+                .map(|(index, hash)| (hash, index))
+                .collect();
+            (positions, vec![usize::MAX; entries.len()])
+        });
         seen[root] = root;
         ancestors.clear();
         ancestors.push(root);

@@ -783,17 +783,16 @@ impl ConsumeUnverifiedBlockProcessor {
     ) -> Result<Vec<Arc<ResolvedTransaction>>, Error> {
         let mut seen_inputs = HashSet::new();
         let block_cp = BlockCellProvider::new(block)?;
-        let transactions = block.transactions();
         let cell_provider = OverlayCellProvider::new(&block_cp, txn);
-        let resolved = transactions
-            .iter()
-            .cloned()
+        block
+            .transactions()
+            .into_iter()
             .map(|tx| {
                 resolve_transaction(tx, &mut seen_inputs, &cell_provider, verify_context)
                     .map(Arc::new)
             })
-            .collect::<Result<Vec<Arc<ResolvedTransaction>>, _>>()?;
-        Ok(resolved)
+            .collect::<Result<_, _>>()
+            .map_err(Into::into)
     }
 
     fn insert_ok_ext(

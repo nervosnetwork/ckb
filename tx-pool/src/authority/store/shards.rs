@@ -78,6 +78,14 @@ impl<T> Shards<T> {
         &self.0[index.0]
     }
 
+    #[expect(
+        clippy::indexing_slicing,
+        reason = "Only this module constructs ShardIndex, always within the fixed array bounds."
+    )]
+    pub(super) fn at_mut(&mut self, index: ShardIndex) -> &mut T {
+        &mut self.0[index.0]
+    }
+
     // Reconstruction's cursor may point one past the last shard.
     pub(super) fn at_position(&self, position: usize) -> Option<&T> {
         self.0.get(position)

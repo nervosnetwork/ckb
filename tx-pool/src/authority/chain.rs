@@ -4,7 +4,7 @@
 use super::{
     jobs::environment,
     membership::{self, Members},
-    model::{DependencyKey, Entry, Error, Phase, Source, Status, status},
+    model::{DependencyKey, Entry, Error, Phase, Source, Status},
     notice::{Class, Effect},
     store::{Captured, Plan, Store},
 };
@@ -14,14 +14,16 @@ use crate::{
     util::compact_packed,
 };
 use ckb_app_config::TxPoolConfig;
+use ckb_proposal_table::ProposalView;
 use ckb_snapshot::Snapshot;
 use ckb_types::{
     core::{BlockView, TransactionView, error::OutPointError},
     packed::{Byte32, OutPoint},
+    prelude::{Entity, Reader},
 };
 use ckb_verification::cache::ScriptVerificationRules;
 use std::{
-    collections::{BTreeMap, BTreeSet, VecDeque},
+    collections::{BTreeMap, BTreeSet, HashSet, VecDeque},
     sync::Arc,
 };
 
@@ -36,8 +38,9 @@ pub(super) enum ClearScope {
 }
 
 fn current_source(entry: &Entry, previous: &Snapshot, snapshot: &Snapshot) -> Option<Source> {
-    let proposed = status(snapshot, &entry.proposal()) != super::model::Status::Pending;
-    let expired = !proposed && status(previous, &entry.proposal()) != super::model::Status::Pending;
+    let id = entry.transaction.proposal_short_id_reader();
+    let proposed = snapshot.proposals().status_reader(id) != Status::Pending;
+    let expired = !proposed && previous.proposals().status_reader(id) != Status::Pending;
     if proposed {
         Some(entry.source.promote_remote())
     } else if expired {
@@ -180,11 +183,13 @@ pub(super) fn clear(
 
 /// Canonical facts from this fork transition. The detached bodies are already
 /// bounded and ordered for recovery before owner policy examines them.
+/// Membership sets are lookup-only; their keys share the retained block backing
+/// during preparation and do not survive in the resulting Plan.
 struct ChainFacts {
-    attached: BTreeSet<Byte32>,
-    spent: BTreeSet<OutPoint>,
-    detached_headers: BTreeSet<Byte32>,
-    detached_transactions: BTreeSet<Byte32>,
+    attached: HashSet<Byte32>,
+    spent: HashSet<OutPoint>,
+    detached_headers: HashSet<Byte32>,
+    detached_transactions: HashSet<Byte32>,
     detached: Vec<Arc<TransactionView>>,
 }
 
@@ -193,22 +198,19 @@ impl ChainFacts {
         detached_blocks: &VecDeque<BlockView>,
         attached_blocks: &VecDeque<BlockView>,
     ) -> Result<Self, Error> {
-        let mut attached = BTreeSet::new();
-        let mut spent = BTreeSet::new();
+        let mut attached = HashSet::new();
+        let mut spent = HashSet::new();
         for block in attached_blocks {
             for (index, tx) in block.transactions().iter().enumerate() {
-                attached.insert(compact_packed(&tx.hash()));
+                attached.insert(tx.hash());
                 if index != 0 {
-                    spent.extend(tx.input_pts_iter().map(|point| compact_packed(&point)));
+                    spent.extend(tx.input_pts_iter());
                 }
             }
         }
-        let detached_headers = detached_blocks
-            .iter()
-            .map(|block| compact_packed(&block.hash()))
-            .collect();
+        let detached_headers = detached_blocks.iter().map(|block| block.hash()).collect();
         let mut detached = Vec::new();
-        let mut detached_transactions = BTreeSet::new();
+        let mut detached_transactions = HashSet::new();
         for block in detached_blocks {
             for (index, tx) in block.transactions().iter().enumerate() {
                 if attached.contains(&tx.hash()) || !detached_transactions.insert(tx.hash()) {
@@ -241,11 +243,30 @@ struct Affected {
 /// Classify every existing owner, then close accepted conflicts and recovery
 /// over descendants without crossing a newly committed producer.
 fn affected_owners(
+    store: &Store,
+    plan: &mut Plan,
     old: &BTreeMap<Byte32, Arc<Entry>>,
     facts: &ChainFacts,
     previous: &Snapshot,
     snapshot: &Snapshot,
-) -> Affected {
+) -> Result<Affected, Error> {
+    // Accepted input/dep readers are already indexed. A small spent set can
+    // narrow their checks without scanning every accepted dependency; retain
+    // these original relation reads alongside the captured owner revisions.
+    // Larger block spend sets keep the owner-bounded direct lookup below.
+    let readers = if !facts.spent.is_empty() && facts.spent.len() <= old.len() {
+        let mut readers = HashSet::new();
+        for point in &facts.spent {
+            for hash in plan.readers(store, point.clone())? {
+                if !facts.attached.contains(&hash) {
+                    readers.insert(hash);
+                }
+            }
+        }
+        Some(readers)
+    } else {
+        None
+    };
     // Canonical VM activation uses the next block's epoch for every inflight
     // phase. Derive that view-wide rule once, independently of proposal phase.
     let rules = |snapshot: &Snapshot| {
@@ -281,14 +302,21 @@ fn affected_owners(
             }
             continue;
         };
+        // Resolution retains inputs in transaction order, before expanded deps.
+        // Borrow those identities; only a reported conflict needs an owned key.
         if !facts.spent.is_empty()
-            && let Some(point) = entry
+            && readers
+                .as_ref()
+                .is_none_or(|readers| readers.contains(hash))
+            && let Some(point) = value
                 .transaction
-                .input_pts_iter()
-                .chain(value.dependencies())
-                .find(|point| facts.spent.contains(point))
+                .resolved_inputs
+                .iter()
+                .map(|cell| &cell.out_point)
+                .chain(value.transaction.related_dep_out_points())
+                .find(|point| facts.spent.contains(*point))
         {
-            conflicts.insert(hash.clone(), compact_packed(&point));
+            conflicts.insert(hash.clone(), compact_packed(point));
             continue;
         }
         // A pool-resolved cell retains its outpoint identity after its producer
@@ -316,10 +344,10 @@ fn affected_owners(
         }
     }
     if conflicts.is_empty() && recovery.is_empty() {
-        return Affected {
+        return Ok(Affected {
             conflicts,
             recovery,
-        };
+        });
     }
     let child_index = membership::children(old);
     let mut stack: Vec<_> = conflicts
@@ -350,10 +378,10 @@ fn affected_owners(
             }
         }
     }
-    Affected {
+    Ok(Affected {
         conflicts,
         recovery,
-    }
+    })
 }
 
 /// Produce the next owner population; only detached transactions acquire a new
@@ -366,49 +394,49 @@ fn successor_population(
     previous: &Snapshot,
     snapshot: &Snapshot,
 ) -> Result<BTreeMap<Byte32, Arc<Entry>>, Error> {
-    let mut after = BTreeMap::new();
-    for (hash, entry) in old {
-        if facts.attached.contains(hash) || affected.conflicts.contains_key(hash) {
-            continue;
-        }
-        let next = if let Some(value) = entry.accepted() {
-            if affected.recovery.contains(hash) {
-                Arc::new(Entry {
-                    transaction: Arc::clone(&entry.transaction),
-                    arrival: entry.arrival,
-                    source: Source::Recovery,
-                    phase: Phase::Resolve,
-                })
-            } else if value
-                .parents
-                .iter()
-                .any(|parent| facts.attached.contains(parent))
-            {
-                let mut value = value.clone();
-                value
+    let mut after: BTreeMap<_, _> = old
+        .iter()
+        .filter_map(|(hash, entry)| {
+            if facts.attached.contains(hash) || affected.conflicts.contains_key(hash) {
+                return None;
+            }
+            let next = if let Some(value) = entry.accepted() {
+                if affected.recovery.contains(hash) {
+                    Arc::new(Entry {
+                        transaction: Arc::clone(&entry.transaction),
+                        arrival: entry.arrival,
+                        source: Source::Recovery,
+                        phase: Phase::Resolve,
+                    })
+                } else if value
                     .parents
-                    .retain(|parent| !facts.attached.contains(parent));
-                entry.with_phase(Phase::Accepted(value))
+                    .iter()
+                    .any(|parent| facts.attached.contains(parent))
+                {
+                    let mut value = value.clone();
+                    value
+                        .parents
+                        .retain(|parent| !facts.attached.contains(parent));
+                    entry.with_phase(Phase::Accepted(value))
+                } else {
+                    Arc::clone(entry)
+                }
             } else {
-                Arc::clone(entry)
-            }
-        } else {
-            let Some(source) = current_source(entry, previous, snapshot) else {
-                continue;
+                let source = current_source(entry, previous, snapshot)?;
+                if source != entry.source || matches!(entry.phase, Phase::Verify(_)) {
+                    Arc::new(Entry {
+                        transaction: Arc::clone(&entry.transaction),
+                        arrival: entry.arrival,
+                        source,
+                        phase: Phase::Resolve,
+                    })
+                } else {
+                    Arc::clone(entry)
+                }
             };
-            if source != entry.source || matches!(entry.phase, Phase::Verify(_)) {
-                Arc::new(Entry {
-                    transaction: Arc::clone(&entry.transaction),
-                    arrival: entry.arrival,
-                    source,
-                    phase: Phase::Resolve,
-                })
-            } else {
-                Arc::clone(entry)
-            }
-        };
-        after.insert(hash.clone(), next);
-    }
+            Some((hash.clone(), next))
+        })
+        .collect();
     for transaction in facts.detached.drain(..) {
         let hash = compact_packed(&transaction.hash());
         let arrival = match old.get(&hash) {
@@ -426,6 +454,75 @@ fn successor_population(
         );
     }
     Ok(after)
+}
+
+/// Append public phase callbacks in owner order. Both lookup strategies share
+/// the phase rule and derive graph totals only if a callback actually needs them.
+fn append_proposal_callbacks(
+    plan: &mut Plan,
+    old: &Members,
+    accepted: &Members,
+    previous: &ProposalView,
+    next: &ProposalView,
+    max_ancestors: usize,
+) -> Result<(), Error> {
+    let mut totals = None;
+    let mut append = |hash: &Byte32, entry: &Entry, before, after| -> Result<(), Error> {
+        let Some(previous) = old.get(hash).and_then(|entry| entry.accepted()) else {
+            return Ok(());
+        };
+        let value = entry.accepted().ok_or(Error::Stale)?;
+        let after = value.status_with(|| after);
+        let before = previous.status_with(|| before);
+        // Pending and Gap share the public pending callback. Moving between
+        // them is not a new admission or another fee-estimator sample.
+        if (before == Status::Proposed) == (after == Status::Proposed) {
+            return Ok(());
+        }
+        if totals.is_none() {
+            totals = Some(membership::aggregates(accepted, max_ancestors)?);
+        }
+        let totals = totals
+            .as_ref()
+            .and_then(|totals| totals.get(hash))
+            .ok_or(Error::Stale)?;
+        plan.notify(Effect::projected(
+            membership::entry_snapshot(entry, *totals)?,
+            after,
+        ));
+        Ok(())
+    };
+    if let Some(changes) = previous.status_changes(next, accepted.len()) {
+        // Full hashes and their proposal prefixes have the same byte ordering.
+        // Merge only changed phases without querying both views for each owner.
+        let mut remaining = accepted.iter().peekable();
+        for (id, before, after) in changes {
+            if (before == Status::Proposed) == (after == Status::Proposed) {
+                continue;
+            }
+            while remaining
+                .next_if(|(_, entry)| {
+                    entry.transaction.proposal_short_id_reader().as_slice() < id.as_slice()
+                })
+                .is_some()
+            {}
+            while let Some((hash, entry)) = remaining.next_if(|(_, entry)| {
+                entry.transaction.proposal_short_id_reader().as_slice() == id.as_slice()
+            }) {
+                append(hash, entry, before, after)?;
+            }
+        }
+    } else {
+        // Keep sparse-pool work proportional to its owners, even if canonical
+        // history contains many unrelated proposal ids.
+        let before = previous.status_lookup(accepted.len());
+        let after = next.status_lookup(accepted.len());
+        for (hash, entry) in accepted {
+            let id = entry.transaction.proposal_short_id_reader();
+            append(hash, entry, before(id), after(id))?;
+        }
+    }
+    Ok(())
 }
 
 /// Invoke while holding the sole chain preparation pause, so continuous
@@ -462,12 +559,18 @@ pub(super) fn reconcile(
         .map(|entry| (entry.hash(), entry))
         .collect();
     let mut facts = ChainFacts::from_blocks(detached_blocks, attached_blocks)?;
-    let affected = affected_owners(&old, &facts, &old_snapshot, snapshot);
+    let mut plan = Plan::new(view, Class::Critical, reads);
+    let affected = affected_owners(store, &mut plan, &old, &facts, &old_snapshot, snapshot)?;
     let after = successor_population(store, &old, &mut facts, &affected, &old_snapshot, snapshot)?;
     let mut old_totals = None;
-    let mut plan = Plan::new(view, Class::Critical, reads);
+    // Compare ordered populations once. Record newly detached owners below,
+    // after every old-owner edit and its effects.
+    let mut successors = after.iter().peekable();
     for (hash, entry) in &old {
-        let next = after.get(hash);
+        while successors.next_if(|(next, _)| *next < hash).is_some() {}
+        let next = successors
+            .next_if(|(next, _)| *next == hash)
+            .map(|(_, entry)| entry);
         let effect = if facts.attached.contains(hash) {
             entry.preaccepted_peer().map(|peer| {
                 Effect::relay(TxVerificationResult::Ok {
@@ -513,45 +616,24 @@ pub(super) fn reconcile(
     // Rejection effects own their projections; release the old graph scratch
     // before deriving any successor aggregates for status callbacks.
     drop(old_totals);
-    for (hash, entry) in &after {
-        if !old.contains_key(hash) {
-            plan.edit(None, Some(Arc::clone(entry)), None)?;
+    // Only detached bodies can introduce hashes absent from the old population.
+    if !facts.detached_transactions.is_empty() {
+        for (hash, entry) in &after {
+            if !old.contains_key(hash) {
+                plan.edit(None, Some(Arc::clone(entry)), None)?;
+            }
         }
     }
     let mut final_accepted = after;
     final_accepted.retain(|_, entry| entry.accepted().is_some());
-    let mut final_totals = None;
-    let previous_status = old_snapshot.proposals().status_lookup(final_accepted.len());
-    let next_status = snapshot.proposals().status_lookup(final_accepted.len());
-    for (hash, entry) in &final_accepted {
-        let Some(previous) = old.get(hash).and_then(|entry| entry.accepted()) else {
-            continue;
-        };
-        let accepted = entry.accepted().ok_or(Error::Stale)?;
-        let status = accepted.status_with(|| {
-            next_status(accepted.transaction.transaction.proposal_short_id_reader())
-        });
-        let previous = previous.status_with(|| {
-            previous_status(previous.transaction.transaction.proposal_short_id_reader())
-        });
-        // Pending and Gap share the public pending callback. Moving between
-        // them is not a new admission or another fee-estimator sample.
-        if (previous == Status::Proposed) == (status == Status::Proposed) {
-            continue;
-        }
-        if final_totals.is_none() {
-            final_totals = Some(membership::aggregates(
-                &final_accepted,
-                config.max_ancestors_count,
-            )?);
-        }
-        let totals = final_totals
-            .as_ref()
-            .and_then(|totals| totals.get(hash))
-            .ok_or(Error::Stale)?;
-        let value = membership::entry_snapshot(entry, *totals)?;
-        plan.notify(Effect::projected(value, status));
-    }
+    append_proposal_callbacks(
+        &mut plan,
+        &old,
+        &final_accepted,
+        old_snapshot.proposals(),
+        snapshot.proposals(),
+        config.max_ancestors_count,
+    )?;
     for block in attached_blocks.iter().chain(detached_blocks) {
         for tx in block.transactions() {
             for point in tx.output_pts_iter().chain(tx.input_pts_iter()) {

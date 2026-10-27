@@ -424,6 +424,102 @@ fn committed_spend_closes_waiter_even_when_its_wait_keys_name_another_missing_pa
 }
 
 #[test]
+fn chain_conflict_reports_first_input_before_resolved_dependencies() {
+    let points: Vec<_> = (5991..5995)
+        .map(|nonce| OutPoint::new(tx(nonce).hash(), 0))
+        .collect();
+    for extra_spent in [0, 8] {
+        for first in 0..points.len() {
+            let store = store();
+            let hash = accept(
+                &store,
+                spend(5020, &points[..2], &points[2..]),
+                1,
+                1,
+                Status::Pending,
+            );
+            let child = accept(
+                &store,
+                spend(5021, &[OutPoint::new(hash.clone(), 0)], &[]),
+                1,
+                1,
+                Status::Pending,
+            );
+            let survivors: BTreeSet<_> = (5022..5024)
+                .map(|nonce| accept(&store, output_tx(nonce), 1, 1, Status::Pending))
+                .collect();
+            // Four owners cover the indexed boundary. Extra unrelated block spends
+            // force direct lookup without changing any owner's conflict or order.
+            let mut spent: Vec<_> = points[first..].iter().rev().cloned().collect();
+            spent.extend((0..extra_spent).map(|nonce| OutPoint::new(tx(5900 + nonce).hash(), 0)));
+            let plan = reconcile(
+                &store,
+                &command(&store, vec![spend(5024, &spent, &[])]),
+                &config(),
+            )
+            .unwrap();
+            let rejected: BTreeSet<_> = plan
+                .effects()
+                .iter()
+                .filter_map(|effect| match effect.callback() {
+                    Some(CallbackEvent::Reject(entry, reason)) => {
+                        assert!(matches!(
+                            reason,
+                            Reject::Resolve(OutPointError::Dead(point)) if *point == points[first]
+                        ));
+                        Some(entry.transaction.hash())
+                    }
+                    _ => None,
+                })
+                .collect();
+            assert_eq!(rejected, [hash, child].into());
+            store.apply(plan).unwrap();
+            assert_eq!(accepted_hashes(&store), survivors);
+        }
+    }
+}
+
+#[test]
+fn reorg_keeps_survivors_when_detached_hashes_straddle_old_owners() {
+    let store = store();
+    let mut transactions: Vec<_> = (6900..6907).map(output_tx).collect();
+    transactions.sort_by_key(|transaction| transaction.hash());
+    for index in [1, 3, 5] {
+        accept(&store, transactions[index].clone(), 1, 1, Status::Pending);
+    }
+    let survivors = [1, 5].map(|index| store.point(&transactions[index].hash()).1.unwrap());
+    let restored = [0, 2, 4, 6].map(|index| transactions[index].clone());
+    let detached = BlockBuilder::default()
+        .transaction(tx(0))
+        .transactions(restored.clone())
+        .build();
+    let attached = BlockBuilder::default()
+        .transaction(tx(0))
+        .transaction(transactions[3].clone())
+        .build();
+    let next = snapshot(
+        &store.snapshot().1,
+        &attached,
+        HashSet::new(),
+        HashSet::new(),
+    );
+    apply(
+        &store,
+        &ChainReorgArgs::for_test([detached].into(), [attached].into(), next),
+    );
+    assert_eq!(store.capture_all().owners.len(), 6);
+    assert!(store.point(&transactions[3].hash()).1.is_none());
+    for entry in survivors {
+        assert!(Arc::ptr_eq(&store.point(&entry.hash()).1.unwrap(), &entry));
+    }
+    for transaction in restored {
+        let entry = store.point(&transaction.hash()).1.unwrap();
+        assert_eq!(entry.source, Source::Recovery);
+        assert!(matches!(entry.phase, Phase::Resolve));
+    }
+}
+
+#[test]
 fn detached_witness_wins_raw_hash_and_recovers_parent_before_child() {
     let store = store();
     let parent = output_tx(5015);
@@ -900,74 +996,258 @@ fn chain_conflict_callbacks_keep_old_ancestor_and_descendant_totals() {
 
 #[test]
 fn chain_callbacks_follow_public_pending_and_proposed_transitions() {
-    let store = store();
-    let transaction = output_tx(6522);
-    let hash = accept(&store, transaction.clone(), 20, 1, Status::Pending);
-    let old = store.point(&hash).1.unwrap();
-    let mut accepted = old.accepted().unwrap().clone();
-    accepted.forced_status = None;
-    replace(&store, old, Phase::Accepted(accepted));
+    // Exercise the same public transitions through merge and sparse lookup.
+    for unrelated in [0, 4_096] {
+        let store = store();
+        let transaction = output_tx(6522);
+        let hash = accept(&store, transaction.clone(), 20, 1, Status::Pending);
+        let old = store.point(&hash).1.unwrap();
+        let mut accepted = old.accepted().unwrap().clone();
+        accepted.forced_status = None;
+        replace(&store, old, Phase::Accepted(accepted));
 
-    for (number, (status, callback)) in [
-        (Status::Gap, None),
-        (Status::Pending, None),
-        (Status::Gap, None),
-        (Status::Proposed, Some(Status::Proposed)),
-        (Status::Proposed, None),
-        (Status::Gap, Some(Status::Pending)),
-        (Status::Pending, None),
-        (Status::Proposed, Some(Status::Proposed)),
-    ]
-    .into_iter()
-    .enumerate()
-    {
-        let block = BlockBuilder::default()
-            .number(number as u64 + 1)
-            .transaction(tx(0))
-            .build();
-        let proposals = |phase| {
-            if status == phase {
-                [transaction.proposal_short_id()].into()
-            } else {
-                HashSet::new()
+        for (number, (status, callback)) in [
+            (Status::Gap, None),
+            (Status::Pending, None),
+            (Status::Gap, None),
+            (Status::Proposed, Some(Status::Proposed)),
+            (Status::Proposed, None),
+            (Status::Gap, Some(Status::Pending)),
+            (Status::Pending, None),
+            (Status::Proposed, Some(Status::Proposed)),
+        ]
+        .into_iter()
+        .enumerate()
+        {
+            let block = BlockBuilder::default()
+                .number(number as u64 + 1)
+                .transaction(tx(0))
+                .build();
+            let proposals = |phase| {
+                let mut ids: HashSet<_> = (0..unrelated)
+                    .map(|value: u32| {
+                        let mut bytes = [0; 10];
+                        bytes[..4].copy_from_slice(&value.to_be_bytes());
+                        ProposalShortId::new(bytes)
+                    })
+                    .filter(|id| *id != transaction.proposal_short_id())
+                    .collect();
+                if status == phase {
+                    ids.insert(transaction.proposal_short_id());
+                }
+                ids
+            };
+            let next = snapshot(
+                &store.snapshot().1,
+                &block,
+                proposals(Status::Gap),
+                proposals(Status::Proposed),
+            );
+            let command = ChainReorgArgs::for_test(VecDeque::new(), [block].into(), next);
+            let plan = reconcile(&store, &command, &config()).unwrap();
+            let callbacks: Vec<_> = plan
+                .effects()
+                .iter()
+                .filter_map(|effect| match effect.callback() {
+                    Some(CallbackEvent::Pending(entry)) => {
+                        Some((Status::Pending, entry.transaction.hash()))
+                    }
+                    Some(CallbackEvent::Proposed(entry)) => {
+                        Some((Status::Proposed, entry.transaction.hash()))
+                    }
+                    Some(CallbackEvent::Reject(..)) => panic!("a proposal change cannot reject"),
+                    None => None,
+                })
+                .collect();
+            assert_eq!(
+                callbacks,
+                callback
+                    .map(|status| (status, hash.clone()))
+                    .into_iter()
+                    .collect::<Vec<_>>(),
+                "transition {number}: Gap does not become a second new-transaction event"
+            );
+            store.apply(plan).unwrap();
+            let current = store.point(&hash).1.unwrap();
+            assert_eq!(
+                current.accepted().unwrap().status(&store.snapshot().1),
+                status
+            );
+            assert_eq!(
+                store.capture_summary().proposed,
+                usize::from(status == Status::Proposed)
+            );
+        }
+    }
+}
+
+#[test]
+fn chain_phase_counts_follow_the_final_owner_during_a_proposal_handoff() {
+    for before in [false, true] {
+        for after in [false, true] {
+            for accepted_after in [false, true] {
+                let store = store();
+                let identity = |suffix| {
+                    let mut bytes = [7; 32];
+                    bytes[31] = suffix;
+                    Byte32::new(bytes)
+                };
+                let transaction = output_tx(6800).fake_hash(identity(1));
+                let hash = accept(&store, transaction.clone(), 1, 1, Status::Pending);
+                let old = store.point(&hash).1.unwrap();
+                let mut value = old.accepted().unwrap().clone();
+                value.forced_status = None;
+                replace(&store, old, Phase::Accepted(value));
+                let proposals = |proposed| {
+                    if proposed {
+                        [transaction.proposal_short_id()].into()
+                    } else {
+                        HashSet::new()
+                    }
+                };
+                let block = BlockBuilder::default().transaction(tx(0)).build();
+                let previous = snapshot(
+                    &store.snapshot().1,
+                    &block,
+                    HashSet::new(),
+                    proposals(before),
+                );
+                apply(
+                    &store,
+                    &ChainReorgArgs::for_test(VecDeque::new(), [block.clone()].into(), previous),
+                );
+                assert_eq!(store.capture_summary().proposed, usize::from(before));
+
+                let old = store.point(&hash).1.unwrap();
+                let new = entry(
+                    &store,
+                    output_tx(6801).fake_hash(identity(2)),
+                    Source::Local,
+                );
+                let new = if accepted_after {
+                    let mut value = old.accepted().unwrap().clone();
+                    // Keep the synthetic verification fixture, with this new body.
+                    Arc::make_mut(&mut value.transaction).transaction =
+                        new.transaction.as_ref().clone();
+                    new.with_phase(Phase::Accepted(value))
+                } else {
+                    new
+                };
+                assert_eq!(old.proposal(), new.proposal());
+                let next = snapshot(
+                    &store.snapshot().1,
+                    &block,
+                    HashSet::new(),
+                    proposals(after),
+                );
+                let captured = store.capture_all();
+                let mut plan = Plan::new(captured.view, Class::Critical, captured.reads);
+                plan.edit(Some(old), None, None).unwrap();
+                plan.edit(None, Some(Arc::clone(&new)), None).unwrap();
+                plan.chain(next, std::iter::empty());
+                store.apply(plan).unwrap();
+                assert!(store.point(&hash).1.is_none());
+                assert!(Arc::ptr_eq(&store.point(&new.hash()).1.unwrap(), &new));
+                assert_eq!(
+                    store.capture_summary().proposed,
+                    usize::from(after && accepted_after)
+                );
+                assert!(!store.is_faulted());
             }
-        };
-        let next = snapshot(
-            &store.snapshot().1,
-            &block,
-            proposals(Status::Gap),
-            proposals(Status::Proposed),
-        );
-        let command = ChainReorgArgs::for_test(VecDeque::new(), [block].into(), next);
-        let plan = reconcile(&store, &command, &config()).unwrap();
-        let callbacks: Vec<_> = plan
-            .effects()
-            .iter()
-            .filter_map(|effect| match effect.callback() {
-                Some(CallbackEvent::Pending(entry)) => {
-                    Some((Status::Pending, entry.transaction.hash()))
+        }
+    }
+}
+
+#[test]
+fn chain_phase_changes_preserve_fixture_overrides_and_full_hash_callback_order() {
+    for extra_owners in [0, 2] {
+        let store = store();
+        let mut canonical = Vec::new();
+        let mut ids = HashSet::new();
+        for (prefix, forced) in [
+            (30, Some(Status::Proposed)),
+            (10, Some(Status::Pending)),
+            (40, None),
+            (20, None),
+        ] {
+            let transaction =
+                output_tx(6600 + u32::from(prefix)).fake_hash(Byte32::new([prefix; 32]));
+            ids.insert(transaction.proposal_short_id());
+            let hash = accept(
+                &store,
+                transaction,
+                20,
+                1,
+                forced.unwrap_or(Status::Pending),
+            );
+            let old = store.point(&hash).1.unwrap();
+            let mut accepted = old.accepted().unwrap().clone();
+            accepted.forced_status = forced;
+            replace(&store, old, Phase::Accepted(accepted));
+            if forced.is_none() {
+                canonical.push(hash);
+            }
+        }
+        // Extra pending owners make the same proposal delta eligible for a merge;
+        // without them, the unrelated ids force the sparse lookup path.
+        for nonce in 0..extra_owners {
+            accept(&store, output_tx(6700 + nonce), 1, 1, Status::Pending);
+        }
+        canonical.sort();
+        ids.extend([0, 1, 2, 3, u8::MAX].map(|byte| ProposalShortId::new([byte; 10])));
+        for (number, phase) in [
+            Status::Proposed,
+            Status::Gap,
+            Status::Proposed,
+            Status::Pending,
+        ]
+        .into_iter()
+        .enumerate()
+        {
+            let block = BlockBuilder::default()
+                .number(number as u64 + 1)
+                .transaction(tx(0))
+                .build();
+            let band = |status| {
+                if phase == status {
+                    ids.clone()
+                } else {
+                    HashSet::new()
                 }
-                Some(CallbackEvent::Proposed(entry)) => {
-                    Some((Status::Proposed, entry.transaction.hash()))
-                }
-                Some(CallbackEvent::Reject(..)) => panic!("a proposal change cannot reject"),
-                None => None,
-            })
-            .collect();
-        assert_eq!(
-            callbacks,
-            callback
-                .map(|status| (status, hash.clone()))
-                .into_iter()
-                .collect::<Vec<_>>(),
-            "transition {number}: Gap does not become a second new-transaction event"
-        );
-        store.apply(plan).unwrap();
-        let current = store.point(&hash).1.unwrap();
-        assert_eq!(
-            current.accepted().unwrap().status(&store.snapshot().1),
-            status
-        );
+            };
+            let next = snapshot(
+                &store.snapshot().1,
+                &block,
+                band(Status::Gap),
+                band(Status::Proposed),
+            );
+            let command = ChainReorgArgs::for_test(VecDeque::new(), [block].into(), next);
+            let plan = reconcile(&store, &command, &config()).unwrap();
+            let callbacks: Vec<_> = plan
+                .effects()
+                .iter()
+                .filter_map(|effect| match effect.callback() {
+                    Some(CallbackEvent::Pending(entry)) => Some((false, entry.transaction.hash())),
+                    Some(CallbackEvent::Proposed(entry)) => Some((true, entry.transaction.hash())),
+                    Some(CallbackEvent::Reject(..)) => panic!("a phase change cannot reject"),
+                    None => None,
+                })
+                .collect();
+            let proposed = phase == Status::Proposed;
+            assert_eq!(
+                callbacks,
+                canonical
+                    .iter()
+                    .cloned()
+                    .map(|hash| (proposed, hash))
+                    .collect::<Vec<_>>()
+            );
+            store.apply(plan).unwrap();
+            assert_eq!(
+                store.capture_summary().proposed,
+                1 + if proposed { 2 } else { 0 }
+            );
+        }
     }
 }
 

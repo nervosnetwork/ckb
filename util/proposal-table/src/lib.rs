@@ -161,11 +161,57 @@ impl ProposalView {
 
     /// Projects an id with Proposed taking precedence over Gap.
     pub fn status(&self, id: &ProposalShortId) -> ProposalStatus {
-        self.status_key(ProposalKey::from_packed(id))
+        self.status_reader(id.as_reader())
+    }
+
+    /// Projects a borrowed id without retaining or copying its packed backing.
+    pub fn status_reader(&self, id: ProposalShortIdReader<'_>) -> ProposalStatus {
+        self.status_key(ProposalKey::from_reader(id))
     }
 
     fn status_key(&self, id: ProposalKey) -> ProposalStatus {
         self.counts.get(&id).copied().unwrap_or_default().status()
+    }
+
+    /// Iterates phase changes in id order, ignoring counts within one phase.
+    /// Scans at most twice the caller's population in each view; a moderately
+    /// larger canonical window can still be cheaper than two lookups per owner.
+    /// Returns `None` when the caller should query its smaller population by id.
+    /// Shared unchanged views need no scan and are accepted even with a zero limit.
+    pub fn status_changes<'a>(
+        &'a self,
+        next: &'a Self,
+        population: usize,
+    ) -> Option<impl Iterator<Item = (ProposalShortId, ProposalStatus, ProposalStatus)> + 'a> {
+        let unchanged = self.counts.ptr_eq(&next.counts);
+        if !unchanged && self.counts.len().max(next.counts.len()) > population.saturating_mul(2) {
+            return None;
+        }
+        let mut before = self.counts.iter().peekable();
+        let mut after = next.counts.iter().peekable();
+        // OrdMap::diff can skip an update at a shared leaf boundary. Merge the
+        // entries directly; the sparse-change regression covers that boundary.
+        Some(std::iter::from_fn(move || {
+            if unchanged {
+                return None;
+            }
+            loop {
+                let id = match (before.peek().copied(), after.peek().copied()) {
+                    (Some((left, _)), Some((right, _))) => left.min(right),
+                    (Some((id, _)), None) | (None, Some((id, _))) => id,
+                    (None, None) => return None,
+                };
+                let old = before
+                    .next_if(|(key, _)| *key == id)
+                    .map_or(ProposalStatus::Pending, |(_, counts)| counts.status());
+                let new = after
+                    .next_if(|(key, _)| *key == id)
+                    .map_or(ProposalStatus::Pending, |(_, counts)| counts.status());
+                if old != new {
+                    return Some((id.into_packed(), old, new));
+                }
+            }
+        }))
     }
 
     /// Creates a temporary lookup for repeated phase queries against this view.

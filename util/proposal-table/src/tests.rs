@@ -40,6 +40,7 @@ fn phase_lookup_preserves_band_precedence_absence_and_snapshot_origin() {
             };
             assert_eq!(lookup(proposal.as_reader()), expected);
             assert_eq!(original.status(&proposal), expected);
+            assert_eq!(original.status_reader(proposal.as_reader()), expected);
             assert_eq!(updated(proposal.as_reader()), next);
             assert_eq!(lookup(proposal.as_reader()), expected);
         }
@@ -49,6 +50,142 @@ fn phase_lookup_preserves_band_precedence_absence_and_snapshot_origin() {
         empty.status_lookup(512)(id(0).as_reader()),
         ProposalStatus::Pending
     );
+}
+
+#[test]
+fn phase_changes_match_all_three_id_band_transitions_in_order() {
+    let ids = [id(0), id(7), id(u8::MAX)];
+    let phase = |bits| match bits {
+        0 => ProposalStatus::Pending,
+        1 => ProposalStatus::Gap,
+        _ => ProposalStatus::Proposed,
+    };
+    let views: Vec<_> = (0_u32..64)
+        .map(|bands| {
+            let included = |band| {
+                ids.iter()
+                    .enumerate()
+                    .filter(move |(index, _)| (bands >> (index * 2)) & band != 0)
+                    .map(|(_, id)| id.clone())
+            };
+            ProposalView::new(included(1), included(2))
+        })
+        .collect();
+    for (before, original) in views.iter().enumerate() {
+        assert!(
+            original
+                .status_changes(&original.clone(), 0)
+                .unwrap()
+                .next()
+                .is_none()
+        );
+        for (after, next) in views.iter().enumerate() {
+            let expected: Vec<_> = ids
+                .iter()
+                .enumerate()
+                .filter_map(|(index, id)| {
+                    let old = phase((before >> (index * 2)) & 3);
+                    let new = phase((after >> (index * 2)) & 3);
+                    (old != new).then(|| (id.clone(), old, new))
+                })
+                .collect();
+            assert_eq!(
+                original
+                    .status_changes(next, ids.len())
+                    .unwrap()
+                    .collect::<Vec<_>>(),
+                expected,
+                "materialized bands {before} -> {after}"
+            );
+        }
+    }
+}
+
+#[test]
+fn phase_change_scan_bounds_each_view_by_twice_the_population() {
+    let original = ProposalView::new([id(1), id(2)], [id(3), id(4)]);
+    let next = ProposalView::new([id(1)], [id(2), id(3), id(4)]);
+    for population in 0..2 {
+        assert!(original.status_changes(&next, population).is_none());
+        assert!(next.status_changes(&original, population).is_none());
+    }
+    assert_eq!(
+        original
+            .status_changes(&next, 2)
+            .unwrap()
+            .collect::<Vec<_>>(),
+        vec![(id(2), ProposalStatus::Gap, ProposalStatus::Proposed)]
+    );
+    assert!(
+        original
+            .status_changes(&original.clone(), 0)
+            .unwrap()
+            .next()
+            .is_none()
+    );
+    let empty = ProposalView::default();
+    assert!(original.status_changes(&empty, 1).is_none());
+    assert!(empty.status_changes(&original, 1).is_none());
+    assert_eq!(original.status_changes(&empty, 2).unwrap().count(), 4);
+    assert_eq!(empty.status_changes(&original, 2).unwrap().count(), 4);
+    let larger = ProposalView::new([], [id(1), id(2), id(3), id(4), id(5)]);
+    assert!(original.status_changes(&larger, 2).is_none());
+    assert!(larger.status_changes(&original, 2).is_none());
+}
+
+#[test]
+fn phase_changes_cover_shared_tree_branches_during_full_windows() {
+    let id = |value: u32| {
+        let mut bytes = [0; 10];
+        bytes[..4].copy_from_slice(&value.wrapping_mul(2_654_435_761).to_be_bytes());
+        ProposalShortId::new(bytes)
+    };
+    let original = ProposalView::new(iter::empty(), (0..4_096).map(id));
+    for value in 0..4_096 {
+        let changed = id(value);
+        let mut counts = original.counts.as_ref().clone();
+        counts.insert(
+            super::ProposalKey::from_packed(&changed),
+            super::BandCounts {
+                gap: 1,
+                proposed: 0,
+            },
+        );
+        let next = ProposalView::from_counts(counts);
+        assert_eq!(
+            original
+                .status_changes(&next, 4_096)
+                .unwrap()
+                .collect::<Vec<_>>(),
+            vec![(changed, ProposalStatus::Proposed, ProposalStatus::Gap)],
+            "isolated change {value} among shared branches"
+        );
+    }
+    let mut table = ProposalTable::new(ProposalWindow(2, 10)).unwrap();
+    let mut view = ProposalView::default();
+    for tip in 1..=30 {
+        table.insert(
+            tip,
+            (0..1_500).map(|offset| id((tip as u32 * 997 + offset) % 20_000)),
+        );
+        let next = table.finalize(&view, tip);
+        let expected: BTreeMap<_, _> = (0..20_000)
+            .filter_map(|value| {
+                let id = id(value);
+                let before = view.status(&id);
+                let after = next.status(&id);
+                (before != after).then_some((id, (before, after)))
+            })
+            .collect();
+        let actual: Vec<_> = view
+            .status_changes(&next, 20_000)
+            .unwrap()
+            .map(|(id, before, after)| (id, (before, after)))
+            .collect();
+        assert_eq!(actual.len(), expected.len(), "transition at tip {tip}");
+        assert_eq!(actual, expected.into_iter().collect::<Vec<_>>());
+        view = next;
+    }
 }
 
 fn proposed(view: &ProposalView) -> HashSet<ProposalShortId> {
@@ -215,6 +352,19 @@ fn incremental_counts_preserve_repeated_ids_across_both_bands() {
         let expected = finalize_history(window, &history, tip);
         assert_eq!(proposed(&view), proposed(&expected), "tip={tip}");
         assert_eq!(gap(&view), gap(&expected), "tip={tip}");
+        let changes: Vec<_> = (0..=12)
+            .filter_map(|byte| {
+                let id = id(byte);
+                let before = old.status(&id);
+                let after = expected.status(&id);
+                (before != after).then_some((id, before, after))
+            })
+            .collect();
+        assert_eq!(
+            old.status_changes(&view, 13).unwrap().collect::<Vec<_>>(),
+            changes,
+            "shared history at tip={tip}"
+        );
         if tip == 2 {
             assert!(
                 old.contains_gap(&id(1)),

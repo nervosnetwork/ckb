@@ -3,8 +3,8 @@
 use super::plan::LifecycleWrite;
 use super::{
     COMMITTED_HASH_CACHE_CAPACITY, CommitLocks, Edit, Guard, Peer, Plan, Relation, RelationMember,
-    Roles, SHARDS, Shard, ShardGuards, ShardIndex, Store, View, Wake, WakePage, compact_dependency,
-    compact_relation, proposal_key,
+    Roles, SHARDS, Shard, ShardGuards, ShardIndex, Shards, Store, View, Wake, WakePage,
+    compact_dependency, compact_relation, proposal_key,
 };
 use crate::authority::{
     budget::OwnerDelta,
@@ -487,11 +487,11 @@ impl Shard {
 }
 
 impl LifecycleWrite {
-    /// Refresh all proposed counts against the successor view, then install
+    /// Advance proposed counts against the successor view, then install
     /// the view and its ordered committed-hash records as one lifecycle write.
     #[expect(
         clippy::arithmetic_side_effects,
-        reason = "Apply checks view revision overflow before the first mutation."
+        reason = "Apply checks view revision overflow. Unique proposal changes move disjoint subsets of the validated final owner population into or out of its proposed counts."
     )]
     fn apply(
         &self,
@@ -501,8 +501,45 @@ impl LifecycleWrite {
         retired: &mut Retired,
         committed: Vec<(ProposalShortId, Byte32)>,
     ) {
-        for (_, shard) in owners.writes_mut() {
-            shard.refresh_proposed(&self.snapshot);
+        // Owner edits have already installed the final population and counted
+        // it against the old view. Only changed canonical phases remain; the
+        // current proposal index also covers owner handoffs in this same cut.
+        let population = owners.iter().map(|(_, shard)| shard.owners.len()).sum();
+        if let Some(changes) = view
+            .get()
+            .snapshot
+            .proposals()
+            .status_changes(self.snapshot.proposals(), population)
+        {
+            let mut counts = Shards::new(|| (0_usize, 0_usize));
+            for (id, before, after) in changes {
+                if (before == Status::Proposed) == (after == Status::Proposed) {
+                    continue;
+                }
+                let index = store.route(&id);
+                let Some(value) = owners
+                    .get(index)
+                    .and_then(|shard| shard.proposal(&id))
+                    .and_then(|entry| entry.accepted())
+                else {
+                    continue;
+                };
+                let before = value.status_with(|| before) == Status::Proposed;
+                let after = value.status_with(|| after) == Status::Proposed;
+                let (added, removed) = counts.at_mut(index);
+                *added += usize::from(!before && after);
+                *removed += usize::from(before && !after);
+            }
+            for (index, shard) in owners.writes_mut() {
+                let (added, removed) = counts.at(index);
+                shard.proposed = shard.proposed + added - removed;
+            }
+        } else {
+            // Keep sparse-pool work bounded by its owners when canonical
+            // history contains a much larger, unrelated proposal window.
+            for (_, shard) in owners.writes_mut() {
+                shard.refresh_proposed(&self.snapshot);
+            }
         }
         if let Some(view) = view.get_mut() {
             retired.snapshot = Some(std::mem::replace(

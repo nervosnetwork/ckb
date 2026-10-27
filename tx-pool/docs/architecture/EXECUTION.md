@@ -296,9 +296,15 @@ selects bounded parent-first recovery. Success logs the refusal and does not imp
 every candidate was retained. An oversized command replaces the generation against
 the exact successor snapshot.
 
-Reconciliation classifies the captured owners directly. It builds the accepted
-child index only when a conflict or recovery root needs descendant closure;
-conflict removal takes precedence when those closures intersect. The old accepted
+Reconciliation retains a complete owner capture. When distinct attached spends
+do not outnumber captured owners, existing accepted-reader relations narrow
+accepted conflict checks; their original observations stay in the Plan. Larger
+spend sets use direct checks. Preaccepted owners always check their full declared
+dependencies, including inputs absent from Waiting's triggers. Conflict reports
+still follow input order before expanded cell dependencies.
+
+It builds the accepted child index only when a conflict or recovery root needs
+descendant closure; conflict removal takes precedence when those closures intersect. The old accepted
 graph and its aggregates are constructed only for rejection callbacks. Proposal
 status callbacks use the final accepted graph after committed producers are
 removed. Pending and Gap share the public pending callback, so moving between
@@ -307,6 +313,13 @@ Entering or leaving Proposed still publishes its corresponding callback.
 Ordinary attachment skips detached-backing checks, while VM activation
 is compared once between the previous and next snapshots regardless of proposal
 phase.
+
+Proposal phase changes use an ordered merge when each canonical view contains
+at most twice the caller's owner population; sparse pools query their own ids
+instead. Both paths preserve callback order and the same phase rule. Apply first
+installs owner edits against the old view, then advances proposed counts using
+the final proposal index before installing the new view. This also covers a
+retiring owner handing its proposal short id to a successor in the same commit.
 
 Reorg invalidates cell backing by the producer hashes in detached blocks,
 excluding transactions reattached on the new chain. A cell first resolved from

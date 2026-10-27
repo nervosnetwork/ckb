@@ -280,7 +280,11 @@ impl Accepted {
     }
 
     pub(super) fn status(&self, snapshot: &Snapshot) -> Status {
-        self.status_with(|| status(snapshot, &self.transaction.transaction.proposal_short_id()))
+        self.status_with(|| {
+            snapshot
+                .proposals()
+                .status_reader(self.transaction.transaction.proposal_short_id_reader())
+        })
     }
 
     /// A captured population can share one proposal lookup. Synthetic fixtures
