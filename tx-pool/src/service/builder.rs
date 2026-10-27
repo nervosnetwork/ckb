@@ -272,7 +272,8 @@ impl TxPoolServiceBuilder {
             recent_reject,
             estimator,
         );
-        let (mut background, publisher) = pool.start_background(&handle, endpoints, chain_receiver);
+        let (mut background, publisher) =
+            pool.start_background(&handle, endpoints, chain_receiver, &signal);
         let mut publisher = Some(publisher);
         let receiver = Arc::new(Mutex::new(receiver));
         let query_receiver = Arc::new(Mutex::new(query_receiver));

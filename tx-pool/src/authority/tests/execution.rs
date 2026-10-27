@@ -163,8 +163,12 @@ async fn zero_workers_leave_remote_work_queued_while_direct_submission_completes
         .unwrap()
         .cycles;
     let (_chain, chain) = mpsc::channel(2);
-    let (tasks, publisher) =
-        pool.start_background(&handle, endpoints(sink, Callbacks::new()), chain);
+    let (tasks, publisher) = pool.start_background(
+        &handle,
+        endpoints(sink, Callbacks::new()),
+        chain,
+        &CancellationToken::new(),
+    );
     within(pool.submit_remote(bounded(remote.clone()), cycles, 95.into()))
         .await
         .unwrap();
@@ -236,9 +240,12 @@ async fn commit_observes_notice_refund_before_its_first_wait_poll() {
     assert_eq!(attempts, 2);
     drop(reservations);
     pool.close_outbox();
-    within(Arc::clone(&pool.store.outbox).run(endpoints(sink, Callbacks::new())))
-        .await
-        .unwrap();
+    within(
+        Arc::clone(&pool.store.outbox)
+            .run(endpoints(sink, Callbacks::new()), CancellationToken::new()),
+    )
+    .await
+    .unwrap();
     within(batch.wait(&pool.store.outbox)).await.unwrap();
     assert!(
         matches!(drain.try_recv(), Some(TxVerificationResult::Reject { tx_hash }) if tx_hash == hash)
@@ -331,9 +338,12 @@ async fn chain_wait_ignores_its_own_notice_refund() {
     assert_eq!(attempts.get(), 2);
     assert!(pool.store.point(&candidate.hash()).1.is_none());
     pool.close_outbox();
-    within(Arc::clone(&pool.store.outbox).run(endpoints(sink, Callbacks::new())))
-        .await
-        .unwrap();
+    within(
+        Arc::clone(&pool.store.outbox)
+            .run(endpoints(sink, Callbacks::new()), CancellationToken::new()),
+    )
+    .await
+    .unwrap();
     within(batch.wait(&pool.store.outbox)).await.unwrap();
     assert!(
         matches!(drain.try_recv(), Some(TxVerificationResult::Reject { tx_hash }) if tx_hash == candidate.hash())
@@ -419,9 +429,12 @@ async fn queued_work_still_observes_peer_capacity_refunds() {
     assert_eq!(pool.cpu.available_permits(), capacity);
     assert!(pool.store.budget.active_is_empty_for_test());
     pool.close_outbox();
-    within(Arc::clone(&pool.store.outbox).run(endpoints(sink, Callbacks::new())))
-        .await
-        .unwrap();
+    within(
+        Arc::clone(&pool.store.outbox)
+            .run(endpoints(sink, Callbacks::new()), CancellationToken::new()),
+    )
+    .await
+    .unwrap();
     assert!(pool.persistence_eligible());
 }
 
@@ -465,9 +478,12 @@ async fn active_pipeline_resolver_progresses_while_eight_remote_jobs_hold_their_
     within(resolver).await.unwrap().unwrap();
     drop(held_jobs);
     pool.close_outbox();
-    within(Arc::clone(&pool.store.outbox).run(endpoints(sink, Callbacks::new())))
-        .await
-        .unwrap();
+    within(
+        Arc::clone(&pool.store.outbox)
+            .run(endpoints(sink, Callbacks::new()), CancellationToken::new()),
+    )
+    .await
+    .unwrap();
     assert!(pool.persistence_eligible());
 }
 
@@ -503,7 +519,12 @@ async fn remote_receive_resolve_verify_commit_publish_and_join() {
         }
     }));
     let (_chain, chain) = mpsc::channel(2);
-    let (tasks, publisher) = pool.start_background(&handle, endpoints(sink, callbacks), chain);
+    let (tasks, publisher) = pool.start_background(
+        &handle,
+        endpoints(sink, callbacks),
+        chain,
+        &CancellationToken::new(),
+    );
     pool.submit_remote(bounded(tx.clone()), cycles, PeerIndex::from(41))
         .await
         .unwrap();
@@ -537,8 +558,12 @@ async fn suspended_workers_keep_verification_queued_and_dry_run_declines_without
         .cycles;
     pool.verification.suspend().unwrap();
     let (chain_sender, chain) = mpsc::channel(2);
-    let (tasks, publisher) =
-        pool.start_background(&handle, endpoints(sink, Callbacks::new()), chain);
+    let (tasks, publisher) = pool.start_background(
+        &handle,
+        endpoints(sink, Callbacks::new()),
+        chain,
+        &CancellationToken::new(),
+    );
     pool.submit_remote(bounded(tx.clone()), cycles, PeerIndex::from(42))
         .await
         .unwrap();
@@ -832,8 +857,12 @@ async fn stop_joins_a_suspended_verification_queue_and_preserves_accepted_state(
         .cycles;
     pool.verification.suspend().unwrap();
     let (_chain, chain) = mpsc::channel(2);
-    let (tasks, publisher) =
-        pool.start_background(&handle, endpoints(sink, Callbacks::new()), chain);
+    let (tasks, publisher) = pool.start_background(
+        &handle,
+        endpoints(sink, Callbacks::new()),
+        chain,
+        &CancellationToken::new(),
+    );
     pool.submit_remote(bounded(tx.clone()), cycles, PeerIndex::from(46))
         .await
         .unwrap();
@@ -1173,8 +1202,12 @@ async fn remote_waiting_transaction_accepts_after_its_parent_completes_normal_ve
     );
     assert!(pool.store.point(&child.hash()).1.is_none());
     let (_chain, chain) = mpsc::channel(2);
-    let (tasks, publisher) =
-        pool.start_background(&handle, endpoints(sink, Callbacks::new()), chain);
+    let (tasks, publisher) = pool.start_background(
+        &handle,
+        endpoints(sink, Callbacks::new()),
+        chain,
+        &CancellationToken::new(),
+    );
     let submitted = within(pool.submit_local(bounded(child.clone())))
         .await
         .unwrap();
@@ -1259,13 +1292,16 @@ async fn local_test_submission_acknowledges_queue_before_background_validation()
         .as_advanced_builder()
         .set_cell_deps(vec![])
         .build();
-    let publisher = tokio::spawn(Arc::clone(&pool.store.outbox).run(Endpoints::new(
-        Arc::new(DummyTxPoolNetwork),
-        sink,
-        Arc::new(Callbacks::new()),
-        Some(recent),
-        FeeEstimator::new_dummy(),
-    )));
+    let publisher = tokio::spawn(Arc::clone(&pool.store.outbox).run(
+        Endpoints::new(
+            Arc::new(DummyTxPoolNetwork),
+            sink,
+            Arc::new(Callbacks::new()),
+            Some(recent),
+            FeeEstimator::new_dummy(),
+        ),
+        CancellationToken::new(),
+    ));
     // Start no verifier until both acknowledgements and queue observations are
     // complete. Resolution succeeds even though one script cannot be located.
     for transaction in [&valid, &invalid] {
@@ -1339,8 +1375,10 @@ async fn dependency_readers_follow_admission_order_including_prepared_reads() {
         FeeEstimator::new_dummy(),
     )
     .unwrap();
-    let publisher =
-        handle.spawn(Arc::clone(&pool.store.outbox).run(endpoints(sink, Callbacks::new())));
+    let publisher = handle.spawn(
+        Arc::clone(&pool.store.outbox)
+            .run(endpoints(sink, Callbacks::new()), CancellationToken::new()),
+    );
 
     // A direct dep, an expanded member and the group container must all be live.
     for (index, (dep_type, spend_group)) in [
@@ -1708,8 +1746,12 @@ async fn claimed_worker_retains_rejection_under_remote_notice_pressure_while_tru
     ));
     let settlement = tokio::spawn(settlement);
     let (_chain, chain) = mpsc::channel(2);
-    let (tasks, publisher) =
-        pool.start_background(&handle, endpoints(sink, Callbacks::new()), chain);
+    let (tasks, publisher) = pool.start_background(
+        &handle,
+        endpoints(sink, Callbacks::new()),
+        chain,
+        &CancellationToken::new(),
+    );
     assert!(
         within(pool.submit_local(bounded(trusted.clone())))
             .await
@@ -1751,8 +1793,12 @@ async fn one_runtime_worker_preserves_direct_verification_query_and_shutdown_pro
     let (pool, sink, _, handle) = fixture();
     let transaction = fund(&pool, 4093);
     let (_chain, chain) = mpsc::channel(2);
-    let (tasks, publisher) =
-        pool.start_background(&handle, endpoints(sink, Callbacks::new()), chain);
+    let (tasks, publisher) = pool.start_background(
+        &handle,
+        endpoints(sink, Callbacks::new()),
+        chain,
+        &CancellationToken::new(),
+    );
     assert!(
         within(pool.submit_local(bounded(transaction.clone())))
             .await
@@ -2025,8 +2071,12 @@ async fn legal_ingress_pressure_releases_remote_filter_without_ban_or_generation
         )
         .build();
     let (_chain, chain) = mpsc::channel(2);
-    let (tasks, publisher) =
-        pool.start_background(&handle, endpoints(sink, Callbacks::new()), chain);
+    let (tasks, publisher) = pool.start_background(
+        &handle,
+        endpoints(sink, Callbacks::new()),
+        chain,
+        &CancellationToken::new(),
+    );
     within(pool.submit_remote(bounded(transaction.clone()), 1, 97.into()))
         .await
         .unwrap();
@@ -2060,8 +2110,10 @@ async fn peer_pressure_refuses_rbf_without_losing_victim_and_same_peer_retry_suc
     .unwrap();
     let victim = fund(&pool, 4300);
     let replacement = funded_tx(victim.input_pts_iter().next().unwrap(), 19_999_990_000);
-    let publisher =
-        tokio::spawn(Arc::clone(&pool.store.outbox).run(endpoints(sink, Callbacks::new())));
+    let publisher = tokio::spawn(
+        Arc::clone(&pool.store.outbox)
+            .run(endpoints(sink, Callbacks::new()), CancellationToken::new()),
+    );
     let cycles = within(pool.submit_local(bounded(victim.clone())))
         .await
         .unwrap()
@@ -2248,8 +2300,12 @@ async fn committed_chain_reconciliation_publishes_detached_uncle_candidates() {
     )
     .unwrap();
     let (_chain, chain) = mpsc::channel(2);
-    let (tasks, publisher) =
-        pool.start_background(&handle, endpoints(sink, Callbacks::new()), chain);
+    let (tasks, publisher) = pool.start_background(
+        &handle,
+        endpoints(sink, Callbacks::new()),
+        chain,
+        &CancellationToken::new(),
+    );
     let detached = BlockBuilder::default()
         .number(1)
         .parent_hash(snapshot.consensus().genesis_block().hash())
@@ -2337,9 +2393,12 @@ async fn missing_parent_wait_and_request_commit_together_after_notice_pressure()
     drop(job); // The worker releases its active frame after the terminal returns.
     assert!(pool.store.budget.active(source).is_ok());
     pool.close_outbox();
-    within(Arc::clone(&pool.store.outbox).run(endpoints(sink, Callbacks::new())))
-        .await
-        .unwrap();
+    within(
+        Arc::clone(&pool.store.outbox)
+            .run(endpoints(sink, Callbacks::new()), CancellationToken::new()),
+    )
+    .await
+    .unwrap();
     assert!(
         matches!(drain.try_recv(), Some(TxVerificationResult::UnknownParents { peer, parents }) if peer == 196.into() && parents == std::collections::HashSet::from([missing.tx_hash()]))
     );
@@ -2351,8 +2410,10 @@ async fn missing_parent_wait_and_request_commit_together_after_notice_pressure()
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn direct_non_contextual_rejection_preserves_empty_membership_for_send_and_dry_run() {
     let (pool, sink, _, _) = fixture();
-    let publisher =
-        tokio::spawn(Arc::clone(&pool.store.outbox).run(endpoints(sink, Callbacks::new())));
+    let publisher = tokio::spawn(
+        Arc::clone(&pool.store.outbox)
+            .run(endpoints(sink, Callbacks::new()), CancellationToken::new()),
+    );
     let invalid = funded_tx(OutPoint::new(tx(4102).hash(), 0), 20_000_000_000)
         .as_advanced_builder()
         .version(1u32)
@@ -2444,8 +2505,10 @@ async fn saved_replacement_history_reenters_through_verified_recovery() {
     .unwrap();
     let transaction = fund(&pool, 6403);
     let replacement = funded_tx(transaction.input_pts_iter().next().unwrap(), 19_999_990_000);
-    let publisher =
-        tokio::spawn(Arc::clone(&pool.store.outbox).run(endpoints(sink, Callbacks::new())));
+    let publisher = tokio::spawn(
+        Arc::clone(&pool.store.outbox)
+            .run(endpoints(sink, Callbacks::new()), CancellationToken::new()),
+    );
     within(pool.submit_local(bounded(transaction.clone())))
         .await
         .unwrap()
@@ -2483,8 +2546,10 @@ async fn saved_replacement_history_reenters_through_verified_recovery() {
     // Restore the fixture funding output, then check both outcomes for the
     // saved recovery body. No historical acceptance is installed.
     fund(&restored, 6403);
-    let publisher =
-        tokio::spawn(Arc::clone(&restored.store.outbox).run(endpoints(sink, Callbacks::new())));
+    let publisher = tokio::spawn(
+        Arc::clone(&restored.store.outbox)
+            .run(endpoints(sink, Callbacks::new()), CancellationToken::new()),
+    );
     let blocked = within(
         restored.replay(
             PersistenceSnapshot {
@@ -2667,8 +2732,10 @@ async fn optional_history_pressure_preserves_local_and_owned_job_admission() {
                 recorded.lock().push("accepted");
             }
         }));
-        let publisher =
-            tokio::spawn(Arc::clone(&pool.store.outbox).run(endpoints(sink, callbacks)));
+        let publisher = tokio::spawn(
+            Arc::clone(&pool.store.outbox)
+                .run(endpoints(sink, callbacks), CancellationToken::new()),
+        );
         if local {
             let result = within(pool.submit_local(bounded(replacement))).await;
             if stop {
@@ -2817,9 +2884,12 @@ async fn public_queries_expose_acceptance_and_count_remaining_verification_work(
     assert_eq!(summary.verify_queue_size, 0);
     pool.stop();
     pool.close_outbox();
-    within(Arc::clone(&pool.store.outbox).run(endpoints(sink, Callbacks::new())))
-        .await
-        .unwrap();
+    within(
+        Arc::clone(&pool.store.outbox)
+            .run(endpoints(sink, Callbacks::new()), CancellationToken::new()),
+    )
+    .await
+    .unwrap();
     assert!(pool.persistence_eligible());
 }
 
@@ -2887,9 +2957,12 @@ fn maintenance_expires_accepted_work_while_wake_pages_remain() {
         pool.stop();
         within(maintenance).await.unwrap();
         pool.close_outbox();
-        within(Arc::clone(&pool.store.outbox).run(endpoints(sink, Callbacks::new())))
-            .await
-            .unwrap();
+        within(
+            Arc::clone(&pool.store.outbox)
+                .run(endpoints(sink, Callbacks::new()), CancellationToken::new()),
+        )
+        .await
+        .unwrap();
         assert!(pool.persistence_eligible());
     });
 }
@@ -2942,8 +3015,10 @@ async fn local_removal_completes_the_accepted_closure_beyond_an_expiry_page() {
     assert!(pool.store.point(&root_hash).1.is_some());
     assert!(pool.store.point(&late).1.is_some());
 
-    let publisher =
-        tokio::spawn(Arc::clone(&pool.store.outbox).run(endpoints(sink, Callbacks::new())));
+    let publisher = tokio::spawn(
+        Arc::clone(&pool.store.outbox)
+            .run(endpoints(sink, Callbacks::new()), CancellationToken::new()),
+    );
     assert!(
         within(pool.remove_local(&root_hash))
             .await
@@ -3002,8 +3077,10 @@ async fn background_rejection_releases_work_before_a_blocked_callback_and_preser
             )
             .unwrap()
             .unwrap();
-        let publisher =
-            tokio::spawn(Arc::clone(&pool.store.outbox).run(endpoints(sink, callbacks)));
+        let publisher = tokio::spawn(
+            Arc::clone(&pool.store.outbox)
+                .run(endpoints(sink, callbacks), CancellationToken::new()),
+        );
         within(events.recv()).await.unwrap();
         assert!(!publisher.is_finished());
         let mut published = Box::pin(head.wait(&pool.store.outbox));

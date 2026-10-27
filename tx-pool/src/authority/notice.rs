@@ -29,6 +29,7 @@ use std::{
     time::{Duration, Instant},
 };
 use tokio::sync::Notify;
+use tokio_util::sync::CancellationToken;
 
 // Bound one endpoint handoff; each batch still settles and releases separately.
 const PUBLISH_BATCH_LIMIT: usize = 32;
@@ -887,7 +888,11 @@ impl Outbox {
         Ok(progress)
     }
 
-    pub(super) async fn run(self: Arc<Self>, endpoints: Endpoints) -> Result<(), Error> {
+    pub(super) async fn run(
+        self: Arc<Self>,
+        endpoints: Endpoints,
+        signal: CancellationToken,
+    ) -> Result<(), Error> {
         {
             let mut publisher = self.publisher.lock();
             if publisher.is_some() {
@@ -897,10 +902,17 @@ impl Outbox {
         }
         struct Completion {
             outbox: Arc<Outbox>,
+            signal: CancellationToken,
             done: bool,
         }
         impl Drop for Completion {
             fn drop(&mut self) {
+                // Runtime shutdown may drop the publisher before any request
+                // supervisor. Close their intake before joining a callback
+                // which can itself be waiting for a reserved read.
+                if !self.done {
+                    self.signal.cancel();
+                }
                 // Cancellation cannot release the owner while a submitter is
                 // inside a callback. Once the lease returns, retire endpoints
                 // before the background task reports completion.
@@ -917,6 +929,7 @@ impl Outbox {
         }
         let mut completion = Completion {
             outbox: Arc::clone(&self),
+            signal,
             done: false,
         };
         loop {

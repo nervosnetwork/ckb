@@ -128,7 +128,7 @@ async fn later_activation_cannot_overtake_committed_fifo_head() {
     let second = append(&outbox, vec![effect(3)]);
     second.activate(&outbox);
     outbox.close();
-    let mut publisher = Box::pin(Arc::clone(&outbox).run(endpoints));
+    let mut publisher = Box::pin(Arc::clone(&outbox).run(endpoints, CancellationToken::new()));
     poll_pending(publisher.as_mut());
     assert!(receiver.try_recv().is_none());
     assert!(!second.published.load(Ordering::SeqCst));
@@ -148,7 +148,7 @@ async fn later_activation_cannot_overtake_committed_fifo_head() {
 #[test]
 fn direct_publication_respects_activation_fifo_and_the_prefix_bound() {
     let (outbox, endpoints, receiver) = fixture(Callbacks::new());
-    let mut owner = Box::pin(Arc::clone(&outbox).run(endpoints));
+    let mut owner = Box::pin(Arc::clone(&outbox).run(endpoints, CancellationToken::new()));
     poll_pending(owner.as_mut());
     let batches = (0..=PUBLISH_BATCH_LIMIT)
         .map(|index| append(&outbox, vec![effect(1000 + u32::try_from(index).unwrap())]))
@@ -210,7 +210,8 @@ async fn cancelling_the_publisher_joins_a_callback_borrowed_by_a_submitter() {
             .unwrap();
     }));
     let (outbox, endpoints, receiver) = fixture(callbacks);
-    let mut future = Box::pin(Arc::clone(&outbox).run(endpoints));
+    let signal = CancellationToken::new();
+    let mut future = Box::pin(Arc::clone(&outbox).run(endpoints, signal.clone()));
     poll_pending(future.as_mut());
     let (dropping, cancelled) = tokio::sync::oneshot::channel();
     let (ready, started) = tokio::sync::oneshot::channel();
@@ -240,8 +241,15 @@ async fn cancelling_the_publisher_joins_a_callback_borrowed_by_a_submitter() {
     let prematurely_finished = tokio::spawn(async move { observed.is_finished() })
         .await
         .unwrap();
+    // Cancellation must reach the request generation before joining this
+    // callback: its nested read can otherwise wait for an abandoned runtime.
+    let generation_cancelled = signal.is_cancelled();
     // Release before asserting so a regression also leaves no blocked callback.
     release.send(()).unwrap();
+    assert!(
+        generation_cancelled,
+        "cancel requests before joining a borrowed callback"
+    );
     assert!(!prematurely_finished);
     assert!(submitter.await.unwrap().unwrap());
     assert!(owner.await.unwrap_err().is_cancelled());
@@ -279,7 +287,7 @@ fn dropping_an_idle_runtime_retires_the_publisher_endpoints() {
             .build()
             .unwrap();
         runtime.block_on(async {
-            let mut publisher = Box::pin(owned.run(endpoints));
+            let mut publisher = Box::pin(owned.run(endpoints, CancellationToken::new()));
             poll_pending(publisher.as_mut());
             tokio::spawn(publisher);
         });
@@ -302,7 +310,10 @@ async fn dropped_reservation_creates_no_sequence_gap_and_returns_all_capacity() 
     let committed = append(&outbox, vec![effect(2)]);
     committed.activate(&outbox);
     outbox.close();
-    Arc::clone(&outbox).run(endpoints).await.unwrap();
+    Arc::clone(&outbox)
+        .run(endpoints, CancellationToken::new())
+        .await
+        .unwrap();
     assert!(
         matches!(receiver.try_recv(), Some(TxVerificationResult::Reject { tx_hash }) if tx_hash == tx(2).hash())
     );
@@ -408,7 +419,7 @@ async fn older_acknowledgement_cannot_erase_later_pending_rejection() {
     let first = append(&outbox, vec![rejected("first")]);
     let second = append(&outbox, vec![rejected("second")]);
     first.activate(&outbox);
-    let mut publisher = Box::pin(Arc::clone(&outbox).run(endpoints));
+    let mut publisher = Box::pin(Arc::clone(&outbox).run(endpoints, CancellationToken::new()));
     poll_pending(publisher.as_mut());
     assert!(first.published.load(Ordering::SeqCst));
     let encoded = outbox.pending_reject(&hash).unwrap();
@@ -426,7 +437,7 @@ async fn older_acknowledgement_cannot_erase_later_pending_rejection() {
 async fn publisher_cancellation_faults_generation_and_releases_waiters_with_failure() {
     let (outbox, endpoints, _) = fixture(Callbacks::new());
     let batch = append(&outbox, vec![effect(1)]);
-    let mut publisher = Box::pin(Arc::clone(&outbox).run(endpoints));
+    let mut publisher = Box::pin(Arc::clone(&outbox).run(endpoints, CancellationToken::new()));
     poll_pending(publisher.as_mut());
     drop(publisher);
     assert!(matches!(batch.wait(&outbox).await, Err(Error::Fault(_))));
@@ -472,7 +483,10 @@ async fn callback_failure_disables_all_callback_kinds_while_later_relay_drains()
         append(&outbox, vec![event]).activate(&outbox);
     }
     outbox.close();
-    Arc::clone(&outbox).run(endpoints).await.unwrap();
+    Arc::clone(&outbox)
+        .run(endpoints, CancellationToken::new())
+        .await
+        .unwrap();
     assert_eq!(calls.load(Ordering::SeqCst), 1);
     assert_eq!(other_calls.load(Ordering::SeqCst), 0);
     for nonce in 1..=4 {
@@ -547,7 +561,7 @@ async fn recent_write_cooldown_settles_batches_and_later_records_without_replay(
     );
     first.activate(&outbox);
     assert!(outbox.pending_reject(&first_hash).is_some());
-    let mut publisher = Box::pin(Arc::clone(&outbox).run(endpoints));
+    let mut publisher = Box::pin(Arc::clone(&outbox).run(endpoints, CancellationToken::new()));
     poll_pending(publisher.as_mut());
     assert!(first.published.load(Ordering::SeqCst));
     assert!(outbox.pending_reject(&first_hash).is_none());
@@ -683,7 +697,10 @@ async fn repeated_rejection_in_one_batch_exposes_the_last_value_until_whole_batc
     );
     batch.activate(&outbox);
     outbox.close();
-    Arc::clone(&outbox).run(endpoints).await.unwrap();
+    Arc::clone(&outbox)
+        .run(endpoints, CancellationToken::new())
+        .await
+        .unwrap();
     assert!(outbox.pending_reject(&hash).is_none());
     assert!(outbox.drained());
 }
@@ -725,7 +742,10 @@ async fn rbf_candidate_diagnostic_preserves_victim_callback_and_both_recent_outc
     }
     batch.activate(&outbox);
     outbox.close();
-    Arc::clone(&outbox).run(endpoints).await.unwrap();
+    Arc::clone(&outbox)
+        .run(endpoints, CancellationToken::new())
+        .await
+        .unwrap();
     assert_eq!(records.lock().len(), 1);
     assert_eq!(records.lock()[0]["hash"], diagnostic_hash(&candidate));
     assert_eq!(records.lock()[0]["reason"], format!("{reason:?}"));
@@ -885,7 +905,7 @@ async fn publisher_abort_keeps_a_running_callback_and_its_batch_owned_until_retu
         vec![Effect::accepted(selected, Status::Pending, None)],
     );
     batch.activate(&outbox);
-    let publisher = tokio::spawn(Arc::clone(&outbox).run(endpoints));
+    let publisher = tokio::spawn(Arc::clone(&outbox).run(endpoints, CancellationToken::new()));
     tokio::time::timeout(std::time::Duration::from_secs(5), events.recv())
         .await
         .unwrap()
@@ -986,7 +1006,10 @@ async fn publication_selection_excludes_later_activation_and_append() {
         for batch in [&third, &fourth, &fifth] {
             assert!(!batch.published.load(Ordering::SeqCst));
         }
-        Arc::clone(&outbox).run(endpoints).await.unwrap();
+        Arc::clone(&outbox)
+            .run(endpoints, CancellationToken::new())
+            .await
+            .unwrap();
         for nonce in 805..=809 {
             assert!(
                 matches!(receiver.try_recv(), Some(TxVerificationResult::Reject { tx_hash }) if tx_hash == tx(nonce).hash())
@@ -1023,7 +1046,7 @@ async fn later_callback_observes_prior_batch_settled_and_released() {
         if !cancel {
             outbox.close();
         }
-        let publisher = tokio::spawn(Arc::clone(&outbox).run(endpoints));
+        let publisher = tokio::spawn(Arc::clone(&outbox).run(endpoints, CancellationToken::new()));
         tokio::time::timeout(Duration::from_secs(5), events.recv())
             .await
             .unwrap()
@@ -1223,7 +1246,7 @@ fn store_fault_and_publisher_cancellation_wake_every_unfinished_batch() {
                     .is_pending()
             );
         }
-        let mut publisher = Box::pin(Arc::clone(&outbox).run(endpoints));
+        let mut publisher = Box::pin(Arc::clone(&outbox).run(endpoints, CancellationToken::new()));
         poll_pending(publisher.as_mut());
         outbox.close();
         assert!(

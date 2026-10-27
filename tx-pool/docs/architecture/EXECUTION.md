@@ -561,7 +561,10 @@ exit cancels the service and closes its lane, releasing queued callers even duri
 runtime shutdown. Dropping the builder clears readiness, faults the generation and
 closes publication. During normal shutdown the builder closes and drains both
 request queues, joins all producers, then closes and joins the publisher. A callback
-must return before its owning request and publisher can finish joining.
+must return before its owning request and publisher can finish joining. If runtime
+shutdown cancels the publisher first, its completion guard cancels the same service
+signal before waiting for a borrowed callback. Reserved reads then close without
+depending on the runtime's task-drop order.
 
 Chain updates remain reliable during normal startup, before public readiness.
 The unstarted builder owns the capacity-one receiver: chain callers wait for

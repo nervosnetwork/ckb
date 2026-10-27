@@ -20,6 +20,7 @@ use ckb_types::{
 use ckb_verification::cache::init_cache;
 use std::{collections::BTreeMap, time::Duration};
 use tokio::sync::{RwLock as AsyncRwLock, mpsc};
+use tokio_util::sync::CancellationToken;
 
 #[test]
 fn exhausted_wake_counter_faults_and_notifies_every_progress_waiter() {
@@ -978,7 +979,8 @@ async fn production_overlap(shared_code: bool) {
         FeeEstimator::new_dummy(),
     );
     let (_chain, chain) = mpsc::channel(2);
-    let (mut tasks, publisher) = pool.start_background(&handle, endpoints, chain);
+    let (mut tasks, publisher) =
+        pool.start_background(&handle, endpoints, chain, &CancellationToken::new());
     for (index, tx) in pair.into_iter().enumerate() {
         pool.submit_remote(
             BoundedTransaction::try_new(tx).unwrap(),
@@ -1399,13 +1401,16 @@ async fn production_mutation_overlap(mutation: Mutation) {
             .unwrap();
         }
     }
-    let publisher = tokio::spawn(Arc::clone(&store.outbox).run(Endpoints::new(
-        Arc::new(DummyTxPoolNetwork),
-        sink,
-        Arc::new(Callbacks::new()),
-        None,
-        FeeEstimator::new_dummy(),
-    )));
+    let publisher = tokio::spawn(Arc::clone(&store.outbox).run(
+        Endpoints::new(
+            Arc::new(DummyTxPoolNetwork),
+            sink,
+            Arc::new(Callbacks::new()),
+            None,
+            FeeEstimator::new_dummy(),
+        ),
+        CancellationToken::new(),
+    ));
     let hashes = pair.clone().map(|tx| tx.hash());
     let (entered, mut events) = mpsc::unbounded_channel();
     let (release_a, wait_a) = std::sync::mpsc::channel();

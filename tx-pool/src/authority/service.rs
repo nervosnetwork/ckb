@@ -258,8 +258,9 @@ impl Pool {
         handle: &Handle,
         endpoints: Endpoints,
         chain: mpsc::Receiver<ChainControl>,
+        signal: &CancellationToken,
     ) -> (JoinSet<Result<(), Error>>, JoinHandle<Result<(), Error>>) {
-        let publisher = handle.spawn(Arc::clone(&self.store.outbox).run(endpoints));
+        let publisher = handle.spawn(Arc::clone(&self.store.outbox).run(endpoints, signal.clone()));
         let mut tasks = JoinSet::new();
         let workers = self.store.budget.limits.workers;
         if workers == 0 {

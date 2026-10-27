@@ -227,8 +227,10 @@ async fn persistence_replay_keeps_readers_before_spenders() {
                 FeeEstimator::new_dummy(),
             )
             .unwrap();
-            let publisher =
-                handle.spawn(Arc::clone(&pool.store.outbox).run(endpoints(sink, Callbacks::new())));
+            let publisher = handle.spawn(
+                Arc::clone(&pool.store.outbox)
+                    .run(endpoints(sink, Callbacks::new()), CancellationToken::new()),
+            );
             if restarting {
                 let replay = crate::persisted::load_persistence_snapshot(&configuration)
                     .unwrap()
