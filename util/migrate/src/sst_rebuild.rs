@@ -27,6 +27,7 @@ use std::sync::{
     atomic::{AtomicU64, AtomicUsize, Ordering},
 };
 use std::time::{SystemTime, UNIX_EPOCH};
+use sysinfo::Disks;
 
 const RANGE_BLOCKS: u64 = 50_000;
 const REWRITE_SPILL_FLUSH_BYTES: usize = 256 * 1024 * 1024;
@@ -35,6 +36,7 @@ const COPY_SST_BYTES_LIMIT: usize = 128 * 1024 * 1024;
 const COPY_COLUMN_PARALLELISM: usize = 4;
 const SPILL_RECORD_HEADER_BYTES: usize = 8;
 const MIN_LEGACY_REBUILD_VERSION: &str = "20231101000000";
+const DISK_SPACE_MARGIN_PERCENT: u64 = 10;
 
 #[derive(Copy, Clone)]
 struct ColumnMapping {
@@ -358,6 +360,33 @@ struct HeapEntry {
     run: usize,
 }
 
+/// Disk space sizes relevant to the SST rebuild migration.
+#[derive(Clone, Copy, Debug)]
+pub struct DiskSpaceReport {
+    /// Size of the existing database directory.
+    pub database_size: u64,
+    /// Free space required to build the new database beside the old one.
+    pub required: u64,
+    /// Free space available beside the database, if it could be determined.
+    pub available: Option<u64>,
+}
+
+impl DiskSpaceReport {
+    /// Returns `None` when the available space could not be determined.
+    pub fn has_enough_space(&self) -> Option<bool> {
+        self.available.map(|available| available >= self.required)
+    }
+
+    /// Returns `None` when the available space could not be determined.
+    ///
+    /// When this is `Some(false)` the new database cannot possibly fit and the
+    /// migration must be rejected.
+    pub fn has_minimum_space(&self) -> Option<bool> {
+        self.available
+            .map(|available| available >= self.database_size)
+    }
+}
+
 /// Offline migration that rebuilds RocksDB data into the new column schema via SST ingestion.
 pub struct SstRebuild {
     old_path: PathBuf,
@@ -365,6 +394,7 @@ pub struct SstRebuild {
     backup_path: PathBuf,
     sst_path: PathBuf,
     jobs: usize,
+    allow_insufficient_space: bool,
 }
 
 impl SstRebuild {
@@ -384,7 +414,18 @@ impl SstRebuild {
             sst_path: parent.join(format!("{db_name}.sst-rebuild-{timestamp}")),
             old_path,
             jobs: num_cpus::get().max(1),
+            allow_insufficient_space: false,
         })
+    }
+
+    /// Allows the rebuild to continue when free space is below the recommended
+    /// 1.1x database size (but still at least the database size).
+    ///
+    /// The caller is expected to have obtained explicit confirmation from the
+    /// user before enabling this.
+    pub fn allow_insufficient_space(mut self) -> Self {
+        self.allow_insufficient_space = true;
+        self
     }
 
     /// Runs the offline SST rebuild and atomically promotes the rebuilt database on success.
@@ -404,6 +445,7 @@ impl SstRebuild {
         let source = open_old_db(&self.old_path)?;
         ensure_not_already_rebuilt(&source)?;
         ensure_legacy_migrations_complete(&source)?;
+        self.check_disk_space()?;
 
         info!("SST rebuild: building migration plan");
         let plan = Arc::new(build_plan(&source)?);
@@ -486,6 +528,48 @@ impl SstRebuild {
         Ok(())
     }
 
+    fn check_disk_space(&self) -> Result<(), Error> {
+        let report = disk_space_report(&self.old_path)?;
+        let parent = self.old_path.parent().unwrap_or_else(|| Path::new("."));
+        let available = report
+            .available
+            .map(format_bytes)
+            .unwrap_or_else(|| "unknown".to_string());
+        eprintln!(
+            "SST rebuild: database {} size {}, required free space {}, available {}",
+            self.old_path.display(),
+            format_bytes(report.database_size),
+            format_bytes(report.required),
+            available,
+        );
+        info!(
+            "SST rebuild: disk space check: database={}, required={}, available={available}",
+            format_bytes(report.database_size),
+            format_bytes(report.required),
+        );
+        if report.has_minimum_space() == Some(false) {
+            return Err(internal_error(format!(
+                "insufficient disk space for the SST rebuild migration: only {} is available at {}, but at least {} (the current database size) is needed to build the new database; the migration would fail. Free up space or move the data directory to a larger disk, then retry",
+                format_bytes(report.available.unwrap_or_default()),
+                parent.display(),
+                format_bytes(report.database_size),
+            )));
+        }
+        if report.has_enough_space() == Some(false) {
+            if !self.allow_insufficient_space {
+                return Err(internal_error(format!(
+                    "insufficient disk space for the SST rebuild migration: the database is {}, building the new database beside the old one needs about {} free (the old database is kept as a backup), but only {} is available at {}. Free up space or move the data directory to a larger disk, then retry",
+                    format_bytes(report.database_size),
+                    format_bytes(report.required),
+                    format_bytes(report.available.unwrap_or_default()),
+                    parent.display(),
+                )));
+            }
+            eprintln!("SST rebuild: continuing despite insufficient disk space as requested");
+        }
+        Ok(())
+    }
+
     fn prepare_paths(&self) -> Result<(), Error> {
         if !self.old_path.exists() {
             return Err(internal_error(format!(
@@ -528,6 +612,75 @@ fn open_old_db(path: &Path) -> Result<ReadOnlyDB, Error> {
             Err(legacy_err)
         }
     }
+}
+
+/// Measures the database and the free space available beside it.
+pub fn disk_space_report(path: &Path) -> Result<DiskSpaceReport, Error> {
+    if !path.exists() {
+        return Err(internal_error(format!(
+            "database path {} does not exist",
+            path.display()
+        )));
+    }
+    let database_size = dir_size(path).map_err(|err| {
+        internal_error(format!(
+            "failed to measure the database size at {}: {err}",
+            path.display()
+        ))
+    })?;
+    let parent = path.parent().unwrap_or_else(|| Path::new("."));
+    Ok(DiskSpaceReport {
+        database_size,
+        required: required_disk_space(database_size),
+        available: available_space(parent),
+    })
+}
+
+fn required_disk_space(database_size: u64) -> u64 {
+    // The old database already occupies its space on disk. The migration only
+    // needs room for the new database built beside it, which is roughly the
+    // same size, plus a margin for the larger keys in the new schema.
+    database_size.saturating_add(database_size.saturating_mul(DISK_SPACE_MARGIN_PERCENT) / 100)
+}
+
+fn dir_size(path: &Path) -> io::Result<u64> {
+    let mut total = 0u64;
+    let mut pending = vec![path.to_path_buf()];
+    while let Some(dir) = pending.pop() {
+        for entry in fs::read_dir(dir)? {
+            let entry = entry?;
+            let file_type = entry.file_type()?;
+            if file_type.is_dir() {
+                pending.push(entry.path());
+            } else if file_type.is_file() {
+                total = total.saturating_add(entry.metadata()?.len());
+            }
+        }
+    }
+    Ok(total)
+}
+
+fn available_space(path: &Path) -> Option<u64> {
+    let disks = Disks::new_with_refreshed_list();
+    fs::canonicalize(path)
+        .ok()
+        .as_deref()
+        .and_then(|path| disk_available_space(&disks, path))
+        .or_else(|| disk_available_space(&disks, path))
+}
+
+fn disk_available_space(disks: &Disks, path: &Path) -> Option<u64> {
+    disks
+        .iter()
+        .filter(|disk| path.starts_with(disk.mount_point()))
+        .max_by_key(|disk| disk.mount_point().as_os_str().len())
+        .map(|disk| disk.available_space())
+}
+
+/// Formats a byte count for user-facing output.
+pub fn format_bytes(bytes: u64) -> String {
+    const GIB: f64 = 1024.0 * 1024.0 * 1024.0;
+    format!("{:.1} GiB", bytes as f64 / GIB)
 }
 
 fn ensure_not_already_rebuilt(source: &ReadOnlyDB) -> Result<(), Error> {

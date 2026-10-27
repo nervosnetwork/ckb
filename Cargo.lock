@@ -1318,6 +1318,7 @@ dependencies = [
  "ckb-types",
  "num_cpus",
  "rayon",
+ "sysinfo",
  "tempfile",
 ]
 

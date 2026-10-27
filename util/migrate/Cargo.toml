@@ -26,6 +26,7 @@ ckb-merkle-mountain-range.workspace = true
 tempfile.workspace = true
 num_cpus.workspace = true
 rayon.workspace = true
+sysinfo.workspace = true
 
 [dev-dependencies]
 ckb-systemtime = { workspace = true, features = ["enable_faketime"] }

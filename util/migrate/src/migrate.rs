@@ -1,7 +1,7 @@
 //! migrate helper
 
 use crate::migrations;
-use crate::sst_rebuild::SstRebuild;
+use crate::sst_rebuild::{DiskSpaceReport, SstRebuild, disk_space_report};
 use ckb_db::{ReadOnlyDB, RocksDB, Schema};
 use ckb_db_migration::{DefaultMigration, Migrations};
 use ckb_db_schema::{COLUMN_META, legacy};
@@ -89,8 +89,18 @@ impl Migrate {
         self.migrations.init_db_version(db)
     }
 
+    /// Measure the database and the free space available for the SST rebuild.
+    pub fn sst_rebuild_disk_space(&self) -> Result<DiskSpaceReport, Error> {
+        disk_space_report(&self.path)
+    }
+
     /// Rebuild the database into the new RocksDB key schema using external SST ingestion.
-    pub fn sst_rebuild(self) -> Result<(), Error> {
-        SstRebuild::new(self.path)?.run()
+    pub fn sst_rebuild(self, allow_insufficient_space: bool) -> Result<(), Error> {
+        let rebuild = SstRebuild::new(self.path)?;
+        if allow_insufficient_space {
+            rebuild.allow_insufficient_space().run()
+        } else {
+            rebuild.run()
+        }
     }
 }

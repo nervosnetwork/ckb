@@ -1,5 +1,6 @@
 use ckb_app_config::{CKBAppConfig, ExitCode, MigrateArgs};
 use ckb_migrate::migrate::Migrate;
+use ckb_migrate::sst_rebuild::format_bytes;
 use ckb_resource::{DB_OPTIONS_FILE_NAME, Resource, TemplateContext};
 use is_terminal::IsTerminal;
 use std::cmp::Ordering;
@@ -13,6 +14,8 @@ pub fn migrate(args: MigrateArgs) -> Result<(), ExitCode> {
     let migrate = Migrate::new(&args.config.db.path, args.consensus.hardfork_switch);
 
     if args.sst_rebuild {
+        let mut allow_insufficient_space = false;
+
         if !args.force {
             if std::io::stdin().is_terminal() && std::io::stdout().is_terminal() {
                 let input = prompt(
@@ -20,6 +23,9 @@ pub fn migrate(args: MigrateArgs) -> Result<(), ExitCode> {
                     \n\
                     SST rebuild migration will create a new RocksDB database beside the current one,\n\
                     ingest generated SST files, validate the result, and then move the current DB to a backup path.\n\
+                    \n\
+                    The old database is kept as a backup, so free disk space of about 1.1x the\n\
+                    current database size is needed to build the new one.\n\
                     \n\
                     CKB must be stopped while this runs. We strongly recommend backing up the data directory first.\n\
                     \nIf you want to rebuild the data, please input YES, otherwise, the current process will exit.\n\
@@ -29,16 +35,53 @@ pub fn migrate(args: MigrateArgs) -> Result<(), ExitCode> {
                     eprintln!("Migration was declined since the user didn't confirm.");
                     return Err(ExitCode::Failure);
                 }
+
+                let report = migrate.sst_rebuild_disk_space().map_err(|err| {
+                    eprintln!("Run error: {err:?}");
+                    ExitCode::Failure
+                })?;
+                let available = report
+                    .available
+                    .map(format_bytes)
+                    .unwrap_or_else(|| "unknown".to_string());
+                eprintln!(
+                    "Database {} size {}, required free space {}, available {}",
+                    args.config.db.path.display(),
+                    format_bytes(report.database_size),
+                    format_bytes(report.required),
+                    available,
+                );
+                if report.has_minimum_space() == Some(false) {
+                    eprintln!(
+                        "Not enough free disk space to build the new database: {} is available, but at least {} (the current database size) is needed. The migration would fail; free up space or move the data directory to a larger disk, then retry.",
+                        available,
+                        format_bytes(report.database_size),
+                    );
+                    return Err(ExitCode::Failure);
+                }
+                let default_yes = report.has_enough_space() != Some(false);
+                let question = if default_yes {
+                    "Continue with the SST rebuild migration? [Y/n] > "
+                } else {
+                    "Not enough free disk space; the migration may fail. Continue anyway? [y/N] > "
+                };
+                if !confirm(question, default_yes) {
+                    eprintln!("Migration was declined since the user didn't confirm.");
+                    return Err(ExitCode::Failure);
+                }
+                allow_insufficient_space = !default_yes;
             } else {
                 eprintln!("Run error: use --force with --sst-rebuild without interactive prompt");
                 return Err(ExitCode::Failure);
             }
         }
 
-        migrate.sst_rebuild().map_err(|err| {
-            eprintln!("Run error: {err:?}");
-            ExitCode::Failure
-        })?;
+        migrate
+            .sst_rebuild(allow_insufficient_space)
+            .map_err(|err| {
+                eprintln!("Run error: {err:?}");
+                ExitCode::Failure
+            })?;
         refresh_default_db_options(&args.config)?;
         return Ok(());
     }
@@ -116,6 +159,17 @@ pub fn migrate(args: MigrateArgs) -> Result<(), ExitCode> {
         })?;
     }
     Ok(())
+}
+
+fn confirm(msg: &str, default_yes: bool) -> bool {
+    loop {
+        match prompt(msg).trim().to_lowercase().as_str() {
+            "" => return default_yes,
+            "y" | "yes" => return true,
+            "n" | "no" => return false,
+            _ => eprintln!("Please answer yes or no."),
+        }
+    }
 }
 
 fn refresh_default_db_options(config: &CKBAppConfig) -> Result<(), ExitCode> {
