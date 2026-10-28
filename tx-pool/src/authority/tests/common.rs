@@ -53,7 +53,6 @@ pub(in crate::authority) fn capture_rejections() -> &'static ckb_util::Mutex<Vec
             if self.enabled(record.metadata()) {
                 let value = serde_json::from_str(&record.args().to_string())
                     .expect("rejection diagnostic is valid JSON");
-                eprintln!("TX_POOL_TEST_REJECTION {value}");
                 let mut records = RECORDS.get().unwrap().lock();
                 assert!(records.len() < 128, "bounded rejection capture");
                 records.push(value);

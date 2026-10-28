@@ -759,6 +759,7 @@ fn memory_snapshot(round: usize, phase: &str, trace: &mut Option<File>) {
 
 async fn mixed_load(rounds: usize, observe_memory: bool) {
     assert!((1..=65_536).contains(&rounds));
+    let rejections = capture_rejections();
     // An explicit, new-only trace permits inspecting a long captured Nextest run.
     // Opening it before startup cannot strand service tasks on an invalid path.
     let mut trace = observe_memory
@@ -852,6 +853,7 @@ async fn mixed_load(rounds: usize, observe_memory: bool) {
     let mut completed_rounds = 0;
     let result = AssertUnwindSafe(async {
         for index in 0..rounds {
+            rejections.lock().clear();
             let result = round(
                 index,
                 &chain,
@@ -884,6 +886,14 @@ async fn mixed_load(rounds: usize, observe_memory: bool) {
     .catch_unwind()
     .await;
     let elapsed = start.elapsed();
+    if result.is_err() {
+        eprintln!("TX_POOL_STABILITY_FAILURE at zero-based round {completed_rounds}");
+        // Emit only the failed round: libtest retains captured output, so
+        // printing every refusal would grow the memory observer itself.
+        for rejection in rejections.lock().iter() {
+            eprintln!("TX_POOL_TEST_REJECTION {rejection}");
+        }
+    }
     controller.stop();
     within(generation).await.unwrap();
     assert!(
@@ -892,7 +902,6 @@ async fn mixed_load(rounds: usize, observe_memory: bool) {
     );
     assert!(!controller.service_started());
     if let Err(error) = result {
-        eprintln!("TX_POOL_STABILITY_FAILURE at zero-based round {completed_rounds}");
         resume_unwind(error);
     }
     pool.store.assert_empty_for_test();

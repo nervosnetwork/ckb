@@ -101,7 +101,7 @@ async fn within<T>(future: impl Future<Output = T>) -> T {
 }
 
 async fn observe(pool: &Pool, hash: &Byte32, check: impl Fn(&Entry) -> bool) {
-    within(async {
+    tokio::time::timeout(Duration::from_secs(10), async {
         loop {
             let changed = pool.store.changed.notified();
             // These observations follow worker phase transitions. A completed
@@ -117,7 +117,25 @@ async fn observe(pool: &Pool, hash: &Byte32, check: impl Fn(&Entry) -> bool) {
             tokio::select! { _ = changed => {}, _ = completed => {} }
         }
     })
-    .await;
+    .await
+    .unwrap_or_else(|_| {
+        let owner = pool.store.point(hash).1.map(|entry| {
+            let phase = match entry.phase {
+                Phase::Resolve => "resolve",
+                Phase::Verify(_) => "verify",
+                Phase::Waiting(_) => "waiting",
+                Phase::Accepted(_) => "accepted",
+                Phase::Replaced(_) => "replaced",
+            };
+            (entry.source, phase)
+        });
+        panic!(
+            "timed out observing {hash:x}: owner={owner:?}, queued={}, active_empty={}, faulted={}",
+            pool.store.has_queued_work(),
+            pool.store.budget.active_is_empty_for_test(),
+            pool.is_faulted(),
+        );
+    });
 }
 
 async fn shutdown(
