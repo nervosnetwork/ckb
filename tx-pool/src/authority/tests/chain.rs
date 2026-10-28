@@ -1019,8 +1019,11 @@ fn chain_callbacks_follow_public_pending_and_proposed_transitions() {
         .into_iter()
         .enumerate()
         {
+            let base = store.snapshot().1;
+            let height = number as u64 + 1;
             let block = BlockBuilder::default()
-                .number(number as u64 + 1)
+                .number(height)
+                .epoch(base.epoch_ext().number_with_fraction(height))
                 .transaction(tx(0))
                 .build();
             let proposals = |phase| {
@@ -1038,7 +1041,7 @@ fn chain_callbacks_follow_public_pending_and_proposed_transitions() {
                 ids
             };
             let next = snapshot(
-                &store.snapshot().1,
+                &base,
                 &block,
                 proposals(Status::Gap),
                 proposals(Status::Proposed),
@@ -1204,8 +1207,11 @@ fn chain_phase_changes_preserve_fixture_overrides_and_full_hash_callback_order()
         .into_iter()
         .enumerate()
         {
+            let base = store.snapshot().1;
+            let height = number as u64 + 1;
             let block = BlockBuilder::default()
-                .number(number as u64 + 1)
+                .number(height)
+                .epoch(base.epoch_ext().number_with_fraction(height))
                 .transaction(tx(0))
                 .build();
             let band = |status| {
@@ -1215,12 +1221,7 @@ fn chain_phase_changes_preserve_fixture_overrides_and_full_hash_callback_order()
                     HashSet::new()
                 }
             };
-            let next = snapshot(
-                &store.snapshot().1,
-                &block,
-                band(Status::Gap),
-                band(Status::Proposed),
-            );
+            let next = snapshot(&base, &block, band(Status::Gap), band(Status::Proposed));
             let command = ChainReorgArgs::for_test(VecDeque::new(), [block].into(), next);
             let plan = reconcile(&store, &command, &config()).unwrap();
             let callbacks: Vec<_> = plan

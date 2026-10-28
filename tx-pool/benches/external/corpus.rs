@@ -303,6 +303,7 @@ mod tests {
             .input(CellInput::new(OutPoint::null(), 0))
             .outputs([code, data])
             .outputs_data([code_data.pack(), data_data.pack()])
+            .witness(Script::default().into_witness())
             .build();
         let keys: [Privkey; 2] = [H256::from([1; 32]).into(), H256::from([2; 32]).into()];
         let outputs = keys
