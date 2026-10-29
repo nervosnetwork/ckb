@@ -650,6 +650,7 @@ fn all_specs() -> Vec<Box<dyn Spec>> {
         Box::new(RemoveConflictFromPending),
         Box::new(SubmitConflict),
         Box::new(SameCellAsInputAndCellDep),
+        Box::new(ChainCellAsInputAndDepGroup),
         Box::new(DAOVerify),
         Box::new(AvoidDuplicatedProposalsWithUncles),
         Box::new(BlockSyncRelayerCollaboration),

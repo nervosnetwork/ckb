@@ -1,7 +1,7 @@
 use crate::{Node, Spec};
 use ckb_jsonrpc_types::Status;
 use ckb_types::{
-    core::Capacity,
+    core::{Capacity, DepType},
     packed::{self, CellDep, CellInput, CellOutputBuilder, OutPoint},
     prelude::*,
 };
@@ -66,5 +66,59 @@ impl Spec for SameCellAsInputAndCellDep {
 
     fn modify_app_config(&self, config: &mut ckb_app_config::CKBAppConfig) {
         config.tx_pool.min_fee_rate = ckb_types::core::FeeRate::from_u64(0);
+    }
+}
+
+/// A committed cell can be spent and expanded as a dep group in one transaction.
+pub struct ChainCellAsInputAndDepGroup;
+
+impl Spec for ChainCellAsInputAndDepGroup {
+    fn run(&self, nodes: &mut Vec<Node>) {
+        let node = &nodes[0];
+        node.mine_until_out_bootstrap_period();
+
+        let members: packed::OutPointVec = vec![node.always_success_cell_dep().out_point()].into();
+        let group = node
+            .new_transaction_spend_tip_cellbase()
+            .as_advanced_builder()
+            .set_outputs_data(vec![members.as_bytes().into()])
+            .build();
+        node.submit_transaction(&group);
+        node.mine_until_transaction_confirm(&group.hash());
+        node.wait_for_tx_pool();
+        node.assert_tx_pool_size(0, 0);
+        assert!(matches!(
+            node.rpc_client()
+                .get_transaction(group.hash())
+                .tx_status
+                .status,
+            Status::Committed
+        ));
+
+        // The input first reads chain metadata; expanding this same dep group
+        // then needs its data. Its only member supplies the input lock script.
+        let transaction = node
+            .new_transaction(group.hash())
+            .as_advanced_builder()
+            .set_cell_deps(vec![
+                CellDep::new_builder()
+                    .out_point(OutPoint::new(group.hash(), 0))
+                    .dep_type(DepType::DepGroup)
+                    .build(),
+            ])
+            .build();
+        node.submit_transaction(&transaction);
+        node.mine_until_transaction_confirm(&transaction.hash());
+        assert!(matches!(
+            node.rpc_client()
+                .get_transaction(transaction.hash())
+                .tx_status
+                .status,
+            Status::Committed
+        ));
+    }
+
+    fn modify_app_config(&self, config: &mut ckb_app_config::CKBAppConfig) {
+        config.tx_pool.min_fee_rate = ckb_types::core::FeeRate::zero();
     }
 }
