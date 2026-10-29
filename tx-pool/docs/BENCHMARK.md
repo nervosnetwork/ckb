@@ -547,6 +547,9 @@ submission-to-response latency separate from arrival-to-response latency, which
 includes client queueing, and provides confirmation bounds from both origins.
 Submission-delay percentiles expose saturation or sender scheduling delays;
 a fixed offered rate alone does not prove equal actual arrivals at the node.
+Submission and chain observation run in separate runtime tasks, so a large
+block's parsing and validation do not occupy the sender's poll. They share one
+deadline and first-failure signal and return their partial records on cancellation.
 Predeclare an acceptable delay bound before attributing a tail difference to the
 node. P99.9 is a descriptive empirical quantile; report corpus and process-repeat
 counts and do not infer a reliable tail from small samples.

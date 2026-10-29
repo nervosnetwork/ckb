@@ -12,8 +12,8 @@ use http_body_util::{BodyExt, Full};
 use hyper::{Request, Uri};
 use hyper_util::client::legacy::{Client, connect::HttpConnector};
 use serde_json::{Value, json};
-use std::{collections::HashSet, io::Write, path::Path, time::Duration};
-use tokio::time::Instant;
+use std::{collections::HashSet, future::Future, io::Write, path::Path, sync::Arc, time::Duration};
+use tokio::{sync::watch, time::Instant};
 
 struct Rpc {
     client: Client<HttpConnector, Full<Bytes>>,
@@ -61,7 +61,8 @@ impl Rpc {
     }
 
     async fn call(&self, method: &str, params: Value) -> BenchResult<Value> {
-        let response = self.request(request_body(method, params)?).await?;
+        let body = request_body(method, params)?;
+        let response = self.request(body).await?;
         match response.get("result") {
             Some(value) => Ok(value.clone()),
             None => Err(bench_error(format!("{method}: {}", response["error"]))),
@@ -142,7 +143,7 @@ fn block_number(header: &Value) -> BenchResult<u64> {
 async fn observe(
     rpc: &Rpc,
     metadata: &Value,
-    expected: &HashSet<&str>,
+    expected: &HashSet<String>,
     start: Instant,
     poll_ms: u64,
     blocks: &mut Vec<Value>,
@@ -220,6 +221,33 @@ async fn observe(
     }
 }
 
+/// Stop both tasks on the first failure or their shared deadline. Each task
+/// owns its records outside this cancellable future and returns them afterward.
+async fn until_stopped(
+    operation: impl Future<Output = BenchResult<()>>,
+    failure: &watch::Sender<Option<String>>,
+    deadline: Instant,
+) {
+    let mut stopped = failure.subscribe();
+    if stopped.borrow().is_some() {
+        return;
+    }
+    let outcome = tokio::select! {
+        result = operation => result,
+        _ = tokio::time::sleep_until(deadline) => Err(bench_error("external run exceeded deadline")),
+        _ = stopped.changed() => return,
+    };
+    if let Err(error) = outcome {
+        failure.send_if_modified(|first| {
+            if first.is_some() {
+                return false;
+            }
+            *first = Some(error.to_string());
+            true
+        });
+    }
+}
+
 pub(super) fn run(
     path: &Path,
     url: &str,
@@ -254,14 +282,14 @@ pub(super) fn run(
         .collect::<BenchResult<Vec<_>>>()?;
     let expected = requests
         .iter()
-        .map(|transaction| transaction.hash.as_str())
+        .map(|transaction| transaction.hash.clone())
         .collect();
     let runtime = tokio::runtime::Builder::new_multi_thread()
         .worker_threads(2)
         .enable_all()
         .build()?;
     runtime.block_on(async {
-        let rpc = Rpc::new(url)?;
+        let rpc = Arc::new(Rpc::new(url)?);
         let genesis = rpc.call("get_block_hash", json!(["0x0"])).await?;
         let tip = rpc.call("get_tip_header", json!([])).await?;
         let pool = rpc.call("tx_pool_info", json!([])).await?;
@@ -283,13 +311,37 @@ pub(super) fn run(
                 ..Submission::default()
             })
             .collect();
-        let mut blocks = Vec::new();
+        let (failure, _) = watch::channel(None);
         let start = Instant::now();
-        let outcome = tokio::time::timeout(Duration::from_secs(timeout_s), async {
-            tokio::try_join!(submit(&rpc, &requests, &mut submissions, concurrency, start),
-                observe(&rpc, &metadata, &expected, start, poll_ms, &mut blocks))?;
-            Ok::<_, Box<dyn std::error::Error>>(())
-        }).await.unwrap_or_else(|_| Err(bench_error("external run exceeded deadline")));
+        let deadline = start + Duration::from_secs(timeout_s);
+        // Separate tasks let arrivals progress while the observer parses,
+        // validates or drops a large block response. Both use one clock and
+        // failure channel; joining retains partial records after cancellation.
+        let observing = {
+            let rpc = Arc::clone(&rpc);
+            let metadata = metadata.clone();
+            let failure = failure.clone();
+            tokio::spawn(async move {
+                let mut blocks = Vec::new();
+                until_stopped(
+                    observe(&rpc, &metadata, &expected, start, poll_ms, &mut blocks),
+                    &failure,
+                    deadline,
+                ).await;
+                blocks
+            })
+        };
+        let (_, blocks) = tokio::join!(
+            until_stopped(
+                submit(&rpc, &requests, &mut submissions, concurrency, start),
+                &failure,
+                deadline,
+            ),
+            observing,
+        );
+        let blocks = blocks?;
+        let outcome = failure.borrow().as_ref()
+            .map_or(Ok(()), |error| Err(bench_error(error)));
         let ended = nanos(start);
         // Keep partial records after refusal, transport error, fork or timeout.
         let mut writer = std::io::BufWriter::new(std::io::stdout().lock());
@@ -359,6 +411,69 @@ mod tests {
             .unwrap_err();
             assert_eq!(error.to_string(), "external run bounds are invalid");
         }
+    }
+
+    #[tokio::test]
+    async fn first_failure_cancels_the_other_task_without_losing_its_records() -> BenchResult<()> {
+        let (failure, _) = watch::channel(None);
+        let deadline = Instant::now() + Duration::from_secs(5);
+        let (observed, received) = tokio::sync::oneshot::channel();
+        let task_failure = failure.clone();
+        let task = tokio::spawn(async move {
+            let mut records = Vec::new();
+            until_stopped(
+                async {
+                    records.push("observed before failure");
+                    let _ = observed.send(());
+                    std::future::pending().await
+                },
+                &task_failure,
+                deadline,
+            )
+            .await;
+            records
+        });
+        received.await?;
+        until_stopped(
+            async { Err(bench_error("canonical prefix changed")) },
+            &failure,
+            deadline,
+        )
+        .await;
+        assert_eq!(task.await?, ["observed before failure"]);
+        let mut polled_after_failure = false;
+        until_stopped(
+            async {
+                polled_after_failure = true;
+                Err(bench_error("later failure"))
+            },
+            &failure,
+            deadline,
+        )
+        .await;
+        assert!(!polled_after_failure);
+        assert_eq!(
+            failure.borrow().as_deref(),
+            Some("canonical prefix changed")
+        );
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn completion_leaves_the_other_task_running_until_the_shared_deadline() {
+        let (failure, _) = watch::channel(None);
+        until_stopped(
+            async { Ok(()) },
+            &failure,
+            Instant::now() + Duration::from_secs(5),
+        )
+        .await;
+        assert!(failure.borrow().is_none());
+        until_stopped(std::future::pending(), &failure, Instant::now()).await;
+        assert_eq!(
+            failure.borrow().as_deref(),
+            Some("external run exceeded deadline")
+        );
     }
 
     #[tokio::test]
