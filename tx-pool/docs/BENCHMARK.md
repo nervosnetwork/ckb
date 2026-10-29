@@ -503,6 +503,18 @@ from the run's monotonic start. The same concurrency limit bounds in-flight
 requests; waiting for capacity never moves those arrivals. Request bodies and
 the finite arrival schedule are prepared before the timed window.
 
+On Linux, optional `node_cpus` and `control_cpus` arrays isolate the node from
+the runner, executor and miner. Supply both as sorted, nonempty lists of distinct
+CPU IDs, with no overlap. Capture refuses CPUs outside the runner's initial
+affinity. It applies each budget before executing a child, so all subsequently
+created threads inherit it; recorded process IDs, parent IDs and actual masks
+are checked during capture and replay. Replay does not need the capture host's
+CPU topology. Without these fields, capture keeps the inherited affinity.
+Report both budgets: a four-CPU node with two additional control CPUs is a
+different experiment from four CPUs shared by the node and controls. Affinity
+limits scheduling but does not reserve physical cores or remove host interference.
+The node's whole-lifetime usage includes the affinity launcher's startup.
+
 Node receipts bind `sha256`, clean Git `base`/`status`/`patch`, the `command`
 array with `--locked --profile prod`, and Cargo `artifact.target.name=ckb` plus
 `artifact.profile.debug_assertions=false`. Miner receipts bind `sha256`,

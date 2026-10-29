@@ -92,7 +92,8 @@ def validate_config(config):
     bounds = {"workers": (1, 256), "concurrency": (1, 1024), "poll_ms": (1, 1000),
               "mine_ms": (1, 10_000), "timeout_s": (1, 3600), "rpc_port": (1024, 65534)}
     required = paths | bounds.keys()
-    require(required <= set(config) <= required | {"arrival_rate"}, "capture configuration fields differ")
+    require(required <= set(config) <= required | {"arrival_rate", "node_cpus", "control_cpus"},
+            "capture configuration fields differ")
     for name in paths:
         require(isinstance(config[name], str) and Path(config[name]).is_absolute(), f"{name} must be absolute")
     for name, (lower, upper) in bounds.items():
@@ -100,6 +101,53 @@ def validate_config(config):
     if "arrival_rate" in config:
         require(type(config["arrival_rate"]) is int and 1 <= config["arrival_rate"] <= 65_536,
                 "arrival_rate must be an integer from 1 to 65536 transactions per second")
+    require(("node_cpus" in config) == ("control_cpus" in config), "CPU isolation requires both CPU lists")
+    if "node_cpus" in config:
+        for name in ("node_cpus", "control_cpus"):
+            cpus = config[name]
+            require(isinstance(cpus, list) and cpus and all(type(cpu) is int and cpu >= 0 for cpu in cpus)
+                    and cpus == sorted(set(cpus)), f"{name} must be a sorted, nonempty list of distinct CPU IDs")
+        require(set(config["node_cpus"]).isdisjoint(config["control_cpus"]),
+                "node and control CPUs must be disjoint")
+
+
+def pin_process(cpus):
+    os.sched_setaffinity(0, cpus)
+    actual = sorted(os.sched_getaffinity(0))
+    require(actual == cpus, "requested CPU affinity was not applied")
+    return {"pid": os.getpid(), "ppid": os.getppid(), "cpus": actual}
+
+
+def exec_pinned(output, name, command):
+    """Set affinity before exec so every executable thread inherits its budget."""
+    config = json.loads((output / "config.json").read_text())
+    record = pin_process(config["node_cpus" if name == "node" else "control_cpus"])
+    save(output / f"{name}-affinity.json", record)
+    os.execv(command[0], command)
+
+
+def validate_cpu_affinity(config, output):
+    """Replay recorded ownership and CPU budgets without consulting the replay host."""
+    if "node_cpus" not in config:
+        return
+    runner = json.loads((output / "runner-affinity.json").read_text())
+    require(runner["cpus"] == config["control_cpus"]
+            and set(config["node_cpus"] + config["control_cpus"]) <= set(runner["available"]),
+            "runner CPU budget differs")
+    processes = json.loads((output / "processes.json").read_text())
+    require(sorted(process["name"] for process in processes) == ["executor", "miner", "node"],
+            "CPU evidence requires all three owned children")
+    records = [runner]
+    for process in processes:
+        name = process["name"]
+        record = json.loads((output / f"{name}-affinity.json").read_text())
+        require(record["pid"] == process["pid"] and record["ppid"] == runner["pid"],
+                f"{name} CPU evidence belongs to another process")
+        require(record["cpus"] == config["node_cpus" if name == "node" else "control_cpus"],
+                f"{name} CPU budget differs")
+        records.append(record)
+    require(all(type(record["pid"]) is int and record["pid"] > 0 for record in records)
+            and len({record["pid"] for record in records}) == len(records), "CPU evidence has invalid process IDs")
 
 
 def external_build(receipt, binary, *, node):
@@ -163,6 +211,13 @@ def stop_node(process):
 
 def run_owned(config, output):
     """Run only inside run_process's group; all children inherit its ownership."""
+    if "node_cpus" in config:
+        require(hasattr(os, "sched_setaffinity") and hasattr(os, "sched_getaffinity"),
+                "CPU isolation requires Linux process affinity")
+        available = sorted(os.sched_getaffinity(0))
+        require(set(config["node_cpus"] + config["control_cpus"]) <= set(available),
+                "requested CPUs are outside the runner's available affinity")
+        save(output / "runner-affinity.json", {**pin_process(config["control_cpus"]), "available": available})
     node_dir = output / "node-data"
     url = f'http://127.0.0.1:{config["rpc_port"]}'
     environment = dict(os.environ, NO_PROXY="127.0.0.1,localhost,::1", no_proxy="127.0.0.1,localhost,::1")
@@ -174,6 +229,8 @@ def run_owned(config, output):
     node = None
 
     def start(name, command, **kwargs):
+        if "node_cpus" in config:
+            command = [sys.executable, str(Path(__file__).resolve()), "__exec__", str(output), name, *command]
         with (output / f"{name}.log").open("wb") as log:
             process = subprocess.Popen(command, cwd=output, env=environment,
                                        stderr=log, stdout=kwargs.pop("stdout", log), **kwargs)
@@ -324,6 +381,7 @@ def capture(config, output):
         usage = json.loads((output / "node-usage.json").read_text())
         validate_usage(usage)
         validate_shutdown(json.loads((output / "child-shutdown.json").read_text()))
+        validate_cpu_affinity(config, output)
         receipt["node_usage"] = usage
         require(sha256(Path(config["corpus"])) == receipt["corpus_sha256"], "corpus changed during capture")
         for kind in ("bench", "node", "miner"):
@@ -362,6 +420,7 @@ def replay(output):
     require(json.loads((output / "node-usage.json").read_text()) == receipt["node_usage"], "node usage differs")
     validate_usage(receipt["node_usage"])
     validate_shutdown(json.loads((output / "child-shutdown.json").read_text()))
+    validate_cpu_affinity(receipt["config"], output)
     return observation
 
 
@@ -373,6 +432,10 @@ def main():
         if name == "capture":
             command.add_argument("config", type=Path)
         command.add_argument("output", type=Path)
+    pinned = commands.add_parser("__exec__")
+    pinned.add_argument("output", type=Path)
+    pinned.add_argument("name", choices=("node", "executor", "miner"))
+    pinned.add_argument("arguments", nargs=argparse.REMAINDER)
     funding = commands.add_parser("export-funding")
     funding.add_argument("url")
     funding.add_argument("fixture", type=Path)
@@ -385,6 +448,8 @@ def main():
         print(json.dumps(replay(args.output.resolve()), indent=2))
     elif args.command == "export-funding":
         export_funding(args.url, json.loads(args.fixture.read_text()), args.output)
+    elif args.command == "__exec__":
+        exec_pinned(args.output, args.name, args.arguments)
     else:
         require(os.getpid() == os.getpgrp() == os.getsid(0), "capture requires an owned process group")
         with terminate_as_exception():

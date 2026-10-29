@@ -10,20 +10,39 @@ from pathlib import Path
 from unittest import mock
 
 from external_benchmark import (capture, configure_seed, external_build, finish_capture, stop_node,
-                                validate_config, validate_node_logs, validate_shutdown, validate_usage)
+                                validate_config, validate_cpu_affinity, validate_node_logs,
+                                validate_shutdown, validate_usage)
+
+
+def capture_config(directory):
+    config = {name: str(directory / name) for name in
+              ("root", "bench", "bench_build", "node", "node_build", "miner", "miner_build", "seed", "corpus")}
+    return config | {"workers": 8, "concurrency": 100, "poll_ms": 5, "mine_ms": 200,
+                     "timeout_s": 60, "rpc_port": 35110}
 
 
 class CaptureQualificationTests(unittest.TestCase):
     def test_optional_arrival_rate_is_positive_integral_and_bounded(self):
-        config = {name: f"/tmp/{name}" for name in
-                  ("root", "bench", "bench_build", "node", "node_build", "miner", "miner_build", "seed", "corpus")}
-        config.update(workers=8, concurrency=100, poll_ms=5, mine_ms=200, timeout_s=60, rpc_port=35110)
+        config = capture_config(Path("/tmp"))
         validate_config(config)
         for rate in (1, 1500, 65536):
             validate_config(config | {"arrival_rate": rate})
         for rate in (None, True, 0, -1, 100.0, "100", 65537):
             with self.subTest(rate=rate), self.assertRaises(ValueError):
                 validate_config(config | {"arrival_rate": rate})
+
+    def test_cpu_isolation_requires_disjoint_complete_explicit_budgets(self):
+        config = capture_config(Path("/tmp"))
+        cpus = {"node_cpus": [0, 1, 2, 3], "control_cpus": [4, 5]}
+        validate_config(config | cpus)
+        for value in (None, [], [True], [0, 0], [1, 0], [-1], [0.0], "0,1"):
+            for name in cpus:
+                with self.subTest(name=name, value=value), self.assertRaises(ValueError):
+                    validate_config(config | cpus | {name: value})
+        for invalid in ({"node_cpus": [0]}, {"control_cpus": [1]},
+                        {"node_cpus": [0, 1], "control_cpus": [1, 2]}):
+            with self.subTest(invalid=invalid), self.assertRaises(ValueError):
+                validate_config(config | invalid)
 
     def test_seed_cannot_redirect_node_data_outside_its_owned_copy(self):
         with tempfile.TemporaryDirectory() as temporary:
@@ -36,14 +55,41 @@ class CaptureQualificationTests(unittest.TestCase):
     def test_capture_cannot_write_into_its_frozen_inputs(self):
         with tempfile.TemporaryDirectory() as temporary:
             directory = Path(temporary).resolve()
-            config = {name: str(directory / name) for name in
-                      ("root", "bench", "bench_build", "node", "node_build", "miner", "miner_build", "seed", "corpus")}
-            config.update(workers=8, concurrency=100, poll_ms=5, mine_ms=200, timeout_s=60, rpc_port=35110)
+            config = capture_config(directory)
             for name in ("root", "seed"):
                 output = Path(config[name]) / "capture"
                 with self.assertRaises(ValueError):
                     capture(config, output)
                 self.assertFalse(output.exists())
+
+    def test_cpu_replay_rejects_wrong_ownership_or_budget_without_reading_host_affinity(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            output = Path(temporary)
+            config = {"node_cpus": [0, 1], "control_cpus": [2]}
+            records = {"runner": {"pid": 100, "ppid": 99, "cpus": [2], "available": [0, 1, 2]},
+                       "node": {"pid": 101, "ppid": 100, "cpus": [0, 1]},
+                       "executor": {"pid": 102, "ppid": 100, "cpus": [2]},
+                       "miner": {"pid": 103, "ppid": 100, "cpus": [2]}}
+            (output / "processes.json").write_text(json.dumps([
+                {"name": name, "pid": record["pid"]} for name, record in records.items() if name != "runner"]))
+            for name, record in records.items():
+                (output / f"{name}-affinity.json").write_text(json.dumps(record))
+            with mock.patch("external_benchmark.os.sched_getaffinity", create=True,
+                            side_effect=AssertionError("replay must not read this host")):
+                validate_cpu_affinity(config, output)
+                for name, field, value in (("node", "cpus", [2]), ("node", "pid", 999),
+                                           ("executor", "cpus", [0, 1]), ("miner", "ppid", 99),
+                                           ("runner", "cpus", [0]), ("runner", "available", [2])):
+                    path = output / f"{name}-affinity.json"
+                    path.write_text(json.dumps(records[name] | {field: value}))
+                    with self.subTest(name=name, field=field), self.assertRaises(ValueError):
+                        validate_cpu_affinity(config, output)
+                    path.write_text(json.dumps(records[name]))
+                (output / "miner-affinity.json").unlink()
+                with self.assertRaises(FileNotFoundError):
+                    validate_cpu_affinity(config, output)
+            # Older captures and the default mode have no affinity observations.
+            validate_cpu_affinity({}, output)
 
     def test_external_receipts_bind_clean_production_sources_and_binary(self):
         binary = {"sha256": "a" * 64}
@@ -163,6 +209,57 @@ class NodeUsageTests(unittest.TestCase):
         self.assertFalse(usage["forced_kill"])
         self.assertGreater(usage["peak_rss_bytes"], 0)
         self.assertEqual(usage["scope"], "whole_node_lifetime_including_startup_drain_and_shutdown")
+
+
+@unittest.skipUnless(hasattr(os, "sched_getaffinity"), "requires Linux process affinity")
+class CpuIsolationTests(unittest.TestCase):
+    def test_exec_preserves_pid_and_budgets_before_threads_and_children_start(self):
+        cpus = sorted(os.sched_getaffinity(0))
+        if len(cpus) < 2:
+            self.skipTest("requires two available CPUs")
+        with tempfile.TemporaryDirectory() as temporary:
+            output = Path(temporary)
+            config = {"node_cpus": cpus[:1], "control_cpus": cpus[1:2]}
+            (output / "config.json").write_text(json.dumps(config))
+            code = """import json,os,subprocess,sys,threading
+record = {'pid': os.getpid(), 'cpus': sorted(os.sched_getaffinity(0))}
+thread = threading.Thread(target=lambda: record.update(thread_cpus=sorted(os.sched_getaffinity(0))))
+thread.start()
+thread.join()
+record['child_cpus'] = json.loads(subprocess.check_output([sys.executable, '-c',
+    'import os,json; print(json.dumps(sorted(os.sched_getaffinity(0))))']))
+print(json.dumps(record))
+"""
+            script = str(Path(__file__).with_name("external_benchmark.py"))
+            # The node must be able to take its own budget after the owned runner
+            # has restricted itself to the disjoint control CPUs.
+            launcher = "import os,sys; os.sched_setaffinity(0," + repr(config["control_cpus"]) + "); os.execv(sys.executable,sys.argv[1:])"
+            for name in ("node", "executor", "miner"):
+                command = [sys.executable, "-c", launcher, sys.executable, script,
+                           "__exec__", str(output), name, sys.executable, "-c", code]
+                with subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE) as process:
+                    stdout, stderr = process.communicate(timeout=10)
+                    self.assertEqual(process.returncode, 0, stderr.decode())
+                    actual = json.loads(stdout)
+                    recorded = json.loads((output / f"{name}-affinity.json").read_text())
+                    expected = config["node_cpus" if name == "node" else "control_cpus"]
+                    self.assertEqual(actual, {"pid": process.pid, "cpus": expected,
+                                              "thread_cpus": expected, "child_cpus": expected})
+                    self.assertEqual(recorded, {"pid": process.pid, "ppid": os.getpid(), "cpus": expected})
+
+    def test_unavailable_cpu_fails_before_starting_children(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            output = Path(temporary)
+            cpus = sorted(os.sched_getaffinity(0))
+            config = capture_config(output) | {"node_cpus": [max(cpus) + 1], "control_cpus": cpus[:1]}
+            (output / "config.json").write_text(json.dumps(config))
+            result = subprocess.run([sys.executable, str(Path(__file__).with_name("external_benchmark.py")),
+                                     "__capture__", str(output)], start_new_session=True,
+                                    capture_output=True, timeout=10)
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn(b"outside the runner's available affinity", result.stderr)
+            self.assertFalse((output / "processes.json").exists())
+            self.assertFalse((output / "runner-affinity.json").exists())
 
 
 if __name__ == "__main__":
