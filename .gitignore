@@ -67,3 +67,6 @@ cobertura.xml
 *.profraw
 lcov-unit-test.info
 lcov-integration-test.info
+
+# Python tool caches
+/tx-pool/scripts/**/__pycache__/
