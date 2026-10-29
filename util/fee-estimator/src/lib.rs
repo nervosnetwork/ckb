@@ -5,4 +5,4 @@ pub(crate) mod error;
 pub(crate) mod estimator;
 
 pub use error::Error;
-pub use estimator::FeeEstimator;
+pub use estimator::{FeeEstimator, FeeSample};
