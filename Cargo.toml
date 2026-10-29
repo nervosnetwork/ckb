@@ -282,7 +282,7 @@ rayon = "1.0"
 regex = "1.1.6"
 reqwest = { version = "0.12", features = ["blocking", "json"] }
 rhai = "1.16.0"
-rocksdb = { version = "=0.21.1", package = "ckb-rocksdb", default-features = false }
+rocksdb = { version = "=0.23.0", package = "ckb-rocksdb", default-features = false }
 rustc-hash = "1.1"
 secio = { version = "0.6.8", package = "tentacle-secio" }
 secp256k1 = "0.30"
@@ -338,3 +338,6 @@ profiling = ["tikv-jemallocator/profiling", "ckb-bin/profiling"]
 portable = ["ckb-bin/portable"]
 march-native = ["ckb-bin/march-native"]
 tokio-trace = ["console-subscriber"]
+
+[patch.crates-io]
+ckb-rocksdb = { git = "https://github.com/nervosnetwork/ckb-rocksdb", rev = "434155f46bc9e01295f54b362fb604424701698e" }
