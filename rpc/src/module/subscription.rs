@@ -100,6 +100,9 @@ pub trait SubscriptionRpc {
     /// ###### `new_transaction`
     ///
     /// Subscribers will get notified when a new transaction is submitted to the pool.
+    /// Transaction notifications (`new_transaction`, `proposed_transaction`, and
+    /// `rejected_transaction`) are best effort: a full notification channel
+    /// immediately omits the event for that delivery path.
     ///
     /// The type of the `params.result` in the push message is [`PoolTransactionEntry`](../../ckb_jsonrpc_types/struct.PoolTransactionEntry.html).
     ///

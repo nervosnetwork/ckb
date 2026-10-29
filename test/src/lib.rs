@@ -522,6 +522,8 @@ fn all_specs() -> Vec<Box<dyn Spec>> {
         Box::new(TxPoolOrphanDoubleSpend),
         Box::new(OrphanTxRejected),
         Box::new(GetRawTxPool),
+        Box::new(IndexerPoolRecovery),
+        Box::new(RichIndexerPoolRecovery),
         Box::new(PoolReconcile),
         Box::new(PoolResurrect),
         Box::new(PoolResolveConflictAfterReorg),
