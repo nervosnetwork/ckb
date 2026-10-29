@@ -5,6 +5,7 @@ use crate::util::check::{
 };
 use crate::util::mining::out_ibd_mode;
 use crate::util::transaction::always_success_transaction;
+use crate::utils::wait_until;
 use crate::{Node, Spec};
 use ckb_logger::info;
 use ckb_types::{
@@ -640,15 +641,23 @@ impl Spec for ForkedTransaction {
         // node1 have `tx` on verified-fork   => TxStatus: Some(Pending)
         //
         // We submit the main-fork of `node0` to `node1`, that will trigger switching forks. Then
-        // the original main-fork of `node0` will become side verified-fork. And `tx` will be moved
-        // to gap-transactions-pool during switching forks
+        // the original main-fork of `node1` will become a verified side fork. The detached `tx`
+        // is queued for recovery and becomes Pending after background verification.
         {
             (fixed_point..=node0.get_tip_block_number()).for_each(|number| {
                 let block = node0.get_block_by_number(number);
                 node1.submit_block(&block);
             });
 
-            assert!(is_transaction_pending(node1, &tx,));
+            assert_eq!(node1.get_tip_block().hash(), node0.get_tip_block().hash());
+            // submit_block waits for the pool tip, not for recovered transactions to finish
+            // verification. Observe this transaction's accepted status and cycles separately.
+            assert!(
+                wait_until(30, || is_transaction_pending(node1, &tx)),
+                "detached transaction did not recover: transaction={:?}, pool={:?}",
+                node1.rpc_client().get_transaction(tx.hash()),
+                node1.rpc_client().tx_pool_info(),
+            );
         }
     }
 }
