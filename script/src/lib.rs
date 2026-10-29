@@ -11,6 +11,7 @@ mod verify_env;
 pub use crate::error::{ScriptError, TransactionScriptError};
 pub use crate::scheduler::{ROOT_VM_ID, Scheduler};
 pub use crate::syscalls::generator::generate_ckb_syscalls;
+pub use crate::syscalls::header_visible_origin;
 pub use crate::types::{
     ChunkCommand, DataLocation, DataPieceId, RunMode, ScriptGroup, ScriptGroupType, ScriptVersion,
     TransactionState, TxData, VerifyResult, VmArgs, VmIsa, VmState, VmVersion,
