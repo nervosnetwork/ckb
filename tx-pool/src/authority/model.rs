@@ -229,7 +229,7 @@ pub(super) struct Resolved {
 #[derive(Clone, Copy, Debug)]
 pub(super) enum VerifiedScripts {
     Vm(ScriptVerificationProof),
-    #[cfg(any(test, feature = "internal"))]
+    #[cfg(any(test, feature = "internal", feature = "packing-bench"))]
     Fixture(Cycle),
 }
 
@@ -237,7 +237,7 @@ impl VerifiedScripts {
     pub(super) fn cycles(self) -> Cycle {
         match self {
             Self::Vm(proof) => proof.cycles(),
-            #[cfg(any(test, feature = "internal"))]
+            #[cfg(any(test, feature = "internal", feature = "packing-bench"))]
             Self::Fixture(cycles) => cycles,
         }
     }
@@ -245,7 +245,7 @@ impl VerifiedScripts {
     pub(super) fn proof(self) -> Option<ScriptVerificationProof> {
         match self {
             Self::Vm(proof) => Some(proof),
-            #[cfg(any(test, feature = "internal"))]
+            #[cfg(any(test, feature = "internal", feature = "packing-bench"))]
             Self::Fixture(_) => None,
         }
     }

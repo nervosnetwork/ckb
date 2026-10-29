@@ -70,7 +70,29 @@ ckb-systemtime = { workspace = true, features = ["enable_faketime"] }
 ckb-system-scripts.workspace = true
 ckb-crypto.workspace = true
 
+[[bench]]
+name = "profile_one_shot"
+harness = false
+
+[[test]]
+name = "profile_contract"
+path = "benches/profile_contract/mod.rs"
+
+[[bench]]
+name = "packing_one_shot"
+harness = false
+required-features = ["packing-bench"]
+
+[[test]]
+name = "packing_contract"
+path = "benches/packing/contract.rs"
+required-features = ["packing-bench"]
+
 [features]
+calibration-observation = []
+packing-bench = []
+allocation-observation = []
+cross-version-legacy-bench-adapter = []
 internal = []
 profiling = ["tracing", "tracing-subscriber"]
 tokio-trace = ["console-subscriber", "tonic", "profiling"]
