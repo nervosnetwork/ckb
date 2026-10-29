@@ -480,14 +480,14 @@ pub struct BlockCellProvider<'a> {
 impl<'a> BlockCellProvider<'a> {
     /// Creates a new block cell provider from the given block.
     pub fn new(block: &'a BlockView) -> Result<Self, Error> {
-        let output_indices: HashMap<Byte32, usize> = block
-            .transactions()
+        let transactions = block.transactions();
+        let output_indices: HashMap<Byte32, usize> = transactions
             .iter()
             .enumerate()
             .map(|(idx, tx)| (tx.hash(), idx))
             .collect();
 
-        for (idx, tx) in block.transactions().iter().enumerate() {
+        for (idx, tx) in transactions.iter().enumerate() {
             for dep in tx.cell_deps_iter() {
                 if let Some(output_idx) = output_indices.get(&dep.out_point().tx_hash())
                     && *output_idx >= idx
