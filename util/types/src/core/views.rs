@@ -302,6 +302,40 @@ impl TransactionView {
     define_cache_getter!(hash, Byte32);
     define_cache_getter!(witness_hash, Byte32);
 
+    /// Borrows the cached transaction hash without cloning its shared backing.
+    pub fn hash_ref(&self) -> &packed::Byte32 {
+        &self.hash
+    }
+
+    /// Fallibly move this view into one allocation containing only the
+    /// transaction and its cached hashes, without recomputing them.
+    ///
+    /// Molecule accessors can return a small transaction slice backed by an
+    /// entire block or relay envelope. Long-lived owners use this at their
+    /// residency boundary so serialized-size accounting includes the backing
+    /// they retain and allocation pressure remains a typed outcome.
+    pub fn try_into_compact(self) -> Result<Self, std::collections::TryReserveError> {
+        let data_len = self.data.as_slice().len();
+        let hash_len = self.hash.as_slice().len();
+        let witness_hash_len = self.witness_hash.as_slice().len();
+        let total_len = data_len
+            .saturating_add(hash_len)
+            .saturating_add(witness_hash_len);
+        let mut owned = Vec::new();
+        owned.try_reserve_exact(total_len)?;
+        owned.extend_from_slice(self.data.as_slice());
+        let data_end = owned.len();
+        owned.extend_from_slice(self.hash.as_slice());
+        let hash_end = owned.len();
+        owned.extend_from_slice(self.witness_hash.as_slice());
+        let owned = Bytes::from(owned);
+        Ok(Self {
+            data: packed::Transaction::new_unchecked(owned.slice(..data_end)),
+            hash: packed::Byte32::new_unchecked(owned.slice(data_end..hash_end)),
+            witness_hash: packed::Byte32::new_unchecked(owned.slice(hash_end..)),
+        })
+    }
+
     /// Gets `raw.version`.
     pub fn version(&self) -> Version {
         self.data().raw().version().into()
@@ -379,6 +413,14 @@ impl TransactionView {
             .map(|x| x.previous_output())
     }
 
+    /// Borrows out points directly from the serialized transaction inputs.
+    pub fn input_pts_reader_iter(
+        &self,
+    ) -> impl ExactSizeIterator<Item = packed::OutPointReader<'_>> {
+        let inputs = self.data.as_reader().raw().inputs();
+        (0..inputs.len()).map(move |index| inputs.get_unchecked(index).previous_output())
+    }
+
     /// Creates an iterator from all outputs and their data.
     pub fn outputs_with_data_iter(&self) -> impl Iterator<Item = (packed::CellOutput, Bytes)> {
         self.outputs()
@@ -421,6 +463,11 @@ impl TransactionView {
     /// Creates a new `ProposalShortId` from the transaction hash.
     pub fn proposal_short_id(&self) -> packed::ProposalShortId {
         packed::ProposalShortId::from_tx_hash(&self.hash())
+    }
+
+    /// Borrows the first ten transaction-hash bytes as a proposal short id.
+    pub fn proposal_short_id_reader(&self) -> packed::ProposalShortIdReader<'_> {
+        packed::ProposalShortIdReader::new_unchecked(&self.hash.as_slice()[..10])
     }
 
     /// return deduplicate parent tx_hashes
@@ -510,6 +557,25 @@ impl HeaderView {
 impl UncleBlockView {
     define_data_getter!(UncleBlock);
     define_cache_getter!(hash, Byte32);
+
+    /// Fallibly move this view into one allocation containing only the uncle
+    /// and its cached hash. `BlockView::uncles()` can return a small slice
+    /// backed by the entire block; a long-lived candidate-uncle cache uses
+    /// this at its residency boundary to release that unrelated backing.
+    pub fn try_into_compact(self) -> Result<Self, std::collections::TryReserveError> {
+        let data_len = self.data.as_slice().len();
+        let total_len = data_len.saturating_add(self.hash.as_slice().len());
+        let mut owned = Vec::new();
+        owned.try_reserve_exact(total_len)?;
+        owned.extend_from_slice(self.data.as_slice());
+        let data_end = owned.len();
+        owned.extend_from_slice(self.hash.as_slice());
+        let owned = Bytes::from(owned);
+        Ok(Self {
+            data: packed::UncleBlock::new_unchecked(owned.slice(..data_end)),
+            hash: packed::Byte32::new_unchecked(owned.slice(data_end..)),
+        })
+    }
 
     define_inner_getter!(uncle, unpacked, version, Version);
     define_inner_getter!(uncle, unpacked, number, BlockNumber);
