@@ -45,6 +45,11 @@ settles/requeues it or observes a successor.
 `Store::is_current` is only an instantaneous owner-identity check. It creates no
 observation and cannot substitute for a prepared decision's commit validation.
 
+The resolution provider retains detached cells for one immutable chain snapshot.
+A cell used first as an input and then as a dep-group reuses its cached metadata
+when loading data. That upgrade still checks the original pool producer and
+spender observations and charges the data before loading it.
+
 ## Scheduling and block priority
 
 Resolve and Verify use separate queues because fee ordering requires resolved

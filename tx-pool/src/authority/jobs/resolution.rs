@@ -184,17 +184,18 @@ impl<'a> Provider<'a> {
     }
 
     fn materialize(&self, point: &OutPoint, eager: bool) -> Result<CellStatus, Error> {
-        let mut state = self.observed.borrow_mut();
+        let state = &mut *self.observed.borrow_mut();
         if let Some(error) = &state.error {
             return Err(error.clone());
         }
-        if state.cells.len() >= self.max_edges && !state.cells.contains_key(point) {
+        let cached = state.cells.get(point);
+        if state.cells.len() >= self.max_edges && cached.is_none() {
             return Err(Error::Full("resolved dependency count".into()));
         }
         // Pool spends are admission policy; resolution keeps the live backing
         // and its original spender for the final checked replacement decision.
         let _ = self.store.spender(point, &mut state.reads)?;
-        if let Some((cell, _)) = state.cells.get(point)
+        if let Some((cell, _)) = cached
             && (!eager || cell.mem_cell_data.is_some())
         {
             return Ok(CellStatus::live_cell(cell.clone()));
@@ -204,7 +205,7 @@ impl<'a> Provider<'a> {
         // shares these allocations across input, dep and dep-group occurrences;
         // retaining its result must not copy each occurrence again.
         const CELL_METADATA_BYTES: usize = size_of::<CellMeta>() * 4 + 256;
-        let old_bytes = state.cells.get(point).map_or(0, |(_, bytes)| *bytes);
+        let old_bytes = cached.map_or(0, |(_, bytes)| *bytes);
         let remaining = self
             .max_bytes
             .checked_sub(state.bytes)
@@ -216,6 +217,10 @@ impl<'a> Provider<'a> {
                 .pool_cell(point, payload_limit, &mut state.reads)?
         {
             (cell, true)
+        } else if let Some((cell, _)) = cached {
+            // A lazy chain cell already has metadata from this immutable
+            // snapshot. Keep the original pool read above when loading its data.
+            (cell.clone(), false)
         } else {
             match self.snapshot.cell(point, false) {
                 CellStatus::Live(cell) => (cell, false),
@@ -514,6 +519,43 @@ mod tests {
         }
         assert_eq!(provider.observed.borrow().bytes, eager_bytes);
         assert_eq!(provider.observed.borrow().cells.len(), 1);
+    }
+
+    #[test]
+    fn chain_cell_upgrade_rejects_a_late_pool_producer() {
+        let (chain, snapshot) =
+            chain_store(Arc::new(ckb_test_chain_utils::always_success_consensus()));
+        let parent = output_tx(1912);
+        let point = OutPoint::new(parent.hash(), 0);
+        let cell = ckb_types::packed::CellEntry::new_builder()
+            .output(parent.output(0).unwrap())
+            .data_size(0u64)
+            .build();
+        let transaction = chain.store().begin_transaction();
+        transaction
+            .insert_cells(std::iter::once((point.clone(), cell, None)))
+            .unwrap();
+        transaction.commit().unwrap();
+        let snapshot = Arc::new(snapshot.refresh(chain.store().get_snapshot()));
+        let store = store_with_pipeline_limit(Arc::clone(&snapshot), &config(), 64_000_000);
+        let provider = Provider::new(&store, &snapshot);
+        let lazy = provider.materialize(&point, false).unwrap();
+        let bytes = provider.observed.borrow().bytes;
+
+        // A cached snapshot cell does not authorize changing the original
+        // absent-producer observation during its lazy-to-eager upgrade.
+        accept(&store, parent, 1, 1, Status::Pending);
+        assert!(matches!(
+            provider.materialize(&point, true),
+            Err(Error::Stale)
+        ));
+        let observed = provider.observed.borrow();
+        assert_eq!(observed.bytes, bytes);
+        assert_eq!(observed.cells.len(), 1);
+        assert_eq!(
+            CellStatus::live_cell(observed.cells[&point].0.clone()),
+            lazy
+        );
     }
 
     #[test]
