@@ -803,7 +803,8 @@ fn test_accept_block() {
     {
         let proposal_table = ckb_proposal_table::ProposalTable::new(
             relayer.shared().shared().consensus().tx_proposal_window(),
-        );
+        )
+        .expect("test consensus proposal window is valid");
         let chain_service_builder = ChainServicesBuilder {
             shared: relayer.shared().shared().to_owned(),
             proposal_table,

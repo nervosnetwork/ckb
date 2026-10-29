@@ -121,8 +121,7 @@ pub struct SendTxChainRevOrder;
 impl Spec for SendTxChainRevOrder {
     crate::setup!(num_nodes: 1);
 
-    // Case: Check txpool will evict tx when tx check failed during block_assembler
-    //       avoid to stay for a long time in the pool
+    // A proposed child stays in the pool while its parent still needs a proposal.
     fn run(&self, nodes: &mut Vec<Node>) {
         let node_a = &nodes[0];
         let window = node_a.consensus().tx_proposal_window();
@@ -146,9 +145,13 @@ impl Spec for SendTxChainRevOrder {
         });
 
         assert!(node_a.get_transaction(family.a().hash()) == TxStatus::pending());
-        // tx_b should remain in tx-pool
-        // assert!(node_a.get_transaction(family.b().hash()) == TxStatus::unknown());
+        assert_eq!(
+            node_a.get_transaction(family.b().hash()),
+            TxStatus::proposed()
+        );
         let tx_pool_info = node_a.rpc_client().tx_pool_info();
         assert_eq!(tx_pool_info.pending.value(), 1);
+        assert_eq!(tx_pool_info.proposed.value(), 1);
+        assert_eq!(node_a.new_block(None, None, None).transactions().len(), 1);
     }
 }

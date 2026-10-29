@@ -18,7 +18,7 @@ path = "src/main.rs"
 clap.workspace = true
 toml.workspace = true
 ckb-jsonrpc-types.workspace = true
-ckb-app-config.workspace = true
+ckb-app-config = { workspace = true, features = ["test"] }
 ckb-network.workspace = true
 ckb-channel.workspace = true
 ckb-types.workspace = true

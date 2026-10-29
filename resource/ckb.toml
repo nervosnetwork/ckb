@@ -208,12 +208,32 @@ enable_deprecated_rpc = false # {{
 # rpc_batch_limit = 2000
 
 [tx_pool]
-max_tx_pool_size = 180_000_000 # 180mb
-min_fee_rate = 1_000 # Here fee_rate are calculated directly using size in units of shannons/KB
-# min_rbf_rate > min_fee_rate means RBF is enabled
-min_rbf_rate = 1_500 # Here fee_rate are calculated directly using size in units of shannons/KB
+# Accepted transaction capacity, measured in serialized bytes. The pool derives
+# memory and in-flight work bounds internally; this is not a process RSS limit.
+max_tx_pool_size = 180_000_000 # 180 MB
+# Fee rates are shannons per kilobyte; min_rbf_rate > min_fee_rate enables RBF.
+min_fee_rate = 1_000
+min_rbf_rate = 1_500
+# Legacy values below 1,000 are normalized to 1,000 when loading the file.
+max_ancestors_count = 1_000
+
+# Queued verification selects higher fee rates first, with arrival-time ties.
+# Use "arrival_time" for FIFO selection; completion can occur out of order.
+# verify_ordering = "fee_rate"
+# The historical name controls the remote small/large declared-cycle boundary,
+# not a maximum transaction verification budget.
 max_tx_verify_cycles = 70_000_000
-max_ancestors_count = 25
+# Worker count defaults to max(3 * CPU cores / 4, 1). Runtime capacity can
+# further limit concurrent computation to leave room for control and I/O.
+# Set max_tx_verify_workers explicitly to override the automatic worker count.
+
+# Transaction and recent rejection retention.
+# expiry_hours = 12
+# keep_rejected_tx_hashes_days = 7
+# keep_rejected_tx_hashes_count = 10_000_000
+# Paths default under data_dir/tx-pool; relative overrides use the node root.
+# persisted_data = "data/tx-pool/persisted_data"
+# recent_reject = "data/tx-pool/recent_reject"
 
 [store]
 header_cache_size          = 4096

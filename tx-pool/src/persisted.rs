@@ -1,4 +1,5 @@
-use crate::TxPool;
+use crate::constants::ResidencyLimits;
+use ckb_app_config::TxPoolConfig;
 use ckb_error::{AnyError, OtherError};
 use ckb_types::{
     core::TransactionView,
@@ -6,86 +7,249 @@ use ckb_types::{
     prelude::*,
 };
 use std::{
+    collections::HashSet,
     fs::OpenOptions,
-    io::{Read as _, Write as _},
+    io::{BufWriter, Read as _, Write as _},
+    path::{Path, PathBuf},
 };
 
-/// The version of the persisted tx-pool data.
-pub(crate) const VERSION: u32 = 1;
+pub(crate) const VERSION: u32 = 2;
+const LEGACY_VERSION: u32 = 1;
+const MAGIC: &[u8; 8] = b"CKBTPV2\0";
+const PERSISTENCE_READ_ALLOWANCE: usize = 1024 * 1024;
 
-impl TxPool {
-    pub(crate) fn load_from_file(&self) -> Result<Vec<TransactionView>, AnyError> {
-        let mut persisted_data_file = self.config.persisted_data.clone();
-        persisted_data_file.set_extension(format!("v{VERSION}"));
+#[derive(Clone, Debug, Default)]
+pub(crate) struct PersistenceSnapshot {
+    /// Accepted replay prefix produced by `Selection::replay_transactions`.
+    /// Preserve that order: raw bodies cannot reconstruct expanded cell-dep constraints.
+    pub(crate) accepted: Vec<TransactionView>,
+    pub(crate) recovery: Vec<TransactionView>,
+}
 
-        if persisted_data_file.exists() {
-            let mut file = OpenOptions::new()
-                .read(true)
-                .open(&persisted_data_file)
-                .map_err(|err| {
-                    let errmsg = format!(
-                        "Failed to open the tx-pool persisted data file [{persisted_data_file:?}], cause: {err}"
-                    );
-                    OtherError::new(errmsg)
-                })?;
-            let mut buffer = Vec::new();
-            file.read_to_end(&mut buffer).map_err(|err| {
-                let errmsg = format!(
-                    "Failed to read the tx-pool persisted data file [{persisted_data_file:?}], cause: {err}"
-                );
-                OtherError::new(errmsg)
-            })?;
+/// Accepted-first replay input whose recovery partition has been ordered and
+/// deduplicated. Default represents no persisted input; replay consumes it once.
+#[derive(Default)]
+pub(crate) struct PreparedReplay(Vec<TransactionView>);
 
-            let persisted_data = TransactionVecReader::from_slice(&buffer)
-                .map_err(|err| {
-                    let errmsg = format!(
-                        "The tx-pool persisted data file [{persisted_data_file:?}] is broken, cause: {err}"
-                    );
-                    OtherError::new(errmsg)
-                })?
-                .to_entity();
+impl IntoIterator for PreparedReplay {
+    type Item = TransactionView;
+    type IntoIter = std::vec::IntoIter<TransactionView>;
 
-            Ok(persisted_data
-                .into_iter()
-                .map(|tx| tx.into_view())
-                .collect())
-        } else {
-            Ok(Vec::new())
-        }
+    fn into_iter(self) -> Self::IntoIter {
+        self.0.into_iter()
     }
+}
 
-    pub(crate) fn save_into_file(&mut self) -> Result<(), AnyError> {
-        let mut persisted_data_file = self.config.persisted_data.clone();
-        persisted_data_file.set_extension(format!("v{VERSION}"));
+impl PersistenceSnapshot {
+    /// Startup validates every persisted payload again. Accepted ownership
+    /// wins a defensive full-hash duplicate. Recovery includes mid-reorg work
+    /// and retained replacement history; neither bypasses admission on restart.
+    /// Finish fallible input preparation before starting pool workers. A failed
+    /// recovery attempt can then be discarded without faulting a live pool.
+    pub(crate) fn prepare_replay(mut self) -> Result<PreparedReplay, AnyError> {
+        crate::dependency_sort::sort_transactions(&mut self.recovery)?;
+        let mut seen = self
+            .accepted
+            .iter()
+            .map(TransactionView::hash)
+            .collect::<HashSet<_>>();
+        self.accepted.extend(
+            self.recovery
+                .into_iter()
+                .filter_map(|tx| seen.insert(tx.hash()).then_some(tx)),
+        );
+        Ok(PreparedReplay(self.accepted))
+    }
+}
 
-        let mut file = OpenOptions::new()
+fn versioned_path(base: &Path, version: u32) -> PathBuf {
+    let mut path = base.to_path_buf();
+    path.set_extension(format!("v{version}"));
+    path
+}
+
+fn broken(path: &Path, detail: impl std::fmt::Display) -> AnyError {
+    OtherError::new(format!(
+        "The tx-pool persisted data file [{path:?}] is broken, cause: {detail}"
+    ))
+    .into()
+}
+
+fn read_bounded(path: &Path, max_bytes: usize) -> Result<Vec<u8>, AnyError> {
+    let file = OpenOptions::new().read(true).open(path).map_err(|err| {
+        OtherError::new(format!(
+            "Failed to open the tx-pool persisted data file [{path:?}], cause: {err}"
+        ))
+    })?;
+    let length = file
+        .metadata()
+        .map_err(|err| {
+            OtherError::new(format!(
+                "Failed to stat the tx-pool persisted data file [{path:?}], cause: {err}"
+            ))
+        })?
+        .len();
+    let max_bytes_u64 = u64::try_from(max_bytes).map_err(|_| {
+        broken(
+            path,
+            "configured read bound does not fit the file-size domain",
+        )
+    })?;
+    if length > max_bytes_u64 {
+        return Err(broken(
+            path,
+            format!("file size {length} exceeds bound {max_bytes}"),
+        ));
+    }
+    let length = usize::try_from(length)
+        .map_err(|_| broken(path, "file length does not fit this platform"))?;
+    let mut buffer = Vec::new();
+    buffer
+        .try_reserve_exact(length)
+        .map_err(|err| broken(path, format!("cannot reserve persisted payload: {err}")))?;
+    let read_limit = max_bytes_u64.checked_add(1).ok_or_else(|| {
+        broken(
+            path,
+            "configured read bound cannot carry an overflow sentinel",
+        )
+    })?;
+    file.take(read_limit)
+        .read_to_end(&mut buffer)
+        .map_err(|err| {
+            OtherError::new(format!(
+                "Failed to read the tx-pool persisted data file [{path:?}], cause: {err}"
+            ))
+        })?;
+    if buffer.len() > max_bytes {
+        return Err(broken(
+            path,
+            format!("file grew beyond bound {max_bytes} while being read"),
+        ));
+    }
+    Ok(buffer)
+}
+
+fn persistence_read_bound(config: &TxPoolConfig) -> Result<usize, AnyError> {
+    let residency = ResidencyLimits::from_pool_size(config.max_tx_pool_size)
+        .ok_or_else(|| OtherError::new("tx-pool residency bound overflow"))?;
+    config
+        .max_tx_pool_size
+        .checked_add(residency.pipeline)
+        .and_then(|bytes| bytes.checked_mul(2))
+        .and_then(|bytes| bytes.checked_add(PERSISTENCE_READ_ALLOWANCE))
+        .ok_or_else(|| OtherError::new("tx-pool persistence read bound overflow").into())
+}
+
+fn decode_transactions(path: &Path, bytes: &[u8]) -> Result<Vec<TransactionView>, AnyError> {
+    Ok(TransactionVecReader::from_slice(bytes)
+        .map_err(|err| broken(path, err))?
+        .to_entity()
+        .into_iter()
+        .map(|tx| tx.into_view())
+        .collect())
+}
+
+fn decode_v2(path: &Path, bytes: &[u8]) -> Result<PersistenceSnapshot, AnyError> {
+    let (magic, bytes) = bytes
+        .split_first_chunk::<8>()
+        .ok_or_else(|| broken(path, "invalid v2 header"))?;
+    if magic != MAGIC {
+        return Err(broken(path, "invalid v2 header"));
+    }
+    let (accepted_len, bytes) = bytes
+        .split_first_chunk::<8>()
+        .ok_or_else(|| broken(path, "missing accepted length"))?;
+    let accepted_len = usize::try_from(u64::from_le_bytes(*accepted_len))
+        .map_err(|_| broken(path, "accepted vector length does not fit this platform"))?;
+    let (accepted, recovery) = bytes
+        .split_at_checked(accepted_len)
+        .ok_or_else(|| broken(path, "declared accepted section exceeds file length"))?;
+    let accepted = decode_transactions(path, accepted)?;
+    let recovery = decode_transactions(path, recovery)?;
+    Ok(PersistenceSnapshot { accepted, recovery })
+}
+
+pub(crate) fn write_snapshot(base: &Path, snapshot: PersistenceSnapshot) -> Result<(), AnyError> {
+    let accepted = TransactionVec::new_builder()
+        .extend(snapshot.accepted.iter().map(|tx| tx.data()))
+        .build();
+    let recovery = TransactionVec::new_builder()
+        .extend(snapshot.recovery.iter().map(|tx| tx.data()))
+        .build();
+    let accepted_len = u64::try_from(accepted.as_slice().len())
+        .map_err(|_| OtherError::new("accepted persistence vector is too large".to_owned()))?;
+
+    let path = versioned_path(base, VERSION);
+    let tmp = path.with_extension(format!("v{VERSION}.tmp"));
+    let write_result = (|| -> Result<(), AnyError> {
+        let file = OpenOptions::new()
             .create(true)
             .write(true)
             .truncate(true)
-            .open(&persisted_data_file)
+            .open(&tmp)
             .map_err(|err| {
-                let errmsg = format!(
-                    "Failed to open the tx-pool persisted data file [{persisted_data_file:?}], cause: {err}"
-                );
-                OtherError::new(errmsg)
+                OtherError::new(format!(
+                    "Failed to open temp file [{tmp:?}] for tx-pool persistence, cause: {err}"
+                ))
             })?;
-
-        let txs = TransactionVec::new_builder()
-            .extend(self.drain_all_transactions().iter().map(|tx| tx.data()))
-            .build();
-
-        file.write_all(txs.as_slice()).map_err(|err| {
-            let errmsg = format!(
-                "Failed to write the tx-pool persisted data into file [{persisted_data_file:?}], cause: {err}"
-            );
-            OtherError::new(errmsg)
+        let mut file = BufWriter::new(file);
+        file.write_all(MAGIC)?;
+        file.write_all(&accepted_len.to_le_bytes())?;
+        file.write_all(accepted.as_slice())?;
+        file.write_all(recovery.as_slice())?;
+        file.flush()?;
+        file.get_ref().sync_all().map_err(|err| {
+            OtherError::new(format!("Failed to sync temp file [{tmp:?}], cause: {err}"))
         })?;
-        file.sync_all().map_err(|err| {
-            let errmsg = format!(
-                "Failed to sync the tx-pool persisted data file [{persisted_data_file:?}], cause: {err}"
-            );
-            OtherError::new(errmsg)
+        drop(file);
+        std::fs::rename(&tmp, &path).map_err(|err| {
+            OtherError::new(format!(
+                "Failed to rename temp file [{tmp:?}] to [{path:?}], cause: {err}"
+            ))
         })?;
+        // The committed v2 snapshot supersedes migration input. Leaving v1
+        // behind would resurrect it if an operator later clears only v2.
+        let legacy = versioned_path(base, LEGACY_VERSION);
+        if let Err(error) = std::fs::remove_file(&legacy)
+            && error.kind() != std::io::ErrorKind::NotFound
+        {
+            return Err(OtherError::new(format!(
+                "Failed to remove migrated tx-pool file [{legacy:?}]: {error}"
+            ))
+            .into());
+        }
         Ok(())
+    })();
+    if write_result.is_err() {
+        let _ = std::fs::remove_file(&tmp);
     }
+    write_result
 }
+
+pub(crate) fn load_persistence_snapshot(
+    config: &TxPoolConfig,
+) -> Result<PersistenceSnapshot, AnyError> {
+    let v2 = versioned_path(&config.persisted_data, VERSION);
+    let v1 = versioned_path(&config.persisted_data, LEGACY_VERSION);
+    let max_bytes = persistence_read_bound(config)?;
+    let v2_tmp = v2.with_extension(format!("v{VERSION}.tmp"));
+    let v1_tmp = v1.with_extension(format!("v{LEGACY_VERSION}.tmp"));
+    let _ = std::fs::remove_file(v2_tmp);
+    let _ = std::fs::remove_file(v1_tmp);
+    if v2.exists() {
+        return decode_v2(&v2, &read_bounded(&v2, max_bytes)?);
+    }
+    if v1.exists() {
+        let mut accepted = decode_transactions(&v1, &read_bounded(&v1, max_bytes)?)?;
+        crate::dependency_sort::sort_transactions(&mut accepted)?;
+        return Ok(PersistenceSnapshot {
+            accepted,
+            recovery: Vec::new(),
+        });
+    }
+    Ok(PersistenceSnapshot::default())
+}
+
+#[cfg(test)]
+#[path = "tests/persisted.rs"]
+mod tests;

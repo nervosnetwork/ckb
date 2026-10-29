@@ -27,7 +27,6 @@ ckb-async-runtime.workspace = true
 ckb-stop-handler.workspace = true
 ckb-constant.workspace = true
 ckb-systemtime.workspace = true
-ckb-channel.workspace = true
 ckb-app-config.workspace = true
 ckb-migrate.workspace = true
 ckb-fee-estimator.workspace = true

@@ -9,6 +9,15 @@ use ckb_types::{
 };
 use std::{thread::sleep, time::Duration};
 
+fn mining_block_builder(template: BlockTemplate) -> BlockBuilder {
+    // A fresh template after truncate can share the previous timestamp floor.
+    // Its work ID distinguishes the new block from stored history.
+    let nonce = u128::from(template.work_id.value());
+    packed::Block::from(template)
+        .as_advanced_builder()
+        .nonce(nonce)
+}
+
 pub fn out_bootstrap_period(nodes: &[Node]) {
     if let Some(node0) = nodes.first() {
         node0.mine_until_out_bootstrap_period();
@@ -98,7 +107,7 @@ impl Node {
                 panic!("mine_with_blocking timeout");
             }
         }
-        let block = packed::Block::from(template).as_advanced_builder().build();
+        let block = mining_block_builder(template).build();
         let number = block.number();
         self.rpc_client()
             .submit_block("".to_owned(), block.data().into())
@@ -123,10 +132,7 @@ impl Node {
         }
         // uncles are not included by default,
         // because uncles' proposals can have an impact on the assertions of some tests
-        let block = packed::Block::from(template)
-            .as_advanced_builder()
-            .set_uncles(vec![])
-            .build();
+        let block = mining_block_builder(template).set_uncles(vec![]).build();
         let number = block.number();
         self.rpc_client()
             .submit_block("".to_owned(), block.data().into())
@@ -171,7 +177,7 @@ impl Node {
     {
         for _ in 0..count {
             let template = self.rpc_client().get_block_template(None, None, None);
-            let builder = packed::Block::from(template).as_advanced_builder();
+            let builder = mining_block_builder(template);
             let block = with(builder);
             self.rpc_client()
                 .submit_block("".to_owned(), block.data().into())
@@ -209,7 +215,7 @@ impl Node {
             }
 
             let template = self.rpc_client().get_block_template(None, None, None);
-            let builder = packed::Block::from(template).as_advanced_builder();
+            let builder = mining_block_builder(template);
             let block = with(builder);
             self.rpc_client()
                 .submit_block("".to_owned(), block.data().into())
