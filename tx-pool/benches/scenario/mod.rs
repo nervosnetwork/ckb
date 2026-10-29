@@ -196,7 +196,10 @@ impl BenchmarkScenario {
             Workload::FanoutCohorts => SubmissionOrder::ReverseFanoutCohorts,
             _ => SubmissionOrder::Concurrent,
         };
-        if self.workload == (Workload::Fanout { reverse: false }) {
+        if self.name == "rbf_pressure" {
+            // Establish every accepted victim before deliberately filling ingress.
+            (SubmissionOrder::WindowedRbf, SubmissionOrder::Concurrent)
+        } else if self.workload == (Workload::Fanout { reverse: false }) {
             if self.warm_count == 0 {
                 (order, SubmissionOrder::ParentFirst)
             } else {
@@ -290,6 +293,14 @@ mod tests {
         assert_eq!(
             parse("rbf_pairs_windowed", "130").submission_orders(),
             (SubmissionOrder::WindowedRbf, SubmissionOrder::WindowedRbf)
+        );
+        assert_eq!(
+            parse("rbf_pressure", "130").submission_orders(),
+            (SubmissionOrder::WindowedRbf, SubmissionOrder::Concurrent)
+        );
+        assert_eq!(
+            parse("rbf_pairs", "130").submission_orders(),
+            (SubmissionOrder::Concurrent, SubmissionOrder::Concurrent)
         );
         let callback = parse("always_success_callback_0us", "0");
         assert_eq!(callback.workload, Workload::AlwaysSuccess);

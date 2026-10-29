@@ -335,8 +335,9 @@ python3 tx-pool/scripts/rejection_diagnostics.py \
   /tmp/txpool-rbf-pressure.log --pressure
 ```
 
-This current-controller diagnostic pauses computation after warmup, fills real
-peer ingress, observes refusal before resume, then waits for all first-offer
+This current-controller diagnostic establishes every accepted victim with bounded
+per-peer warmup, then pauses computation and fills real peer ingress with the
+target burst. It observes refusal before resume and waits for all first-offer
 terminals. It checks every refused victim remains, retries using the same peers
 in bounded batches, and verifies exact final callback/relay/live populations.
 Every refusal needs a committed cause, source, phase, original peer/index and
