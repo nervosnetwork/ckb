@@ -90,6 +90,75 @@ fn index_store() {
 }
 
 #[test]
+fn attached_cells_preserve_metadata_across_blocks() {
+    use ckb_types::{
+        bytes::Bytes,
+        core::{BlockBuilder, EpochNumberWithFraction, TransactionBuilder, TransactionInfo},
+    };
+
+    let tmp_dir = TempDir::new().unwrap();
+    let db = RocksDB::open_in(&tmp_dir, COLUMNS);
+    let store = ChainDB::new(db, Default::default());
+    let blocks: Vec<_> = [
+        (17, EpochNumberWithFraction::new(4, 2, 10)),
+        (99, EpochNumberWithFraction::new(9, 3, 20)),
+    ]
+    .into_iter()
+    .map(|(number, epoch)| {
+        let transactions = [0, 1, 3].into_iter().enumerate().map(|(index, outputs)| {
+            TransactionBuilder::default()
+                .version(index as u32)
+                .input(packed::CellInput::new_cellbase_input(number))
+                .outputs((0..outputs).map(|output| {
+                    packed::CellOutput::new_builder()
+                        .capacity(number.saturating_add(output as u64))
+                        .build()
+                }))
+                .outputs_data((0..outputs).map(|output| Bytes::from(vec![7; output]).pack()))
+                .build()
+        });
+        BlockBuilder::default()
+            .number(number)
+            .epoch(epoch)
+            .transactions(transactions)
+            .build()
+    })
+    .collect();
+    let txn = store.begin_transaction();
+    for block in &blocks {
+        txn.insert_block(block).unwrap();
+        txn.attach_block(block).unwrap();
+        crate::attach_block_cell(&txn, block).unwrap();
+    }
+    txn.commit().unwrap();
+
+    for block in &blocks {
+        for (index, transaction) in block.transactions().iter().enumerate() {
+            let info = TransactionInfo {
+                block_number: block.number(),
+                block_epoch: block.epoch(),
+                block_hash: block.hash(),
+                index,
+            };
+            assert_eq!(
+                store.get_transaction_info(&transaction.hash()),
+                Some(info.clone())
+            );
+            for (output_index, (output, data)) in transaction.outputs_with_data_iter().enumerate() {
+                let point = packed::OutPoint::new(transaction.hash(), output_index as u32);
+                let cell = store.get_cell(&point).unwrap();
+                assert_eq!(cell.cell_output, output);
+                assert_eq!(cell.transaction_info, Some(info.clone()));
+                assert_eq!(cell.data_bytes, data.len() as u64);
+                let data_hash = packed::CellOutput::calc_data_hash(&data);
+                assert_eq!(store.get_cell_data(&point), Some((data, data_hash.clone())));
+                assert_eq!(store.get_cell_data_hash(&point), Some(data_hash));
+            }
+        }
+    }
+}
+
+#[test]
 fn freeze_blockv0() {
     let tmp_dir = TempDir::new().unwrap();
     let db = RocksDB::open_in(&tmp_dir, COLUMNS);
