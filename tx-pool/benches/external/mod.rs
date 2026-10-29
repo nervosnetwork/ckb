@@ -22,10 +22,16 @@ pub(super) fn command(args: Vec<String>) -> Option<BenchResult<()>> {
             )
         })()),
         Some("external-run") => Some((|| {
-            let [_, corpus, url, concurrency, poll_ms, timeout_s] = args.as_slice() else {
+            let [_, corpus, url, concurrency, poll_ms, timeout_s, rate @ ..] = args.as_slice()
+            else {
                 return Err(bench_error(
-                    "external-run CORPUS_JSONL RPC_URL CONCURRENCY POLL_MS TIMEOUT_S",
+                    "external-run CORPUS_JSONL RPC_URL CONCURRENCY POLL_MS TIMEOUT_S [ARRIVAL_RATE]",
                 ));
+            };
+            let arrival_rate = match rate {
+                [] => None,
+                [rate] => Some(rate.parse()?),
+                _ => return Err(bench_error("external-run accepts at most one arrival rate")),
             };
             observe::run(
                 Path::new(corpus),
@@ -33,6 +39,7 @@ pub(super) fn command(args: Vec<String>) -> Option<BenchResult<()>> {
                 concurrency.parse()?,
                 poll_ms.parse()?,
                 timeout_s.parse()?,
+                arrival_rate,
             )
         })()),
         _ => None,

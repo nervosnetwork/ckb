@@ -91,11 +91,15 @@ def validate_config(config):
     paths = {"root", "bench", "bench_build", "node", "node_build", "miner", "miner_build", "seed", "corpus"}
     bounds = {"workers": (1, 256), "concurrency": (1, 1024), "poll_ms": (1, 1000),
               "mine_ms": (1, 10_000), "timeout_s": (1, 3600), "rpc_port": (1024, 65534)}
-    require(set(config) == paths | bounds.keys(), "capture configuration fields differ")
+    required = paths | bounds.keys()
+    require(required <= set(config) <= required | {"arrival_rate"}, "capture configuration fields differ")
     for name in paths:
         require(isinstance(config[name], str) and Path(config[name]).is_absolute(), f"{name} must be absolute")
     for name, (lower, upper) in bounds.items():
         require(type(config[name]) is int and lower <= config[name] <= upper, f"invalid {name}")
+    if "arrival_rate" in config:
+        require(type(config["arrival_rate"]) is int and 1 <= config["arrival_rate"] <= 65_536,
+                "arrival_rate must be an integer from 1 to 65536 transactions per second")
 
 
 def external_build(receipt, binary, *, node):
@@ -189,8 +193,11 @@ def run_owned(config, output):
                 if time.monotonic() >= deadline:
                     raise TimeoutError("node readiness timed out")
                 time.sleep(.1)
-        bench = start("executor", [config["bench"], "external-run", config["corpus"], url,
-                    str(config["concurrency"]), str(config["poll_ms"]), str(config["timeout_s"])],
+        command = [config["bench"], "external-run", config["corpus"], url,
+                   str(config["concurrency"]), str(config["poll_ms"]), str(config["timeout_s"])]
+        if "arrival_rate" in config:
+            command.append(str(config["arrival_rate"]))
+        bench = start("executor", command,
                     stdin=subprocess.PIPE, stdout=subprocess.PIPE)
         with selectors.DefaultSelector() as selector:
             selector.register(bench.stdout, selectors.EVENT_READ)
@@ -286,7 +293,7 @@ def capture(config, output):
             "capture artifacts must be outside the source checkout and frozen seed")
     output.mkdir(parents=True, exist_ok=False)
     save(output / "config.json", config)
-    receipt = {"schema": 1, "contract": "fixed_corpus_observed_confirmation_v2", "state": "preparing", "config": config}
+    receipt = {"schema": 1, "contract": "fixed_corpus_observed_confirmation_v3", "state": "preparing", "config": config}
     save(output / "receipt.json", receipt)
     try:
         bench_build = json.loads(Path(config["bench_build"]).read_text())
@@ -313,7 +320,7 @@ def capture(config, output):
         require(completed.returncode == 0, "capture process failed; preserve its logs")
         metadata, hashes = corpus_identity(Path(config["corpus"]))
         receipt["observation"] = parse((output / "stdout.log").read_text(), metadata, hashes,
-                                       load={name: config[name] for name in ("concurrency", "poll_ms", "timeout_s")})
+                                       load={name: config.get(name) for name in ("concurrency", "poll_ms", "timeout_s", "arrival_rate")})
         usage = json.loads((output / "node-usage.json").read_text())
         validate_usage(usage)
         validate_shutdown(json.loads((output / "child-shutdown.json").read_text()))
@@ -336,7 +343,7 @@ def capture(config, output):
 
 def replay(output):
     receipt = json.loads((output / "receipt.json").read_text())
-    require(receipt.get("schema") == 1 and receipt.get("contract") == "fixed_corpus_observed_confirmation_v2"
+    require(receipt.get("schema") == 1 and receipt.get("contract") == "fixed_corpus_observed_confirmation_v3"
             and receipt.get("state") == "complete", "capture is incomplete or unsupported")
     require(artifacts(output) == receipt["artifacts"], "capture artifacts changed")
     validate_node_logs(output)
@@ -350,7 +357,7 @@ def replay(output):
     external_build(receipt["miner_build"], receipt["miner"], node=False)
     metadata, hashes = corpus_identity(corpus)
     observation = parse((output / "stdout.log").read_text(), metadata, hashes,
-                        load={name: receipt["config"][name] for name in ("concurrency", "poll_ms", "timeout_s")})
+                        load={name: receipt["config"].get(name) for name in ("concurrency", "poll_ms", "timeout_s", "arrival_rate")})
     require(observation == receipt["observation"], "saved observation differs from raw evidence")
     require(json.loads((output / "node-usage.json").read_text()) == receipt["node_usage"], "node usage differs")
     validate_usage(receipt["node_usage"])

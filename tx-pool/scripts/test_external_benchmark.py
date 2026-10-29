@@ -10,10 +10,21 @@ from pathlib import Path
 from unittest import mock
 
 from external_benchmark import (capture, configure_seed, external_build, finish_capture, stop_node,
-                                validate_node_logs, validate_shutdown, validate_usage)
+                                validate_config, validate_node_logs, validate_shutdown, validate_usage)
 
 
 class CaptureQualificationTests(unittest.TestCase):
+    def test_optional_arrival_rate_is_positive_integral_and_bounded(self):
+        config = {name: f"/tmp/{name}" for name in
+                  ("root", "bench", "bench_build", "node", "node_build", "miner", "miner_build", "seed", "corpus")}
+        config.update(workers=8, concurrency=100, poll_ms=5, mine_ms=200, timeout_s=60, rpc_port=35110)
+        validate_config(config)
+        for rate in (1, 1500, 65536):
+            validate_config(config | {"arrival_rate": rate})
+        for rate in (None, True, 0, -1, 100.0, "100", 65537):
+            with self.subTest(rate=rate), self.assertRaises(ValueError):
+                validate_config(config | {"arrival_rate": rate})
+
     def test_seed_cannot_redirect_node_data_outside_its_owned_copy(self):
         with tempfile.TemporaryDirectory() as temporary:
             node = Path(temporary)

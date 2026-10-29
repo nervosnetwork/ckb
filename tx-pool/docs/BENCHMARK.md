@@ -486,7 +486,7 @@ transactions, changed witnesses, wrong shape, digest mismatch and truncation.
 Both node versions must consume the **same corpus file and stopped seed**.
 
 [external_benchmark.py](../scripts/external_benchmark.py) accepts a JSON config
-with exactly these fields:
+with these required fields:
 
 | Fields | Meaning |
 |---|---|
@@ -495,6 +495,13 @@ with exactly these fields:
 | `seed`, `corpus` | Absolute stopped node directory and signed JSONL corpus |
 | `workers`, `concurrency` | Node verify workers and bounded simultaneous submission RPCs |
 | `poll_ms`, `mine_ms`, `timeout_s`, `rpc_port` | Observer/miner intervals, deadline and dedicated local RPC port; P2P uses the next port |
+
+The optional `arrival_rate` is an integer from 1 to 65,536 transactions per
+second. Without it, submissions run at the configured concurrency as before.
+With it, transaction `i` arrives at `floor(i * 1e9 / arrival_rate)` nanoseconds
+from the run's monotonic start. The same concurrency limit bounds in-flight
+requests; waiting for capacity never moves those arrivals. Request bodies and
+the finite arrival schedule are prepared before the timed window.
 
 Node receipts bind `sha256`, clean Git `base`/`status`/`patch`, the `command`
 array with `--locked --profile prod`, and Cargo `artifact.target.name=ckb` plus
@@ -532,6 +539,21 @@ bounds, not node commit timestamps**. Report their widths with confirmation TPS
 and latency bounds. Windows below one second are functional evidence only.
 CPU and peak RSS come from `wait4` for the whole node lifetime, including startup,
 drain and shutdown; do not label them as CPU inside the confirmation window.
+
+Fixed-arrival records also retain each scheduled timestamp, including transactions
+not submitted before cancellation or failure. Replay checks the exact schedule,
+refuses early submission and verifies observed RPC concurrency. The report keeps
+submission-to-response latency separate from arrival-to-response latency, which
+includes client queueing, and provides confirmation bounds from both origins.
+Submission-delay percentiles expose saturation or sender scheduling delays;
+a fixed offered rate alone does not prove equal actual arrivals at the node.
+Predeclare an acceptable delay bound before attributing a tail difference to the
+node. P99.9 is a descriptive empirical quantile; report corpus and process-repeat
+counts and do not infer a reliable tail from small samples.
+
+Current external records use result schema 2 and receipt contract
+`fixed_corpus_observed_confirmation_v3`. Preserve the original tools with older
+captures; they do not acquire arrival observations through reanalysis.
 
 Freeze load/miner settings, source/build identities, observation bounds, paired
 AB/BA schedule, repetition counts and an A/A equivalence rule before collecting

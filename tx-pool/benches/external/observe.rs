@@ -12,12 +12,8 @@ use http_body_util::{BodyExt, Full};
 use hyper::{Request, Uri};
 use hyper_util::client::legacy::{Client, connect::HttpConnector};
 use serde_json::{Value, json};
-use std::{
-    collections::HashSet,
-    io::Write,
-    path::Path,
-    time::{Duration, Instant},
-};
+use std::{collections::HashSet, io::Write, path::Path, time::Duration};
+use tokio::time::Instant;
 
 struct Rpc {
     client: Client<HttpConnector, Full<Bytes>>,
@@ -87,6 +83,7 @@ fn nanos(start: Instant) -> u64 {
 
 #[derive(Default)]
 struct Submission {
+    scheduled: Option<u64>,
     started: Option<u64>,
     ended: Option<u64>,
     response: Option<Value>,
@@ -106,6 +103,11 @@ async fn submit(
 ) -> BenchResult<()> {
     let mut requests = stream::iter(requests.iter().zip(submissions.iter_mut()))
         .map(|(transaction, record)| async move {
+            if let Some(scheduled) = record.scheduled {
+                // Capacity can delay a request, but cannot move its arrival.
+                // The retained schedule exposes that client-side queueing.
+                tokio::time::sleep_until(start + Duration::from_nanos(scheduled)).await;
+            }
             record.started = Some(nanos(start));
             let response = rpc.request(transaction.request.clone()).await;
             record.ended = Some(nanos(start));
@@ -224,11 +226,13 @@ pub(super) fn run(
     concurrency: usize,
     poll_ms: u64,
     timeout_s: u64,
+    arrival_rate: Option<u64>,
 ) -> BenchResult<()> {
     require(
         (1..=1024).contains(&concurrency)
             && (1..=1000).contains(&poll_ms)
-            && (1..=3600).contains(&timeout_s),
+            && (1..=3600).contains(&timeout_s)
+            && arrival_rate.is_none_or(|rate| (1..=65_536).contains(&rate)),
         "external run bounds are invalid",
     )?;
     let Corpus {
@@ -271,7 +275,14 @@ pub(super) fn run(
         std::io::stdout().flush()?;
         let mut gate = String::new();
         require(std::io::stdin().read_line(&mut gate)? > 0 && gate == "start\n", "submission gate was not released")?;
-        let mut submissions: Vec<_> = (0..requests.len()).map(|_| Submission::default()).collect();
+        let mut submissions: Vec<_> = (0..requests.len())
+            .map(|index| Submission {
+                // Corpus bounds keep this product within u64. Retain arrivals
+                // even for requests never started before failure or timeout.
+                scheduled: arrival_rate.map(|rate| index as u64 * 1_000_000_000 / rate),
+                ..Submission::default()
+            })
+            .collect();
         let mut blocks = Vec::new();
         let start = Instant::now();
         let outcome = tokio::time::timeout(Duration::from_secs(timeout_s), async {
@@ -284,12 +295,13 @@ pub(super) fn run(
         let mut writer = std::io::BufWriter::new(std::io::stdout().lock());
         for (index, (transaction, record)) in requests.iter().zip(&submissions).enumerate() {
             writeln!(writer, "EXTERNAL_SEND {}", json!({"index":index,"hash":transaction.hash,"attempt":0,
-                "submitted_ns":record.started,"rpc_completed_ns":record.ended,"response":record.response}))?;
+                "scheduled_ns":record.scheduled,"submitted_ns":record.started,
+                "rpc_completed_ns":record.ended,"response":record.response}))?;
         }
         for block in &blocks { writeln!(writer, "EXTERNAL_BLOCK {block}")?; }
-        writeln!(writer, "EXTERNAL_RESULT {}", json!({"schema":1,"outcome":if outcome.is_ok(){"success"}else{"failure"},
+        writeln!(writer, "EXTERNAL_RESULT {}", json!({"schema":2,"outcome":if outcome.is_ok(){"success"}else{"failure"},
             "error":outcome.as_ref().err().map(ToString::to_string),"corpus":metadata,"concurrency":concurrency,
-            "poll_ms":poll_ms,"timeout_s":timeout_s,"elapsed_ns":ended,"automatic_retries":0,
+            "poll_ms":poll_ms,"timeout_s":timeout_s,"arrival_rate":arrival_rate,"elapsed_ns":ended,"automatic_retries":0,
             "clock":"process_monotonic","confirmation":"first_observed_canonical_block_with_last_negative_bound",
             "build":{"profiling":cfg!(feature="profiling"),"allocation_observation":cfg!(feature="allocation-observation"),
                 "debug_assertions":cfg!(debug_assertions)}}))?;
@@ -300,26 +312,153 @@ pub(super) fn run(
 
 #[cfg(test)]
 mod tests {
+    use super::*;
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+    #[allow(dead_code, reason = "The harness-free benchmark omits test functions.")]
+    async fn read_request(stream: &mut tokio::net::TcpStream, body: &[u8]) -> BenchResult<()> {
+        let mut headers = Vec::new();
+        while !headers.ends_with(b"\r\n\r\n") {
+            require(headers.len() < 4096, "test request headers exceeded bound")?;
+            headers.push(stream.read_u8().await?);
+        }
+        let mut received = vec![0; body.len()];
+        stream.read_exact(&mut received).await?;
+        require(
+            received == body,
+            "test server received a different RPC body",
+        )
+    }
+
+    #[allow(dead_code, reason = "The harness-free benchmark omits test functions.")]
+    async fn respond(stream: &mut tokio::net::TcpStream, hash: &str) -> BenchResult<()> {
+        let response = json!({"jsonrpc":"2.0","id":1,"result":hash}).to_string();
+        stream
+            .write_all(
+                format!(
+                    "HTTP/1.1 200 OK\r\nContent-Length: {}\r\n\r\n{response}",
+                    response.len()
+                )
+                .as_bytes(),
+            )
+            .await?;
+        Ok(())
+    }
+
+    #[test]
+    fn invalid_arrival_rate_is_rejected_before_reading_the_corpus() {
+        for rate in [0, 65_537] {
+            let error = run(
+                Path::new("unused-corpus"),
+                "unused-url",
+                1,
+                5,
+                60,
+                Some(rate),
+            )
+            .unwrap_err();
+            assert_eq!(error.to_string(), "external run bounds are invalid");
+        }
+    }
+
+    #[tokio::test]
+    async fn capacity_delay_preserves_arrivals_and_all_request_outcomes() -> BenchResult<()> {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await?;
+        let rpc = Rpc::new(&format!("http://{}", listener.local_addr()?))?;
+        let body = request_body("send_transaction", json!([{}]))?;
+        let requests = ["a", "b", "c"].map(|value| PreparedTransaction {
+            hash: format!("0x{}", value.repeat(64)),
+            request: body.clone(),
+        });
+        let mut records = [0, 10_000_000, 20_000_000].map(|scheduled| Submission {
+            scheduled: Some(scheduled),
+            ..Submission::default()
+        });
+        let start = Instant::now();
+        let server = async {
+            let (mut connection, _) = listener.accept().await?;
+            for (index, request) in requests.iter().enumerate() {
+                read_request(&mut connection, &body).await?;
+                if index == 0 {
+                    // The only in-flight slot stays occupied beyond both later
+                    // arrivals. Replying is the event that releases that slot.
+                    tokio::time::sleep_until(start + Duration::from_millis(30)).await;
+                }
+                respond(&mut connection, &request.hash).await?;
+            }
+            Ok::<_, Box<dyn std::error::Error>>(())
+        };
+        tokio::time::timeout(Duration::from_secs(5), async {
+            tokio::try_join!(server, submit(&rpc, &requests, &mut records, 1, start))?;
+            Ok::<_, Box<dyn std::error::Error>>(())
+        })
+        .await??;
+        assert!(records[0].ended.unwrap() >= 30_000_000);
+        for (index, record) in records.iter().enumerate() {
+            assert_eq!(record.scheduled, Some(index as u64 * 10_000_000));
+            assert!(record.started >= record.scheduled);
+            assert_eq!(
+                record.response.as_ref().unwrap()["result"],
+                requests[index].hash
+            );
+        }
+        for adjacent in records.windows(2) {
+            assert!(adjacent[1].started >= adjacent[0].ended);
+        }
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn cancellation_keeps_the_schedule_for_requests_not_yet_started() -> BenchResult<()> {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await?;
+        let rpc = Rpc::new(&format!("http://{}", listener.local_addr()?))?;
+        let body = request_body("send_transaction", json!([{}]))?;
+        let requests = ["a", "b"].map(|value| PreparedTransaction {
+            hash: format!("0x{}", value.repeat(64)),
+            request: body.clone(),
+        });
+        let mut records = [0, 60_000_000_000].map(|scheduled| Submission {
+            scheduled: Some(scheduled),
+            ..Submission::default()
+        });
+        let start = Instant::now();
+        let (observed, received) = tokio::sync::oneshot::channel();
+        let server = async {
+            let (mut connection, _) = listener.accept().await?;
+            read_request(&mut connection, &body).await?;
+            let _ = observed.send(());
+            Ok::<_, Box<dyn std::error::Error>>(())
+        };
+        let client = async {
+            // Cancellation follows receipt of the first request, independently
+            // of machine speed. Dropping submit also drops its queued futures.
+            tokio::select! {
+                result = submit(&rpc, &requests, &mut records, 1, start) => {
+                    result?;
+                    Err(bench_error("pending arrival completed before cancellation"))
+                }
+                result = received => {
+                    result?;
+                    Ok(())
+                }
+            }
+        };
+        tokio::time::timeout(Duration::from_secs(5), async {
+            tokio::try_join!(server, client)?;
+            Ok::<_, Box<dyn std::error::Error>>(())
+        })
+        .await??;
+        assert!(records[0].started.is_some());
+        assert_eq!(records[1].scheduled, Some(60_000_000_000));
+        assert!(records[1].started.is_none());
+        assert!(records[1].ended.is_none());
+        assert!(records[1].response.is_none());
+        Ok(())
+    }
+
     #[test]
     fn closed_reused_connection_retains_the_failed_rpc_without_replaying() -> super::BenchResult<()>
     {
-        use super::*;
-        use tokio::io::{AsyncReadExt, AsyncWriteExt};
-
-        async fn read_request(stream: &mut tokio::net::TcpStream, body: &[u8]) -> BenchResult<()> {
-            let mut headers = Vec::new();
-            while !headers.ends_with(b"\r\n\r\n") {
-                require(headers.len() < 4096, "test request headers exceeded bound")?;
-                headers.push(stream.read_u8().await?);
-            }
-            let mut received = vec![0; body.len()];
-            stream.read_exact(&mut received).await?;
-            require(
-                received == body,
-                "test server received a different RPC body",
-            )
-        }
-
         let runtime = tokio::runtime::Builder::new_current_thread()
             .enable_all()
             .build()?;
@@ -336,17 +475,7 @@ mod tests {
             let server = async {
                 let (mut connection, _) = listener.accept().await?;
                 read_request(&mut connection, &body).await?;
-                let response =
-                    json!({"jsonrpc":"2.0","id":1,"result":requests[0].hash}).to_string();
-                connection
-                    .write_all(
-                        format!(
-                            "HTTP/1.1 200 OK\r\nContent-Length: {}\r\n\r\n{response}",
-                            response.len()
-                        )
-                        .as_bytes(),
-                    )
-                    .await?;
+                respond(&mut connection, &requests[0].hash).await?;
                 // The second RPC must use this same connection. Closing after
                 // its body is read establishes failure without a timing race.
                 read_request(&mut connection, &body).await?;
