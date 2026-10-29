@@ -36,6 +36,9 @@ pub(in crate::authority) fn resolve(
     entry: &Entry,
     config: &TxPoolConfig,
 ) -> Result<Resolution, Error> {
+    #[cfg(feature = "profiling")]
+    let _span =
+        tracing::trace_span!(target: "ckb_tx_pool_profile", "tx_pool.stage.resolve").entered();
     store.budget.limits.resolved_fits(entry)?;
     let (view, snapshot) = store.snapshot();
     let provider = Provider::new(store, &snapshot);

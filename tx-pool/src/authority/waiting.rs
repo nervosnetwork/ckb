@@ -58,6 +58,9 @@ pub(super) fn wake(
     let Some(page) = store.wake_page(cursor) else {
         return Ok(None);
     };
+    #[cfg(feature = "profiling")]
+    let _span =
+        tracing::trace_span!(target: "ckb_tx_pool_profile", "tx_pool.maintenance.wake").entered();
     let mut plan = Plan::new(view, Class::Trusted, Default::default());
     // The page shares one trigger. Its first observation stays in the Plan
     // and is validated for every waiter when the whole plan commits.

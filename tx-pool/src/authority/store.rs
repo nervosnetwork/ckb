@@ -804,6 +804,10 @@ impl Store {
     }
 
     fn capture(&self, accepted_only: bool) -> Captured {
+        #[cfg(feature = "profiling")]
+        let _span =
+            tracing::trace_span!(target: "ckb_tx_pool_profile", "tx_pool.authority.capture")
+                .entered();
         let view = self.view.read();
         let guards = self.shards.read_all();
         let versions = guards.map(|shard| {
@@ -920,6 +924,10 @@ impl Store {
     /// Owner reservations settle before their guards open, so the accepted
     /// account and owner/queue projections describe this same complete cut.
     pub(super) fn capture_summary(&self) -> Summary {
+        #[cfg(feature = "profiling")]
+        let _span =
+            tracing::trace_span!(target: "ckb_tx_pool_profile", "tx_pool.authority.capture")
+                .entered();
         let view = self.view.read();
         let guards = self.shards.read_all();
         Summary {

@@ -749,7 +749,39 @@ impl Outbox {
                 .iter()
                 .filter_map(|effect| effect.callback.as_ref())
                 .any(|event| endpoints.callback_enabled(event));
+        #[cfg(feature = "profiling")]
+        let _group_span = tracing::trace_span!(
+            target: "ckb_tx_pool_profile", "tx_pool.publisher.group"
+        )
+        .entered();
+        #[cfg(feature = "profiling")]
+        {
+            // Count the selected ready prefix without holding the FIFO lock.
+            // These creation-only markers have no entered-duration meaning.
+            let _prefix_span = match count {
+                1 => tracing::trace_span!(
+                    target: "ckb_tx_pool_profile", "tx_pool.publisher.ready_1"
+                ),
+                2..=4 => tracing::trace_span!(
+                    target: "ckb_tx_pool_profile", "tx_pool.publisher.ready_2_4"
+                ),
+                5..=8 => tracing::trace_span!(
+                    target: "ckb_tx_pool_profile", "tx_pool.publisher.ready_5_8"
+                ),
+                9..=16 => tracing::trace_span!(
+                    target: "ckb_tx_pool_profile", "tx_pool.publisher.ready_9_16"
+                ),
+                _ => tracing::trace_span!(
+                    target: "ckb_tx_pool_profile", "tx_pool.publisher.ready_17_32"
+                ),
+            };
+        }
         if offload {
+            #[cfg(feature = "profiling")]
+            let _offload_span = tracing::trace_span!(
+                target: "ckb_tx_pool_profile", "tx_pool.publisher.offload"
+            )
+            .entered();
             block_offload(|| self.publish_prefix(endpoints, head, count))?;
         } else {
             self.publish_prefix(endpoints, head, count)?;
@@ -1024,6 +1056,9 @@ impl Endpoints {
     }
 
     fn publish(&mut self, effect: &Effect) {
+        #[cfg(feature = "profiling")]
+        let _span = tracing::trace_span!(target: "ckb_tx_pool_profile", "tx_pool.effects.publish")
+            .entered();
         if let Some(rejection) = &effect.rejection {
             rejection.class.record();
             if !matches!(effect.callback, Some(CallbackEvent::Reject(..)))

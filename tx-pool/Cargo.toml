@@ -46,6 +46,10 @@ hyper-util = { workspace = true, features = ["client-legacy", "http1", "http2"] 
 http-body-util.workspace = true
 tokio-util.workspace = true
 ckb-fee-estimator.workspace = true
+tracing = { workspace = true, optional = true }
+tracing-subscriber = { workspace = true, optional = true }
+console-subscriber = { workspace = true, optional = true }
+tonic = { workspace = true, optional = true }
 
 [target.'cfg(unix)'.dependencies]
 libc.workspace = true
@@ -68,6 +72,8 @@ ckb-crypto.workspace = true
 
 [features]
 internal = []
+profiling = ["tracing", "tracing-subscriber"]
+tokio-trace = ["console-subscriber", "tonic", "profiling"]
 # Preserve existing feature selections without an unused direct dependency.
 sentry = []
 with_sentry = ["sentry"]
@@ -77,3 +83,6 @@ march-native = [
     "ckb-store/march-native",
     "ckb-snapshot/march-native",
 ]
+
+[lints.rust]
+unexpected_cfgs = { level = "warn", check-cfg = ['cfg(tokio_unstable)'] }

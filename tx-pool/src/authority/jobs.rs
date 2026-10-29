@@ -140,6 +140,15 @@ pub(super) fn environment(status: Status, snapshot: &Snapshot) -> TxVerifyEnv {
     }
 }
 
+#[cfg_attr(
+    feature = "profiling",
+    tracing::instrument(
+        level = "trace",
+        target = "ckb_tx_pool_profile",
+        name = "tx_pool.stage.verify",
+        skip_all
+    )
+)]
 pub(super) async fn verify(
     store: &Store,
     entry: &Entry,

@@ -723,7 +723,10 @@ dependencies = [
  "ckb-bin",
  "ckb-build-info",
  "console-subscriber",
+ "humantime",
  "tikv-jemallocator",
+ "tokio",
+ "tracing-subscriber",
  "version-compare",
  "winreg",
 ]
@@ -1922,6 +1925,7 @@ dependencies = [
  "ckb-util",
  "ckb-verification",
  "ckb-vm",
+ "console-subscriber",
  "futures-util",
  "http-body-util",
  "hyper",
@@ -1934,6 +1938,9 @@ dependencies = [
  "tempfile",
  "tokio",
  "tokio-util",
+ "tonic",
+ "tracing",
+ "tracing-subscriber",
  "winapi",
 ]
 

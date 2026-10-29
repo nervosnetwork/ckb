@@ -54,6 +54,9 @@ fn current_source(entry: &Entry, previous: &Snapshot, snapshot: &Snapshot) -> Op
 /// accepted pool fit. Keep a dependency-ordered bounded recovery population,
 /// preserving preaccepted peer origins and bans, and invalidate the old view once.
 pub(super) fn recover_bounded(store: &Store, command: &ChainReorgArgs) -> Result<Plan, Error> {
+    #[cfg(feature = "profiling")]
+    let _span =
+        tracing::trace_span!(target: "ckb_tx_pool_profile", "tx_pool.chain.recover").entered();
     let snapshot = command.snapshot();
     let Some(fork) = command.fork() else {
         return clear(store, Some(Arc::clone(snapshot)), ClearScope::All);
@@ -529,6 +532,9 @@ pub(super) fn reconcile(
     command: &ChainReorgArgs,
     config: &TxPoolConfig,
 ) -> Result<Plan, Error> {
+    #[cfg(feature = "profiling")]
+    let _span =
+        tracing::trace_span!(target: "ckb_tx_pool_profile", "tx_pool.chain.reconcile").entered();
     let snapshot = command.snapshot();
     let Some(fork) = command.fork() else {
         return clear(store, Some(Arc::clone(snapshot)), ClearScope::All);

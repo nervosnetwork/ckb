@@ -608,6 +608,9 @@ impl<'a> Application<'a> {
         let store = self.store;
         let plan = &mut self.plan;
         let notice = &mut self.notice;
+        #[cfg(feature = "profiling")]
+        let _span = tracing::trace_span!(target: "ckb_tx_pool_profile", "tx_pool.authority.apply")
+            .entered();
         if store.is_faulted() {
             return Err(Error::Fault("closed generation"));
         }
@@ -636,6 +639,10 @@ impl<'a> Application<'a> {
         if let Some(observer) = &observer {
             observer(plan, false);
         }
+        #[cfg(feature = "profiling")]
+        let acquire_span =
+            tracing::trace_span!(target: "ckb_tx_pool_profile", "tx_pool.authority.acquire")
+                .entered();
         let mut view = if plan.lifecycle.is_some() {
             Guard::Write(store.view.write())
         } else {
@@ -644,6 +651,8 @@ impl<'a> Application<'a> {
         let peer_guards = store.peer_gates.acquire(&changes.locks.peers);
         let dependency_guards = store.dependency_gates.acquire(&changes.locks.dependencies);
         let mut owners = store.shards.acquire(&changes.locks.owners);
+        #[cfg(feature = "profiling")]
+        drop(acquire_span);
         store.validate_original_cut(plan, &view, &owners)?;
         #[cfg(test)]
         if let Some(observer) = &observer {

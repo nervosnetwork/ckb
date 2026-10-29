@@ -514,6 +514,9 @@ pub(super) fn admission(
     store
         .admission_attempts
         .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+    #[cfg(feature = "profiling")]
+    let _span = tracing::trace_span!(target: "ckb_tx_pool_profile", "tx_pool.membership.admission")
+        .entered();
     let (view, snapshot) = store.snapshot();
     if view != verified.resolved().view {
         return Err(Error::Stale);
