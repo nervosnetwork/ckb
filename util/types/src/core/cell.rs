@@ -480,14 +480,14 @@ pub struct BlockCellProvider<'a> {
 impl<'a> BlockCellProvider<'a> {
     /// Creates a new block cell provider from the given block.
     pub fn new(block: &'a BlockView) -> Result<Self, Error> {
-        let output_indices: HashMap<Byte32, usize> = block
-            .transactions()
+        let transactions = block.transactions();
+        let output_indices: HashMap<Byte32, usize> = transactions
             .iter()
             .enumerate()
             .map(|(idx, tx)| (tx.hash(), idx))
             .collect();
 
-        for (idx, tx) in block.transactions().iter().enumerate() {
+        for (idx, tx) in transactions.iter().enumerate() {
             for dep in tx.cell_deps_iter() {
                 if let Some(output_idx) = output_indices.get(&dep.out_point().tx_hash())
                     && *output_idx >= idx
@@ -642,21 +642,17 @@ pub fn get_related_dep_out_points<F: Fn(&OutPoint) -> Option<Bytes>>(
     )
 }
 
-fn parse_dep_group_data(slice: &[u8]) -> Result<OutPointVec, String> {
+/// Parse the canonical dep-group payload: a valid, nonempty `OutPointVec`.
+/// Resolution and pool missing-dependency discovery share this validity rule.
+pub fn parse_dep_group_data(slice: &[u8]) -> Result<OutPointVec, String> {
     if slice.is_empty() {
-        Err("data is empty".to_owned())
-    } else {
-        match OutPointVec::from_slice(slice) {
-            Ok(v) => {
-                if v.is_empty() {
-                    Err("dep group is empty".to_owned())
-                } else {
-                    Ok(v)
-                }
-            }
-            Err(err) => Err(err.to_string()),
-        }
+        return Err("data is empty".to_owned());
     }
+    let points = OutPointVec::from_slice(slice).map_err(|error| error.to_string())?;
+    if points.is_empty() {
+        return Err("dep group is empty".to_owned());
+    }
+    Ok(points)
 }
 
 fn resolve_dep_group<F: FnMut(&OutPoint, bool) -> Result<CellMeta, OutPointError>>(

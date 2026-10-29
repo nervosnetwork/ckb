@@ -25,49 +25,47 @@ use std::collections::HashMap;
 /// Apply the effects of this block on the live cell set.
 pub fn attach_block_cell(txn: &StoreTransaction, block: &BlockView) -> Result<(), Error> {
     let transactions = block.transactions();
+    let block_hash = block.hash();
+    let block_number = block.number();
+    let block_epoch = block.epoch();
 
     // add new live cells
-    let new_cells = transactions
-        .iter()
-        .enumerate()
-        .flat_map(move |(tx_index, tx)| {
-            let tx_hash = tx.hash();
-            let block_hash = block.header().hash();
-            let block_number = block.header().number();
-            let block_epoch = block.header().epoch();
+    let new_cells = transactions.iter().enumerate().flat_map(|(tx_index, tx)| {
+        let tx_hash = tx.hash();
+        let block_hash = &block_hash;
 
-            tx.outputs_with_data_iter()
-                .enumerate()
-                .map(move |(index, (cell_output, data))| {
-                    let out_point = packed::OutPoint::new_builder()
-                        .tx_hash(tx_hash.clone())
-                        .index(index)
-                        .build();
+        tx.outputs_with_data_iter()
+            .enumerate()
+            .map(move |(index, (cell_output, data))| {
+                let out_point = packed::OutPoint::new_builder()
+                    .tx_hash(tx_hash.clone())
+                    .index(index)
+                    .build();
 
-                    let entry = packed::CellEntryBuilder::default()
-                        .output(cell_output)
-                        .block_hash(block_hash.clone())
-                        .block_number(block_number)
-                        .block_epoch(block_epoch)
-                        .index(tx_index)
-                        .data_size(data.len() as u64)
-                        .build();
+                let entry = packed::CellEntryBuilder::default()
+                    .output(cell_output)
+                    .block_hash(block_hash.clone())
+                    .block_number(block_number)
+                    .block_epoch(block_epoch)
+                    .index(tx_index)
+                    .data_size(data.len() as u64)
+                    .build();
 
-                    let data_entry = if !data.is_empty() {
-                        let data_hash = packed::CellOutput::calc_data_hash(&data);
-                        Some(
-                            packed::CellDataEntryBuilder::default()
-                                .output_data(data)
-                                .output_data_hash(data_hash)
-                                .build(),
-                        )
-                    } else {
-                        None
-                    };
+                let data_entry = if !data.is_empty() {
+                    let data_hash = packed::CellOutput::calc_data_hash(&data);
+                    Some(
+                        packed::CellDataEntryBuilder::default()
+                            .output_data(data)
+                            .output_data_hash(data_hash)
+                            .build(),
+                    )
+                } else {
+                    None
+                };
 
-                    (out_point, entry, data_entry)
-                })
-        });
+                (out_point, entry, data_entry)
+            })
+    });
     txn.insert_cells(new_cells)?;
 
     // mark inputs dead

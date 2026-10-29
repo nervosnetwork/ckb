@@ -21,6 +21,7 @@ ckb-notify.workspace = true
 ckb-stop-handler.workspace = true
 ckb-store.workspace = true
 ckb-types.workspace = true
+ckb-tx-pool.workspace = true
 numext-fixed-uint.workspace = true
 rhai = { workspace = true, features = ["no_function", "no_float", "no_module", "sync"] }
 rocksdb = { workspace = true, features = ["snappy"], default-features = false }
