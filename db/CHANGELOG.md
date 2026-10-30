@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.1.2](https://github.com/nervosnetwork/ckb/compare/ckb-db-v1.1.1...ckb-db-v1.1.2) - 2026-10-30
+
+### Changed
+
+- Relax the `ckb-rocksdb` version requirement to allow patch releases.
+
 ## [1.1.1](https://github.com/nervosnetwork/ckb/compare/ckb-db-v1.1.0...ckb-db-v1.1.1) - 2026-06-08
 
 ### Changed
