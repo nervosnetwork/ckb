@@ -2000,6 +2000,67 @@ fn history_capacity_retry_rebuilds_relation_changes_after_dropping_history() {
 }
 
 #[test]
+fn transient_wake_views_release_payload_before_dirty_keys_and_publication() {
+    use ckb_types::{bytes::Bytes, packed::Transaction};
+    use std::{future::Future, task::Context};
+
+    let store = store();
+    let input = OutPoint::new(tx(30_070).hash(), 0);
+    let transaction = spend(30_071, std::slice::from_ref(&input), &[]);
+    let bytes = transaction.data().as_bytes();
+    let mut source = vec![0; 128 * 1024];
+    source[1_024..1_024 + bytes.len()].copy_from_slice(&bytes);
+    let source: Arc<[u8]> = source.into();
+    let address = source.as_ptr() as usize;
+    let backing = Arc::downgrade(&source);
+    let transaction =
+        Transaction::new_unchecked(Bytes::from_owner(source).slice(1_024..1_024 + bytes.len()))
+            .into_view();
+    let point = transaction.input_pts_iter().next().unwrap();
+    assert!(
+        (address..address + 128 * 1024).contains(&(point.as_slice().as_ptr() as usize)),
+        "the input view must retain the fixture's large backing"
+    );
+    drop(point);
+    let candidate = entry(&store, transaction, Source::Local);
+    let hash = candidate.hash();
+    let (mut admission, rejected) =
+        admission(&store, &candidate, 1, 1, Status::Pending, &config()).unwrap();
+    assert!(rejected.is_none());
+    // Accepted callbacks intentionally retain transaction snapshots; this test
+    // isolates the backing owned by Apply's transient wake keys.
+    admission.silence_fixture();
+    store.apply(admission).unwrap();
+    drop(candidate);
+    assert_eq!(backing.strong_count(), 1);
+
+    let key = DependencyKey::Cell(input);
+    let waiter = entry(&store, tx(30_072), Source::Recovery)
+        .with_phase(Phase::Waiting([key.clone()].into()));
+    insert(&store, Arc::clone(&waiter));
+    assert!(store.dirty.lock().is_empty());
+    let mut removal = delete(&store, store.point(&hash).1.unwrap());
+    removal.notify(Effect::reset());
+    let batch = store.apply(removal).unwrap().unwrap();
+    assert!(store.dirty.lock().contains(&key));
+    assert!(store.relation(&RelationKey::Dependency(key)).is_some());
+    let mut completion = std::pin::pin!(batch.wait(&store.outbox));
+    assert!(
+        completion
+            .as_mut()
+            .poll(&mut Context::from_waker(std::task::Waker::noop()))
+            .is_pending()
+    );
+    assert!(
+        backing.upgrade().is_none(),
+        "dirty wake keys and an unpublished batch must not retain the retired payload"
+    );
+    store.apply(delete(&store, waiter)).unwrap();
+    assert!(store.dirty.lock().is_empty());
+    assert!(!store.is_faulted());
+}
+
+#[test]
 fn dirty_keys_retire_with_their_last_owner_without_maintenance() {
     let store = store();
     for nonce in 30_000..30_064 {

@@ -270,9 +270,10 @@ chain-blocked pages ignore refunds that cannot release their gate.
 Direct local requests retain their verified data and active envelope while waiting
 for their committed publication response. Background jobs can return their worker
 and active permit after commit because the outbox owns the remaining obligations.
-A blocked callback can therefore leave committed local work occupying every active
-slot; queued verification then resumes when a caller settles. Reconciliation and
-publication do not acquire these compute slots.
+A blocked callback can therefore leave committed local work occupying active
+slots until those callers settle; the ordinary handler count also bounds requests
+arriving through the controller. Reconciliation and publication do not acquire
+these compute slots.
 
 Accepted owners retain input cells and an inline script proof, but reduce cell-dep
 and dep-group cells to identity/provenance fields. Retained-byte charges include the
@@ -589,7 +590,12 @@ that service generation, including if the block consumer later requests Resume.
 `service_started() == false` precedes complete joins.
 
 Each bounded request lane has fixed native threads: two reserved readers and
-`2 × max(W, 1)` ordinary handlers for `W` verification workers. Each thread drives
+`min(2 × max(W, 1), max(N, 2))` ordinary handlers for `W` verification workers
+and `N` runtime workers. The runtime cap limits native carriers competing for the
+same computation permits; the two-handler floor leaves an ordinary control path
+available when one request waits, including with background verification disabled.
+The cap applies to whole requests, including non-VM work and publication waits;
+additional requests stay in the bounded controller queue. Each thread drives
 its asynchronous receive/request loop with the service runtime, releasing the
 receive guard before processing. Idle threads occupy no Tokio blocking capacity.
 Reserved readers start before replay so its callbacks can query; ordinary handlers

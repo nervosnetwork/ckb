@@ -248,6 +248,11 @@ impl TxPoolServiceBuilder {
             error!("tx-pool handler bound is not representable");
             return;
         };
+        // Bound ordinary request carriers by runtime width. Keep two so one
+        // waiting request cannot block every ordinary control message, including
+        // when verification workers are off.
+        let runtime_workers = handle.clone().into_inner().metrics().num_workers();
+        let handler_limit = handler_limit.min(runtime_workers.max(2));
         let config = Arc::clone(&pool.config);
         let persisted = match tokio::task::spawn_blocking(move || {
             crate::persisted::load_persistence_snapshot(&config)

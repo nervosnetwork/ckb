@@ -12,7 +12,6 @@ use crate::authority::{
     notice::{self, Batch},
     queue::{Queues, WorkStage},
 };
-use crate::util::compact_packed;
 use ckb_network::PeerIndex;
 use ckb_snapshot::Snapshot;
 use ckb_types::{
@@ -133,7 +132,7 @@ impl<'a> OwnerChanges<'a> {
                     before
                         .transaction
                         .output_pts_iter()
-                        .map(|point| DependencyKey::Cell(compact_packed(&point))),
+                        .map(DependencyKey::Cell),
                 );
             }
             for peer in old_peer.into_iter().chain(new_peer) {
@@ -157,12 +156,14 @@ impl<'a> OwnerChanges<'a> {
                 .chain(&edit.after)
                 .filter(|entry| entry.accepted().is_some())
             {
+                // The edits retain this backing through Apply. Only keys that
+                // enter the persistent dirty set need compaction in start_wake.
                 for point in entry
                     .transaction
                     .output_pts_iter()
                     .chain(entry.transaction.input_pts_iter())
                 {
-                    wake.insert(DependencyKey::Cell(compact_packed(&point)));
+                    wake.insert(DependencyKey::Cell(point));
                 }
             }
         }

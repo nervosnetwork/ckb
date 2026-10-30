@@ -997,6 +997,126 @@ async fn public_callback_queries_dry_runs_and_rejects_reentrant_mutation_then_se
     assert!(saved.recovery.is_empty());
 }
 
+async fn public_requests_commit_while_publication_is_held(workers: usize, requests: usize) {
+    use crate::service::{Message, Request, TxPoolServiceBuilder};
+
+    let directory = tempfile::tempdir().unwrap();
+    let configuration = TxPoolConfig {
+        max_tx_verify_workers: workers,
+        persisted_data: directory.path().join("pool"),
+        recent_reject: Default::default(),
+        ..config()
+    };
+    let handle = Handle::new(tokio::runtime::Handle::current(), None);
+    let (mut builder, controller, _relay) = TxPoolServiceBuilder::new(
+        configuration.clone(),
+        chain_snapshot(),
+        None,
+        Arc::new(RwLock::new(init_cache())),
+        &handle,
+        FeeEstimator::new_dummy(),
+    )
+    .unwrap();
+    let pool = builder.pool_for_test();
+    let transactions: Vec<_> = (0..requests)
+        .map(|index| fund(&pool, 4_030 + index as u32))
+        .collect();
+    let target = transactions[0].hash();
+    let (entered, mut callback) = mpsc::unbounded_channel();
+    let (release, held) = std::sync::mpsc::channel();
+    let held = Mutex::new(held);
+    builder.register_pending(Box::new(move |entry| {
+        if entry.transaction.hash() == target {
+            entered.send(()).unwrap();
+            // Dropping release during a failed assertion also frees the callback.
+            assert!(!matches!(
+                held.lock().recv_timeout(Duration::from_secs(10)),
+                Err(std::sync::mpsc::RecvTimeoutError::Timeout)
+            ));
+        }
+    }));
+    let generation = builder.start_with_handle(DummyTxPoolNetwork);
+    within(async {
+        while !controller.service_started() {
+            tokio::task::yield_now().await;
+        }
+    })
+    .await;
+    let mut responses = Vec::new();
+    for (index, transaction) in transactions.iter().enumerate() {
+        let (responder, response) = ckb_channel::oneshot::channel();
+        controller
+            .sender
+            .try_send(Message::SubmitLocalTx(Request::call(
+                bounded(transaction.clone()),
+                responder,
+            )))
+            .unwrap();
+        responses.push(response);
+        if index == 0 {
+            within(callback.recv()).await.unwrap();
+        }
+    }
+    // Each entered request keeps its ordinary handler until publication. These
+    // owner events prove all requested handlers progressed through real VM
+    // verification and commit while the first response remained blocked.
+    for transaction in &transactions {
+        observe(&pool, &transaction.hash(), |entry| {
+            entry.accepted().is_some()
+        })
+        .await;
+    }
+    for response in &responses {
+        assert!(matches!(
+            response.try_recv(),
+            Err(std::sync::mpsc::TryRecvError::Empty)
+        ));
+    }
+    let client = controller.clone();
+    let info = within(tokio::task::spawn_blocking(move || {
+        let info = client.get_tx_pool_info().unwrap();
+        client.update_ibd_state(false).unwrap();
+        info
+    }))
+    .await
+    .unwrap();
+    assert_eq!(info.pending_size, requests * 2);
+    controller.stop();
+    within(async {
+        while controller.service_started() {
+            tokio::task::yield_now().await;
+        }
+    })
+    .await;
+    assert!(
+        !generation.is_finished(),
+        "stop must join the entered callback"
+    );
+    release.send(()).unwrap();
+    for response in responses {
+        within(tokio::task::spawn_blocking(move || response.recv()))
+            .await
+            .unwrap()
+            .unwrap()
+            .unwrap()
+            .unwrap();
+    }
+    within(generation).await.unwrap();
+    assert!(pool.persistence_eligible());
+    let saved = crate::persisted::load_persistence_snapshot(&configuration).unwrap();
+    assert_eq!(saved.accepted.len(), requests * 2);
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn four_runtime_workers_keep_four_public_requests_live_until_publication() {
+    public_requests_commit_while_publication_is_held(3, 4).await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 1)]
+async fn one_runtime_worker_keeps_two_public_requests_live_without_background_workers() {
+    public_requests_commit_while_publication_is_held(0, 2).await;
+}
+
 #[cfg(feature = "internal")]
 #[test]
 fn runtime_shutdown_joins_an_entered_public_request_callback() {
