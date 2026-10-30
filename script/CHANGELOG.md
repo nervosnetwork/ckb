@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.2.2](https://github.com/nervosnetwork/ckb/compare/ckb-script-v1.2.1...ckb-script-v1.2.2) - 2026-10-30
+
+### Added
+
+- *(script)* add notes for max_fds check (#5359) (by @mohanson)
+
+### Removed
+
+- *(script)* remove dead comments (#5353) (by @mohanson)
+
+### Contributors
+
+- @mohanson
+
 ## [1.2.1](https://github.com/nervosnetwork/ckb/compare/ckb-script-v1.2.0...ckb-script-v1.2.1) - 2026-09-28
 
 ### Changed
