@@ -618,13 +618,13 @@ impl PoolRpc for PoolRpcImpl {
 
         self.check_output_validator(outputs_validator, &tx)?;
 
+        let tx_hash = tx.hash();
         let tx_pool = self.shared.tx_pool_controller();
-        let submitted = tx_pool.submit_local_tx(tx.clone()).map_err(|e| {
+        let submitted = tx_pool.submit_local_tx(tx).map_err(|e| {
             error!("Send submit_tx request error {}", e);
             RPCError::ckb_internal_error(e)
         })?;
 
-        let tx_hash = tx.hash();
         submitted
             .map(|()| tx_hash.into())
             .map_err(|reject| RPCError::from_submit_transaction_reject(&reject))
