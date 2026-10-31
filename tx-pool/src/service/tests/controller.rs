@@ -43,6 +43,109 @@ fn controller(sender: mpsc::Sender<Message>) -> TxPoolController {
 }
 
 #[tokio::test]
+async fn local_submission_yields_until_its_result_and_preserves_error_layers() {
+    use crate::{authority::service::Error, error::Reject};
+    use ckb_types::core::TransactionBuilder;
+
+    let (sender, mut receiver) = mpsc::channel(1);
+    let controller = controller(sender);
+    let tx = TransactionBuilder::default().build();
+    for (case, outcome) in [
+        Ok(Ok(())),
+        Ok(Err(Reject::Duplicated(tx.hash()))),
+        Err(Error::Closed.into()),
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        let request = controller.submit_local_tx_async(tx.clone());
+        tokio::pin!(request);
+        assert!(request.as_mut().now_or_never().is_none());
+        let Message::SubmitLocalTx(submission) = receiver.try_recv().unwrap() else {
+            panic!("local submission must use the ordinary request route");
+        };
+        assert_eq!(submission.arguments.into_transaction().as_ref(), &tx);
+        submission.responder.send(outcome).unwrap();
+        match (case, request.await) {
+            (0, Ok(Ok(()))) => {}
+            (1, Ok(Err(Reject::Duplicated(hash)))) => assert_eq!(hash, tx.hash()),
+            (2, Err(error)) => {
+                assert!(matches!(error.downcast_ref::<Error>(), Some(Error::Closed)));
+            }
+            result => panic!("unexpected submission result: {result:?}"),
+        }
+    }
+
+    let request = controller.submit_local_tx_async(tx.clone());
+    tokio::pin!(request);
+    assert!(request.as_mut().now_or_never().is_none());
+    drop(receiver.try_recv().unwrap());
+    let error = request.await.unwrap_err();
+    assert!(error.downcast_ref::<ckb_error::OtherError>().is_some());
+    assert_eq!(error.to_string(), "RecvError receiving on a closed channel");
+
+    let mut request = Box::pin(controller.submit_local_tx_async(tx));
+    assert!(request.as_mut().now_or_never().is_none());
+    drop(request);
+    let Message::SubmitLocalTx(submission) = receiver.try_recv().unwrap() else {
+        panic!("abandoning the reply must not retract an enqueued operation");
+    };
+    assert!(submission.responder.is_closed());
+    assert!(submission.responder.send(Ok(Ok(()))).is_err());
+}
+
+#[tokio::test]
+async fn local_submission_refuses_full_closed_and_reentrant_admission() {
+    use ckb_types::core::TransactionBuilder;
+
+    for closed in [false, true] {
+        let (controller, mut receiver) = full_controller();
+        if closed {
+            receiver.close();
+        }
+        assert_fast_error(
+            controller.submit_local_tx_async(TransactionBuilder::default().build()),
+            if closed {
+                "channel closed"
+            } else {
+                "no available capacity"
+            },
+        );
+        assert!(
+            controller
+                .submit_local_tx(TransactionBuilder::default().build())
+                .unwrap_err()
+                .to_string()
+                .contains(if closed {
+                    "channel closed"
+                } else {
+                    "no available capacity"
+                })
+        );
+        let error = crate::callback::with_callback_context(|| {
+            controller
+                .submit_local_tx_async(TransactionBuilder::default().build())
+                .now_or_never()
+                .expect("callback rejection precedes the first await")
+        })
+        .unwrap_err();
+        assert!(error.to_string().contains("tx-pool callback"));
+        // The synchronous compatibility entry also refuses before attempting
+        // block_in_place on this current-thread runtime.
+        let error = crate::callback::with_callback_context(|| {
+            controller.submit_local_tx(TransactionBuilder::default().build())
+        })
+        .unwrap_err();
+        assert!(error.to_string().contains("tx-pool callback"));
+        assert!(matches!(
+            receiver.try_recv().unwrap(),
+            Message::NotifyTxs(_)
+        ));
+        assert!(receiver.try_recv().is_err());
+    }
+}
+
+#[tokio::test]
 async fn live_cell_controller_returns_the_service_error() {
     let (sender, mut receiver) = mpsc::channel(1);
     let controller = controller(sender);

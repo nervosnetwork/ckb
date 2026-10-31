@@ -131,10 +131,18 @@ Check the full calculation in [budget.rs](../src/authority/budget.rs) before tun
 
 The [controller](../src/service/controller.rs) owns the exact return types.
 Synchronous APIs use the service runtime; direct callback mutation is rejected.
+RPC `send_transaction` awaits `submit_local_tx_async` without blocking a runtime
+worker for its response. Both local submission APIs use the same bounded queue
+and completion boundary. Cancelling the caller after enqueueing abandons its
+reply; the service still processes the admitted request.
+This also applies when the HTTP server's existing 30-second deadline expires:
+asynchronous submission lets that deadline return HTTP 408 while pool work is
+pending. The previous blocking handler could postpone the timeout. Query the
+transaction hash after a timeout; it does not establish rejection or cancellation.
 
 | Operation | Successful return establishes |
 |---|---|
-| `submit_local_tx` | Completed verification/admission outcome; inspect both transport result and inner `Reject` result |
+| `submit_local_tx` / `submit_local_tx_async` | Completed verification/admission and required publication; inspect both transport result and inner `Reject` result |
 | `submit_local_test_tx` | Local resolution completed and script verification queued; missing or spent dependencies reject before queueing |
 | `test_accept_tx` | Same admission policy and final validation without insertion or relay |
 | `remove_local_tx` | Removes the selected transaction and accepted descendants; preserves the network's recent-known history |

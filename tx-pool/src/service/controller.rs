@@ -25,6 +25,7 @@ use ckb_types::{
     },
     packed::{Byte32, OutPoint, ProposalShortId},
 };
+use futures_util::FutureExt;
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::future::Future;
 use std::sync::{
@@ -229,12 +230,33 @@ impl TxPoolController {
 
     /// Submit local tx to tx-pool
     pub fn submit_local_tx(&self, tx: TransactionView) -> Result<SubmitTxResult, AnyError> {
+        let mut submission = std::pin::pin!(self.submit_local_tx_async(tx));
+        // Admission refusals need no blocking runtime boundary. Only an
+        // admitted operation whose response is still pending needs to wait.
+        match submission.as_mut().now_or_never() {
+            Some(result) => result,
+            None => block_in_place(|| self.handle.block_on(submission)),
+        }
+    }
+
+    /// Submit a local transaction and await verification, admission and publication.
+    ///
+    /// The bounded request uses the same route as synchronous submission. Dropping
+    /// this future after enqueueing abandons its reply, not the admitted operation.
+    pub async fn submit_local_tx_async(
+        &self,
+        tx: TransactionView,
+    ) -> Result<SubmitTxResult, AnyError> {
         reject_callback_mutation!("submit_local_tx");
         let tx = match bounded_direct_transaction(tx)? {
             Ok(tx) => tx,
             Err(reason) => return Ok(Err(reason)),
         };
-        send_message!(self, SubmitLocalTx, tx)?
+        let (responder, response) = tokio::sync::oneshot::channel();
+        self.enqueue(Message::SubmitLocalTx(AsyncRequest::call(tx, responder)))?;
+        response
+            .await
+            .map_err(|_| handle_recv_error(oneshot::RecvError))?
     }
 
     /// Check admission without inserting the transaction or relaying it.

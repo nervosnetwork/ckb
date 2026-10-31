@@ -125,7 +125,7 @@ async fn stopping_joins_a_request_waiting_for_verification_resume() {
     let generation = builder.start_with_handle(DummyTxPoolNetwork);
     started(&controller).await;
     controller.suspend_chunk_process().unwrap();
-    let (responder, response) = ckb_channel::oneshot::channel();
+    let (responder, mut response) = tokio::sync::oneshot::channel();
     controller
         .sender
         .try_send(Message::SubmitLocalTx(Request::call(
@@ -147,12 +147,12 @@ async fn stopping_joins_a_request_waiting_for_verification_resume() {
     .unwrap();
     assert!(matches!(
         response.try_recv(),
-        Err(std::sync::mpsc::TryRecvError::Empty)
+        Err(tokio::sync::oneshot::error::TryRecvError::Empty)
     ));
 
     controller.stop();
     within(generation).await.unwrap();
-    assert!(response.recv().unwrap().is_err());
+    assert!(response.await.unwrap().is_err());
     assert!(!pool.is_faulted());
     assert!(!controller.service_started());
 }

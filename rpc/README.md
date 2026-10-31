@@ -4451,6 +4451,9 @@ Verifies a transaction and submits it to the transaction pool.
 Success means verification and pool admission have completed. An already accepted
 transaction is rejected as a duplicate. Use `get_transaction` to track its status
 after submission; admission does not guarantee inclusion in a block.
+An HTTP timeout (408 after 30 seconds) or a disconnected caller does not
+cancel a transaction already queued for processing. Query its hash to learn
+the outcome before submitting it again.
 
 ###### Params
 

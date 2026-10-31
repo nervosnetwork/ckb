@@ -28,6 +28,12 @@ The integration-test submission RPC also resolves locally, but acknowledges a
 Verify owner before background script verification. All RPC entry points reject
 missing or spent dependencies instead of creating Waiting owners.
 
+Ordinary RPC submission awaits an asynchronous reply from the existing bounded
+request route. The service owns an enqueued request through verification,
+admission and required publication even if the RPC caller disconnects. Its
+synchronous controller adapter checks immediate refusals before entering the
+blocking wait; neither API adds another work queue or verification carrier.
+
 Local preparation retains its initial own-hash identity directly and checks it
 against successful resolution before verification. This check adds no premise to
 the verification reads. Preparation rejections consume the resolution reads and

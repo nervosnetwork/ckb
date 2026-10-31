@@ -698,7 +698,7 @@ async fn pause_during_compute_capacity_wait_refunds_permit_and_stop_wakes_waiter
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn suspended_transaction_handlers_leave_chain_completion_independent() {
     use crate::service::{DEFAULT_CHANNEL_SIZE, Message, Request, TxPoolServiceBuilder};
-    use ckb_channel::oneshot;
+    use tokio::sync::oneshot;
 
     let directory = tempfile::tempdir().unwrap();
     let configuration = TxPoolConfig {
@@ -742,10 +742,10 @@ async fn suspended_transaction_handlers_leave_chain_completion_independent() {
     // Every submitted request has left the channel and occupies a handler.
     // Suspend prevents any of them from passing the computation gate.
     assert_eq!(*pool.commands.borrow(), ChunkCommand::Suspend);
-    for response in &submissions {
+    for response in &mut submissions {
         assert!(matches!(
             response.try_recv(),
-            Err(std::sync::mpsc::TryRecvError::Empty)
+            Err(tokio::sync::oneshot::error::TryRecvError::Empty)
         ));
     }
     let client = controller.clone();
@@ -770,12 +770,7 @@ async fn suspended_transaction_handlers_leave_chain_completion_independent() {
         Err(_) => within(completion).await.unwrap().unwrap(),
     }
     for response in submissions {
-        within(tokio::task::spawn_blocking(move || response.recv()))
-            .await
-            .unwrap()
-            .unwrap()
-            .unwrap()
-            .unwrap();
+        within(response).await.unwrap().unwrap().unwrap();
     }
     controller.stop();
     within(generation).await.unwrap();
@@ -1044,7 +1039,7 @@ async fn public_requests_commit_while_publication_is_held(workers: usize, reques
     .await;
     let mut responses = Vec::new();
     for (index, transaction) in transactions.iter().enumerate() {
-        let (responder, response) = ckb_channel::oneshot::channel();
+        let (responder, response) = tokio::sync::oneshot::channel();
         controller
             .sender
             .try_send(Message::SubmitLocalTx(Request::call(
@@ -1066,10 +1061,10 @@ async fn public_requests_commit_while_publication_is_held(workers: usize, reques
         })
         .await;
     }
-    for response in &responses {
+    for response in &mut responses {
         assert!(matches!(
             response.try_recv(),
-            Err(std::sync::mpsc::TryRecvError::Empty)
+            Err(tokio::sync::oneshot::error::TryRecvError::Empty)
         ));
     }
     let client = controller.clone();
@@ -1094,12 +1089,7 @@ async fn public_requests_commit_while_publication_is_held(workers: usize, reques
     );
     release.send(()).unwrap();
     for response in responses {
-        within(tokio::task::spawn_blocking(move || response.recv()))
-            .await
-            .unwrap()
-            .unwrap()
-            .unwrap()
-            .unwrap();
+        within(response).await.unwrap().unwrap().unwrap();
     }
     within(generation).await.unwrap();
     assert!(pool.persistence_eligible());

@@ -23,6 +23,9 @@ pub trait PoolRpc {
     /// Success means verification and pool admission have completed. An already accepted
     /// transaction is rejected as a duplicate. Use `get_transaction` to track its status
     /// after submission; admission does not guarantee inclusion in a block.
+    /// An HTTP timeout (408 after 30 seconds) or a disconnected caller does not
+    /// cancel a transaction already queued for processing. Query its hash to learn
+    /// the outcome before submitting it again.
     ///
     /// ## Params
     ///
@@ -103,7 +106,7 @@ pub trait PoolRpc {
     /// }
     /// ```
     #[rpc(name = "send_transaction")]
-    fn send_transaction(
+    async fn send_transaction(
         &self,
         tx: Transaction,
         outputs_validator: Option<OutputsValidator>,
@@ -608,7 +611,7 @@ impl PoolRpc for PoolRpcImpl {
         Ok(tx_pool.service_started())
     }
 
-    fn send_transaction(
+    async fn send_transaction(
         &self,
         tx: Transaction,
         outputs_validator: Option<OutputsValidator>,
@@ -620,7 +623,7 @@ impl PoolRpc for PoolRpcImpl {
 
         let tx_hash = tx.hash();
         let tx_pool = self.shared.tx_pool_controller();
-        let submitted = tx_pool.submit_local_tx(tx).map_err(|e| {
+        let submitted = tx_pool.submit_local_tx_async(tx).await.map_err(|e| {
             error!("Send submit_tx request error {}", e);
             RPCError::ckb_internal_error(e)
         })?;

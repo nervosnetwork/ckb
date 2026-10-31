@@ -422,7 +422,7 @@ impl RemoteTxSubmission {
 
 pub(crate) enum Message {
     BlockTemplate(SyncRequest<tokio::time::Instant, BlockTemplateResult>),
-    SubmitLocalTx(SyncRequest<BoundedTransaction, Result<SubmitTxResult, AnyError>>),
+    SubmitLocalTx(AsyncRequest<BoundedTransaction, Result<SubmitTxResult, AnyError>>),
     SubmitLocalTestTx(SyncRequest<BoundedTransaction, Result<SubmitTxResult, AnyError>>),
     RemoveLocalTx(SyncRequest<Byte32, RemoveLocalTxResult>),
     TestAcceptTx(SyncRequest<BoundedTransaction, Result<TestAcceptTxResult, AnyError>>),
