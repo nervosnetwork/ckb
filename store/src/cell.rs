@@ -29,8 +29,11 @@ pub fn attach_block_cell(txn: &StoreTransaction, block: &BlockView) -> Result<()
     let block_number = block.number();
     let block_epoch = block.epoch();
 
-    // add new live cells
-    let new_cells = transactions.iter().enumerate().flat_map(|(tx_index, tx)| {
+    // Keep original transaction indices while writing outputs in database-key
+    // order. Stable sorting preserves the final origin for repeated hashes.
+    let mut output_order: Vec<_> = transactions.iter().enumerate().collect();
+    output_order.sort_by(|(_, left), (_, right)| left.hash_ref().cmp(right.hash_ref()));
+    let new_cells = output_order.into_iter().flat_map(|(tx_index, tx)| {
         let tx_hash = tx.hash();
         let block_hash = &block_hash;
 
@@ -70,11 +73,21 @@ pub fn attach_block_cell(txn: &StoreTransaction, block: &BlockView) -> Result<()
 
     // mark inputs dead
     // skip cellbase
-    let deads = transactions
+    let mut deads: Vec<_> = transactions
         .iter()
         .skip(1)
-        .flat_map(|tx| tx.input_pts_iter());
-    txn.delete_cells(deads)?;
+        .flat_map(|tx| tx.input_pts_iter())
+        .collect();
+    // Cell keys sort by hash and then by the numeric output index.
+    deads.sort_unstable_by(|left, right| {
+        let left = left.as_reader();
+        let right = right.as_reader();
+        left.tx_hash()
+            .as_slice()
+            .cmp(right.tx_hash().as_slice())
+            .then_with(|| u32::from(left.index()).cmp(&u32::from(right.index())))
+    });
+    txn.delete_cells(deads.into_iter())?;
 
     Ok(())
 }

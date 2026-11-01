@@ -388,7 +388,7 @@ impl ConsumeUnverifiedBlockProcessor {
                 tip_header.hash(),
                 tip_header.epoch(),
                 cannon_total_difficulty,
-                block.transactions().len(),
+                block.data().transactions().len(),
                 block.data().proposals().len()
             );
 
@@ -427,7 +427,7 @@ impl ConsumeUnverifiedBlockProcessor {
                 block.header().hash(),
                 block.header().epoch(),
                 cannon_total_difficulty,
-                block.transactions().len(),
+                block.data().transactions().len(),
                 block.data().proposals().len()
             );
 
