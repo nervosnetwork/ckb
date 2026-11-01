@@ -125,15 +125,14 @@ impl<'a> NonContextualTransactionVerifier<'a> {
 /// [`TimeRelativeTransactionVerifier`](./struct.TimeRelativeTransactionVerifier.html)
 /// [`CapacityVerifier`](./struct.CapacityVerifier.html)
 /// [`ScriptVerifier`](./struct.ScriptVerifier.html)
-/// [`FeeCalculator`](./struct.FeeCalculator.html)
-pub struct ContextualTransactionVerifier<DL>
-where
-    DL: Send + Sync + Clone + CellDataProvider + HeaderProvider + ExtensionProvider + 'static,
-{
-    pub(crate) time_relative: TimeRelativeTransactionVerifier<DL>,
-    pub(crate) capacity: CapacityVerifier,
-    pub(crate) script: ScriptVerifier<DL>,
-    pub(crate) fee_calculator: FeeCalculator<DL>,
+///
+/// Script preparation is deferred until contextual checks pass and no sealed
+/// proof can be reused. Block verification always calculates the current fee.
+pub struct ContextualTransactionVerifier<DL> {
+    rtx: Arc<ResolvedTransaction>,
+    consensus: Arc<Consensus>,
+    data_loader: DL,
+    tx_env: Arc<TxVerifyEnv>,
     cache_key: TxVerificationCacheKey,
 }
 
@@ -159,22 +158,32 @@ where
         let script_rules = ScriptVerificationRules::from_env(&consensus, &tx_env);
         let cache_key = TxVerificationCacheKey::from_resolved(&rtx, script_rules);
         ContextualTransactionVerifier {
-            time_relative: TimeRelativeTransactionVerifier::new(
-                Arc::clone(&rtx),
-                Arc::clone(&consensus),
-                data_loader.clone(),
-                Arc::clone(&tx_env),
-            ),
-            script: TransactionScriptsVerifier::new(
-                Arc::clone(&rtx),
-                data_loader.clone(),
-                Arc::clone(&consensus),
-                Arc::clone(&tx_env),
-            ),
-            capacity: CapacityVerifier::new(Arc::clone(&rtx), consensus.dao_type_hash()),
-            fee_calculator: FeeCalculator::new(rtx, consensus, data_loader),
+            rtx,
+            consensus,
+            data_loader,
+            tx_env,
             cache_key,
         }
+    }
+
+    fn verify_context(&self) -> Result<(), Error> {
+        TimeRelativeTransactionVerifier::new(
+            Arc::clone(&self.rtx),
+            Arc::clone(&self.consensus),
+            self.data_loader.clone(),
+            Arc::clone(&self.tx_env),
+        )
+        .verify()?;
+        CapacityVerifier::new(Arc::clone(&self.rtx), self.consensus.dao_type_hash()).verify()
+    }
+
+    fn script_verifier(&self) -> ScriptVerifier<DL> {
+        ScriptVerifier::new(
+            Arc::clone(&self.rtx),
+            self.data_loader.clone(),
+            Arc::clone(&self.consensus),
+            Arc::clone(&self.tx_env),
+        )
     }
 
     fn prepare_script_verification(
@@ -182,8 +191,7 @@ where
         max_cycles: Cycle,
         cached: Option<ScriptVerificationProof>,
     ) -> Result<Option<ScriptVerificationOutcome>, Error> {
-        self.time_relative.verify()?;
-        self.capacity.verify()?;
+        self.verify_context()?;
         let Some(proof) = cached.filter(|proof| proof.key() == self.cache_key) else {
             return Ok(None);
         };
@@ -204,7 +212,7 @@ where
         if let Some(outcome) = self.prepare_script_verification(max_cycles, cached)? {
             return Ok(outcome);
         }
-        let cycles = self.script.verify(max_cycles)?;
+        let cycles = self.script_verifier().verify(max_cycles)?;
         Ok(ScriptVerificationOutcome::Executed(
             ScriptVerificationProof::from_vm_success(self.cache_key, cycles),
         ))
@@ -217,15 +225,14 @@ where
         cached: Option<ScriptVerificationProof>,
     ) -> Result<(ScriptVerificationOutcome, Capacity), Error> {
         let outcome = self.verify_scripts(max_cycles, cached)?;
-        let fee = self.fee_calculator.transaction_fee()?;
+        let fee = self.transaction_fee()?;
         Ok((outcome, fee))
     }
 
     /// Verify the non-script block rules for an assume-valid block.
     pub fn verify_block_assume_valid(&self) -> Result<Capacity, Error> {
-        self.time_relative.verify()?;
-        self.capacity.verify()?;
-        Ok(self.fee_calculator.transaction_fee()?)
+        self.verify_context()?;
+        Ok(self.transaction_fee()?)
     }
 
     /// Verify contextual rules and cached proofs, delegating uncached VM execution.
@@ -246,7 +253,10 @@ where
             if let Some(outcome) = self.prepare_script_verification(max_cycles, cached)? {
                 return Ok(Some(outcome));
             }
-            let cycles = self.script.verify_with_runner(max_cycles, runner).await?;
+            let cycles = self
+                .script_verifier()
+                .verify_with_runner(max_cycles, runner)
+                .await?;
             Ok(cycles.map(|cycles| {
                 ScriptVerificationOutcome::Executed(ScriptVerificationProof::from_vm_success(
                     self.cache_key,
@@ -255,34 +265,14 @@ where
             }))
         }
     }
-}
-
-pub struct FeeCalculator<DL> {
-    transaction: Arc<ResolvedTransaction>,
-    consensus: Arc<Consensus>,
-    data_loader: DL,
-}
-
-impl<DL: CellDataProvider + HeaderProvider + ExtensionProvider + EpochProvider> FeeCalculator<DL> {
-    fn new(
-        transaction: Arc<ResolvedTransaction>,
-        consensus: Arc<Consensus>,
-        data_loader: DL,
-    ) -> Self {
-        Self {
-            transaction,
-            consensus,
-            data_loader,
-        }
-    }
 
     fn transaction_fee(&self) -> Result<Capacity, DaoError> {
         // skip tx fee calculation for cellbase
-        if self.transaction.is_cellbase() {
+        if self.rtx.is_cellbase() {
             Ok(Capacity::zero())
         } else {
             DaoCalculator::new(self.consensus.as_ref(), &self.data_loader)
-                .transaction_fee(&self.transaction)
+                .transaction_fee(&self.rtx)
         }
     }
 }

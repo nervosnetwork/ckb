@@ -36,7 +36,13 @@ use ckb_types::{
     packed::{Byte32, CellDep, CellInput, CellOutput, OutPoint, Script},
     prelude::*,
 };
-use std::{cell::Cell, sync::Arc};
+use std::{
+    cell::Cell,
+    sync::{
+        Arc,
+        atomic::{AtomicUsize, Ordering},
+    },
+};
 
 fn time_fixture(since: u64) -> ResolvedTransaction {
     ResolvedTransaction::dummy_resolve(
@@ -561,15 +567,22 @@ pub fn test_capacity_invalid() {
 #[derive(Clone, Default)]
 struct ContextualTestDataLoader {
     header: Option<HeaderView>,
+    cell_data: Option<(OutPoint, Bytes)>,
+    data_hash_reads: Arc<AtomicUsize>,
 }
 
 impl CellDataProvider for ContextualTestDataLoader {
-    fn get_cell_data(&self, _out_point: &OutPoint) -> Option<Bytes> {
-        None
+    fn get_cell_data(&self, out_point: &OutPoint) -> Option<Bytes> {
+        self.cell_data
+            .as_ref()
+            .filter(|(point, _)| point == out_point)
+            .map(|(_, data)| data.clone())
     }
 
-    fn get_cell_data_hash(&self, _out_point: &OutPoint) -> Option<Byte32> {
-        None
+    fn get_cell_data_hash(&self, out_point: &OutPoint) -> Option<Byte32> {
+        self.data_hash_reads.fetch_add(1, Ordering::SeqCst);
+        self.get_cell_data(out_point)
+            .map(|data| CellOutput::calc_data_hash(&data))
     }
 }
 
@@ -623,18 +636,34 @@ fn contextual_verifier_with_sealed_script_proof(
 ) -> (
     ContextualTransactionVerifier<ContextualTestDataLoader>,
     ScriptVerificationProof,
+    Arc<AtomicUsize>,
 ) {
+    let program = Bytes::from_static(include_bytes!("../../../script/testdata/always_success"));
+    let dependency = OutPoint::new(h256!("0x2").into(), 0);
     let transaction = TransactionBuilder::default()
         .input(CellInput::new(OutPoint::new(Byte32::zero(), 0), since))
+        .cell_dep(CellDep::new_builder().out_point(dependency.clone()).build())
         .output(CellOutput::new_builder().capacity(output_capacity).build())
         .output_data(Bytes::new())
         .build();
     let rtx = Arc::new(ResolvedTransaction {
         transaction,
-        resolved_cell_deps: Vec::new(),
+        resolved_cell_deps: vec![CellMeta {
+            out_point: dependency.clone(),
+            data_bytes: program.len() as u64,
+            ..Default::default()
+        }],
         resolved_inputs: vec![
             CellMetaBuilder::from_cell_output(
-                CellOutput::new_builder().capacity(input_capacity).build(),
+                CellOutput::new_builder()
+                    .capacity(input_capacity)
+                    .lock(
+                        Script::new_builder()
+                            .code_hash(CellOutput::calc_data_hash(&program))
+                            .hash_type(ScriptHashType::Data)
+                            .build(),
+                    )
+                    .build(),
                 Bytes::new(),
             )
             .build(),
@@ -648,14 +677,15 @@ fn contextual_verifier_with_sealed_script_proof(
     let rules = ScriptVerificationRules::from_env(&consensus, &tx_env);
     let key = TxVerificationCacheKey::from_resolved(&rtx, rules);
     let proof = ScriptVerificationProof::from_vm_success(key, cached_script_cycles);
+    let data_loader = ContextualTestDataLoader {
+        cell_data: Some((dependency, program)),
+        ..Default::default()
+    };
+    let reads = Arc::clone(&data_loader.data_hash_reads);
     (
-        ContextualTransactionVerifier::new(
-            rtx,
-            consensus,
-            ContextualTestDataLoader::default(),
-            tx_env,
-        ),
+        ContextualTransactionVerifier::new(rtx, consensus, data_loader, tx_env),
         proof,
+        reads,
     )
 }
 
@@ -709,9 +739,11 @@ fn check_cached_cell_origin(hash_type: ScriptHashType, syscall: u16, source: u8)
             )
             .build(),
         ],
-        resolved_cell_deps: vec![
-            CellMetaBuilder::from_cell_output(CellOutput::default(), program).build(),
-        ],
+        resolved_cell_deps: vec![CellMeta {
+            out_point: OutPoint::new(h256!("0x2").into(), 0),
+            data_bytes: program.len() as u64,
+            ..Default::default()
+        }],
         resolved_dep_groups: Vec::new(),
     };
     let consensus = Arc::new(
@@ -720,15 +752,22 @@ fn check_cached_cell_origin(hash_type: ScriptHashType, syscall: u16, source: u8)
             .build(),
     );
     let env = Arc::new(TxVerifyEnv::new_commit(&origin));
+    let data_loader = ContextualTestDataLoader {
+        header: Some(origin.clone()),
+        cell_data: Some((OutPoint::new(h256!("0x2").into(), 0), program)),
+        ..Default::default()
+    };
+    let reads = &data_loader.data_hash_reads;
     let verifier = |rtx: &ResolvedTransaction| {
-        ContextualTransactionVerifier::new(
+        let before = reads.load(Ordering::SeqCst);
+        let verifier = ContextualTransactionVerifier::new(
             Arc::new(rtx.clone()),
             Arc::clone(&consensus),
-            ContextualTestDataLoader {
-                header: Some(origin.clone()),
-            },
+            data_loader.clone(),
             Arc::clone(&env),
-        )
+        );
+        assert_eq!(reads.load(Ordering::SeqCst), before);
+        verifier
     };
     let confirmed = TransactionInfo {
         block_hash: origin.hash(),
@@ -754,17 +793,21 @@ fn check_cached_cell_origin(hash_type: ScriptHashType, syscall: u16, source: u8)
             &mut resolved.resolved_cell_deps[0]
         };
         cell.transaction_info = starts_confirmed.then(|| confirmed.clone());
+        let before = reads.load(Ordering::SeqCst);
         let proof = verifier(&resolved)
             .verify_scripts(u64::MAX, None)
             .unwrap()
             .executed_proof()
             .unwrap();
+        assert!(reads.load(Ordering::SeqCst) > before);
+        let before = reads.load(Ordering::SeqCst);
         assert!(
             verifier(&resolved)
                 .verify_scripts(u64::MAX, Some(proof))
                 .unwrap()
                 .was_reused()
         );
+        assert_eq!(reads.load(Ordering::SeqCst), before);
 
         let cell = if source == 1 {
             &mut resolved.resolved_inputs[0]
@@ -775,6 +818,7 @@ fn check_cached_cell_origin(hash_type: ScriptHashType, syscall: u16, source: u8)
         let error = verifier(&resolved)
             .verify_scripts(u64::MAX, Some(proof))
             .unwrap_err();
+        assert!(reads.load(Ordering::SeqCst) > before);
         assert_error_eq!(
             error,
             ScriptError::validation_failure(&resolved.resolved_inputs[0].cell_output.lock(), 42)
@@ -786,7 +830,7 @@ fn check_cached_cell_origin(hash_type: ScriptHashType, syscall: u16, source: u8)
 
 #[test]
 fn test_sealed_script_proof_does_not_skip_capacity_verification() {
-    let (verifier, proof) = contextual_verifier_with_sealed_script_proof(
+    let (verifier, proof, _) = contextual_verifier_with_sealed_script_proof(
         capacity_bytes!(149),
         capacity_bytes!(150),
         42,
@@ -804,7 +848,7 @@ fn test_sealed_script_proof_does_not_skip_capacity_verification() {
 
 #[test]
 fn test_sealed_script_proof_recalculates_fee() {
-    let (verifier, proof) = contextual_verifier_with_sealed_script_proof(
+    let (verifier, proof, _) = contextual_verifier_with_sealed_script_proof(
         capacity_bytes!(200),
         capacity_bytes!(150),
         42,
@@ -821,7 +865,7 @@ fn test_sealed_script_proof_recalculates_fee() {
 
 #[test]
 fn test_sealed_script_proof_respects_max_cycles() {
-    let (verifier, proof) = contextual_verifier_with_sealed_script_proof(
+    let (verifier, proof, _) = contextual_verifier_with_sealed_script_proof(
         capacity_bytes!(200),
         capacity_bytes!(150),
         42,
@@ -878,12 +922,13 @@ async fn test_contextual_entry_points_preserve_error_and_cache_priority() {
         (0, capacity_bytes!(200), 42, None),
     ];
     for (since, input_capacity, max_cycles, expected) in cases {
-        let (verifier, proof) = contextual_verifier_with_sealed_script_proof(
+        let (verifier, proof, reads) = contextual_verifier_with_sealed_script_proof(
             input_capacity,
             capacity_bytes!(150),
             42,
             since,
         );
+        assert_eq!(reads.load(Ordering::SeqCst), 0);
         // Context errors and reusable proofs must bypass the VM runner.
         let results = [
             verifier.verify_scripts(max_cycles, Some(proof)),
@@ -904,7 +949,76 @@ async fn test_contextual_entry_points_preserve_error_and_cache_priority() {
                 assert_eq!(outcome.cycles(), 42);
             }
         }
+        assert_eq!(reads.load(Ordering::SeqCst), 0);
     }
+}
+
+#[test]
+fn assume_valid_does_not_prepare_scripts() {
+    let (verifier, _, reads) = contextual_verifier_with_sealed_script_proof(
+        capacity_bytes!(200),
+        capacity_bytes!(150),
+        42,
+        0,
+    );
+    assert_eq!(
+        verifier.verify_block_assume_valid().unwrap(),
+        capacity_bytes!(50)
+    );
+    assert_eq!(reads.load(Ordering::SeqCst), 0);
+}
+
+#[cfg(not(target_family = "wasm"))]
+#[tokio::test]
+async fn uncached_verification_prepares_scripts_and_preserves_runner_stop() {
+    use ckb_script::{SchedulerRunner, types::TerminatedResult};
+
+    struct StopRunner(usize);
+
+    impl<S: Send> SchedulerRunner<S> for StopRunner {
+        async fn run(
+            &mut self,
+            _scheduler: S,
+            _max_cycles: Cycle,
+        ) -> Result<Option<TerminatedResult>, ckb_vm::Error> {
+            self.0 += 1;
+            Ok(None)
+        }
+    }
+
+    let (verifier, _, reads) = contextual_verifier_with_sealed_script_proof(
+        capacity_bytes!(200),
+        capacity_bytes!(150),
+        42,
+        0,
+    );
+    assert_eq!(reads.load(Ordering::SeqCst), 0);
+    let mut runner = StopRunner(0);
+    assert!(
+        verifier
+            .verify_with_runner(u64::MAX, None, &mut runner)
+            .await
+            .unwrap()
+            .is_none()
+    );
+    assert_eq!(runner.0, 1);
+    assert!(reads.load(Ordering::SeqCst) > 0);
+    let proof = verifier
+        .verify_scripts(u64::MAX, None)
+        .unwrap()
+        .executed_proof()
+        .unwrap();
+    let before = reads.load(Ordering::SeqCst);
+    assert!(
+        verifier
+            .verify_with_runner(u64::MAX, Some(proof), &mut runner)
+            .await
+            .unwrap()
+            .unwrap()
+            .was_reused()
+    );
+    assert_eq!(runner.0, 1);
+    assert_eq!(reads.load(Ordering::SeqCst), before);
 }
 
 #[test]
