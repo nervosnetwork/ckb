@@ -262,6 +262,63 @@ fn batch_lookups_preserve_key_order_and_duplicates_across_shards() {
 }
 
 #[test]
+fn proposal_lookups_check_the_prefix_at_hash_boundaries_and_between_neighbors() {
+    for suffix in [0, u8::MAX] {
+        let store = store();
+        let mut low = [suffix; 32];
+        low[..ProposalShortId::TOTAL_SIZE].fill(0);
+        let low = Byte32::new(low);
+        let shard = store.owner_shard(low.as_slice());
+        let neighbors: Vec<_> = (1_u32..65_536)
+            .map(|nonce| {
+                let mut hash = [suffix; 32];
+                hash[..4].copy_from_slice(&nonce.to_be_bytes());
+                Byte32::new(hash)
+            })
+            .filter(|hash| store.owner_shard(hash.as_slice()) == shard)
+            .take(2)
+            .collect();
+        assert_eq!(neighbors.len(), 2, "fixture finds ordered same-shard IDs");
+        let missing = ProposalShortId::from_tx_hash(&neighbors[0]);
+        let high = neighbors[1].clone();
+        let maximum = Byte32::new([u8::MAX; 32]);
+        let owners: Vec<_> = [low, high, maximum]
+            .into_iter()
+            .map(|hash| entry(&store, tx(7748).fake_hash(hash), Source::Recovery))
+            .collect();
+        for owner in &owners {
+            insert(&store, Arc::clone(owner));
+        }
+        let ids = vec![
+            missing.clone(),
+            owners[1].proposal(),
+            owners[2].proposal(),
+            owners[0].proposal(),
+            missing.clone(),
+            owners[2].proposal(),
+        ];
+        let (_, live, committed) = store.compact_lookup(&ids);
+        assert!(committed.is_empty());
+        assert_eq!(
+            live.iter()
+                .map(|(_, owner)| owner.hash())
+                .collect::<Vec<_>>(),
+            [1, 2, 0, 2].map(|index| owners[index].hash())
+        );
+        assert_eq!(
+            store.filter_fresh_proposals(ids),
+            vec![missing.clone(), missing]
+        );
+        for owner in owners {
+            let id = owner.proposal();
+            store.apply(delete(&store, owner)).unwrap();
+            assert!(store.compact_lookup(std::slice::from_ref(&id)).1.is_empty());
+            assert_eq!(store.filter_fresh_proposals(vec![id.clone()]), vec![id]);
+        }
+    }
+}
+
+#[test]
 fn owner_edit_groups_cover_mixed_guards_and_empty_clear_shards() {
     let store = store();
     let owners: Vec<_> = shard_identities(&store)
@@ -307,6 +364,7 @@ fn owner_edit_groups_cover_mixed_guards_and_empty_clear_shards() {
         let mut clear = Plan::new(view, Class::Trusted, reads);
         clear.lifecycle = Some(super::plan::LifecycleWrite {
             snapshot,
+            proposals: None,
             replace_generation: true,
             committed: Vec::new(),
         });
@@ -617,6 +675,8 @@ fn projection_role_union_survives_phase_changes_and_duplicate_dependencies() {
     let keys = BTreeSet::from([cell, header]);
     let owner = replace(&store, owner, Phase::Waiting(keys.clone()));
     assert_eq!(roles(&cell_key), Some(Roles::WAITING));
+    let waiting_version = Arc::clone(&store.relation(&cell_key).unwrap().lock().accepted_version);
+    assert!(!Arc::ptr_eq(&version, &waiting_version));
     assert_eq!(roles(&child_key), None);
     assert_eq!(roles(&header_key), Some(Roles::WAITING));
     assert!(
@@ -631,6 +691,10 @@ fn projection_role_union_survives_phase_changes_and_duplicate_dependencies() {
         Phase::Replaced(RecoveryTriggers::RetryInputs(keys)),
     );
     assert_eq!(roles(&cell_key), Some(Roles::WAITING));
+    assert!(Arc::ptr_eq(
+        &waiting_version,
+        &store.relation(&cell_key).unwrap().lock().accepted_version
+    ));
     assert_eq!(roles(&header_key), Some(Roles::WAITING));
     let owner = replace(&store, owner, Phase::Resolve);
     assert_eq!(roles(&cell_key), None);
@@ -1135,7 +1199,8 @@ fn remaining_counter_exhaustion_rejects_before_any_owner_or_notice_change() {
         )
         .unwrap();
         if counter == "view counter" {
-            plan.chain(Arc::clone(&before.snapshot), []);
+            plan.chain(store.snapshot_change(Arc::clone(&before.snapshot)), [])
+                .unwrap();
         }
         plan.wake.insert(key);
         plan.notify(
@@ -1220,7 +1285,26 @@ fn projection_versions_do_not_alias_after_complete_relation_or_peer_reentry() {
     let mut removal = Plan::new(store.snapshot().0, Class::Trusted, Default::default());
     removal.edit(Some(owner), None, None).unwrap();
     store.apply(removal).unwrap();
+    assert!(matches!(
+        store.apply(Plan::new(
+            store.snapshot().0,
+            Class::Trusted,
+            relation.clone(),
+        )),
+        Err(Error::Stale)
+    ));
+    let mut absent = ReadSet::default();
+    assert!(
+        store
+            .members(&key, Roles::DEPENDENCY, &mut absent)
+            .unwrap()
+            .is_empty()
+    );
     accept(&store, transaction, 1, 1, Status::Pending);
+    assert!(matches!(
+        store.apply(Plan::new(store.snapshot().0, Class::Trusted, absent)),
+        Err(Error::Stale)
+    ));
     let mut fresh = ReadSet::default();
     assert_eq!(
         store.members(&key, Roles::DEPENDENCY, &mut fresh).unwrap(),
@@ -1243,7 +1327,22 @@ fn projection_versions_do_not_alias_after_complete_relation_or_peer_reentry() {
     let mut removal = Plan::new(store.snapshot().0, Class::Trusted, Default::default());
     removal.edit(Some(Arc::clone(&remote)), None, None).unwrap();
     store.apply(removal).unwrap();
+    assert!(matches!(
+        store.apply(Plan::new(store.snapshot().0, Class::Trusted, peers.clone())),
+        Err(Error::Stale)
+    ));
+    let mut absent = ReadSet::default();
+    assert!(
+        store
+            .peer_members(93.into(), &mut absent)
+            .unwrap()
+            .is_empty()
+    );
     insert(&store, remote);
+    assert!(matches!(
+        store.apply(Plan::new(store.snapshot().0, Class::Trusted, absent)),
+        Err(Error::Stale)
+    ));
     let mut fresh = ReadSet::default();
     store.peer_members(93.into(), &mut fresh).unwrap();
     assert!(matches!(peers.merge(&fresh), Err(Error::Stale)));
@@ -1686,6 +1785,82 @@ fn phase_and_source_updates_keep_current_proposal_and_exact_expiry() {
         assert!(store.expired(later, 0, 10).is_empty());
         assert!(!store.is_faulted());
     }
+}
+
+#[test]
+fn accepted_expiry_tracks_current_owners_through_metadata_and_phase_changes() {
+    let store = store();
+    let parent = accept(&store, output_tx(6890), 1, 1, Status::Pending);
+    let hash = accept(
+        &store,
+        spend(6891, &[OutPoint::new(parent.clone(), 0)], &[]),
+        1,
+        1,
+        Status::Pending,
+    );
+    let assert_expiry = |before, expected: Option<&Arc<Entry>>| {
+        let owners: Vec<_> = store
+            .expired(Instant::now(), before, 10)
+            .into_iter()
+            .filter(|entry| entry.hash() == hash)
+            .collect();
+        match expected {
+            Some(expected) => {
+                assert_eq!(owners.len(), 1);
+                assert!(Arc::ptr_eq(&owners[0], expected));
+            }
+            None => assert!(owners.is_empty()),
+        }
+    };
+    let owner = store.point(&hash).1.unwrap();
+    assert_expiry(0, None);
+    assert_expiry(1, Some(&owner));
+    let mut accepted = owner.accepted().unwrap().clone();
+    accepted.parents.clear();
+    // A committed parent leaves the child accepted with the same age.
+    let after = owner.with_phase(Phase::Accepted(accepted.clone()));
+    let mut removal = delete(&store, store.point(&parent).1.unwrap());
+    removal
+        .edit(Some(owner), Some(Arc::clone(&after)), None)
+        .unwrap();
+    store.apply(removal).unwrap();
+    let owner = after;
+    assert_expiry(1, Some(&owner));
+
+    // Only this child's metadata changes: no other edit can invalidate the cut.
+    let mut reads = ReadSet::default();
+    assert!(Arc::ptr_eq(
+        &store.get(&hash, &mut reads).unwrap().unwrap(),
+        &owner
+    ));
+    let captured = store.capture_accepted();
+    accepted.forced_status = Some(Status::Gap);
+    let owner = replace(&store, owner, Phase::Accepted(accepted.clone()));
+    assert_expiry(1, Some(&owner));
+    for reads in [reads, captured.reads] {
+        assert!(matches!(
+            store.apply(Plan::new(captured.view, Class::Trusted, reads)),
+            Err(Error::Stale)
+        ));
+    }
+    accepted.timestamp = 10;
+    let owner = replace(&store, owner, Phase::Accepted(accepted.clone()));
+    assert_expiry(10, None);
+    assert_expiry(11, Some(&owner));
+    let owner = replace(&store, owner, Phase::Resolve);
+    assert_expiry(u64::MAX, None);
+    let owner = replace(&store, owner, Phase::Accepted(accepted));
+    assert_expiry(10, None);
+    assert_expiry(11, Some(&owner));
+    store.apply(delete(&store, Arc::clone(&owner))).unwrap();
+    assert_expiry(u64::MAX, None);
+    let mut accepted = owner.accepted().unwrap().clone();
+    accepted.timestamp = 20;
+    let successor = owner.with_phase(Phase::Accepted(accepted));
+    insert(&store, Arc::clone(&successor));
+    assert_expiry(20, None);
+    assert_expiry(21, Some(&successor));
+    assert!(!store.is_faulted());
 }
 
 #[test]
@@ -2191,6 +2366,7 @@ fn dirty_retirement_preserves_a_spender_and_clear_releases_all_queued_keys() {
     let mut clear = Plan::new(view, Class::Trusted, reads);
     clear.lifecycle = Some(super::plan::LifecycleWrite {
         snapshot,
+        proposals: None,
         replace_generation: true,
         committed: Vec::new(),
     });

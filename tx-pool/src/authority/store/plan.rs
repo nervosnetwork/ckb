@@ -1,11 +1,13 @@
 //! A decision owns its original observations, intended owner edits and notices.
 //! Tracked reads extend that decision; only Store can inspect its private state
 //! while validating and committing it.
-use super::{Captured, Roles, Shards, Store, WakePage, compact_dependency, compact_relation};
+use super::{
+    Captured, Roles, Shards, SnapshotChange, Store, WakePage, compact_dependency, compact_relation,
+};
 use crate::{
     authority::{
         budget::Amount,
-        model::{DependencyKey, Entry, Error, RelationKey},
+        model::{DependencyKey, Entry, Error, RelationKey, Status},
         notice::{Class, Effect},
     },
     error::Reject,
@@ -209,8 +211,24 @@ impl Edit {
 #[derive(Clone)]
 pub(super) struct LifecycleWrite {
     pub(super) snapshot: Arc<Snapshot>,
+    pub(super) proposals: Option<Vec<(ProposalShortId, Status, Status)>>,
     pub(super) replace_generation: bool,
     pub(super) committed: Vec<(ProposalShortId, Byte32)>,
+}
+
+impl LifecycleWrite {
+    fn blocks(&mut self, blocks: impl IntoIterator<Item = Arc<BlockView>>) -> Option<Effect> {
+        let blocks: Vec<_> = blocks.into_iter().collect();
+        for block in &blocks {
+            for transaction in block.transactions().iter().skip(1) {
+                self.committed.push((
+                    compact_packed(&transaction.proposal_short_id()),
+                    compact_packed(&transaction.hash()),
+                ));
+            }
+        }
+        (!blocks.is_empty()).then(|| Effect::blocks(blocks))
+    }
 }
 
 /// One decision owns its original observations, owner changes and obligations.
@@ -318,50 +336,59 @@ impl Plan {
         Ok(())
     }
 
-    /// Update the successor view while keeping any attached-block records
-    /// already collected for this lifecycle write.
-    fn lifecycle_write(&mut self, snapshot: Arc<Snapshot>) -> &mut LifecycleWrite {
-        let write = self.lifecycle.get_or_insert_with(|| LifecycleWrite {
-            snapshot: Arc::clone(&snapshot),
+    /// Bind a prepared transition to this decision's original paired view.
+    fn lifecycle_write(&mut self, change: SnapshotChange) -> Result<&mut LifecycleWrite, Error> {
+        change.check_view(self.view)?;
+        if self.lifecycle.is_some() {
+            return Err(Error::Fault("duplicate lifecycle write"));
+        }
+        Ok(self.lifecycle.insert(LifecycleWrite {
+            snapshot: change.next,
+            proposals: change.proposals,
             replace_generation: false,
             committed: Vec::new(),
-        });
-        write.snapshot = snapshot;
-        write
+        }))
     }
 
     /// Advance the lifecycle and invalidate derived relay knowledge together.
-    pub(in crate::authority) fn reset(&mut self, snapshot: Arc<Snapshot>) {
-        self.lifecycle_write(snapshot).replace_generation = false;
+    pub(in crate::authority) fn reset(&mut self, change: SnapshotChange) -> Result<(), Error> {
+        self.lifecycle_write(change)?;
         self.notify(Effect::reset());
+        Ok(())
     }
 
     /// Retire the whole generation and its derived relay knowledge together.
-    pub(in crate::authority) fn replace_generation(&mut self, snapshot: Arc<Snapshot>) {
-        self.lifecycle_write(snapshot).replace_generation = true;
+    pub(in crate::authority) fn replace_generation(
+        &mut self,
+        change: SnapshotChange,
+    ) -> Result<(), Error> {
+        self.lifecycle_write(change)?.replace_generation = true;
         self.notify(Effect::reset());
+        Ok(())
     }
 
     /// Block observations and ordered committed-hash records come from the same
     /// attached blocks; source preparation cannot append one without the other.
     pub(in crate::authority) fn chain(
         &mut self,
-        snapshot: Arc<Snapshot>,
+        change: SnapshotChange,
         blocks: impl IntoIterator<Item = Arc<BlockView>>,
-    ) {
-        let lifecycle = self.lifecycle_write(snapshot);
-        let blocks: Vec<_> = blocks.into_iter().collect();
-        for block in &blocks {
-            for transaction in block.transactions().iter().skip(1) {
-                lifecycle.committed.push((
-                    compact_packed(&transaction.proposal_short_id()),
-                    compact_packed(&transaction.hash()),
-                ));
-            }
-        }
-        if !blocks.is_empty() {
-            self.notify(Effect::blocks(blocks));
-        }
+    ) -> Result<(), Error> {
+        let effect = self.lifecycle_write(change)?.blocks(blocks);
+        self.effects.extend(effect);
+        Ok(())
+    }
+
+    /// Bounded recovery resets derived relay knowledge before block publication.
+    pub(in crate::authority) fn recover(
+        &mut self,
+        change: SnapshotChange,
+        blocks: impl IntoIterator<Item = Arc<BlockView>>,
+    ) -> Result<(), Error> {
+        let effect = self.lifecycle_write(change)?.blocks(blocks);
+        self.notify(Effect::reset());
+        self.effects.extend(effect);
+        Ok(())
     }
 
     #[cfg(test)]

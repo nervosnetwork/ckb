@@ -357,7 +357,6 @@ fn assert_state(store: &Store, expected: &[Expected], wakes: &[DependencyKey]) {
         }
     }
     let mut actual_owners = BTreeMap::new();
-    let mut actual_proposals = BTreeMap::new();
     let mut actual_deadlines = BTreeSet::new();
     let mut actual_times = BTreeSet::new();
     let mut actual_waiting = 0;
@@ -371,9 +370,6 @@ fn assert_state(store: &Store, expected: &[Expected], wakes: &[DependencyKey]) {
                     .insert(Byte32::new(*hash), Arc::clone(owner))
                     .is_none()
             );
-        }
-        for (id, hash) in &shard.proposals {
-            assert!(actual_proposals.insert(*id, hash.clone()).is_none());
         }
         for deadline in &shard.deadlines {
             assert!(actual_deadlines.insert(deadline.clone()));
@@ -394,10 +390,16 @@ fn assert_state(store: &Store, expected: &[Expected], wakes: &[DependencyKey]) {
         assert!(Arc::ptr_eq(actual_owners.get(hash).unwrap(), owner));
         assert!(Arc::ptr_eq(&store.point(hash).1.unwrap(), owner));
     }
-    assert_eq!(
-        actual_proposals, proposals,
-        "state oracle: proposal projection"
-    );
+    let proposal_ids: Vec<_> = proposals
+        .keys()
+        .map(|id| ProposalShortId::new(*id))
+        .collect();
+    let (_, live, _) = store.compact_lookup(&proposal_ids);
+    let actual_proposals: BTreeMap<[u8; ProposalShortId::TOTAL_SIZE], _> = live
+        .into_iter()
+        .map(|(id, entry)| (id.unpack(), entry.hash()))
+        .collect();
+    assert_eq!(actual_proposals, proposals, "state oracle: proposal lookup");
     assert_eq!(
         actual_deadlines, deadlines,
         "state oracle: deadline projection"

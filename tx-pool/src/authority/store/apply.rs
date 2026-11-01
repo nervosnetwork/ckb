@@ -20,7 +20,7 @@ use ckb_types::{
 };
 use ckb_util::parking_lot::Mutex;
 use std::{
-    collections::{BTreeMap, BTreeSet},
+    collections::{BTreeMap, BTreeSet, btree_map},
     sync::{Arc, atomic::Ordering},
     time::Instant,
 };
@@ -33,6 +33,20 @@ struct MemberChange<T> {
 
 // Unique owner hashes in order, each paired with its membership transition.
 type MemberChanges<T> = Vec<(Byte32, MemberChange<T>)>;
+
+struct RelationChange<'a> {
+    key: RelationKey,
+    hash: &'a Byte32,
+    roles: MemberChange<Roles>,
+}
+
+fn relation_change_groups<'a, 'entry>(
+    changes: &'a [RelationChange<'entry>],
+) -> impl Iterator<Item = (&'a RelationKey, &'a [RelationChange<'entry>])> {
+    changes
+        .chunk_by(|a, b| a.key == b.key)
+        .filter_map(|group| group.first().map(|first| (&first.key, group)))
+}
 
 type OwnerEdit<'a> = (ShardIndex, &'a Byte32, &'a Edit);
 
@@ -63,7 +77,8 @@ struct Application<'a> {
 struct OwnerChanges<'a> {
     owner_edits: Vec<OwnerEdit<'a>>,
     locks: CommitLocks,
-    relation_changes: BTreeMap<RelationKey, MemberChanges<Roles>>,
+    // Unique (relation, owner) pairs in order, borrowing Plan's compact hashes.
+    relation_changes: Vec<RelationChange<'a>>,
     peer_changes: BTreeMap<PeerIndex, MemberChanges<bool>>,
 }
 
@@ -95,9 +110,7 @@ impl<'a> OwnerChanges<'a> {
     ) -> Self {
         let mut locks = CommitLocks::default();
         let mut owner_edits = Vec::with_capacity(edits.len());
-        // Plan hashes are unique and ordered; the last per-key change can merge
-        // repeated roles of the current owner without another lookup tree.
-        let mut relation_changes: BTreeMap<RelationKey, MemberChanges<Roles>> = BTreeMap::new();
+        let mut relation_changes = Vec::new();
         let mut peer_changes: BTreeMap<PeerIndex, MemberChanges<bool>> = BTreeMap::new();
         for (hash, edit) in edits {
             let index = store.owner_shard(hash.as_slice());
@@ -107,21 +120,11 @@ impl<'a> OwnerChanges<'a> {
                 continue;
             }
             visit_role_changes(edit, |key, change| {
-                if let Some(changes) = relation_changes.get_mut(&key) {
-                    // Ordered owners keep duplicate roles in the final item.
-                    if let Some((_, roles)) = changes.last_mut().filter(|(last, _)| last == hash) {
-                        roles.before |= change.before;
-                        roles.after |= change.after;
-                    } else {
-                        changes.push((hash.clone(), change));
-                    }
-                } else {
-                    relation_changes.insert(compact_relation(&key), vec![(hash.clone(), change)]);
-                }
-                locks.dependencies.insert(
-                    store.route(&key),
-                    (change.before | change.after).intersects(Roles::SPENDER),
-                );
+                relation_changes.push(RelationChange {
+                    key,
+                    hash,
+                    roles: change,
+                });
             });
             let old_peer = edit.before.as_deref().and_then(Entry::preaccepted_peer);
             let new_peer = edit.after.as_deref().and_then(Entry::preaccepted_peer);
@@ -170,6 +173,24 @@ impl<'a> OwnerChanges<'a> {
         // Route edits once before locking; both guarded passes retain the original
         // shard-major, full-hash order using this bounded borrowed scratch.
         owner_edits.sort_unstable_by_key(|(index, hash, _)| (*index, *hash));
+        // One contiguous scratch replaces a lookup tree and per-relation vectors.
+        // Merge overlapping input/dependency roles before either guarded pass.
+        relation_changes.sort_unstable_by(|a, b| (&a.key, a.hash).cmp(&(&b.key, b.hash)));
+        relation_changes.dedup_by(|duplicate, retained| {
+            if duplicate.key == retained.key && duplicate.hash == retained.hash {
+                retained.roles.before |= duplicate.roles.before;
+                retained.roles.after |= duplicate.roles.after;
+                true
+            } else {
+                false
+            }
+        });
+        for (key, changes) in relation_change_groups(&relation_changes) {
+            let write = changes.iter().any(|change| {
+                (change.roles.before | change.roles.after).intersects(Roles::SPENDER)
+            });
+            locks.dependencies.insert(store.route(key), write);
+        }
         Self {
             owner_edits,
             locks,
@@ -206,11 +227,11 @@ impl<'a> OwnerChanges<'a> {
             for (_, hash, edit) in edits.iter().copied() {
                 if edit.after.is_some() {
                     let proposal = proposal_key(hash.as_slice());
-                    if let Some(existing) = shard.proposals.get(proposal)
-                        && existing != hash
+                    if let Some(existing) = shard.proposal(proposal).map(|entry| entry.hash())
+                        && &existing != hash
                         && plan
                             .edits
-                            .get(existing)
+                            .get(&existing)
                             .is_none_or(|edit| edit.after.is_some())
                     {
                         return Err(Error::Full("proposal short-ID collision".into()));
@@ -224,11 +245,16 @@ impl<'a> OwnerChanges<'a> {
         }
         // Point readers may update different members under compatible
         // dependency gates; check the affected rows before any mutation.
-        for (key, changes) in &self.relation_changes {
+        for (key, changes) in relation_change_groups(&self.relation_changes) {
             let row = store.relation(key);
             let row = row.as_ref().map(|row| row.lock());
             let mut spender = row.as_ref().and_then(|row| row.spender.clone());
-            for (hash, change) in changes {
+            for &RelationChange {
+                hash,
+                roles: change,
+                ..
+            } in changes
+            {
                 if row.as_ref().map_or(Roles::NONE, |row| row.roles(hash)) != change.before {
                     return Err(Error::Fault("relation projection"));
                 }
@@ -236,7 +262,12 @@ impl<'a> OwnerChanges<'a> {
                     spender = None;
                 }
             }
-            for (hash, change) in changes {
+            for &RelationChange {
+                hash,
+                roles: change,
+                ..
+            } in changes
+            {
                 if change.after.intersects(Roles::SPENDER) {
                     if spender.as_ref().is_some_and(|old| old != hash) {
                         return Err(Error::Fault("multiple accepted spenders"));
@@ -294,7 +325,7 @@ impl<'a> OwnerChanges<'a> {
             store.apply_owner_changes(owners, &owner_edits, snapshot, &mut retired.owners);
             retired
         };
-        for (key, changes) in relation_changes {
+        for (key, changes) in relation_change_groups(&relation_changes) {
             store.apply_relation(key, changes, &plan.edits, &plan.wake);
         }
         store.apply_peer_changes(peer_changes);
@@ -409,7 +440,6 @@ impl Shard {
         // Adding a Shard field requires reviewing this complete owner transition.
         let Self {
             owners,
-            proposals,
             deadlines,
             accepted_times,
             waiting,
@@ -418,47 +448,45 @@ impl Shard {
             revision,
             accepted_revision,
         } = self;
-        let proposal = proposal_key(hash.as_slice());
         let before_deadline = edit.before.as_deref().and_then(deadline);
         let after_deadline = edit.after.as_deref().and_then(deadline);
+        let before_accepted = edit.before.as_deref().and_then(Entry::accepted);
+        let after_accepted = edit.after.as_deref().and_then(Entry::accepted);
+        let timestamp_changed = before_accepted.map(|value| value.timestamp)
+            != after_accepted.map(|value| value.timestamp);
         if let Some(before) = &edit.before {
             // Exact owner validation and the population bound
             // make these derived phase-count updates infallible.
             *waiting -= usize::from(matches!(before.phase, Phase::Waiting(_)));
-            // A prior edit in this same plan may already have
-            // transferred this proposal ID to its new owner.
-            if edit.after.is_none() && proposals.get(proposal) == Some(hash) {
-                proposals.remove(proposal);
-            }
             if before_deadline != after_deadline
                 && let Some(deadline) = before_deadline
             {
                 deadlines.remove(&(deadline, hash.clone()));
             }
-            if let Some(accepted) = before.accepted() {
+            if let Some(accepted) = before_accepted {
                 let status = accepted.status(snapshot);
                 *gap -= usize::from(status == Status::Gap);
                 *proposed -= usize::from(status == Status::Proposed);
-                accepted_times.remove(&(accepted.timestamp, hash.clone()));
+                if timestamp_changed {
+                    accepted_times.remove(&(accepted.timestamp, hash.clone()));
+                }
             }
             queues.remove(before);
         }
         if let Some(after) = &edit.after {
             *waiting += usize::from(matches!(after.phase, Phase::Waiting(_)));
-            // An owner update keeps its hash and proposal mapping.
-            if edit.before.is_none() {
-                proposals.insert(*proposal, hash.clone());
-            }
             if before_deadline != after_deadline
                 && let Some(deadline) = after_deadline
             {
                 deadlines.insert((deadline, hash.clone()));
             }
-            if let Some(accepted) = after.accepted() {
+            if let Some(accepted) = after_accepted {
                 let status = accepted.status(snapshot);
                 *gap += usize::from(status == Status::Gap);
                 *proposed += usize::from(status == Status::Proposed);
-                accepted_times.insert((accepted.timestamp, hash.clone()));
+                if timestamp_changed {
+                    accepted_times.insert((accepted.timestamp, hash.clone()));
+                }
             }
             retired.extend(owners.insert(hash.unpack(), Arc::clone(after)));
             queues.insert(after);
@@ -503,14 +531,8 @@ impl LifecycleWrite {
     ) {
         // Owner edits have already installed the final population and counted
         // it against the old view. Only changed canonical phases remain; the
-        // current proposal index also covers owner handoffs in this same cut.
-        let population = owners.iter().map(|(_, shard)| shard.owners.len()).sum();
-        if let Some(changes) = view
-            .get()
-            .snapshot
-            .proposals()
-            .status_changes(self.snapshot.proposals(), population)
-        {
+        // final owner lookup also covers handoffs in this same cut.
+        if let Some(changes) = &self.proposals {
             let mut counts = Shards::new(|| {
                 (
                     MemberChange::<usize>::default(),
@@ -518,16 +540,16 @@ impl LifecycleWrite {
                 )
             });
             for (id, before, after) in changes {
-                let index = store.route(&id);
+                let index = store.route(id);
                 let Some(value) = owners
                     .get(index)
-                    .and_then(|shard| shard.proposal(&id))
+                    .and_then(|shard| shard.proposal(&id.unpack()))
                     .and_then(|entry| entry.accepted())
                 else {
                     continue;
                 };
-                let before = value.status_with(|| before);
-                let after = value.status_with(|| after);
+                let before = value.status_with(|| *before);
+                let after = value.status_with(|| *after);
                 let (gap, proposed) = counts.at_mut(index);
                 gap.before += usize::from(before == Status::Gap);
                 gap.after += usize::from(after == Status::Gap);
@@ -889,9 +911,12 @@ impl Store {
     fn apply_peer_changes(&self, changes: BTreeMap<PeerIndex, MemberChanges<bool>>) {
         for (peer, changes) in changes {
             let mut peers = self.peers.lock();
-            let row = peers
-                .entry(peer)
-                .or_insert_with(|| Arc::new(Mutex::new(Peer::default())));
+            let (row, existed) = match peers.entry(peer) {
+                btree_map::Entry::Occupied(row) => (row.into_mut(), true),
+                btree_map::Entry::Vacant(row) => {
+                    (row.insert(Arc::new(Mutex::new(Peer::default()))), false)
+                }
+            };
             let mut row = row.lock();
             for (hash, change) in changes {
                 if change.after {
@@ -900,8 +925,10 @@ impl Store {
                     row.members.remove(&hash);
                 }
             }
-            row.version = Arc::new(());
             let empty = row.members.is_empty();
+            if existed && !empty {
+                row.version = Arc::new(());
+            }
             drop(row);
             if empty {
                 peers.remove(&peer);
@@ -929,17 +956,28 @@ impl Store {
 
     fn apply_relation(
         &self,
-        key: RelationKey,
-        changes: MemberChanges<Roles>,
+        key: &RelationKey,
+        changes: &[RelationChange<'_>],
         edits: &BTreeMap<Byte32, Edit>,
         wake: &BTreeSet<DependencyKey>,
     ) {
-        let mut collection = self.relations.at(self.route(&key)).lock();
-        let row = collection
-            .entry(key.clone())
-            .or_insert_with(|| Arc::new(Mutex::new(Relation::default())));
+        // Existing rows already own compact keys. Detach scratch backing only
+        // when a new key enters the persistent collection.
+        let mut collection = self.relations.at(self.route(key)).lock();
+        let (row, existed) = match collection.get(key) {
+            Some(row) => (row, true),
+            None => (
+                &*collection.entry(compact_relation(key)).or_default(),
+                false,
+            ),
+        };
         let mut row = row.lock();
-        for (hash, change) in &changes {
+        for &RelationChange {
+            hash,
+            roles: change,
+            ..
+        } in changes
+        {
             if change.before.intersects(Roles::SPENDER) && row.spender.as_ref() == Some(hash) {
                 row.spender = None;
             }
@@ -949,19 +987,24 @@ impl Store {
         let spent = row.spender.is_some()
             || changes
                 .iter()
-                .any(|(_, change)| change.after.intersects(Roles::SPENDER));
-        let accepted_membership_changed = changes.iter().any(|(_, change)| {
-            change.before.intersection(Roles::ACCEPTED)
-                != change.after.intersection(Roles::ACCEPTED)
+                .any(|change| change.roles.after.intersects(Roles::SPENDER));
+        let accepted_membership_changed = changes.iter().any(|change| {
+            change.roles.before.intersection(Roles::ACCEPTED)
+                != change.roles.after.intersection(Roles::ACCEPTED)
         });
-        for (hash, change) in changes {
+        for &RelationChange {
+            hash,
+            roles: change,
+            ..
+        } in changes
+        {
             let member_roles = change.after.intersection(Roles::MEMBERS);
             if member_roles.is_empty() {
-                row.members.remove(&hash);
+                row.members.remove(hash);
             } else {
-                let deferred = matches!(&key, RelationKey::Dependency(key) if wake.contains(key))
+                let deferred = matches!(key, RelationKey::Dependency(key) if wake.contains(key))
                     && edits
-                        .get(&hash)
+                        .get(hash)
                         .and_then(|edit| edit.after.as_ref())
                         .is_some_and(|entry| {
                             matches!(
@@ -985,26 +1028,28 @@ impl Store {
                 );
             }
             if change.after.intersects(Roles::SPENDER) {
-                row.spender = Some(hash);
+                row.spender = Some(hash.clone());
             }
-        }
-        if accepted_membership_changed {
-            row.accepted_version = Arc::new(());
         }
         if row.members.is_empty() {
             // Release the empty BTreeMap root leaf for a spender-only row.
             row.members.clear();
             if row.spender.is_none()
                 && row.wake.take().is_some()
-                && let RelationKey::Dependency(key) = &key
+                && let RelationKey::Dependency(key) = key
             {
                 self.dirty.lock().remove(key);
             }
         }
         let empty = row.is_empty();
+        // New rows already have a fresh marker; removal invalidates a positive
+        // observation through absence. Only a surviving old row needs renewal.
+        if existed && !empty && accepted_membership_changed {
+            row.accepted_version = Arc::new(());
+        }
         drop(row);
         if empty {
-            collection.remove(&key);
+            collection.remove(key);
         }
     }
 

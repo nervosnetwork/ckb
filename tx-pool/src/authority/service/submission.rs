@@ -21,12 +21,13 @@ impl Pool {
         arrival: u64,
     ) -> Result<LocalPreparation, Error> {
         let (view, snapshot) = self.store.snapshot();
-        let before = self.store.point(&transaction.hash()).1;
+        let hash = transaction.hash_ref();
+        let before = self.store.point(hash).1;
         if before
             .as_ref()
             .is_some_and(|entry| entry.accepted().is_some())
         {
-            return Err(Error::Rejected(Reject::Duplicated(transaction.hash())));
+            return Err(Error::Rejected(Reject::Duplicated(hash.clone())));
         }
         let candidate = Arc::new(Entry {
             transaction: Arc::clone(transaction),
@@ -37,7 +38,7 @@ impl Pool {
         let resolved = match non_contextual_verify(snapshot.consensus(), transaction) {
             Err(reject) => {
                 let mut reads = ReadSet::default();
-                reads.observe_owner(&transaction.hash(), before.as_ref())?;
+                reads.observe_owner(hash, before.as_ref())?;
                 Err((reject, reads))
             }
             Ok(()) => match jobs::resolve(&self.store, &candidate, &self.config)? {
@@ -47,11 +48,11 @@ impl Pool {
                     // copying its reads or adding a verification premise.
                     resolved
                         .reads
-                        .check_owner_observation(&transaction.hash(), before.as_ref())?;
+                        .check_owner_observation(hash, before.as_ref())?;
                     Ok(resolved)
                 }
                 Resolution::Waiting(keys, mut reads) => {
-                    reads.observe_owner(&transaction.hash(), before.as_ref())?;
+                    reads.observe_owner(hash, before.as_ref())?;
                     let point = keys
                         .into_iter()
                         .find_map(|key| match key {
@@ -62,7 +63,7 @@ impl Pool {
                     Err((Reject::Resolve(OutPointError::Unknown(point)), reads))
                 }
                 Resolution::Rejected(reject, mut reads) => {
-                    reads.observe_owner(&transaction.hash(), before.as_ref())?;
+                    reads.observe_owner(hash, before.as_ref())?;
                     Err((reject, reads))
                 }
             },

@@ -2309,7 +2309,9 @@ async fn selected_resolution_requeues_once_when_only_the_view_changes() {
         .unwrap()
         .unwrap();
     let mut lifecycle = Plan::new(pool.store.snapshot().0, Class::Critical, Default::default());
-    lifecycle.reset(pool.store.snapshot().1);
+    lifecycle
+        .reset(pool.store.snapshot_change(pool.store.snapshot().1))
+        .unwrap();
     pool.store.apply(lifecycle).unwrap();
     assert!(selected.current());
     assert!(

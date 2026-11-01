@@ -6,7 +6,7 @@ use super::{
     membership::{self, Members},
     model::{DependencyKey, Entry, Error, Phase, Source, Status},
     notice::{Class, Effect},
-    store::{Captured, Plan, Store},
+    store::{Captured, Plan, SnapshotChange, Store},
 };
 use crate::{
     error::Reject,
@@ -14,7 +14,6 @@ use crate::{
     util::compact_packed,
 };
 use ckb_app_config::TxPoolConfig;
-use ckb_proposal_table::ProposalView;
 use ckb_snapshot::Snapshot;
 use ckb_types::{
     core::{BlockView, TransactionView, error::OutPointError},
@@ -147,11 +146,10 @@ pub(super) fn recover_bounded(store: &Store, command: &ChainReorgArgs) -> Result
     for entry in retained.into_values() {
         plan.edit(None, Some(entry), None)?;
     }
-    plan.reset(Arc::clone(snapshot));
-    plan.chain(
-        Arc::clone(snapshot),
+    plan.recover(
+        store.snapshot_change(Arc::clone(snapshot)),
         attached_blocks.iter().map(|block| Arc::new(block.clone())),
-    );
+    )?;
     Ok(plan)
 }
 
@@ -175,8 +173,8 @@ pub(super) fn clear(
     }
     let snapshot = snapshot.unwrap_or(current);
     match scope {
-        ClearScope::All => plan.replace_generation(snapshot),
-        ClearScope::Unaccepted => plan.reset(snapshot),
+        ClearScope::All => plan.replace_generation(store.snapshot_change(snapshot))?,
+        ClearScope::Unaccepted => plan.reset(store.snapshot_change(snapshot))?,
     }
     Ok(plan)
 }
@@ -240,44 +238,21 @@ struct Affected {
     recovery: BTreeSet<Byte32>,
 }
 
-/// Classify every existing owner, then close accepted conflicts and recovery
+/// Classify the captured owners, then close accepted conflicts and recovery
 /// over descendants without crossing a newly committed producer.
 fn affected_owners(
-    store: &Store,
-    plan: &mut Plan,
     old: &BTreeMap<Byte32, Arc<Entry>>,
     facts: &ChainFacts,
-    previous: &Snapshot,
-    snapshot: &Snapshot,
-) -> Result<Affected, Error> {
-    // Accepted input/dep readers are already indexed. A small spent set can
-    // narrow their checks without scanning every accepted dependency; retain
-    // these original relation reads alongside the captured owner revisions.
-    // Larger block spend sets keep the owner-bounded direct lookup below.
-    let readers = if !facts.spent.is_empty() && facts.spent.len() <= old.len() {
-        let mut readers = HashSet::new();
-        for point in &facts.spent {
-            for hash in plan.readers(store, point.clone())? {
-                if !facts.attached.contains(&hash) {
-                    readers.insert(hash);
-                }
-            }
-        }
-        Some(readers)
-    } else {
-        None
-    };
-    // Canonical VM activation uses the next block's epoch for every inflight
-    // phase. Derive that view-wide rule once, independently of proposal phase.
-    let rules = |snapshot: &Snapshot| {
-        ScriptVerificationRules::from_env(
-            snapshot.consensus(),
-            &environment(Status::Pending, snapshot),
-        )
-    };
-    let rules_changed = rules(previous) != rules(snapshot);
+    rules_changed: bool,
+) -> Affected {
     let mut conflicts = BTreeMap::new();
     let mut recovery = BTreeSet::new();
+    let find_spent = |keys: Box<[DependencyKey]>| {
+        keys.into_iter().find_map(|key| match key {
+            DependencyKey::Cell(point) if facts.spent.contains(&point) => Some(point),
+            _ => None,
+        })
+    };
     for (hash, entry) in old {
         if facts.attached.contains(hash) {
             continue;
@@ -288,15 +263,11 @@ fn affected_owners(
             // remains optional recovery work, not a live dependency reader.
             if entry.preaccepted()
                 && !facts.spent.is_empty()
-                && let Some(point) = entry
-                    .declared_dependencies()
-                    .into_iter()
-                    .chain(entry.dependencies())
-                    .filter_map(|key| match key {
-                        DependencyKey::Cell(point) => Some(point),
+                && let Some(point) =
+                    find_spent(entry.declared_dependencies()).or_else(|| match &entry.phase {
+                        Phase::Verify(_) | Phase::Waiting(_) => find_spent(entry.dependencies()),
                         _ => None,
                     })
-                    .find(|point| facts.spent.contains(point))
             {
                 conflicts.insert(hash.clone(), compact_packed(&point));
             }
@@ -305,9 +276,6 @@ fn affected_owners(
         // Resolution retains inputs in transaction order, before expanded deps.
         // Borrow those identities; only a reported conflict needs an owned key.
         if !facts.spent.is_empty()
-            && readers
-                .as_ref()
-                .is_none_or(|readers| readers.contains(hash))
             && let Some(point) = value
                 .transaction
                 .resolved_inputs
@@ -344,10 +312,10 @@ fn affected_owners(
         }
     }
     if conflicts.is_empty() && recovery.is_empty() {
-        return Ok(Affected {
+        return Affected {
             conflicts,
             recovery,
-        });
+        };
     }
     let child_index = membership::children(old);
     let mut stack: Vec<_> = conflicts
@@ -378,10 +346,10 @@ fn affected_owners(
             }
         }
     }
-    Ok(Affected {
+    Affected {
         conflicts,
         recovery,
-    })
+    }
 }
 
 /// Produce the next owner population; only detached transactions acquire a new
@@ -462,8 +430,7 @@ fn append_proposal_callbacks(
     plan: &mut Plan,
     old: &Members,
     accepted: &Members,
-    previous: &ProposalView,
-    next: &ProposalView,
+    change: &SnapshotChange,
     max_ancestors: usize,
 ) -> Result<(), Error> {
     let mut totals = None;
@@ -492,12 +459,12 @@ fn append_proposal_callbacks(
         ));
         Ok(())
     };
-    if let Some(changes) = previous.status_changes(next, accepted.len()) {
+    if let Some(changes) = change.proposals() {
         // Full hashes and their proposal prefixes have the same byte ordering.
         // Merge only changed phases without querying both views for each owner.
         let mut remaining = accepted.iter().peekable();
         for (id, before, after) in changes {
-            if (before == Status::Proposed) == (after == Status::Proposed) {
+            if (*before == Status::Proposed) == (*after == Status::Proposed) {
                 continue;
             }
             while remaining
@@ -509,14 +476,14 @@ fn append_proposal_callbacks(
             while let Some((hash, entry)) = remaining.next_if(|(_, entry)| {
                 entry.transaction.proposal_short_id_reader().as_slice() == id.as_slice()
             }) {
-                append(hash, entry, before, after)?;
+                append(hash, entry, *before, *after)?;
             }
         }
     } else {
         // Keep sparse-pool work proportional to its owners, even if canonical
         // history contains many unrelated proposal ids.
-        let before = previous.status_lookup(accepted.len());
-        let after = next.status_lookup(accepted.len());
+        let before = change.previous().proposals().status_lookup(accepted.len());
+        let after = change.next().proposals().status_lookup(accepted.len());
         for (hash, entry) in accepted {
             let id = entry.transaction.proposal_short_id_reader();
             append(hash, entry, before(id), after(id))?;
@@ -547,20 +514,39 @@ pub(super) fn reconcile(
     {
         return Err(Error::Fault("chain snapshot tip"));
     }
+    let change = store.snapshot_change(Arc::clone(snapshot));
+    let mut facts = ChainFacts::from_blocks(detached_blocks, attached_blocks)?;
+    // Canonical activation follows the next block's epoch, independently of
+    // proposal phase. Reorg context and changed rules require every proof.
+    let rules = |snapshot: &Snapshot| {
+        ScriptVerificationRules::from_env(
+            snapshot.consensus(),
+            &environment(Status::Pending, snapshot),
+        )
+    };
+    let rules_changed = rules(change.previous()) != rules(snapshot);
+    let full = rules_changed
+        || !facts.detached_headers.is_empty()
+        || facts.spent.len() > store.budget.accepted_usage().items;
     let Captured {
         view,
         snapshot: old_snapshot,
         owners,
         reads,
         ..
-    } = store.capture_all();
+    } = if full {
+        store.capture_all()
+    } else {
+        store.capture_chain(&change, &facts.attached, &facts.spent)?
+    };
+    change.check_view(view)?;
+
     let old: BTreeMap<_, _> = owners
         .into_iter()
         .map(|entry| (entry.hash(), entry))
         .collect();
-    let mut facts = ChainFacts::from_blocks(detached_blocks, attached_blocks)?;
     let mut plan = Plan::new(view, Class::Critical, reads);
-    let affected = affected_owners(store, &mut plan, &old, &facts, &old_snapshot, snapshot)?;
+    let affected = affected_owners(&old, &facts, rules_changed);
     let after = successor_population(store, &old, &mut facts, &affected, &old_snapshot, snapshot)?;
     let mut old_totals = None;
     // Compare ordered populations once. Record newly detached owners below,
@@ -630,20 +616,29 @@ pub(super) fn reconcile(
         &mut plan,
         &old,
         &final_accepted,
-        old_snapshot.proposals(),
-        snapshot.proposals(),
+        &change,
         config.max_ancestors_count,
     )?;
     for block in attached_blocks.iter().chain(detached_blocks) {
         for tx in block.transactions() {
+            // Removing an attached accepted owner already contributes these
+            // exact inputs and outputs through Apply's derived wake set.
+            let hash = tx.hash();
+            if facts.attached.contains(&hash)
+                && old
+                    .get(&hash)
+                    .is_some_and(|entry| entry.accepted().is_some())
+            {
+                continue;
+            }
             for point in tx.output_pts_iter().chain(tx.input_pts_iter()) {
                 plan.signal_available(DependencyKey::Cell(point));
             }
         }
     }
     plan.chain(
-        Arc::clone(snapshot),
+        change,
         attached_blocks.iter().map(|block| Arc::new(block.clone())),
-    );
+    )?;
     Ok(plan)
 }

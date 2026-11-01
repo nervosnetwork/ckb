@@ -52,7 +52,7 @@ impl TemplateSource {
         let mut proofs = Vec::with_capacity(transactions.len());
         let mut selected: HashSet<_> = transactions
             .iter()
-            .map(|transaction| transaction.transaction().hash())
+            .map(|transaction| transaction.transaction().hash_ref())
             .collect();
         let proposals: HashSet<_> = proposals.iter().map(Entity::as_slice).collect();
         for candidate in selection.candidates() {

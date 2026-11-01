@@ -4,7 +4,6 @@
 
 use super::super::{
     model::{DependencyKey, Entry, Error, Phase, Resolved},
-    residency::detach_cell,
     store::{ReadSet, Store},
     waiting::pending_producer,
 };
@@ -14,6 +13,7 @@ use ckb_app_config::TxPoolConfig;
 use ckb_snapshot::Snapshot;
 use ckb_store::ChainStore;
 use ckb_types::{
+    bytes::Bytes,
     core::{
         DepType, TransactionView,
         cell::{
@@ -200,10 +200,10 @@ impl<'a> Provider<'a> {
         {
             return Ok(CellStatus::live_cell(cell.clone()));
         }
-        // Keep the conservative four-copy envelope for materialization, the
-        // detached cache and lazy-to-eager replacement. Canonical resolution
-        // shares these allocations across input, dep and dep-group occurrences;
-        // retaining its result must not copy each occurrence again.
+        // Keep the conservative four-copy envelope for materialization and
+        // lazy-to-eager replacement. Canonical resolution shares compact
+        // allocations across input, dep and dep-group occurrences; retaining
+        // its result must not copy each occurrence again.
         const CELL_METADATA_BYTES: usize = size_of::<CellMeta>() * 4 + 256;
         let old_bytes = cached.map_or(0, |(_, bytes)| *bytes);
         let remaining = self
@@ -222,10 +222,13 @@ impl<'a> Provider<'a> {
             // snapshot. Keep the original pool read above when loading its data.
             (cell.clone(), false)
         } else {
-            match self.snapshot.cell(point, false) {
-                CellStatus::Live(cell) => (cell, false),
-                status => return Ok(status),
-            }
+            // ChainStore allocates the output and block hash independently;
+            // only the caller's outpoint may retain a larger backing buffer.
+            let Some(mut cell) = self.snapshot.get_cell(point) else {
+                return Ok(CellStatus::Unknown);
+            };
+            cell.out_point = compact_packed(&cell.out_point);
+            (cell, false)
         };
         let data_bytes = if eager || cell.mem_cell_data.is_some() {
             usize::try_from(cell.data_bytes).map_err(|_| Error::Full("cell data size".into()))?
@@ -252,28 +255,24 @@ impl<'a> Provider<'a> {
         state.bytes = next;
         if pool {
             // Store supplied data, exact length metadata and detached backing.
-            state.pool.insert(compact_packed(point));
+            state.pool.insert(cell.out_point.clone());
         } else {
             // Metadata already came from this immutable snapshot; only its
             // data and stored hash remain to load after the precharge.
             if eager && let Some((data, data_hash)) = self.snapshot.get_cell_data(point) {
-                cell.mem_cell_data = Some(data);
-                cell.mem_cell_data_hash = Some(data_hash);
+                if data.len() > data_bytes {
+                    return Err(Error::Full(
+                        "cell data exceeds materialization metadata".into(),
+                    ));
+                }
+                // The shared store cache can retain slices of larger buffers.
+                cell.mem_cell_data = Some(Bytes::copy_from_slice(&data));
+                cell.mem_cell_data_hash = Some(compact_packed(&data_hash));
             }
-            if cell
-                .mem_cell_data
-                .as_ref()
-                .is_some_and(|data| data.len() > data_bytes)
-            {
-                return Err(Error::Full(
-                    "cell data exceeds materialization metadata".into(),
-                ));
-            }
-            detach_cell(&mut cell);
         }
         state
             .cells
-            .insert(compact_packed(point), (cell.clone(), bytes.max(old_bytes)));
+            .insert(cell.out_point.clone(), (cell.clone(), bytes.max(old_bytes)));
         Ok(CellStatus::live_cell(cell))
     }
 
@@ -506,6 +505,25 @@ mod tests {
         };
         let data = loaded.mem_cell_data.as_ref().unwrap();
         assert_eq!(data, &ckb_test_chain_utils::always_success_cell().1);
+        for (before, after) in [
+            (lazy.cell_output.as_slice(), loaded.cell_output.as_slice()),
+            (lazy.out_point.as_slice(), loaded.out_point.as_slice()),
+            (
+                lazy.transaction_info
+                    .as_ref()
+                    .unwrap()
+                    .block_hash
+                    .as_slice(),
+                loaded
+                    .transaction_info
+                    .as_ref()
+                    .unwrap()
+                    .block_hash
+                    .as_slice(),
+            ),
+        ] {
+            assert_eq!(before.as_ptr(), after.as_ptr());
+        }
         assert_eq!(provider.observed.borrow().bytes, eager_bytes);
         assert!(provider.observed.borrow().pool.is_empty());
         for eager in [false, true] {
@@ -519,6 +537,52 @@ mod tests {
         }
         assert_eq!(provider.observed.borrow().bytes, eager_bytes);
         assert_eq!(provider.observed.borrow().cells.len(), 1);
+    }
+
+    #[test]
+    fn chain_materialization_detaches_input_and_cached_payload_backing() {
+        let snapshot = chain_snapshot();
+        let store = store_with_pipeline_limit(Arc::clone(&snapshot), &config(), 64_000_000);
+        let point = ckb_test_chain_utils::create_always_success_out_point();
+        let (data, hash) = snapshot.get_cell_data(&point).unwrap();
+        let expected = snapshot.cell(&point, true);
+        let mut backing = vec![0; 65_536];
+        let point_start = backing.len();
+        backing.extend_from_slice(point.as_slice());
+        let data_start = backing.len();
+        backing.extend_from_slice(&data);
+        let hash_start = backing.len();
+        backing.extend_from_slice(hash.as_slice());
+        let backing = Bytes::from(backing);
+        let point = OutPoint::new_unchecked(backing.slice(point_start..data_start));
+        snapshot.cache().unwrap().cell_data.lock().put(
+            point.to_cell_key(),
+            (
+                backing.slice(data_start..hash_start),
+                ckb_types::packed::Byte32::new_unchecked(backing.slice(hash_start..)),
+            ),
+        );
+
+        let provider = Provider::new(&store, &snapshot);
+        let CellStatus::Live(cell) = provider.materialize(&point, true).unwrap() else {
+            panic!("chain cell with cached data is live")
+        };
+        assert_eq!(CellStatus::live_cell(cell.clone()), expected);
+        let start = backing.as_ptr() as usize;
+        let range = start..start + backing.len();
+        for retained in [
+            cell.out_point.as_slice(),
+            cell.mem_cell_data.as_ref().unwrap().as_ref(),
+            cell.mem_cell_data_hash.as_ref().unwrap().as_slice(),
+        ] {
+            assert!(!range.contains(&(retained.as_ptr() as usize)));
+        }
+        let observed = provider.observed.borrow();
+        let key = observed.cells.first_key_value().unwrap().0;
+        assert_eq!(key.as_slice().as_ptr(), cell.out_point.as_slice().as_ptr());
+        store
+            .read_selected(store.snapshot().0, &observed.reads, || ())
+            .unwrap();
     }
 
     #[test]

@@ -844,7 +844,9 @@ fn worker_notifications_require_queued_work_or_returned_capacity() {
 
     let mut maintenance = std::pin::pin!(store.changed.notified());
     let mut lifecycle = Plan::new(store.snapshot().0, Class::Critical, Default::default());
-    lifecycle.reset(store.snapshot().1);
+    lifecycle
+        .reset(store.snapshot_change(store.snapshot().1))
+        .unwrap();
     store.apply(lifecycle).unwrap();
     assert!(work.as_mut().poll(&mut context).is_ready());
     assert!(maintenance.as_mut().poll(&mut context).is_ready());

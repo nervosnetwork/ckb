@@ -60,6 +60,8 @@ settles/requeues it or observes a successor.
 observation and cannot substitute for a prepared decision's commit validation.
 
 The resolution provider retains detached cells for one immutable chain snapshot.
+Chain reads already own compact output and block-hash bytes; the provider copies
+the caller's outpoint and shared-cache data at their retention boundaries.
 A cell used first as an input and then as a dep-group reuses its cached metadata
 when loading data. That upgrade still checks the original pool producer and
 spender observations and charges the data before loading it.
@@ -321,30 +323,53 @@ selects bounded parent-first recovery. Success logs the refusal and does not imp
 every candidate was retained. An oversized command replaces the generation against
 the exact successor snapshot.
 
-Reconciliation retains a complete owner capture. When distinct attached spends
-do not outnumber captured owners, existing accepted-reader relations narrow
-accepted conflict checks; their original observations stay in the Plan. Larger
-spend sets use direct checks. Preaccepted owners always check their full declared
-dependencies, including inputs absent from Waiting's triggers. Conflict reports
-still follow input order before expanded cell dependencies.
+Reconciliation captures complete owner revisions and the owners needed by the
+transition. Ordinary attachment retains unaccepted owners, changed proposal
+owners, accepted readers of attached spends, committed owners and their direct
+children. Existing indexes locate these members while all owner read guards
+stabilize both owners and their relation projections. Conflict and callback roots
+include their descendants; all selected owners include their ancestors. A
+committed owner alone requires only its direct children for parent-edge removal.
+Detachment, script-rule changes and spend sets larger than the accepted population
+use the bounded full capture. Both captures retain original shard revisions, so
+even an omitted owner's later change invalidates the Plan.
 
-It builds the accepted child index only when a conflict or recovery root needs
-descendant closure; conflict removal takes precedence when those closures intersect. The old accepted
-graph and its aggregates are constructed only for rejection callbacks. Proposal
-status callbacks use the final accepted graph after committed producers are
+After capture, classification, graph changes and callback projections use the
+captured data outside Store guards. Preaccepted owners check their full
+declared dependencies, including inputs absent from Waiting's triggers. Conflict
+reports follow input order before expanded cell dependencies. Conflict removal
+takes precedence when its descendant closure intersects recovery, and neither
+closure crosses a newly committed producer.
+
+Accepted owner removal derives its input and output wake keys in Apply, so
+reconciliation adds explicit block hints only where that removal does not already
+supply them. Preaccepted, canonical-only and detached bodies still contribute
+their block points. Both sources form one final set before wake validation and
+publication.
+
+Graph totals are built only for callbacks. The selected graph contains every
+required callback ancestor and descendant, although unrelated branches of other
+captured ancestors may be absent. Rejections use the original graph; proposal
+callbacks use its successor after committed producers and invalidated owners are
 removed. Pending and Gap share the public pending callback, so moving between
 them emits no second new-transaction notification or fee-estimator sample.
 Entering or leaving Proposed still publishes its corresponding callback.
-Ordinary attachment skips detached-backing checks, while VM activation
-is compared once between the previous and next snapshots regardless of proposal
-phase.
+Ordinary attachment skips detached-backing checks, while VM activation is compared
+once between the previous and next snapshots regardless of proposal phase.
 
-Proposal phase changes use an ordered merge when each canonical view contains
-at most twice the caller's owner population; sparse pools query their own ids
-instead. Both paths preserve callback order and the same phase rule. Apply first
-installs owner edits against the old view, then advances proposed counts using
-the final proposal index before installing the new view. This also covers a
-retiring owner handing its proposal short id to a successor in the same commit.
+One prepared snapshot change supplies the original paired view, successor and
+canonical proposal-phase delta to capture, callbacks and Apply. The delta is
+computed outside owner guards when each canonical view contains at most twice
+the observed accepted population. Its retained changed IDs are bounded by the
+union of those views; larger windows use per-owner lookup. Capture and Plan
+construction reject a different original lifecycle, and Apply validates it again
+before mutation. A Plan binds only one successor snapshot.
+
+Both proposal paths preserve callback order and the same phase rule. Apply first
+installs owner edits against the old view, then advances Gap and Proposed counts
+using short-ID lookup in the final owner table before installing the new view.
+This also covers
+a retiring owner handing its proposal short id to a successor in the same commit.
 
 Reorg invalidates cell backing by the producer hashes in detached blocks,
 excluding transactions reattached on the new chain. A cell first resolved from

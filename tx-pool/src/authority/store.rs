@@ -13,7 +13,7 @@ use shards::{
 use super::{
     budget::{Amount, Budget, Limits},
     jobs::Job,
-    model::{DependencyKey, Entry, Error, FullReason, RelationKey},
+    model::{DependencyKey, Entry, Error, FullReason, RelationKey, Status},
     notice::Outbox,
     queue::{Queues, WorkSelection, WorkStage},
 };
@@ -27,7 +27,7 @@ use ckb_types::{
 };
 use ckb_util::parking_lot::{Mutex, RwLock};
 use std::{
-    collections::{BTreeMap, BTreeSet},
+    collections::{BTreeMap, BTreeSet, HashSet},
     hash::Hash,
     ops::Bound::{Excluded, Unbounded},
     sync::{
@@ -117,10 +117,40 @@ struct View {
     snapshot: Arc<Snapshot>,
     revision: u64,
 }
+
+/// Canonical phase changes prepared once from an original paired view. A large
+/// proposal window uses per-owner lookups instead of retaining an unbounded delta.
+pub(super) struct SnapshotChange {
+    view: u64,
+    previous: Arc<Snapshot>,
+    next: Arc<Snapshot>,
+    proposals: Option<Vec<(ProposalShortId, Status, Status)>>,
+}
+
+impl SnapshotChange {
+    pub(super) fn previous(&self) -> &Snapshot {
+        &self.previous
+    }
+
+    pub(super) fn next(&self) -> &Snapshot {
+        &self.next
+    }
+
+    pub(super) fn proposals(&self) -> Option<&[(ProposalShortId, Status, Status)]> {
+        self.proposals.as_deref()
+    }
+
+    pub(super) fn check_view(&self, view: u64) -> Result<(), Error> {
+        if self.view == view {
+            Ok(())
+        } else {
+            Err(Error::Stale)
+        }
+    }
+}
 #[derive(Default)]
 struct Shard {
     owners: BTreeMap<[u8; 32], Arc<Entry>>,
-    proposals: BTreeMap<[u8; ProposalShortId::TOTAL_SIZE], Byte32>,
     deadlines: BTreeSet<(Instant, Byte32)>,
     accepted_times: BTreeSet<(u64, Byte32)>,
     // Derived by owner edits; proposal bands also follow snapshot changes.
@@ -131,10 +161,16 @@ struct Shard {
     accepted_revision: u64,
 }
 impl Shard {
-    fn proposal(&self, id: &ProposalShortId) -> Option<&Arc<Entry>> {
-        self.proposals
-            .get(id.as_slice())
-            .and_then(|hash| self.owners.get(hash.as_slice()))
+    fn proposal(&self, id: &[u8; ProposalShortId::TOTAL_SIZE]) -> Option<&Arc<Entry>> {
+        // Owners route by this prefix. Their full-hash order also supplies the
+        // short-ID lookup, without a second index to maintain during handoffs.
+        let mut first = [0; 32];
+        first[..ProposalShortId::TOTAL_SIZE].copy_from_slice(id);
+        self.owners
+            .range(first..)
+            .next()
+            .filter(|(hash, _)| proposal_key(hash.as_slice()) == id)
+            .map(|(_, entry)| entry)
     }
 }
 pub(super) struct Summary {
@@ -147,8 +183,8 @@ pub(super) struct Summary {
     pub(super) last_updated: u64,
 }
 
-/// One coherent owner population, accepted charge and original observations,
-/// without guards.
+/// Selected owners, the whole accepted charge and original observations from
+/// one coherent cut, without guards.
 /// A caller's worker/handler/capture permit or fixed background task bounds the
 /// entire use of these values, including fields moved out. The sole template
 /// driver bounds its own captures by building one template at a time.
@@ -585,7 +621,7 @@ impl Store {
         ids.retain(|id| {
             owners
                 .get(self.route(id))
-                .and_then(|shard| shard.proposal(id))
+                .and_then(|shard| shard.proposal(&id.unpack()))
                 .is_none()
         });
         ids
@@ -614,7 +650,7 @@ impl Store {
         let cache = self.committed.lock();
         for id in ids {
             let shard = owners.get(self.route(id));
-            if let Some(entry) = shard.and_then(|shard| shard.proposal(id)) {
+            if let Some(entry) = shard.and_then(|shard| shard.proposal(&id.unpack())) {
                 live.push((id.clone(), Arc::clone(entry)));
             } else if let Some(hash) = cache.peek(id) {
                 committed.push((id.clone(), hash.clone()));
@@ -801,6 +837,159 @@ impl Store {
 
     pub(super) fn capture_accepted(&self) -> Captured {
         self.capture(true)
+    }
+
+    pub(super) fn snapshot_change(&self, next: Arc<Snapshot>) -> SnapshotChange {
+        let (view, previous) = self.snapshot();
+        // This is a work bound, not a membership premise. Capture and Apply
+        // separately validate the original view and the owners they use.
+        let population = self.budget.accepted_usage().items;
+        let proposals = previous
+            .proposals()
+            .status_changes(next.proposals(), population)
+            .map(Iterator::collect);
+        SnapshotChange {
+            view,
+            previous,
+            next,
+            proposals,
+        }
+    }
+
+    /// Capture ordinary chain changes and the graph needed by their callbacks.
+    /// All owner guards stabilize the existing relation indexes as well. Spent
+    /// readers and changed proposal owners include their complete descendants;
+    /// committed owners need only their direct children. Finally close ancestry
+    /// so the caller can project these neighborhoods without more live reads.
+    #[expect(
+        clippy::arithmetic_side_effects,
+        reason = "Each cursor visits a deduplicated captured owner once and cannot exceed the bounded Vec length."
+    )]
+    pub(super) fn capture_chain(
+        &self,
+        change: &SnapshotChange,
+        attached: &HashSet<Byte32>,
+        spent: &HashSet<OutPoint>,
+    ) -> Result<Captured, Error> {
+        #[cfg(feature = "profiling")]
+        let _span =
+            tracing::trace_span!(target: "ckb_tx_pool_profile", "tx_pool.authority.capture")
+                .entered();
+        let view = self.view.read();
+        change.check_view(view.revision)?;
+        let guards = self.shards.read_all();
+        let usage = self.budget.accepted_usage();
+        let mut owners: Vec<_> = guards
+            .iter()
+            // The expiry index contains exactly one row per accepted owner.
+            .filter(|shard| shard.owners.len() != shard.accepted_times.len())
+            .flat_map(|shard| shard.owners.values())
+            .filter(|entry| entry.accepted().is_none())
+            .cloned()
+            .collect();
+        let mut seen: HashSet<[u8; 32]> =
+            owners.iter().map(|entry| entry.hash().unpack()).collect();
+        let select = |entry: &Arc<Entry>, owners: &mut Vec<_>, seen: &mut HashSet<_>| {
+            if seen.insert(entry.hash().unpack()) {
+                owners.push(Arc::clone(entry));
+            }
+        };
+        let accepted = |hash: &Byte32| {
+            guards
+                .at(self.owner_shard(hash.as_slice()))
+                .owners
+                .get(hash.as_slice())
+                .filter(|entry| entry.accepted().is_some())
+                .ok_or(Error::Fault("accepted chain projection"))
+        };
+        let select_children = |hash, owners: &mut Vec<_>, seen: &mut HashSet<_>| {
+            if let Some(row) = self.relation(&RelationKey::Children(hash)) {
+                for (hash, member) in &row.lock().members {
+                    if member.roles.intersects(Roles::CHILD) {
+                        select(accepted(hash)?, owners, seen);
+                    }
+                }
+            }
+            Ok::<_, Error>(())
+        };
+        if let Some(changes) = change.proposals() {
+            for (id, before, after) in changes {
+                if (*before == Status::Proposed) != (*after == Status::Proposed)
+                    && let Some(entry) = guards.at(self.route(id)).proposal(&id.unpack())
+                    && entry.accepted().is_some()
+                    && !attached.contains(&entry.hash())
+                {
+                    select(entry, &mut owners, &mut seen);
+                }
+            }
+        } else {
+            let before = change.previous.proposals().status_lookup(usage.items);
+            let after = change.next.proposals().status_lookup(usage.items);
+            for entry in guards.iter().flat_map(|shard| shard.owners.values()) {
+                let id = entry.transaction.proposal_short_id_reader();
+                if entry.accepted().is_some()
+                    && !attached.contains(&entry.hash())
+                    && (before(id) == Status::Proposed) != (after(id) == Status::Proposed)
+                {
+                    select(entry, &mut owners, &mut seen);
+                }
+            }
+        }
+        for point in spent {
+            if let Some(row) =
+                self.relation(&RelationKey::Dependency(DependencyKey::Cell(point.clone())))
+            {
+                let row = row.lock();
+                for hash in row.spender.iter().chain(
+                    row.members
+                        .iter()
+                        .filter(|(_, member)| member.roles.intersects(Roles::DEPENDENCY))
+                        .map(|(hash, _)| hash),
+                ) {
+                    if !attached.contains(hash) {
+                        select(accepted(hash)?, &mut owners, &mut seen);
+                    }
+                }
+            }
+        }
+        let mut cursor = 0;
+        while let Some(entry) = owners.get(cursor) {
+            if entry.accepted().is_some() {
+                select_children(entry.hash(), &mut owners, &mut seen)?;
+            }
+            cursor += 1;
+        }
+        for hash in attached {
+            if let Some(entry) = guards
+                .at(self.owner_shard(hash.as_slice()))
+                .owners
+                .get(hash.as_slice())
+            {
+                select(entry, &mut owners, &mut seen);
+            }
+            select_children(hash.clone(), &mut owners, &mut seen)?;
+        }
+        let mut cursor = 0;
+        while let Some(entry) = owners.get(cursor) {
+            // Retain the immutable owner while extending the capture vector.
+            let entry = Arc::clone(entry);
+            if let Some(value) = entry.accepted() {
+                for hash in &value.parents {
+                    select(accepted(hash)?, &mut owners, &mut seen);
+                }
+            }
+            cursor += 1;
+        }
+        Ok(Captured {
+            view: view.revision,
+            snapshot: Arc::clone(&view.snapshot),
+            owners,
+            accepted: usage,
+            reads: ReadSet {
+                all: Some(Box::new(guards.map(|shard| shard.revision))),
+                ..ReadSet::default()
+            },
+        })
     }
 
     fn capture(&self, accepted_only: bool) -> Captured {

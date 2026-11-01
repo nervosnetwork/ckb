@@ -100,7 +100,7 @@ fn input_snapshot_tracks_chain_changes_without_membership_changes() {
     ));
     let tip_hash = next.tip_hash();
     let mut plan = Plan::new(view, Class::Critical, reads);
-    plan.chain(next, []);
+    plan.chain(store.snapshot_change(next), []).unwrap();
     store.apply(plan).unwrap();
     let after = cache.capture(&store).unwrap();
     assert_ne!(before.tip_hash, after.tip_hash);
@@ -738,7 +738,7 @@ fn summary_tracks_phase_and_snapshot_changes_without_retaining_removed_maximum()
         base.cloned_consensus(),
     ));
     let mut plan = Plan::new(view, Class::Critical, reads);
-    plan.chain(next, []);
+    plan.chain(store.snapshot_change(next), []).unwrap();
     store.apply(plan).unwrap();
     assert!(Arc::ptr_eq(&store.point(&a.hash()).1.unwrap(), &a));
     let info = summary(&store, &config()).unwrap();

@@ -47,7 +47,7 @@ flowchart TB
     O["Store.shards<br/>Raw hash → current owner"] --> E["Immutable Entry<br/>Transaction · Arrival · Source · Phase"]
     V["Store.view<br/>Chain snapshot + lifecycle revision"] -.-> P["Query and template captures"]
     E -.-> P
-    E -.-> I["Derived membership indexes<br/>Relations · Peers · Proposals · Expiry"]
+    E -.-> I["Derived membership indexes<br/>Relations · Peers · Expiry"]
     E -.-> Q["Resolve / Verify scheduling"]
 ```
 

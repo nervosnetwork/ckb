@@ -1,12 +1,19 @@
 use super::*;
-use crate::authority::{ingress, model::Status, tests::common::*};
+use crate::authority::{
+    ingress,
+    model::{RecoveryTriggers, Resolved, Status},
+    tests::common::*,
+};
 use crate::callback::CallbackEvent;
 use ckb_proposal_table::ProposalView;
 use ckb_test_chain_utils::MockStore;
 use ckb_types::{
     bytes::Bytes,
-    core::{BlockBuilder, BlockView},
-    packed::{Byte32, CellInput, OutPoint, ProposalShortId},
+    core::{
+        BlockBuilder, BlockView, Capacity, DepType,
+        cell::{CellMeta, ResolvedTransaction},
+    },
+    packed::{Byte32, CellDep, CellInput, OutPoint, ProposalShortId},
     prelude::*,
 };
 use std::collections::{HashSet, VecDeque};
@@ -61,13 +68,109 @@ fn discarded_clear_and_stale_chain_plans_expose_no_prefix() {
     drop(discarded);
     assert_eq!(store.snapshot().0, view);
     assert!(Arc::ptr_eq(&store.snapshot().1, &old_snapshot));
-    assert_eq!(accepted_hashes(&store), [hash].into());
+    assert_eq!(accepted_hashes(&store), [hash.clone()].into());
     let stale = reconcile(&store, &command(&store, Vec::new()), &config()).unwrap();
     accept(&store, output_tx(5002), 1, 1, Status::Pending);
     let before = accepted_hashes(&store);
     assert!(matches!(store.apply(stale), Err(Error::Stale)));
     assert_eq!(accepted_hashes(&store), before);
     assert_eq!(store.snapshot().0, view);
+
+    // An unchanged accepted owner is omitted from this chain capture. Its
+    // later phase change must still invalidate the complete original cut.
+    let stale = reconcile(&store, &command(&store, Vec::new()), &config()).unwrap();
+    let old = store.point(&hash).1.unwrap();
+    replace(&store, old, Phase::Resolve);
+    let before = accepted_hashes(&store);
+    assert!(matches!(store.apply(stale), Err(Error::Stale)));
+    assert_eq!(accepted_hashes(&store), before);
+    assert_eq!(store.snapshot().0, view);
+}
+
+#[test]
+fn prepared_proposal_changes_require_the_original_lifecycle_at_every_use() {
+    let store = store();
+    let transaction = output_tx(5005);
+    let hash = accept(&store, transaction.clone(), 1, 1, Status::Pending);
+    let old = store.point(&hash).1.unwrap();
+    let mut accepted = old.accepted().unwrap().clone();
+    accepted.forced_status = None;
+    let owner = replace(&store, old, Phase::Accepted(accepted));
+    let block = Arc::new(BlockBuilder::default().transaction(tx(0)).build());
+    let next = snapshot(
+        &store.snapshot().1,
+        &block,
+        HashSet::new(),
+        [transaction.proposal_short_id()].into(),
+    );
+    let captured = store.capture_all();
+    let change = store.snapshot_change(Arc::clone(&next));
+    assert_eq!(
+        change.proposals().unwrap(),
+        &[(
+            transaction.proposal_short_id(),
+            Status::Pending,
+            Status::Proposed
+        )]
+    );
+    let mut old_plan = Plan::new(captured.view, Class::Critical, captured.reads.clone());
+    let mut prepared = Plan::new(captured.view, Class::Critical, captured.reads);
+    prepared
+        .chain(
+            store.snapshot_change(Arc::clone(&next)),
+            [Arc::clone(&block)],
+        )
+        .unwrap();
+    assert_eq!(prepared.effects().len(), 1);
+
+    // A same-tip clear changes the lifecycle without changing this owner or
+    // either proposal window. Reusing the prepared delta is still stale.
+    store
+        .apply(clear(&store, None, ClearScope::Unaccepted).unwrap())
+        .unwrap();
+    let (view, current) = store.snapshot();
+    assert!(matches!(
+        store.capture_chain(&change, &HashSet::new(), &HashSet::new()),
+        Err(Error::Stale)
+    ));
+    let mut current_plan = Plan::new(view, Class::Critical, Default::default());
+    assert!(matches!(
+        current_plan.chain(change, [Arc::clone(&block)]),
+        Err(Error::Stale)
+    ));
+    assert!(current_plan.effects().is_empty());
+    assert!(matches!(
+        old_plan.chain(store.snapshot_change(next), [block]),
+        Err(Error::Stale)
+    ));
+    assert!(old_plan.effects().is_empty());
+    assert!(matches!(store.apply(prepared), Err(Error::Stale)));
+    assert_eq!(store.snapshot().0, view);
+    assert!(Arc::ptr_eq(&store.snapshot().1, &current));
+    assert!(Arc::ptr_eq(&store.point(&hash).1.unwrap(), &owner));
+    assert_eq!(store.capture_summary().proposed, 0);
+}
+
+#[test]
+fn a_plan_cannot_replace_its_prepared_successor_snapshot() {
+    let store = store();
+    let (view, original) = store.snapshot();
+    let next = snapshot(
+        &original,
+        &BlockBuilder::default().transaction(tx(5006)).build(),
+        HashSet::new(),
+        HashSet::new(),
+    );
+    let mut plan = Plan::new(view, Class::Critical, Default::default());
+    plan.chain(store.snapshot_change(Arc::clone(&next)), [])
+        .unwrap();
+    assert!(matches!(
+        plan.reset(store.snapshot_change(original)),
+        Err(Error::Fault("duplicate lifecycle write"))
+    ));
+    assert!(plan.effects().is_empty());
+    store.apply(plan).unwrap();
+    assert!(Arc::ptr_eq(&store.snapshot().1, &next));
 }
 
 #[test]
@@ -421,6 +524,95 @@ fn committed_spend_closes_waiter_even_when_its_wait_keys_name_another_missing_pa
     );
     apply(&store, &command(&store, vec![spend(5014, &[input], &[])]));
     assert!(store.point(&waiting.hash()).1.is_none());
+}
+
+#[test]
+fn chain_conflicts_preserve_declared_order_and_extra_preaccepted_dependencies() {
+    let mut points = [5980, 5981, 5982, 5983].map(|nonce| OutPoint::new(tx(nonce).hash(), 0));
+    points.sort();
+    let [expanded, input, group, unrelated] = &points;
+    // Even though the expanded member sorts first, a declared conflict wins.
+    for (spent, expected) in [
+        (
+            vec![group.clone(), expanded.clone(), input.clone()],
+            [Some(input), Some(input), Some(input), None],
+        ),
+        (
+            vec![expanded.clone()],
+            [None, Some(expanded), Some(expanded), None],
+        ),
+        (vec![unrelated.clone()], [None, None, None, None]),
+    ] {
+        let store = store();
+        let owner = |nonce| {
+            let transaction = spend(nonce, std::slice::from_ref(input), &[])
+                .as_advanced_builder()
+                .cell_dep(
+                    CellDep::new_builder()
+                        .out_point(group.clone())
+                        .dep_type(DepType::DepGroup)
+                        .build(),
+                )
+                .build();
+            entry(&store, transaction, Source::Recovery)
+        };
+        let resolve = owner(5017);
+        let verify = owner(5018);
+        let cell = |point: &OutPoint| CellMeta {
+            out_point: point.clone(),
+            ..CellMeta::default()
+        };
+        let verify = verify.with_phase(Phase::Verify(Arc::new(Resolved {
+            transaction: Arc::new(ResolvedTransaction {
+                transaction: verify.transaction.as_ref().clone(),
+                resolved_inputs: vec![cell(input)],
+                resolved_cell_deps: vec![cell(expanded)],
+                resolved_dep_groups: vec![cell(group)],
+            }),
+            fee: Capacity::shannons(1),
+            view: store.snapshot().0,
+            reads: Default::default(),
+            pool_cells: BTreeSet::new(),
+        })));
+        let keys = BTreeSet::from([DependencyKey::Cell(expanded.clone())]);
+        let waiting = owner(5019).with_phase(Phase::Waiting(keys.clone()));
+        let history = owner(5025).with_phase(Phase::Replaced(RecoveryTriggers::RetryInputs(keys)));
+        let owners = [resolve, verify, waiting, history];
+        for owner in &owners {
+            insert(&store, Arc::clone(owner));
+        }
+        let command = command(&store, vec![spend(5026, &spent, &[])]);
+        let fork = command.fork().unwrap();
+        let facts = ChainFacts::from_blocks(&fork.detached_blocks, &fork.attached_blocks).unwrap();
+        let old = owners
+            .iter()
+            .map(|owner| (owner.hash(), Arc::clone(owner)))
+            .collect();
+        let affected = affected_owners(&old, &facts, false);
+        let expected_conflicts = owners
+            .iter()
+            .zip(expected)
+            .filter_map(|(owner, point)| point.map(|point| (owner.hash(), point.clone())))
+            .collect();
+        assert_eq!(affected.conflicts, expected_conflicts);
+        assert!(affected.recovery.is_empty());
+        apply(&store, &command);
+        for (owner, conflict) in owners.iter().zip(expected) {
+            let current = store.point(&owner.hash()).1;
+            if conflict.is_some() {
+                assert!(current.is_none());
+            } else if matches!(owner.phase, Phase::Verify(_)) {
+                let current = current.unwrap();
+                assert!(matches!(current.phase, Phase::Resolve));
+                assert!(Arc::ptr_eq(&current.transaction, &owner.transaction));
+                assert_eq!(current.arrival, owner.arrival);
+                assert_eq!(current.source, owner.source);
+            } else {
+                assert!(Arc::ptr_eq(&current.unwrap(), owner));
+            }
+        }
+        assert!(!store.is_faulted());
+    }
 }
 
 #[test]
@@ -1158,7 +1350,8 @@ fn chain_phase_counts_follow_the_final_owner_during_a_proposal_handoff() {
                 let mut plan = Plan::new(captured.view, Class::Critical, captured.reads);
                 plan.edit(Some(old), None, None).unwrap();
                 plan.edit(None, Some(Arc::clone(&new)), None).unwrap();
-                plan.chain(next, std::iter::empty());
+                plan.chain(store.snapshot_change(next), std::iter::empty())
+                    .unwrap();
                 store.apply(plan).unwrap();
                 assert!(store.point(&hash).1.is_none());
                 assert!(Arc::ptr_eq(&store.point(&new.hash()).1.unwrap(), &new));
@@ -1310,6 +1503,146 @@ fn chain_status_callback_uses_final_graph_after_parent_commit() {
 }
 
 #[test]
+fn proposal_callback_includes_unchanged_descendants() {
+    let store = store();
+    let root = output_tx(6530);
+    let root_hash = accept(&store, root.clone(), 10, 1, Status::Pending);
+    let child = accept(
+        &store,
+        spend(6531, &[OutPoint::new(root_hash.clone(), 0)], &[]),
+        20,
+        1,
+        Status::Pending,
+    );
+    let leaf = accept(
+        &store,
+        spend(6532, &[OutPoint::new(child.clone(), 0)], &[]),
+        30,
+        1,
+        Status::Pending,
+    );
+    let old_root = store.point(&root_hash).1.unwrap();
+    let mut accepted = old_root.accepted().unwrap().clone();
+    accepted.forced_status = None;
+    replace(&store, old_root, Phase::Accepted(accepted));
+    let old_child = store.point(&child).1.unwrap();
+    let old_leaf = store.point(&leaf).1.unwrap();
+    let block = BlockBuilder::default().transaction(tx(0)).build();
+    let next = snapshot(
+        &store.snapshot().1,
+        &block,
+        HashSet::new(),
+        [root.proposal_short_id()].into(),
+    );
+    let command = ChainReorgArgs::for_test(VecDeque::new(), [block].into(), next);
+    let plan = reconcile(&store, &command, &config()).unwrap();
+    let callbacks: Vec<_> = plan
+        .effects()
+        .iter()
+        .filter_map(|effect| match effect.callback() {
+            Some(CallbackEvent::Proposed(entry)) => Some(entry),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(callbacks.len(), 1);
+    assert_eq!(callbacks[0].transaction.hash(), root_hash);
+    assert_eq!(callbacks[0].ancestors_count, 1);
+    assert_eq!(callbacks[0].descendants_count, 3);
+    assert_eq!(callbacks[0].descendants_fee.as_u64(), 60);
+    store.apply(plan).unwrap();
+    assert!(Arc::ptr_eq(&old_child, &store.point(&child).1.unwrap()));
+    assert!(Arc::ptr_eq(&old_leaf, &store.point(&leaf).1.unwrap()));
+}
+
+#[test]
+fn chain_capture_closes_callback_neighborhoods_without_crossing_unrelated_branches() {
+    for unrelated_proposals in [0, 256] {
+        let store = store();
+        let root = accept(&store, output_tx(6540), 10, 1, Status::Pending);
+        let callback = spend(6541, &[], &[OutPoint::new(root.clone(), 0)]);
+        let callback_hash = accept(&store, callback.clone(), 20, 1, Status::Pending);
+        let leaf = accept(
+            &store,
+            spend(6542, &[], &[OutPoint::new(callback_hash.clone(), 0)]),
+            30,
+            1,
+            Status::Pending,
+        );
+        let sibling = accept(
+            &store,
+            spend(6543, &[], &[OutPoint::new(root.clone(), 0)]),
+            40,
+            1,
+            Status::Pending,
+        );
+        let committed = accept(&store, output_tx(6544), 50, 1, Status::Pending);
+        let child = accept(
+            &store,
+            spend(6545, &[], &[OutPoint::new(committed.clone(), 0)]),
+            60,
+            1,
+            Status::Pending,
+        );
+        let grandchild = accept(
+            &store,
+            spend(6546, &[], &[OutPoint::new(child.clone(), 0)]),
+            70,
+            1,
+            Status::Pending,
+        );
+        let queued = entry(&store, tx(6547), Source::Recovery);
+        insert(&store, Arc::clone(&queued));
+        let mut proposed: HashSet<_> = (0..unrelated_proposals)
+            .map(|nonce| tx(7000 + nonce).proposal_short_id())
+            .collect();
+        proposed.insert(callback.proposal_short_id());
+        let next = snapshot(
+            &store.snapshot().1,
+            &BlockBuilder::default().transaction(tx(0)).build(),
+            HashSet::new(),
+            proposed,
+        );
+        let captured = store
+            .capture_chain(
+                &store.snapshot_change(next),
+                &[committed.clone()].into(),
+                &HashSet::new(),
+            )
+            .unwrap();
+        let hashes: BTreeSet<_> = captured.owners.iter().map(|entry| entry.hash()).collect();
+        assert_eq!(
+            hashes,
+            [
+                root,
+                callback_hash.clone(),
+                leaf,
+                committed,
+                child,
+                queued.hash()
+            ]
+            .into()
+        );
+        assert!(!hashes.contains(&sibling));
+        assert!(!hashes.contains(&grandchild));
+        let selected: Members = captured
+            .owners
+            .into_iter()
+            .filter(|entry| entry.accepted().is_some())
+            .map(|entry| (entry.hash(), entry))
+            .collect();
+        let complete: Members = store
+            .capture_accepted()
+            .owners
+            .into_iter()
+            .map(|entry| (entry.hash(), entry))
+            .collect();
+        let actual = membership::aggregates(&selected, config().max_ancestors_count).unwrap();
+        let expected = membership::aggregates(&complete, config().max_ancestors_count).unwrap();
+        assert_eq!(actual[&callback_hash], expected[&callback_hash]);
+    }
+}
+
+#[test]
 fn reorg_conflict_wins_where_recovery_and_conflict_descendants_intersect() {
     let store = store();
     let time_locked = output_tx(8700)
@@ -1419,4 +1752,97 @@ fn committed_spend_retires_live_waiter_but_preserves_replacement_history() {
         &store.point(&history.hash()).1.unwrap()
     ));
     assert!(accepted_hashes(&store).is_empty());
+}
+
+#[test]
+fn chain_wakes_cover_owner_removals_and_canonical_only_transactions() {
+    use crate::authority::model::RecoveryTriggers;
+
+    for detach in [false, true] {
+        let store = store();
+        // Ordinary attachment stays on selective capture; detachment requires full capture.
+        let unrelated = [8748, 8749].map(|nonce| {
+            let hash = accept(&store, output_tx(nonce), 1, 1, Status::Pending);
+            store.point(&hash).1.unwrap()
+        });
+        let bodies = [8720, 8721, 8722, 8723]
+            .map(|nonce| spend(nonce, &[OutPoint::new(tx(nonce + 100).hash(), 0)], &[]));
+        accept(&store, bodies[0].clone(), 1, 1, Status::Pending);
+        insert(&store, entry(&store, bodies[1].clone(), Source::Recovery));
+        // The other attached body and the detached body have no original owner.
+        let mut expected = BTreeMap::new();
+        for (index, point) in bodies[..if detach { 4 } else { 3 }]
+            .iter()
+            .flat_map(|tx| tx.input_pts_iter().chain(tx.output_pts_iter()))
+            .enumerate()
+        {
+            let key = DependencyKey::Cell(point);
+            let history = entry(
+                &store,
+                output_tx(8730 + u32::try_from(index).unwrap()),
+                Source::Recovery,
+            )
+            .with_phase(Phase::Replaced(RecoveryTriggers::RetryInputs(
+                [key.clone()].into(),
+            )));
+            assert!(expected.insert(key, history.hash()).is_none());
+            insert(&store, history);
+        }
+        assert!(store.wake_page(&mut None).is_none());
+        let attached = BlockBuilder::default()
+            .transaction(tx(0))
+            .transactions(bodies[..3].to_vec())
+            .build();
+        let detached = BlockBuilder::default()
+            .transaction(tx(1))
+            .transaction(bodies[3].clone())
+            .build();
+        let next = snapshot(
+            &store.snapshot().1,
+            &attached,
+            HashSet::new(),
+            HashSet::new(),
+        );
+        apply(
+            &store,
+            &ChainReorgArgs::for_test(
+                if detach {
+                    [detached].into()
+                } else {
+                    VecDeque::new()
+                },
+                [attached].into(),
+                next,
+            ),
+        );
+        for body in &bodies[..3] {
+            assert!(store.point(&body.hash()).1.is_none());
+        }
+        let recovered = store.point(&bodies[3].hash()).1;
+        if detach {
+            assert!(matches!(recovered.unwrap().phase, Phase::Resolve));
+        } else {
+            assert!(recovered.is_none());
+        }
+        for owner in unrelated {
+            assert!(Arc::ptr_eq(&owner, &store.point(&owner.hash()).1.unwrap()));
+        }
+        let mut observed = BTreeMap::new();
+        let mut cursor = None;
+        for _ in 0..expected.len() {
+            let page = store.wake_page(&mut cursor).unwrap();
+            assert_eq!(page.hashes().len(), 1);
+            assert!(
+                observed
+                    .insert(page.key().clone(), page.hashes()[0].clone())
+                    .is_none()
+            );
+            let mut plan = Plan::new(store.snapshot().0, Class::Trusted, Default::default());
+            plan.advance(page);
+            store.apply(plan).unwrap();
+        }
+        assert_eq!(observed, expected);
+        assert!(store.wake_page(&mut cursor).is_none());
+        assert!(!store.is_faulted());
+    }
 }

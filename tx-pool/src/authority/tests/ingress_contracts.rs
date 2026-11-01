@@ -82,7 +82,8 @@ fn refused_plan_retains_its_original_reads_and_discards_speculative_changes_and_
         )
         .unwrap();
         let (view, snapshot) = store.snapshot();
-        plan.replace_generation(snapshot);
+        plan.replace_generation(store.snapshot_change(snapshot))
+            .unwrap();
         plan.ban_peer(
             &candidate.hash(),
             malformed(),

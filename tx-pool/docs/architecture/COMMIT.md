@@ -25,6 +25,11 @@ and peer observations also use identity markers. Different repeated observations
 make a read set stale. Absence is a current predicate: absent → present → absent
 history alone does not falsify it.
 
+Creating a relation or peer row supplies its first marker; removing the row
+invalidates a positive observation through absence. Only a surviving existing row
+needs a new marker when its observed membership changes. The collection and row
+locks keep the complete update hidden until that identity is ready.
+
 A Plan owns the decision from preparation through Apply. Construction seeds the
 original resolution or capture reads; later tracked reads extend that same private
 set. The [membership graph](../../src/authority/membership/graph.rs) borrows the
@@ -121,9 +126,18 @@ both paths, and their handling in merge, validation and verification projection.
 Under those guards, `OwnerChanges::validate_projections` checks
 counters and derived indexes before scalar capacity is reserved. The derived
 changes borrow the Plan's edits rather than copying owners; the same object
-installs the owner, relation and peer projections after validation. One
+installs the owner, relation and peer projections after validation. Relation
+changes share one sorted buffer, merging repeated roles for each owner before
+validation. Both guarded passes visit the same ordered groups; persistent
+relation keys receive compact backing only when first inserted. One
 `Application` owns the Plan and its notice reservation across the synchronous
 history fallback.
+
+An owner's proposal short ID is its full-hash prefix. Owners with the same
+prefix share a shard, whose ordered owner table supplies short-ID lookups
+directly. Preflight rejects two final owners with that prefix, but permits a
+removal and successor in one commit. Queries and lifecycle counters observe
+the final owner table; no separate proposal-to-owner mapping needs a handoff.
 `commit_infallibly` takes a unit-returning closure, so an accidental `?` in that
 tail does not compile. This narrow guard does not prove preflight completeness,
 prevent panics or promise rollback after a committed integrity fault. Allocation
@@ -133,7 +147,9 @@ use and makes persistence ineligible.
 Within that commit, `Shard::apply_edit` updates the owner and every shard-local
 projection, including queue membership and retirement. Its exhaustive field
 destructuring forces a new Shard field to be considered at this boundary; it does
-not prove the update is correct. Clear replaces complete shards. A lifecycle
+not prove the update is correct. Metadata changes preserve an unchanged expiry
+index key while still replacing the owner and advancing its read revisions.
+Clear replaces complete shards. A lifecycle
 write refreshes Gap and Proposed counts against its successor snapshot, installs the
 snapshot and applies its ordered committed-hash records under the same cut.
 
