@@ -115,7 +115,15 @@ impl Selection<'_> {
     }
 
     fn precedence_graph(&self) -> Result<Links, PackingError> {
-        let mut spenders = HashMap::<&OutPoint, usize>::with_capacity(self.candidates.len());
+        let input_count = self
+            .candidates
+            .iter()
+            .try_fold(0usize, |count, candidate| {
+                count
+                    .checked_add(candidate.accepted.transaction.resolved_inputs.len())
+                    .ok_or(PackingError::Arithmetic)
+            })?;
+        let mut spenders = HashMap::<&OutPoint, usize>::with_capacity(input_count);
         for (index, candidate) in self.candidates.iter().enumerate() {
             // Accepted resolution preserves every input's outpoint and order.
             for input in &candidate.accepted.transaction.resolved_inputs {
