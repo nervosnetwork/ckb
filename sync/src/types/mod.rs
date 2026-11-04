@@ -342,16 +342,21 @@ struct PendingClaim {
     count: usize,
 }
 
-/// One occurrence in a remote batch, including repeated hashes. A settled
-/// entry has no pending identity and cannot be removed by batch cancellation.
+/// One occurrence in a remote batch, including repeated hashes. Filter marks
+/// and requests can be replaced independently, so each retains its own identity.
 struct KnownTxClaim {
     hash: Byte32,
-    identity: Option<Weak<()>>,
+    filter_identity: Option<Weak<()>>,
+    // One weak reference per pending claim; the request owns the strong identity.
+    // Creation and release both hold the request lock, so its weak count is the
+    // live claim count. Cloning a queue priority cannot prolong a batch claim.
+    request_identity: Option<Weak<()>>,
 }
 
 /// Owns tentative known marks until the pool completes a prefix. This
 /// non-Clone guard is the sole owner of each claim's release obligation.
-/// Admission failure and cancellation release the remaining suffix on drop.
+/// Admission failure and cancellation release the remaining suffix on drop;
+/// its matching requests stay in the queue but cannot be reissued while live.
 pub(crate) struct KnownRemoteBatch {
     shared: Arc<SyncShared>,
     claims: Vec<KnownTxClaim>,
@@ -364,7 +369,8 @@ impl KnownRemoteBatch {
             .into_iter()
             .map(|hash| KnownTxClaim {
                 hash,
-                identity: None,
+                filter_identity: None,
+                request_identity: None,
             })
             .collect();
         if !claims.is_empty() {
@@ -373,8 +379,12 @@ impl KnownRemoteBatch {
             let mut unknown_tx_hashes = state.unknown_tx_hashes.lock();
             let mut filter = state.tx_filter.lock();
             for claim in &mut claims {
-                unknown_tx_hashes.remove(&claim.hash);
-                claim.identity = filter.claim(claim.hash.clone(), &mut identity);
+                if let Some(mut request) = unknown_tx_hashes.remove(&claim.hash) {
+                    let identity = request.flight.get_or_insert_with(|| Arc::new(()));
+                    claim.request_identity = Some(Arc::downgrade(identity));
+                    unknown_tx_hashes.push(claim.hash.clone(), request);
+                }
+                claim.filter_identity = filter.claim(claim.hash.clone(), &mut identity);
             }
         }
         Self {
@@ -385,13 +395,22 @@ impl KnownRemoteBatch {
     }
 
     pub(crate) fn complete_prefix(&mut self, completed: usize) {
+        use keyed_priority_queue::Entry;
+
         let completed = completed.min(self.claims.len());
         if completed > self.completed {
             {
+                let mut requests = self.shared.state().unknown_tx_hashes.lock();
                 let mut filter = self.shared.state().tx_filter.lock();
-                for claim in &self.claims[self.completed..completed] {
-                    if let Some(identity) = &claim.identity {
+                for claim in &mut self.claims[self.completed..completed] {
+                    if let Some(identity) = &claim.filter_identity {
                         filter.settle_claim(&claim.hash, identity);
+                    }
+                    if let Some(identity) = claim.request_identity.take()
+                        && let Entry::Occupied(entry) = requests.entry(claim.hash.clone())
+                        && entry.get_priority().flight_matches(&identity)
+                    {
+                        entry.remove();
                     }
                 }
             }
@@ -402,17 +421,39 @@ impl KnownRemoteBatch {
 
 impl Drop for KnownRemoteBatch {
     fn drop(&mut self) {
-        let suffix = &self.claims[self.completed..];
+        use keyed_priority_queue::Entry;
+
+        let suffix = &mut self.claims[self.completed..];
         if suffix.is_empty() {
             return;
         }
+        let mut requests = self.shared.state().unknown_tx_hashes.lock();
         let mut filter = self.shared.state().tx_filter.lock();
         for claim in suffix {
-            if let Some(identity) = &claim.identity {
+            if let Some(identity) = &claim.filter_identity {
                 filter.release_claim(&claim.hash, identity);
             }
+            if let Some(identity) = claim.request_identity.take()
+                && identity.weak_count() == 1
+                && let Entry::Occupied(entry) = requests.entry(claim.hash.clone())
+                && entry.get_priority().flight_matches(&identity)
+            {
+                let (hash, mut request) = entry.remove();
+                request.flight = None;
+                if filter.contains_unexpired(&hash) {
+                    continue;
+                }
+                // A local refusal or cancellation leaves the transaction
+                // eligible for the same source after the normal retry delay.
+                // A departed source has already armed its backup peer.
+                if request.requested {
+                    request.requested = false;
+                    request.request_time = Instant::now() + RETRY_ASK_TX_TIMEOUT_INCREASE;
+                }
+                requests.push(hash, request);
+            }
         }
-        // The guard's claim payloads drop after this filter lock is released.
+        // Hashes and filter identities drop after these locks are released.
     }
 }
 
@@ -432,6 +473,15 @@ impl<T: Eq + Hash + Clone> TtlFilter<T> {
 
     pub fn contains(&self, item: &T) -> bool {
         self.inner.contains(item)
+    }
+
+    fn contains_unexpired(&self, item: &T) -> bool {
+        self.inner.peek(item).is_some_and(|entry| {
+            ckb_systemtime::unix_time()
+                .as_secs()
+                .saturating_sub(entry.timestamp)
+                <= self.ttl
+        })
     }
 
     pub fn insert(&mut self, item: T) -> bool {
@@ -1419,11 +1469,20 @@ pub struct UnknownTxHashPriority {
     request_time: Instant,
     peers: Vec<PeerIndex>,
     requested: bool,
+    // Retain the request during handoff for disconnect cleanup and capacity
+    // accounting. A new identity distinguishes successor requests for this hash.
+    flight: Option<Arc<()>>,
 }
 
 impl UnknownTxHashPriority {
     pub fn should_request(&self, now: Instant) -> bool {
-        self.next_request_at() < now
+        self.flight.is_none() && self.next_request_at() < now
+    }
+
+    fn flight_matches(&self, identity: &Weak<()>) -> bool {
+        self.flight
+            .as_ref()
+            .is_some_and(|flight| identity.as_ptr() == Arc::as_ptr(flight))
     }
 
     pub fn next_request_at(&self) -> Instant {
@@ -1450,7 +1509,15 @@ impl UnknownTxHashPriority {
     }
 
     pub fn push_peer(&mut self, peer_index: PeerIndex) {
-        self.peers.push(peer_index);
+        let now = Instant::now();
+        if !self.requested && self.request_time > now {
+            // An independent source can bypass a local retry delay without
+            // causing repeated requests to the source whose body was refused.
+            self.peers.insert(0, peer_index);
+            self.request_time = now;
+        } else {
+            self.peers.push(peer_index);
+        }
     }
 
     pub fn requesting_peer(&self) -> Option<PeerIndex> {
@@ -1464,6 +1531,11 @@ impl UnknownTxHashPriority {
 
 impl Ord for UnknownTxHashPriority {
     fn cmp(&self, other: &Self) -> cmp::Ordering {
+        match (self.flight.is_some(), other.flight.is_some()) {
+            (true, false) => return cmp::Ordering::Less,
+            (false, true) => return cmp::Ordering::Greater,
+            _ => {}
+        }
         self.next_request_at()
             .cmp(&other.next_request_at())
             .reverse()
@@ -1636,7 +1708,12 @@ impl SyncState {
     }
 
     pub fn reject_pending_relay_tx(&self, hash: &Byte32) {
-        self.remove_from_known_txs(hash);
+        {
+            let mut requests = self.unknown_tx_hashes.lock();
+            let mut filter = self.tx_filter.lock();
+            requests.remove(hash);
+            filter.remove(hash);
+        }
         self.pending_relay_txs.lock().pop(hash);
     }
 
@@ -1784,6 +1861,7 @@ impl SyncState {
                     request_time: Instant::now(),
                     peers: vec![peer_index],
                     requested: false,
+                    flight: None,
                 }),
             }
             peer_unknown_count += 1;

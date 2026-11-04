@@ -187,6 +187,12 @@ fn duplicate_requested_bodies_never_reach_tx_pool() {
         })
         .collect();
     assert_eq!(received, vec![child.hash(), parent.hash()]);
+    for hash in [parent.hash(), child.hash()] {
+        assert!(
+            state.unknown_tx_hashes().get_priority(&hash).is_none(),
+            "a completed remote batch releases its request"
+        );
+    }
 
     let (status, outcomes) = receive_response(&mut relayer, peer, vec![first.clone(), first]);
     assert!(status.is_ok(), "already-known duplicates remain ignored");
@@ -343,6 +349,12 @@ fn remote_closed_controller_releases_known_projection() {
         !state.already_known_tx(&hash),
         "a failed Remote handoff releases its exact known-filter mark"
     );
+    let mut retry = state
+        .unknown_tx_hashes()
+        .get_priority(&hash)
+        .cloned()
+        .expect("the failed handoff retains its request");
+    assert_eq!(retry.next_request_peer(), Some(source_peer));
     let announcement = packed::RelayTransactionHashes::new_builder()
         .tx_hashes(vec![hash])
         .build();
@@ -394,6 +406,113 @@ fn remote_batch_admission_exhaustion_releases_known_without_spawning() {
         "a batch rejected before spawn releases every tentative known mark synchronously"
     );
     drop(permits);
+    let mut retry = state
+        .unknown_tx_hashes()
+        .get_priority(&hash)
+        .cloned()
+        .expect("the rejected batch retains its request");
+    assert_eq!(
+        retry.next_request_peer(),
+        Some(source_peer),
+        "the only source must be retryable after local batch admission fails"
+    );
+}
+
+#[test]
+fn remote_request_flight_keeps_other_requests_live_and_prunes_departed_source() {
+    let (_chain, relayer, always_success) = build_chain(1);
+    let first = new_transaction(&relayer, 722, &always_success).hash();
+    let other = new_transaction(&relayer, 723, &always_success).hash();
+    let source = PeerIndex::from(24usize);
+    let backup = PeerIndex::from(25usize);
+    let other_peer = PeerIndex::from(26usize);
+    let state = relayer.shared.state();
+    state.add_ask_for_txs(source, vec![first.clone()]);
+    assert_eq!(
+        state.pop_ask_for_txs().get(&source),
+        Some(&vec![first.clone()])
+    );
+    let known = KnownRemoteBatch::mark(Arc::clone(&relayer.shared), vec![first.clone()]);
+
+    state.add_ask_for_txs(other_peer, vec![other.clone()]);
+    assert_eq!(state.pop_ask_for_txs().get(&other_peer), Some(&vec![other]));
+    state.add_ask_for_txs(backup, vec![first.clone()]);
+    state.remove_peer_tx_requests(source);
+    drop(known);
+    assert_eq!(state.pop_ask_for_txs().get(&backup), Some(&vec![first]));
+}
+
+#[test]
+fn overlapping_remote_request_claims_retry_only_after_the_last_drop() {
+    let (_chain, relayer, always_success) = build_chain(1);
+    let hash = new_transaction(&relayer, 724, &always_success).hash();
+    let source = PeerIndex::from(27usize);
+    let state = relayer.shared.state();
+    state.add_ask_for_txs(source, vec![hash.clone()]);
+    assert_eq!(
+        state.pop_ask_for_txs().get(&source),
+        Some(&vec![hash.clone()])
+    );
+    let first = KnownRemoteBatch::mark(Arc::clone(&relayer.shared), vec![hash.clone()]);
+    let second = KnownRemoteBatch::mark(Arc::clone(&relayer.shared), vec![hash.clone()]);
+    drop(first);
+    assert!(state.pop_ask_for_txs().is_empty());
+    {
+        let requests = state.unknown_tx_hashes();
+        let pending = requests.get_priority(&hash).unwrap();
+        assert!(
+            !pending.should_request(pending.next_request_at() + Duration::from_secs(1)),
+            "a live batch suppresses retries even after the request timeout"
+        );
+    }
+    drop(second);
+    let mut retry = state
+        .unknown_tx_hashes()
+        .get_priority(&hash)
+        .cloned()
+        .expect("the last cancelled batch retains the request");
+    assert!(!retry.should_request(Instant::now()));
+    assert!(retry.should_request(retry.next_request_at() + Duration::from_secs(1)));
+    assert_eq!(retry.next_request_peer(), Some(source));
+}
+
+#[test]
+fn old_batch_cannot_change_a_new_request_for_the_same_hash() {
+    let (_chain, relayer, always_success) = build_chain(1);
+    let hash = new_transaction(&relayer, 725, &always_success).hash();
+    let old_peer = PeerIndex::from(28usize);
+    let new_peer = PeerIndex::from(29usize);
+    let state = relayer.shared.state();
+    for complete in [false, true] {
+        state.reject_pending_relay_tx(&hash);
+        state.add_ask_for_txs(old_peer, vec![hash.clone()]);
+        assert_eq!(
+            state.pop_ask_for_txs().get(&old_peer),
+            Some(&vec![hash.clone()])
+        );
+        let mut old = KnownRemoteBatch::mark(Arc::clone(&relayer.shared), vec![hash.clone()]);
+        state.reject_pending_relay_tx(&hash);
+        state.add_ask_for_txs(new_peer, vec![hash.clone()]);
+        assert_eq!(
+            state.pop_ask_for_txs().get(&new_peer),
+            Some(&vec![hash.clone()])
+        );
+        let new = KnownRemoteBatch::mark(Arc::clone(&relayer.shared), vec![hash.clone()]);
+        if complete {
+            old.complete_prefix(1);
+        }
+        drop(old);
+        assert!(state.already_known_tx(&hash));
+        assert!(state.unknown_tx_hashes().get_priority(&hash).is_some());
+        drop(new);
+        let mut retry = state
+            .unknown_tx_hashes()
+            .get_priority(&hash)
+            .cloned()
+            .expect("the new request survives the old completion or cancellation");
+        assert!(retry.should_request(retry.next_request_at() + Duration::from_secs(1)));
+        assert_eq!(retry.next_request_peer(), Some(new_peer));
+    }
 }
 
 #[test]
@@ -435,6 +554,9 @@ fn duplicate_known_claim_in_a_completed_prefix_survives_suffix_cancellation() {
     let transaction = new_transaction(&relayer, 710, &always_success);
     let hash = transaction.hash();
     let state = relayer.shared.state();
+    let peer = PeerIndex::from(30usize);
+    state.add_ask_for_txs(peer, vec![hash.clone()]);
+    state.pop_ask_for_txs();
     let mut batch = KnownRemoteBatch::mark(
         Arc::clone(&relayer.shared),
         vec![hash.clone(), hash.clone()],
@@ -442,13 +564,23 @@ fn duplicate_known_claim_in_a_completed_prefix_survives_suffix_cancellation() {
     batch.complete_prefix(1);
     drop(batch);
     assert!(state.already_known_tx(&hash));
+    assert!(state.unknown_tx_hashes().get_priority(&hash).is_none());
 
     state.remove_from_known_txs(&hash);
+    state.add_ask_for_txs(peer, vec![hash.clone()]);
+    state.pop_ask_for_txs();
     drop(KnownRemoteBatch::mark(
         Arc::clone(&relayer.shared),
         vec![hash.clone(), hash.clone()],
     ));
     assert!(!state.already_known_tx(&hash));
+    let mut retry = state
+        .unknown_tx_hashes()
+        .get_priority(&hash)
+        .cloned()
+        .expect("cancelling both occurrences retains their shared request");
+    assert!(retry.should_request(retry.next_request_at() + Duration::from_secs(1)));
+    assert_eq!(retry.next_request_peer(), Some(peer));
 }
 
 #[test]
@@ -456,19 +588,24 @@ fn overlapping_remote_batches_keep_known_until_all_cancel_or_any_completes() {
     let (_chain, relayer, always_success) = build_chain(1);
     let hash = new_transaction(&relayer, 711, &always_success).hash();
     let state = relayer.shared.state();
+    let peer = PeerIndex::from(31usize);
     for completed in [[false, false], [true, false], [false, true], [true, true]] {
         for order in [[0, 1], [1, 0]] {
-            state.reset_known_txs();
+            state.reject_pending_relay_tx(&hash);
+            state.add_ask_for_txs(peer, vec![hash.clone()]);
+            state.pop_ask_for_txs();
             let mut batches = [0, 1].map(|_| {
                 Some(KnownRemoteBatch::mark(
                     Arc::clone(&relayer.shared),
                     vec![hash.clone()],
                 ))
             });
+            let mut any_completed = false;
             for (step, index) in order.into_iter().enumerate() {
                 let mut batch = batches[index].take().unwrap();
                 if completed[index] {
                     batch.complete_prefix(1);
+                    any_completed = true;
                 }
                 drop(batch);
                 assert_eq!(
@@ -476,6 +613,16 @@ fn overlapping_remote_batches_keep_known_until_all_cancel_or_any_completes() {
                     step == 0 || completed.into_iter().any(|done| done),
                     "completion={completed:?}, order={order:?}, step={step}"
                 );
+                let requests = state.unknown_tx_hashes();
+                let request = requests.get_priority(&hash);
+                assert_eq!(request.is_none(), any_completed);
+                if let Some(request) = request {
+                    assert_eq!(
+                        request.should_request(request.next_request_at() + Duration::from_secs(1)),
+                        step == 1,
+                        "only the last cancellation rearms the request"
+                    );
+                }
             }
         }
     }
@@ -679,6 +826,12 @@ fn remote_batch_task_cancellation_returns_admission_and_releases_known() {
     let (_chain, relayer, always_success_out_point) = build_chain(1);
     let hash = new_transaction(&relayer, 706, &always_success_out_point).hash();
     let state = relayer.shared.state();
+    let source_peer = PeerIndex::from(23usize);
+    state.add_ask_for_txs(source_peer, vec![hash.clone()]);
+    assert_eq!(
+        state.pop_ask_for_txs().get(&source_peer),
+        Some(&vec![hash.clone()])
+    );
     let admission = Arc::clone(&relayer.remote_batch_admission)
         .try_acquire_owned()
         .expect("one remote batch admission remains available");
@@ -707,6 +860,12 @@ fn remote_batch_task_cancellation_returns_admission_and_releases_known() {
         !state.already_known_tx(&hash),
         "task cancellation drops the guard and releases every uncommitted known mark"
     );
+    let mut retry = state
+        .unknown_tx_hashes()
+        .get_priority(&hash)
+        .cloned()
+        .expect("cancelled batch retains its request");
+    assert_eq!(retry.next_request_peer(), Some(source_peer));
 }
 
 #[test]
