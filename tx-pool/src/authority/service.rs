@@ -831,6 +831,8 @@ impl Pool {
             } = self.store.capture_accepted();
             let selection = Selection::new(&owners, &snapshot, self.config.max_ancestors_count)?;
             selection
+                .for_block()
+                .map_err(Error::from)?
                 .pack_transactions(super::packing::TemplatePackingLimits::new(
                     bytes.unwrap_or_else(|| snapshot.consensus().max_block_bytes()) as usize,
                     snapshot.consensus().max_block_cycles(),

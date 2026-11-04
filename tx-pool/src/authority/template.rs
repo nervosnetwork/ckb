@@ -242,13 +242,13 @@ impl Driver {
         if fixed_size > maximum {
             return Err(BlockAssemblerError::Overflow.into());
         }
-        let proposals =
-            selection.proposal_short_ids(snapshot.consensus().max_block_proposals_limit());
+        let block = selection.for_block().map_err(Error::from)?;
+        let proposals = block.proposal_short_ids(snapshot.consensus().max_block_proposals_limit());
         let optional = BlockAssembler::fit_optional_content(
             &snapshot, proposals, &prepared, fixed_size, maximum,
         )
         .ok_or(BlockAssemblerError::Overflow)?;
-        let selected = selection
+        let selected = block
             .pack_transactions(TemplatePackingLimits::new(
                 maximum
                     .checked_sub(optional.total_size)

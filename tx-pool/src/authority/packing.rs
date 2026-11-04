@@ -21,6 +21,7 @@ use ckb_types::{
     prelude::Reader,
 };
 use graph::{Graph, Links};
+use ordering::Precedence;
 use run::PackingRun;
 use std::{
     cmp::Reverse,
@@ -229,16 +230,12 @@ impl<'a> Selection<'a> {
         })
     }
 
-    #[expect(
-        clippy::indexing_slicing,
-        reason = "The priority heap contains only indices of this candidate slice."
-    )]
-    pub(super) fn proposal_short_ids(&self, limit: u64) -> Vec<ProposalShortId> {
-        let mut priority = self.priority(Some(Status::Pending));
-        std::iter::from_fn(|| priority.pop())
-            .take(usize::try_from(limit).unwrap_or(usize::MAX))
-            .map(|(_, Reverse(index))| self.candidates[index].proposal.to_entity())
-            .collect()
+    /// Resolve block prerequisites once for both proposals and transactions.
+    pub(super) fn for_block(&self) -> Result<BlockSelection<'_, 'a>, PackingError> {
+        Ok(BlockSelection {
+            selection: self,
+            precedence: self.precedence()?,
+        })
     }
 
     #[cfg(test)]
@@ -340,20 +337,76 @@ fn package_order_key<'a>(
     )
 }
 
-impl Selection<'_> {
+/// One captured population and its acyclic read-before-spend prerequisites.
+/// Proposal prefixes and transaction packages use the same cycle decisions.
+/// Transaction packing consumes the plan, releasing it before DAO calculation.
+pub(super) struct BlockSelection<'selection, 'owner> {
+    selection: &'selection Selection<'owner>,
+    precedence: Precedence,
+}
+
+impl BlockSelection<'_, '_> {
+    /// Emit each Pending prerequisite before its consumer. Every prefix remains
+    /// closed over Pending prerequisites, including after optional byte fitting.
+    #[expect(
+        clippy::indexing_slicing,
+        reason = "Priority and prerequisite indices belong to this captured population."
+    )]
+    pub(super) fn proposal_short_ids(&self, limit: u64) -> Vec<ProposalShortId> {
+        let limit = usize::try_from(limit).unwrap_or(usize::MAX);
+        if limit == 0 {
+            return Vec::new();
+        }
+        let mut priority = self.selection.priority(Some(Status::Pending));
+        let mut proposals = Vec::with_capacity(limit.min(priority.len()));
+        if priority.is_empty() {
+            return proposals;
+        }
+        let mut visited = vec![false; self.selection.candidates.len()];
+        let mut stack = Vec::new();
+        while let Some((_, Reverse(index))) = priority.pop() {
+            if visited[index] || !self.precedence.active[index] {
+                continue;
+            }
+            visited[index] = true;
+            stack.push((index, self.precedence.prerequisites(index).iter()));
+            while let Some((index, parents)) = stack.last_mut() {
+                if let Some(&parent) = parents.next() {
+                    if !visited[parent] {
+                        visited[parent] = true;
+                        stack.push((parent, self.precedence.prerequisites(parent).iter()));
+                    }
+                } else {
+                    let candidate = &self.selection.candidates[*index];
+                    stack.pop();
+                    // Gap and Proposed need no slot, but their Pending
+                    // prerequisites must still be visited. Marks are shared
+                    // across roots; each node and edge is traversed at most once.
+                    if candidate.status == Status::Pending {
+                        proposals.push(candidate.proposal.to_entity());
+                        if proposals.len() == limit {
+                            return proposals;
+                        }
+                    }
+                }
+            }
+        }
+        proposals
+    }
+
     pub(super) fn pack_transactions(
-        &self,
+        self,
         limits: TemplatePackingLimits,
     ) -> Result<Vec<TxEntry>, PackingError> {
         self.pack_transactions_with_failure_bound(limits, MAX_CONSECUTIVE_PACKING_FAILURES)
     }
 
     fn pack_transactions_with_failure_bound(
-        &self,
+        self,
         limits: TemplatePackingLimits,
         max_consecutive_failures: usize,
     ) -> Result<Vec<TxEntry>, PackingError> {
-        let Some(run) = PackingRun::new(self, limits)? else {
+        let Some(run) = PackingRun::new(&self, limits)? else {
             return Ok(Vec::new());
         };
         run.pack(max_consecutive_failures)
@@ -367,3 +420,7 @@ mod tests;
 #[cfg(test)]
 #[path = "tests/packing_graph.rs"]
 mod graph_tests;
+
+#[cfg(test)]
+#[path = "tests/packing_proposals.rs"]
+mod proposal_tests;

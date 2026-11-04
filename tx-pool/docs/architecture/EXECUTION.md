@@ -549,7 +549,26 @@ Candidate phases come from the current `ProposalView`, with Proposed taking
 precedence over Gap. A temporary sorted lookup is used only when it has no more
 entries than the declared query count, and is released after capture. Selection
 orders a heap by exact ancestor fee rate and weight, then arrival, hash and local
-index. Proposals and fee estimates consume only the needed prefix.
+index. Fee estimates consume only the needed score prefix. Block selection
+resolves read-before-spend precedence once, sharing its active population and
+cycle decisions between proposal generation and transaction packing.
+
+Proposals start with the highest-scoring Pending candidate and emit its Pending
+prerequisites first. An iterative post-order walk crosses Gap and Proposed
+members without re-proposing them, since an earlier prerequisite may still be
+Pending. One visited mask covers all candidates; shared prerequisites are walked
+once. A closure larger than the available slots contributes its dependency-first
+prefix, so low-fee roots and retained readers can advance before their consumers.
+Every output prefix has this property, including the later byte-budget truncation.
+Tentative uncles provide no proposal coverage: the assembler gives main proposals
+byte priority and then removes conflicting or unfitting uncles.
+
+For `N` owners and `P` complete prerequisite edges, this additional proposal walk
+visits at most `N` nodes and `P` edges, uses `O(N)` scratch and emits at most the
+proposal limit. Its heap still ranks at most `N` candidates. Each DFS frame holds
+one node and its remaining parents, so wide rows do not queue an edge-sized stack;
+there is no recursive call stack or retained closure per candidate. Zero proposal
+slots skip the heap and walk; an empty Pending heap needs no traversal storage.
 
 Each call owns its budgets and candidate states, copying ancestor totals on the
 first adjustment. The initial heap and modified-score set each hold at most the
@@ -567,12 +586,12 @@ accepted reader of a spent cell, including expanded dependency groups. Admission
 closes that reader set when the spender enters the pool. The temporary spender
 index borrows the canonical input outpoints retained by accepted owners. It still
 rejects duplicate inputs before proposal phase or block capacity can exclude an
-entry. Proposal eligibility and package selection require these earlier readers,
+entry. Proposal ordering and package selection require these earlier readers,
 so block capacity can defer the spender while readers commit over several blocks.
 Causal ancestry and its fee aggregates remain separate from this block
 prerequisite graph.
 
-One topological pass propagates proposal eligibility across every prerequisite
+One topological pass propagates commit eligibility across every prerequisite
 and ranks only its complete Proposed closure. Ineligible ready entries bypass
 the priority heap; they cannot unlock an eligible entry, so the eligible order
 is the same as in a global preference-ordered pass. Package traversal stops

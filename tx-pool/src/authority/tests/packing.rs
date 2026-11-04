@@ -94,6 +94,8 @@ fn uak_template_packer_selects_an_exact_fit_cpfp_package_parent_first() {
     let receipt = selection(&owners, &snapshot);
 
     let exact = receipt
+        .for_block()
+        .unwrap()
         .pack_transactions(TemplatePackingLimits::new(package_bytes, 30))
         .expect("the exact parent-child package fits");
     let exact_hashes = packed_hashes(&exact);
@@ -112,6 +114,8 @@ fn uak_template_packer_selects_an_exact_fit_cpfp_package_parent_first() {
 
     let one_byte_limit = package_bytes - 1;
     let one_byte_short = receipt
+        .for_block()
+        .unwrap()
         .pack_transactions(TemplatePackingLimits::new(one_byte_limit, u64::MAX))
         .expect("a one-byte-short limit is an ordinary packing result");
     let one_byte_hashes = packed_hashes(&one_byte_short);
@@ -133,6 +137,8 @@ fn uak_template_packer_selects_an_exact_fit_cpfp_package_parent_first() {
     );
 
     let one_cycle_short = receipt
+        .for_block()
+        .unwrap()
         .pack_transactions(TemplatePackingLimits::new(usize::MAX, 29))
         .expect("a one-cycle-short limit is an ordinary packing result");
     let one_cycle_hashes = packed_hashes(&one_cycle_short);
@@ -185,6 +191,8 @@ fn uak_template_packer_rescores_descendants_after_shared_parent_selection() {
         "the rival must start ahead of the child package"
     );
     let packed = receipt
+        .for_block()
+        .unwrap()
         .pack_transactions(TemplatePackingLimits::new(usize::MAX, 3))
         .expect("dynamic CPFP scoring remains coherent");
     let hashes = packed_hashes(&packed);
@@ -221,6 +229,8 @@ fn uak_template_packer_aggregates_multi_parent_descendant_adjustments() {
     let (snapshot, owners) = capture(&authority);
     let receipt = selection(&owners, &snapshot);
     let packed = receipt
+        .for_block()
+        .unwrap()
         .pack_transactions(TemplatePackingLimits::new(usize::MAX, 3))
         .expect("both selected-parent deltas are aggregated exactly once");
     let hashes = packed_hashes(&packed);
@@ -257,12 +267,16 @@ fn uak_template_packer_bounds_non_fitting_work_without_changing_the_policy() {
     let receipt = selection(&owners, &snapshot);
 
     let bounded = receipt
+        .for_block()
+        .unwrap()
         .pack_transactions_with_failure_bound(TemplatePackingLimits::new(usize::MAX, 2), 1)
         .expect("the failure bound is a deterministic early stop");
     let bounded_hashes = packed_hashes(&bounded);
     assert_eq!(bounded_hashes, vec![first.clone()]);
 
     let complete = receipt
+        .for_block()
+        .unwrap()
         .pack_transactions(TemplatePackingLimits::new(usize::MAX, 2))
         .expect("the production bound reaches the later fitting candidate");
     let complete_hashes = packed_hashes(&complete);
@@ -293,6 +307,8 @@ fn uak_template_packer_requires_proposed_ancestors_and_orders_conditional_edges(
 
     let (snapshot, owners) = capture(&authority);
     let packed = selection(&owners, &snapshot)
+        .for_block()
+        .unwrap()
         .pack_transactions(TemplatePackingLimits::new(usize::MAX, u64::MAX))
         .expect("the selected-set conditional graph is coherent");
     let hashes = packed
@@ -334,6 +350,8 @@ fn earlier_dependency_readers_gate_spending_across_proposal_and_block_limits() {
         let receipt = selection(&owners, &snapshot);
         for limit in [1, 2] {
             let packed = receipt
+                .for_block()
+                .unwrap()
                 .pack_transactions(TemplatePackingLimits::new(usize::MAX, limit))
                 .unwrap();
             let expected = match (phase, limit) {
@@ -376,6 +394,8 @@ fn dependency_readers_larger_than_one_block_do_not_pin_the_spender() {
     for _ in 0..3 {
         let (snapshot, owners) = capture(&authority);
         let packed = selection(&owners, &snapshot)
+            .for_block()
+            .unwrap()
             .pack_transactions(TemplatePackingLimits::new(usize::MAX, 64))
             .unwrap();
         assert!(!packed.is_empty(), "bounded reader work must make progress");
@@ -416,6 +436,8 @@ fn unfitting_spend_packages_cannot_stop_selection_before_a_reader_makes_progress
     }
     let (snapshot, owners) = capture(&authority);
     let packed = selection(&owners, &snapshot)
+        .for_block()
+        .unwrap()
         .pack_transactions_with_failure_bound(TemplatePackingLimits::new(usize::MAX, 1), 0)
         .unwrap();
     assert_eq!(packed_hashes(&packed), vec![reader]);
@@ -462,6 +484,8 @@ fn uak_template_packer_bounds_long_conditional_scc_fallback() {
 
     let (snapshot, owners) = capture(&authority);
     let packed = selection(&owners, &snapshot)
+        .for_block()
+        .unwrap()
         .pack_transactions(TemplatePackingLimits::new(usize::MAX, u64::MAX))
         .expect("the long conditional SCC uses the bounded deterministic fallback");
     assert_eq!(packed.len(), 1);

@@ -93,6 +93,8 @@ fn reused_graph_drops_multiple_sccs_and_complete_causal_packages() {
     let selection =
         Selection::new(&owners, &snapshot, common::config().max_ancestors_count).unwrap();
     let packed = selection
+        .for_block()
+        .unwrap()
         .pack_transactions(super::super::TemplatePackingLimits::new(
             usize::MAX,
             u64::MAX,
@@ -106,6 +108,33 @@ fn reused_graph_drops_multiple_sccs_and_complete_causal_packages() {
     // the independent C<->D SCC. A, D and F remain complete legal packages.
     let expected = BTreeSet::from([hashes[0].clone(), hashes[3].clone(), hashes[5].clone()]);
     assert_eq!(actual, expected);
+}
+
+#[test]
+fn proposals_use_the_same_conditional_cycle_choices_as_block_packing() {
+    let (owners, snapshot, hashes) = mixed_owners(Status::Pending);
+    let selection =
+        Selection::new(&owners, &snapshot, common::config().max_ancestors_count).unwrap();
+    let block = selection.for_block().unwrap();
+    let expected = BTreeSet::from(
+        [0, 3, 5].map(|index| ckb_types::packed::ProposalShortId::from_tx_hash(&hashes[index])),
+    );
+    assert_eq!(
+        block
+            .proposal_short_ids(u64::MAX)
+            .into_iter()
+            .collect::<BTreeSet<_>>(),
+        expected
+    );
+    assert!(
+        block
+            .pack_transactions(super::super::TemplatePackingLimits::new(
+                usize::MAX,
+                u64::MAX
+            ))
+            .unwrap()
+            .is_empty()
+    );
 }
 
 #[test]

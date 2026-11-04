@@ -77,7 +77,8 @@ impl PackingSource {
     pub fn select(&self, bytes: usize, cycles: u64) -> Result<Vec<TxEntry>, String> {
         Selection::new(&self.owners, &self.snapshot, self.max_ancestors)
             .map_err(|error| error.to_string())?
-            .pack_transactions(TemplatePackingLimits::new(bytes, cycles))
+            .for_block()
+            .and_then(|block| block.pack_transactions(TemplatePackingLimits::new(bytes, cycles)))
             .map_err(|error| format!("packing failed: {error:?}"))
     }
 }

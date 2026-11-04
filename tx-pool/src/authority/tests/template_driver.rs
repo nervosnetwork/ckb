@@ -206,6 +206,8 @@ async fn template_refreshes_only_final_transaction_proofs() {
     } = driver.store.capture_accepted();
     let selection = Selection::new(&owners, &snapshot, config().max_ancestors_count).unwrap();
     let transactions = selection
+        .for_block()
+        .unwrap()
         .pack_transactions(TemplatePackingLimits::new(usize::MAX, u64::MAX))
         .unwrap()
         .into_iter()
@@ -290,6 +292,8 @@ fn template_sources_follow_final_contents_and_overlapping_proposals() {
         .selection(&owners, &snapshot, driver.max_ancestors)
         .unwrap();
     let transactions = selection
+        .for_block()
+        .unwrap()
         .pack_transactions(TemplatePackingLimits::new(usize::MAX, u64::MAX))
         .unwrap()
         .into_iter()

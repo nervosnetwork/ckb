@@ -2,8 +2,8 @@
 
 use super::ordering::Precedence;
 use super::{
-    Links, PackageAggregate, PackageOrderKey, PackingError, Selection, TemplatePackingLimits,
-    Traversal, package_order_key,
+    BlockSelection, Links, PackageAggregate, PackageOrderKey, PackingError, Selection,
+    TemplatePackingLimits, Traversal, package_order_key,
 };
 use crate::component::entry::TxEntry;
 use std::{
@@ -29,7 +29,7 @@ impl CandidatePackingState {
 /// Candidate membership, residual scores and descendant uses for one block.
 pub(super) struct PackingRun<'selection, 'owner> {
     selection: &'selection Selection<'owner>,
-    precedence: Precedence,
+    precedence: &'selection Precedence,
     limits: TemplatePackingLimits,
     aggregates: Cow<'selection, [PackageAggregate]>,
     states: Vec<CandidatePackingState>,
@@ -49,10 +49,11 @@ pub(super) struct PackingRun<'selection, 'owner> {
 )]
 impl<'selection, 'owner> PackingRun<'selection, 'owner> {
     pub(super) fn new(
-        selection: &'selection Selection<'owner>,
+        block: &'selection BlockSelection<'_, 'owner>,
         limits: TemplatePackingLimits,
     ) -> Result<Option<Self>, PackingError> {
-        let precedence = selection.precedence()?;
+        let selection = block.selection;
+        let precedence = &block.precedence;
         let eligible = &precedence.eligible;
         if eligible.is_empty() {
             return Ok(None);

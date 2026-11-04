@@ -34,7 +34,8 @@ fn residual_packages_preserve_full_closure_order_and_failed_ancestors() {
                 })
                 .collect();
             let limits = TemplatePackingLimits::new(usize::MAX, u64::MAX);
-            let mut run = PackingRun::new(&selection, limits).unwrap().unwrap();
+            let block = selection.for_block().unwrap();
+            let mut run = PackingRun::new(&block, limits).unwrap().unwrap();
             run.states.clone_from(&states);
             for index in 0..4 {
                 if states[index] == CandidatePackingState::Selected {
@@ -74,7 +75,8 @@ fn residual_chain_omits_a_large_selected_shared_prefix() {
     let snapshot = crate::test_support::genesis_snapshot();
     let selection = Selection::new(&owners, &snapshot, 1000).unwrap();
     let limits = TemplatePackingLimits::new(usize::MAX, u64::MAX);
-    let mut run = PackingRun::new(&selection, limits).unwrap().unwrap();
+    let block = selection.for_block().unwrap();
+    let mut run = PackingRun::new(&block, limits).unwrap().unwrap();
     run.states = vec![CandidatePackingState::Selected; 500];
     run.states
         .resize(owners.len(), CandidatePackingState::Original);

@@ -58,6 +58,13 @@ For a template optional-content change, start with `fit_optional_content`:
 selected proposals consume bytes before compatible uncles, and only selected proposals
 participate in conflict filtering. `TemplateSource::from_content` owns invalidation
 premises for the final DAO-filtered transactions and selected proposals.
+Preserve the dependency-first proposal prefix from `Selection::for_block`: it
+includes Pending causal ancestors and retained readers before their consumers,
+crosses Gap/Proposed prerequisites, and shares packing's conditional-cycle choices.
+Do not count a tentative uncle as coverage before final fitting. The
+[proposal regressions](../src/authority/tests/packing_proposals.rs) cover slot and
+byte truncation, shared ancestors, phase combinations and progress through the
+proposal window.
 
 For template startup changes, preserve `BlockAssembler::new` validation and its
 initial work-ID allocation. The current output is absent until publication;

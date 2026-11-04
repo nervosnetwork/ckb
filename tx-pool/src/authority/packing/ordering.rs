@@ -12,6 +12,7 @@ const MAX_CONDITIONAL_CYCLE_ROUNDS: usize = 64;
 pub(super) struct Precedence {
     parents: Links,
     positions: Vec<usize>,
+    pub(super) active: Vec<bool>,
     pub(super) eligible: Vec<usize>,
 }
 
@@ -96,6 +97,7 @@ impl Selection<'_> {
                 return Ok(Precedence {
                     parents,
                     positions,
+                    active,
                     eligible: ordered.eligible,
                 });
             }

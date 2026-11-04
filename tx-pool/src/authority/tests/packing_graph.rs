@@ -252,6 +252,8 @@ fn reference_pack(
 
 fn packed(selection: &Selection<'_>, limits: TemplatePackingLimits, bound: usize) -> Vec<Byte32> {
     selection
+        .for_block()
+        .unwrap()
         .pack_transactions_with_failure_bound(limits, bound)
         .unwrap()
         .iter()
@@ -552,6 +554,45 @@ fn budget_exhaustion_keeps_a_small_child_after_its_large_parent_is_selected() {
 }
 
 #[test]
+fn late_parent_package_uses_complete_ancestry_under_block_limits() {
+    let snapshot = crate::test_support::genesis_snapshot();
+    // This is the graph left by a reorg when a child was already accepted and
+    // two formerly canonical ancestors re-enter the pool in parent-first order.
+    let owners = fixture(&[vec![], vec![0], vec![1]], |index, _| {
+        ([1, 1, 1_000_000][index], 100, index as u64)
+    });
+    let bytes: usize = owners[1..]
+        .iter()
+        .map(|owner| owner.accepted().unwrap().size)
+        .sum();
+    let actual: usize = owners
+        .iter()
+        .map(|owner| owner.accepted().unwrap().size)
+        .sum();
+    assert!(actual > bytes);
+    let expected: Vec<_> = owners[..2].iter().map(|owner| owner.hash()).collect();
+    for order in [owners.clone(), owners.into_iter().rev().collect()] {
+        let selection = Selection::new(&order, &snapshot, 3).unwrap();
+        for (bytes, cycles) in [(bytes, u64::MAX), (usize::MAX, 200), (bytes, 200)] {
+            let packed = selection
+                .for_block()
+                .unwrap()
+                .pack_transactions(TemplatePackingLimits::new(bytes, cycles))
+                .unwrap();
+            assert!(packed.iter().map(|entry| entry.size).sum::<usize>() <= bytes);
+            assert!(packed.iter().map(|entry| entry.cycles).sum::<u64>() <= cycles);
+            assert_eq!(
+                packed
+                    .iter()
+                    .map(|entry| entry.transaction().hash())
+                    .collect::<Vec<_>>(),
+                expected
+            );
+        }
+    }
+}
+
+#[test]
 fn budget_exhaustion_preserves_projected_arithmetic_rejection() {
     let snapshot = crate::test_support::genesis_snapshot();
     for bytes in [true, false] {
@@ -565,7 +606,9 @@ fn budget_exhaustion_preserves_projected_arithmetic_rejection() {
         let selection = Selection::new(&owners, &snapshot, 2).unwrap();
         let limits = TemplatePackingLimits::new(if bytes { usize::MAX } else { 1 }, u64::MAX);
         assert_eq!(
-            selection.pack_transactions(limits),
+            selection
+                .for_block()
+                .and_then(|block| block.pack_transactions(limits)),
             Err(PackingError::Arithmetic)
         );
     }
@@ -826,10 +869,14 @@ fn graph_cache_rebuilds_for_replacement_order_limit_and_membership() {
     assert_eq!(owners[1].hash(), old_hash);
     let replacement = cache.selection(&owners, &snapshot, 3).unwrap();
     assert_eq!(
-        replacement.pack_transactions(limits).map(|entries| entries
-            .iter()
-            .map(|entry| entry.transaction().hash())
-            .collect::<Vec<_>>()),
+        replacement
+            .for_block()
+            .unwrap()
+            .pack_transactions(limits)
+            .map(|entries| entries
+                .iter()
+                .map(|entry| entry.transaction().hash())
+                .collect::<Vec<_>>()),
         Ok(reference_pack(&owners, limits, 4000))
     );
     assert!(old_graph.upgrade().is_none());
@@ -933,7 +980,7 @@ fn cached_graph_uses_the_current_proposal_view_with_unchanged_owners() {
                 .all(|candidate| candidate.status == status)
         );
         assert_eq!(
-            selection.proposal_short_ids(2).len(),
+            selection.for_block().unwrap().proposal_short_ids(2).len(),
             if status == Status::Pending { 2 } else { 0 }
         );
         assert_eq!(
@@ -977,13 +1024,16 @@ fn duplicate_selected_inputs_are_rejected_even_when_no_reordering_is_needed() {
             });
         }
         let selection = Selection::new(&owners, &snapshot, 2).unwrap();
-        assert_eq!(
-            selection.proposal_short_ids(2).len(),
-            if status == Status::Pending { 2 } else { 0 }
-        );
+        assert!(matches!(
+            selection.for_block(),
+            Err(PackingError::Projection)
+        ));
         for cycles in [0, 2] {
             assert_eq!(
-                selection.pack_transactions(TemplatePackingLimits::new(usize::MAX, cycles)),
+                selection
+                    .for_block()
+                    .and_then(|block| block
+                        .pack_transactions(TemplatePackingLimits::new(usize::MAX, cycles))),
                 Err(PackingError::Projection)
             );
         }
