@@ -132,7 +132,23 @@ pub(crate) fn initialize() {
     LazyLock::force(&VM_TIMING);
 }
 
+#[cfg(test)]
+static USE_NETWORK_CAP: std::sync::OnceLock<()> = std::sync::OnceLock::new();
+
+/// Lifecycle tests use a fixed, bounded CPU budget instead of a hardware timing
+/// assertion. Nextest isolates this choice from calibration and budget tests.
+#[cfg(test)]
+pub(crate) fn use_network_cap_for_test() {
+    USE_NETWORK_CAP
+        .set(())
+        .expect("configure once before service startup");
+}
+
 pub(crate) fn for_cycles(cycles: u64, cap: Duration) -> Duration {
+    #[cfg(test)]
+    if USE_NETWORK_CAP.get().is_some() {
+        return cap;
+    }
     VM_TIMING
         .as_ref()
         .map_or(cap, |timing| timing.limit(cycles, cap))
@@ -181,6 +197,20 @@ impl VmTiming {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn lifecycle_budget_stays_bounded_by_the_configured_cap() {
+        use_network_cap_for_test();
+        for cap in [
+            Duration::ZERO,
+            Duration::from_millis(1),
+            Duration::from_secs(8),
+        ] {
+            for cycles in [0, 1, SAMPLE_CYCLES, u64::MAX] {
+                assert_eq!(for_cycles(cycles, cap), cap);
+            }
+        }
+    }
 
     /// Hardware observations run separately from concurrent unit tests. The
     /// holdouts exercise a short branch loop and a larger division/remainder

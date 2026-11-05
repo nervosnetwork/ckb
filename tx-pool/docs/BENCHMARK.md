@@ -636,6 +636,13 @@ Record the CPU metric with each observation; older wall-time samples cannot
 validate CPU-based calibration. Contention and frequency changes can still alter
 actual CPU cost even though off-CPU waiting is excluded.
 
+The short and extended mixed-service lifecycle tests use the configured network
+CPU cap instead of the machine-calibrated allowance. They still run the canonical
+verifier and enforce a finite CPU budget, while keeping required acceptance and
+resource-release assertions independent of concurrent CI hardware timing.
+Nextest process isolation confines this test-only choice to each workload;
+calibration holdouts and deterministic budget-exhaustion tests use their own policy.
+
 ```sh
 cargo nextest run --locked --cargo-profile prod -p ckb-tx-pool \
   --features calibration-observation \

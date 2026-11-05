@@ -759,6 +759,10 @@ fn memory_snapshot(round: usize, phase: &str, trace: &mut Option<File>) {
 
 async fn mixed_load(rounds: usize, observe_memory: bool) {
     assert!((1..=65_536).contains(&rounds));
+    // This workload asserts acceptance, lifecycle ordering and release, not VM
+    // calibration under concurrent CI load. Keep the real verifier and CPU cap;
+    // calibration holdouts and deterministic exhaustion tests cover that policy.
+    crate::verification::calibration::use_network_cap_for_test();
     let rejections = capture_rejections();
     // An explicit, new-only trace permits inspecting a long captured Nextest run.
     // Opening it before startup cannot strand service tasks on an invalid path.
