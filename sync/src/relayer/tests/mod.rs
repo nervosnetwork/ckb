@@ -1,4 +1,5 @@
 mod block_proposal_process;
+mod block_relay_only;
 mod block_transactions_process;
 mod block_transactions_verifier;
 mod block_uncles_verifier;
