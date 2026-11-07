@@ -5,7 +5,7 @@ use ckb_chain_spec::consensus::{Consensus, ConsensusBuilder};
 use ckb_dao_utils::genesis_dao_data;
 use ckb_jsonrpc_types::ScriptHashType;
 use ckb_network::{Flags, NetworkController, NetworkService, NetworkState, network::TransportType};
-use ckb_shared::{Shared, SharedBuilder};
+use ckb_shared::{Shared, SharedBuilder, SharedPackage};
 use ckb_store::ChainStore;
 use ckb_test_chain_utils::{always_success_cell, create_always_success_tx};
 use ckb_types::prelude::*;
@@ -21,14 +21,41 @@ use ckb_types::{
 };
 use std::sync::Arc;
 
-pub(crate) fn start_chain(consensus: Option<Consensus>) -> (ChainServiceScope, Shared, HeaderView) {
+pub(crate) struct ChainTestScope {
+    // Field order is intentional: quiesce tx-pool before joining the chain
+    // service and releasing the store retained by its snapshots.
+    _tx_pool: ckb_tx_pool::internal_test_support::BlockingTxPoolTestScope,
+    chain: ChainServiceScope,
+}
+
+impl ChainTestScope {
+    pub(crate) fn new(
+        tx_pool: ckb_tx_pool::internal_test_support::BlockingTxPoolTestScope,
+        chain: ChainServiceScope,
+    ) -> Self {
+        Self {
+            _tx_pool: tx_pool,
+            chain,
+        }
+    }
+}
+
+impl std::ops::Deref for ChainTestScope {
+    type Target = ChainServiceScope;
+
+    fn deref(&self) -> &Self::Target {
+        &self.chain
+    }
+}
+
+pub(crate) fn start_chain(consensus: Option<Consensus>) -> (ChainTestScope, Shared, HeaderView) {
     start_chain_with_tx_pool_config(consensus, TxPoolConfig::default())
 }
 
 pub(crate) fn start_chain_with_tx_pool_config(
     consensus: Option<Consensus>,
     tx_pool_config: TxPoolConfig,
-) -> (ChainServiceScope, Shared, HeaderView) {
+) -> (ChainTestScope, Shared, HeaderView) {
     let builder = SharedBuilder::with_temp_db();
     let (_, _, always_success_script) = always_success_cell();
     let consensus = consensus.unwrap_or_else(|| {
@@ -83,8 +110,7 @@ pub(crate) fn start_chain_with_tx_pool_config(
         .block_assembler_config(Some(config))
         .build()
         .unwrap();
-    let network = dummy_network(&shared);
-    pack.take_tx_pool_builder().start(network);
+    let tx_pool = start_tx_pool(&shared, &mut pack);
 
     let chain = ChainServiceScope::new(pack.take_chain_services_builder());
     let parent = {
@@ -95,7 +121,22 @@ pub(crate) fn start_chain_with_tx_pool_config(
             .unwrap()
     };
 
-    (chain, shared, parent)
+    (ChainTestScope::new(tx_pool, chain), shared, parent)
+}
+
+/// Start the production tx-pool topology required by chain tests that install
+/// best-tip snapshots. Authoritative chain deltas are intentionally reliable,
+/// so a chain-only fixture may not leave their bounded receiver undrained.
+pub(crate) fn start_tx_pool(
+    shared: &Shared,
+    pack: &mut SharedPackage,
+) -> ckb_tx_pool::internal_test_support::BlockingTxPoolTestScope {
+    let network = dummy_network(shared);
+    ckb_tx_pool::internal_test_support::start_blocking_test_service(
+        pack.take_tx_pool_builder(),
+        network,
+        pack.take_relay_tx_receiver(),
+    )
 }
 
 pub(crate) fn dummy_network(shared: &Shared) -> NetworkController {

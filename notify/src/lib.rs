@@ -68,30 +68,7 @@ pub type NotifyRegister<M> = Sender<Request<String, Receiver<M>>>;
 /// watcher request type alias
 pub type NotifyWatcher<M> = Sender<Request<String, watch::Receiver<M>>>;
 
-/// Notify timeout config
-#[derive(Copy, Clone)]
-pub(crate) struct NotifyTimeout {
-    pub(crate) tx: Duration,
-    pub(crate) script: Duration,
-}
-
-const DEFAULT_TX_NOTIFY_TIMEOUT: Duration = Duration::from_millis(300);
 const DEFAULT_SCRIPT_TIMEOUT: Duration = Duration::from_millis(10_000);
-
-impl NotifyTimeout {
-    pub(crate) fn new(config: &NotifyConfig) -> Self {
-        NotifyTimeout {
-            tx: config
-                .notify_tx_timeout
-                .map(Duration::from_millis)
-                .unwrap_or(DEFAULT_TX_NOTIFY_TIMEOUT),
-            script: config
-                .script_timeout
-                .map(Duration::from_millis)
-                .unwrap_or(DEFAULT_SCRIPT_TIMEOUT),
-        }
-    }
-}
 
 /// Controller for the notification service.
 ///
@@ -124,14 +101,17 @@ pub struct NotifyService {
     proposed_transaction_subscribers: HashMap<String, Sender<PoolTransactionEntry>>,
     reject_transaction_subscribers: HashMap<String, Sender<(PoolTransactionEntry, Reject)>>,
     log_subscribers: HashMap<String, Sender<LogEntry>>,
-    timeout: NotifyTimeout,
+    script_timeout: Duration,
     handle: Handle,
 }
 
 impl NotifyService {
     /// Creates a new notification service with the given configuration and async runtime handle.
     pub fn new(config: NotifyConfig, handle: Handle) -> Self {
-        let timeout = NotifyTimeout::new(&config);
+        let script_timeout = config
+            .script_timeout
+            .map(Duration::from_millis)
+            .unwrap_or(DEFAULT_SCRIPT_TIMEOUT);
 
         Self {
             config,
@@ -141,7 +121,7 @@ impl NotifyService {
             proposed_transaction_subscribers: HashMap::default(),
             reject_transaction_subscribers: HashMap::default(),
             log_subscribers: HashMap::default(),
-            timeout,
+            script_timeout,
             handle,
         }
     }
@@ -260,7 +240,7 @@ impl NotifyService {
 
         // notify script
         if let Some(script) = self.config.new_block_notify_script.clone() {
-            let script_timeout = self.timeout.script;
+            let script_timeout = self.script_timeout;
             self.handle.spawn(async move {
                 let args = [format!("{block_hash:#x}")];
                 match timeout(script_timeout, Command::new(&script).args(&args).status()).await {
@@ -293,17 +273,8 @@ impl NotifyService {
 
     fn handle_notify_new_transaction(&self, tx_entry: PoolTransactionEntry) {
         trace!("New tx event {:?}", tx_entry);
-        // notify all subscribers
-        let tx_timeout = self.timeout.tx;
-        // notify all subscribers
         for subscriber in self.new_transaction_subscribers.values() {
-            let tx_entry = tx_entry.clone();
-            let subscriber = subscriber.clone();
-            self.handle.spawn(async move {
-                if let Err(e) = subscriber.send_timeout(tx_entry, tx_timeout).await {
-                    error!("Failed to notify new transaction, error: {}", e);
-                }
-            });
+            try_notify_transaction(subscriber, tx_entry.clone(), "subscriber");
         }
     }
 
@@ -323,17 +294,8 @@ impl NotifyService {
 
     fn handle_notify_proposed_transaction(&self, tx_entry: PoolTransactionEntry) {
         trace!("Proposed tx event {:?}", tx_entry);
-        // notify all subscribers
-        let tx_timeout = self.timeout.tx;
-        // notify all subscribers
         for subscriber in self.proposed_transaction_subscribers.values() {
-            let tx_entry = tx_entry.clone();
-            let subscriber = subscriber.clone();
-            self.handle.spawn(async move {
-                if let Err(e) = subscriber.send_timeout(tx_entry, tx_timeout).await {
-                    error!("Failed to notify proposed transaction, error {}", e);
-                }
-            });
+            try_notify_transaction(subscriber, tx_entry.clone(), "subscriber");
         }
     }
 
@@ -353,17 +315,8 @@ impl NotifyService {
 
     fn handle_notify_reject_transaction(&self, tx_entry: (PoolTransactionEntry, Reject)) {
         trace!("Tx reject event {:?}", tx_entry);
-        // notify all subscribers
-        let tx_timeout = self.timeout.tx;
-        // notify all subscribers
         for subscriber in self.reject_transaction_subscribers.values() {
-            let tx_entry = tx_entry.clone();
-            let subscriber = subscriber.clone();
-            self.handle.spawn(async move {
-                if let Err(e) = subscriber.send_timeout(tx_entry, tx_timeout).await {
-                    error!("Failed to notify transaction reject, error: {}", e);
-                }
-            });
+            try_notify_transaction(subscriber, tx_entry.clone(), "subscriber");
         }
     }
 
@@ -428,13 +381,11 @@ impl NotifyController {
     }
 
     /// Notifies all subscribers of a new transaction in the transaction pool.
+    ///
+    /// Best effort: omit the event if the service or subscriber channel is full
+    /// or closed. Delivery never creates a task waiting for channel space.
     pub fn notify_new_transaction(&self, tx_entry: PoolTransactionEntry) {
-        let new_transaction_notifier = self.new_transaction_notifier.clone();
-        self.handle.spawn(async move {
-            if let Err(e) = new_transaction_notifier.send(tx_entry).await {
-                error!("notify_new_transaction channel is closed: {}", e);
-            }
-        });
+        try_notify_transaction(&self.new_transaction_notifier, tx_entry, "service");
     }
 
     /// Subscribes to proposed transaction notifications with the given name.
@@ -450,13 +401,11 @@ impl NotifyController {
     }
 
     /// Notifies all subscribers of a proposed transaction.
+    ///
+    /// Best effort: omit the event if the service or subscriber channel is full
+    /// or closed. Delivery never creates a task waiting for channel space.
     pub fn notify_proposed_transaction(&self, tx_entry: PoolTransactionEntry) {
-        let proposed_transaction_notifier = self.proposed_transaction_notifier.clone();
-        self.handle.spawn(async move {
-            if let Err(e) = proposed_transaction_notifier.send(tx_entry).await {
-                error!("notify_proposed_transaction channel is closed: {}", e);
-            }
-        });
+        try_notify_transaction(&self.proposed_transaction_notifier, tx_entry, "service");
     }
 
     /// Subscribes to rejected transaction notifications with the given name.
@@ -472,13 +421,15 @@ impl NotifyController {
     }
 
     /// Notifies all subscribers of a rejected transaction.
+    ///
+    /// Best effort: omit the event if the service or subscriber channel is full
+    /// or closed. Delivery never creates a task waiting for channel space.
     pub fn notify_reject_transaction(&self, tx_entry: PoolTransactionEntry, reject: Reject) {
-        let reject_transaction_notifier = self.reject_transaction_notifier.clone();
-        self.handle.spawn(async move {
-            if let Err(e) = reject_transaction_notifier.send((tx_entry, reject)).await {
-                error!("notify_reject_transaction channel is closed: {}", e);
-            }
-        });
+        try_notify_transaction(
+            &self.reject_transaction_notifier,
+            (tx_entry, reject),
+            "service",
+        );
     }
 
     /// Subscribes to log notifications with the given name.
@@ -497,3 +448,25 @@ impl NotifyController {
         log_notifier.try_send(log_entry).ok();
     }
 }
+
+// One nonblocking handoff policy at both transaction notification boundaries.
+// A failed send owns the payload until this call returns; no deferred task or
+// retry retains it after a full or closed channel refuses it.
+fn try_notify_transaction<T>(sender: &Sender<T>, notification: T, boundary: &'static str) {
+    if let Err(error) = sender.try_send(notification) {
+        if let Some(metrics) = ckb_metrics::handle() {
+            let reason = match &error {
+                tokio::sync::mpsc::error::TrySendError::Full(_) => "full",
+                tokio::sync::mpsc::error::TrySendError::Closed(_) => "closed",
+            };
+            metrics
+                .ckb_notify_transaction_dropped
+                .with_label_values(&[boundary, reason])
+                .inc();
+        }
+        debug!("Transaction notification omitted: {}", error);
+    }
+}
+
+#[cfg(all(test, not(target_family = "wasm")))]
+mod tests;

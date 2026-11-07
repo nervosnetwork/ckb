@@ -138,7 +138,6 @@ impl IndexerService {
             self.store.clone(),
             keep_num,
             1000,
-            self.sync.pool(),
             CustomFilters::new(self.block_filter.as_deref(), self.cell_filter.as_deref()),
         )
     }
@@ -150,12 +149,6 @@ impl IndexerService {
             SUBSCRIBER_NAME.to_string(),
             self.get_indexer(),
         )
-    }
-
-    /// Index tx pool
-    pub fn index_tx_pool(&mut self, notify_controller: NotifyController) {
-        self.sync
-            .index_tx_pool(self.get_indexer(), notify_controller)
     }
 }
 
@@ -238,14 +231,16 @@ impl IndexerHandle {
         );
         let filter_options: FilterOptions = search_key.try_into()?;
         let mode = IteratorMode::From(from_key.as_ref(), direction);
-        let snapshot = self.store.inner().snapshot();
-        let mut iter = TimeoutIterator::new(snapshot.iterator(mode).skip(skip), self.timeout_limit);
-
-        let mut last_key = Vec::new();
+        // Pin the pool view before the database cut. A concurrent refresh must
+        // not remove committed inputs while this query still sees their cells.
         let pool = self
             .pool
             .as_ref()
             .map(|pool| pool.read().expect("acquire lock"));
+        let snapshot = self.store.inner().snapshot();
+        let mut iter = TimeoutIterator::new(snapshot.iterator(mode).skip(skip), self.timeout_limit);
+
+        let mut last_key = Vec::new();
         let cells = iter
             .by_ref()
             .take_while(|(key, _value)| key.starts_with(&prefix))
@@ -716,12 +711,12 @@ impl IndexerHandle {
         );
         let filter_options: FilterOptions = search_key.try_into()?;
         let mode = IteratorMode::From(from_key.as_ref(), direction);
-        let snapshot = self.store.inner().snapshot();
-        let mut iter = TimeoutIterator::new(snapshot.iterator(mode).skip(skip), self.timeout_limit);
         let pool = self
             .pool
             .as_ref()
             .map(|pool| pool.read().expect("acquire lock"));
+        let snapshot = self.store.inner().snapshot();
+        let mut iter = TimeoutIterator::new(snapshot.iterator(mode).skip(skip), self.timeout_limit);
 
         let capacity: u64 = iter
             .by_ref()
@@ -1014,7 +1009,7 @@ mod tests {
     fn rpc() {
         let store: RocksdbStore = new_store("rpc");
         let pool = Arc::new(RwLock::new(Pool::default()));
-        let indexer = Indexer::new(store.clone(), 10, 100, None, CustomFilters::new(None, None));
+        let indexer = Indexer::new(store.clone(), 10, 100, CustomFilters::new(None, None));
         let rpc = IndexerHandle {
             store,
             pool: Some(Arc::clone(&pool)),
@@ -1558,7 +1553,12 @@ mod tests {
             )
             .output_data(Bytes::default())
             .build();
-        pool.write().unwrap().new_transaction(&pool_tx);
+        *pool.write().unwrap() = Arc::new(
+            pool_tx
+                .input_pts_iter()
+                .collect::<std::collections::HashSet<_>>(),
+        )
+        .into();
 
         let cells_page_1 = rpc
             .get_cells(
@@ -1608,7 +1608,7 @@ mod tests {
     #[test]
     fn script_search_mode_rpc() {
         let store = new_store("script_search_mode_rpc");
-        let indexer = Indexer::new(store.clone(), 10, 100, None, CustomFilters::new(None, None));
+        let indexer = Indexer::new(store.clone(), 10, 100, CustomFilters::new(None, None));
         let rpc = IndexerHandle {
             store,
             pool: None,
@@ -1890,7 +1890,7 @@ mod tests {
     #[test]
     fn output_data_filter_mode_rpc() {
         let store = new_store("script_search_mode_rpc");
-        let indexer = Indexer::new(store.clone(), 10, 100, None, CustomFilters::new(None, None));
+        let indexer = Indexer::new(store.clone(), 10, 100, CustomFilters::new(None, None));
         let rpc = IndexerHandle {
             store,
             pool: None,

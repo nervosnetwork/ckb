@@ -243,19 +243,6 @@ impl TransactionScriptsVerifierWithEnv {
         )
     }
 
-    pub(crate) async fn verify_without_limit_async(
-        &self,
-        version: ScriptVersion,
-        rtx: &ResolvedTransaction,
-    ) -> Result<Cycle, Error> {
-        let verifier = self.build_verifier(version, rtx);
-
-        let (_command_tx, mut command_rx) = tokio::sync::watch::channel(ChunkCommand::Resume);
-        verifier
-            .resumable_verify_with_signal(u64::MAX, &mut command_rx)
-            .await
-    }
-
     // If the max cycles is meaningless, please use `verify_without_limit`,
     // so reviewers or developers can understand the intentions easier.
     pub(crate) fn verify(
@@ -279,22 +266,16 @@ impl TransactionScriptsVerifierWithEnv {
         })
     }
 
-    pub(crate) async fn verify_complete_async(
+    pub(crate) async fn verify_with_runner(
         &self,
         version: ScriptVersion,
         rtx: &ResolvedTransaction,
-        command_rx: &mut tokio::sync::watch::Receiver<ChunkCommand>,
-        skip_debug_pause: bool,
-        max_cycles: Option<Cycle>,
+        max_cycles: Cycle,
     ) -> Result<Cycle, Error> {
-        let verifier = self.build_verifier(version, rtx);
-
-        if skip_debug_pause {
-            self.set_skip_pause(true);
-        }
-        verifier
-            .resumable_verify_with_signal(max_cycles.unwrap_or(Cycle::MAX), command_rx)
+        self.build_verifier(version, rtx)
+            .verify_with_runner(max_cycles, &mut ResumeAfterPause)
             .await
+            .map(|cycles| cycles.expect("the test runner always runs to completion"))
     }
 
     pub(crate) fn verify_map<R, F>(
@@ -308,6 +289,27 @@ impl TransactionScriptsVerifierWithEnv {
     {
         let verifier = self.build_verifier(version, rtx);
         verify_func(verifier)
+    }
+}
+
+// Exercise script-group verification across scheduler pauses without duplicating
+// tx-pool's command handling and task lifecycle.
+struct ResumeAfterPause;
+
+impl SchedulerRunner<Scheduler<DataLoaderWrapper<ChainDB>, DebugContext, Machine>>
+    for ResumeAfterPause
+{
+    async fn run(
+        &mut self,
+        mut scheduler: Scheduler<DataLoaderWrapper<ChainDB>, DebugContext, Machine>,
+        max_cycles: Cycle,
+    ) -> Result<Option<TerminatedResult>, VMInternalError> {
+        loop {
+            match scheduler.run(RunMode::Pause(ckb_vm::machine::Pause::new(), max_cycles)) {
+                Err(VMInternalError::Pause) => continue,
+                result => return result.map(Some),
+            }
+        }
     }
 }
 

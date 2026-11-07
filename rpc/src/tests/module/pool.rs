@@ -134,6 +134,82 @@ fn test_default_outputs_validator() {
 }
 
 #[test]
+fn timed_out_submission_still_completes_after_verification_resumes() {
+    use std::time::{Duration, Instant};
+
+    let suite = crate::tests::setup::setup_rpc_test_suite(20, None);
+    let tip = suite.shared.store().get_tip_header().unwrap();
+    let block = suite.shared.store().get_block(&tip.hash()).unwrap();
+    let transaction = TransactionBuilder::default()
+        .input(CellInput::new(
+            OutPoint::new(block.transactions()[0].hash(), 0),
+            0,
+        ))
+        .output(
+            CellOutputBuilder::default()
+                .capacity(Capacity::bytes(100).unwrap())
+                .lock(always_success_cell().2.clone())
+                .build(),
+        )
+        .output_data(packed::Bytes::default())
+        .cell_dep(
+            CellDep::new_builder()
+                .out_point(OutPoint::new(always_success_transaction().hash(), 0))
+                .build(),
+        )
+        .build();
+    let request = RpcTestRequest {
+        id: 42,
+        jsonrpc: "2.0".to_owned(),
+        method: "send_transaction".to_owned(),
+        params: vec![
+            json!(ckb_jsonrpc_types::Transaction::from(transaction.data())),
+            json!("passthrough"),
+        ],
+    };
+    let controller = suite.shared.tx_pool_controller();
+    let preview = controller.test_accept_tx(transaction.clone()).unwrap();
+    assert!(
+        preview.is_ok(),
+        "submission fixture must be valid: {preview:?}"
+    );
+    controller.suspend_chunk_process().unwrap();
+    // The existing HTTP deadline must run while submission awaits the pool.
+    // Bound the client as well so a blocking-handler regression cannot hang.
+    let response = suite
+        .rpc_client
+        .post(&suite.rpc_uri)
+        .timeout(Duration::from_secs(35))
+        .json(&request)
+        .send();
+    controller.continue_chunk_process().unwrap();
+    assert_eq!(
+        response.unwrap().status(),
+        reqwest::StatusCode::REQUEST_TIMEOUT
+    );
+
+    // A timeout abandons the reply, not the service-owned transaction. Observe
+    // accepted membership after Resume instead of assuming a completion delay.
+    let deadline = Instant::now() + Duration::from_secs(10);
+    loop {
+        let (status, _) = controller
+            .get_tx_status(transaction.hash())
+            .unwrap()
+            .unwrap();
+        if status == core::tx_pool::TxStatus::Pending {
+            break;
+        }
+        assert!(
+            Instant::now() < deadline,
+            "timed-out submission did not complete: {status:?}"
+        );
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    let duplicate = suite.rpc(&request);
+    assert_eq!(duplicate.error["code"], -1107);
+}
+
+#[test]
 #[ignore]
 fn test_send_transaction_exceeded_maximum_ancestors_count() {
     const MAX_ANCESTORS_COUNT: u64 = 1000;
