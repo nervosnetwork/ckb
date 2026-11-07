@@ -172,7 +172,14 @@ pub fn get_bin_name_and_matches(version: &Version) -> (String, ArgMatches) {
         .unwrap_or_else(|| BIN_NAME.to_owned());
     let matches = basic_app()
         .version(version.short())
-        .long_version(version.long())
+        // Keep the historical long version and append the build target as
+        // `[os/arch]`, consistent with the p2p identify client version.
+        .long_version(format!(
+            "{} [{}/{}]",
+            version.long(),
+            std::env::consts::OS,
+            std::env::consts::ARCH
+        ))
         .get_matches();
     (bin_name, matches)
 }
