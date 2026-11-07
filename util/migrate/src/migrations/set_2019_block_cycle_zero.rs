@@ -1,8 +1,7 @@
-use ckb_app_config::StoreConfig;
+use crate::legacy_store::LegacyChainDB;
 use ckb_db_migration::{Migration, ProgressBar, ProgressStyle};
-use ckb_db_schema::COLUMN_EPOCH;
+use ckb_db_schema::legacy::COLUMN_EPOCH;
 use ckb_error::InternalErrorKind;
-use ckb_store::{ChainDB, ChainStore};
 use ckb_types::{
     core::hardfork::HardForks,
     packed,
@@ -30,7 +29,7 @@ impl Migration for BlockExt2019ToZero {
         db: ckb_db::RocksDB,
         pb: std::sync::Arc<dyn Fn(u64) -> ProgressBar + Send + Sync>,
     ) -> Result<ckb_db::RocksDB, ckb_error::Error> {
-        let chain_db = ChainDB::new(db, StoreConfig::default());
+        let chain_db = LegacyChainDB::new(db);
         let limit_epoch = self.hardforks.ckb2021.rfc_0032();
 
         eprintln!(
