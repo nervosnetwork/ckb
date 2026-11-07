@@ -18,7 +18,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, HashMap};
 use std::fmt;
 use std::sync::{
-    Arc, Mutex, RwLock,
+    Arc, Mutex, OnceLock, RwLock,
     atomic::{AtomicU64, Ordering},
 };
 
@@ -585,6 +585,68 @@ pub struct TxInfo<DL> {
     pub type_groups: BTreeMap<Byte32, ScriptGroup>,
     /// Output cells in current transaction reorganized in CellMeta format
     pub outputs: Vec<CellMeta>,
+    /// Memoized lock / type script hashes of cells referenced by current transaction
+    pub script_hash_cache: ScriptHashCache,
+}
+
+/// Memoized lock / type script hashes of a single cell.
+///
+/// Hashing a script costs host CPU proportional to the script size, while the
+/// syscalls returning these hashes are only charged for the bytes they return.
+/// Memoizing guarantees each script is hashed at most once per transaction.
+#[derive(Clone, Debug, Default)]
+pub struct CellScriptHashes {
+    lock_hash: OnceLock<Byte32>,
+    type_hash: OnceLock<Option<Byte32>>,
+}
+
+impl CellScriptHashes {
+    /// Returns the lock script hash of the cell, calculating it on first access.
+    pub fn lock_hash(&self, output: &CellOutput) -> Byte32 {
+        self.lock_hash
+            .get_or_init(|| output.calc_lock_hash())
+            .clone()
+    }
+
+    /// Returns the type script hash of the cell if it has a type script,
+    /// calculating it on first access.
+    pub fn type_hash(&self, output: &CellOutput) -> Option<Byte32> {
+        self.type_hash
+            .get_or_init(|| output.type_().to_opt().map(|t| t.calc_script_hash()))
+            .clone()
+    }
+
+    pub(crate) fn with_lock_hash(self, lock_hash: Byte32) -> Self {
+        let _ = self.lock_hash.set(lock_hash);
+        self
+    }
+
+    pub(crate) fn with_type_hash(self, type_hash: Option<Byte32>) -> Self {
+        let _ = self.type_hash.set(type_hash);
+        self
+    }
+
+    #[cfg(test)]
+    pub(crate) fn cached_lock_hash(&self) -> Option<&Byte32> {
+        self.lock_hash.get()
+    }
+
+    #[cfg(test)]
+    pub(crate) fn cached_type_hash(&self) -> Option<&Option<Byte32>> {
+        self.type_hash.get()
+    }
+}
+
+/// Memoized script hashes of all cells referenced by a transaction, indexed
+/// the same way as resolved inputs, outputs and resolved cell deps.
+#[derive(Clone, Debug, Default)]
+pub struct ScriptHashCache {
+    /// Script hashes of resolved inputs
+    pub inputs: Vec<CellScriptHashes>,
+    /// Script hashes of outputs
+    pub outputs: Vec<CellScriptHashes>,
+    /// Script hashes of resolved cell deps
+    pub cell_deps: Vec<CellScriptHashes>,
 }
 
 impl<DL> TxData<DL>
@@ -622,6 +684,10 @@ where
             })
             .collect();
 
+        // Script hashes calculated below are kept in the cache, so syscalls
+        // can reuse them instead of hashing the same scripts again.
+        let mut script_hash_cache = ScriptHashCache::default();
+
         let mut binaries_by_data_hash: HashMap<Byte32, (usize, LazyData)> = HashMap::default();
         let mut binaries_by_type_hash: HashMap<Byte32, Binaries> = HashMap::default();
         for (i, cell_meta) in resolved_cell_deps.iter().enumerate() {
@@ -631,12 +697,20 @@ where
             let lazy = LazyData::from_cell_meta(cell_meta);
             binaries_by_data_hash.insert(data_hash.to_owned(), (i, lazy.to_owned()));
 
-            if let Some(t) = &cell_meta.cell_output.type_().to_opt() {
+            let type_hash = cell_meta
+                .cell_output
+                .type_()
+                .to_opt()
+                .map(|t| t.calc_script_hash());
+            if let Some(type_hash) = &type_hash {
                 binaries_by_type_hash
-                    .entry(t.calc_script_hash())
+                    .entry(type_hash.to_owned())
                     .and_modify(|bin| bin.merge(&data_hash))
                     .or_insert_with(|| Binaries::new(data_hash.to_owned(), i, lazy.to_owned()));
             }
+            script_hash_cache
+                .cell_deps
+                .push(CellScriptHashes::default().with_type_hash(type_hash));
         }
 
         let mut lock_groups = BTreeMap::default();
@@ -645,24 +719,37 @@ where
             // here we are only pre-processing the data, verify method validates
             // each input has correct script setup.
             let output = &cell_meta.cell_output;
+            let lock_hash = output.calc_lock_hash();
             let lock_group_entry = lock_groups
-                .entry(output.calc_lock_hash())
+                .entry(lock_hash.to_owned())
                 .or_insert_with(|| ScriptGroup::from_lock_script(&output.lock()));
             lock_group_entry.input_indices.push(i);
-            if let Some(t) = &output.type_().to_opt() {
+            let type_script = output.type_().to_opt();
+            let type_hash = type_script.as_ref().map(|t| t.calc_script_hash());
+            if let (Some(t), Some(type_hash)) = (&type_script, &type_hash) {
                 let type_group_entry = type_groups
-                    .entry(t.calc_script_hash())
+                    .entry(type_hash.to_owned())
                     .or_insert_with(|| ScriptGroup::from_type_script(t));
                 type_group_entry.input_indices.push(i);
             }
+            script_hash_cache.inputs.push(
+                CellScriptHashes::default()
+                    .with_lock_hash(lock_hash)
+                    .with_type_hash(type_hash),
+            );
         }
         for (i, output) in rtx.transaction.outputs().into_iter().enumerate() {
-            if let Some(t) = &output.type_().to_opt() {
+            let type_script = output.type_().to_opt();
+            let type_hash = type_script.as_ref().map(|t| t.calc_script_hash());
+            if let (Some(t), Some(type_hash)) = (&type_script, &type_hash) {
                 let type_group_entry = type_groups
-                    .entry(t.calc_script_hash())
+                    .entry(type_hash.to_owned())
                     .or_insert_with(|| ScriptGroup::from_type_script(t));
                 type_group_entry.output_indices.push(i);
             }
+            script_hash_cache
+                .outputs
+                .push(CellScriptHashes::default().with_type_hash(type_hash));
         }
 
         Self {
@@ -676,6 +763,7 @@ where
                 lock_groups,
                 type_groups,
                 outputs,
+                script_hash_cache,
             }),
         }
     }

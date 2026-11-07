@@ -4,7 +4,7 @@ use crate::{
         CellField, INDEX_OUT_OF_BOUND, ITEM_MISSING, LOAD_CELL_BY_FIELD_SYSCALL_NUMBER,
         LOAD_CELL_SYSCALL_NUMBER, SUCCESS, Source, SourceEntry, utils::store_data,
     },
-    types::{SgData, TxInfo},
+    types::{CellScriptHashes, SgData, TxInfo},
 };
 use byteorder::{LittleEndian, WriteBytesExt};
 use ckb_traits::CellDataProvider;
@@ -44,17 +44,32 @@ impl<DL: CellDataProvider + Clone> LoadCell<DL> {
         &self.sg_data.rtx.resolved_cell_deps
     }
 
-    fn fetch_cell(&self, source: Source, index: usize) -> Result<&CellMeta, u8> {
+    fn fetch_cell(
+        &self,
+        source: Source,
+        index: usize,
+    ) -> Result<(&CellMeta, Option<&CellScriptHashes>), u8> {
+        let cache = &self.tx_info().script_hash_cache;
+        let fetch_input = |actual_index: usize| {
+            self.resolved_inputs()
+                .get(actual_index)
+                .map(|cell| (cell, cache.inputs.get(actual_index)))
+                .ok_or(INDEX_OUT_OF_BOUND)
+        };
+        let fetch_output = |actual_index: usize| {
+            self.tx_info()
+                .outputs
+                .get(actual_index)
+                .map(|cell| (cell, cache.outputs.get(actual_index)))
+                .ok_or(INDEX_OUT_OF_BOUND)
+        };
         match source {
-            Source::Transaction(SourceEntry::Input) => {
-                self.resolved_inputs().get(index).ok_or(INDEX_OUT_OF_BOUND)
-            }
-            Source::Transaction(SourceEntry::Output) => {
-                self.tx_info().outputs.get(index).ok_or(INDEX_OUT_OF_BOUND)
-            }
+            Source::Transaction(SourceEntry::Input) => fetch_input(index),
+            Source::Transaction(SourceEntry::Output) => fetch_output(index),
             Source::Transaction(SourceEntry::CellDep) => self
                 .resolved_cell_deps()
                 .get(index)
+                .map(|cell| (cell, cache.cell_deps.get(index)))
                 .ok_or(INDEX_OUT_OF_BOUND),
             Source::Transaction(SourceEntry::HeaderDep) => Err(INDEX_OUT_OF_BOUND),
             Source::Group(SourceEntry::Input) => self
@@ -62,22 +77,13 @@ impl<DL: CellDataProvider + Clone> LoadCell<DL> {
                 .group_inputs()
                 .get(index)
                 .ok_or(INDEX_OUT_OF_BOUND)
-                .and_then(|actual_index| {
-                    self.resolved_inputs()
-                        .get(*actual_index)
-                        .ok_or(INDEX_OUT_OF_BOUND)
-                }),
+                .and_then(|actual_index| fetch_input(*actual_index)),
             Source::Group(SourceEntry::Output) => self
                 .sg_data
                 .group_outputs()
                 .get(index)
                 .ok_or(INDEX_OUT_OF_BOUND)
-                .and_then(|actual_index| {
-                    self.tx_info()
-                        .outputs
-                        .get(*actual_index)
-                        .ok_or(INDEX_OUT_OF_BOUND)
-                }),
+                .and_then(|actual_index| fetch_output(*actual_index)),
             Source::Group(SourceEntry::CellDep) => Err(INDEX_OUT_OF_BOUND),
             Source::Group(SourceEntry::HeaderDep) => Err(INDEX_OUT_OF_BOUND),
         }
@@ -97,6 +103,7 @@ impl<DL: CellDataProvider + Clone> LoadCell<DL> {
         &self,
         machine: &mut Mac,
         cell: &CellMeta,
+        script_hashes: Option<&CellScriptHashes>,
     ) -> Result<(u8, u64), VMError> {
         let field = CellField::parse_from_u64(machine.registers()[A5].to_u64())?;
         let output = &cell.cell_output;
@@ -135,7 +142,12 @@ impl<DL: CellDataProvider + Clone> LoadCell<DL> {
                 (SUCCESS, store_data(machine, data)?)
             }
             CellField::LockHash => {
-                let hash = output.calc_lock_hash();
+                // Reuse the memoized hash, so repeated requests won't hash the
+                // (potentially large) script again on the host side.
+                let hash = match script_hashes {
+                    Some(script_hashes) => script_hashes.lock_hash(output),
+                    None => output.calc_lock_hash(),
+                };
                 let bytes = hash.as_bytes();
                 (SUCCESS, store_data(machine, &bytes)?)
             }
@@ -146,14 +158,19 @@ impl<DL: CellDataProvider + Clone> LoadCell<DL> {
                 }
                 None => (ITEM_MISSING, 0),
             },
-            CellField::TypeHash => match output.type_().to_opt() {
-                Some(type_) => {
-                    let hash = type_.calc_script_hash();
-                    let bytes = hash.as_bytes();
-                    (SUCCESS, store_data(machine, &bytes)?)
+            CellField::TypeHash => {
+                let hash = match script_hashes {
+                    Some(script_hashes) => script_hashes.type_hash(output),
+                    None => output.type_().to_opt().map(|t| t.calc_script_hash()),
+                };
+                match hash {
+                    Some(hash) => {
+                        let bytes = hash.as_bytes();
+                        (SUCCESS, store_data(machine, &bytes)?)
+                    }
+                    None => (ITEM_MISSING, 0),
                 }
-                None => (ITEM_MISSING, 0),
-            },
+            }
         };
         Ok(result)
     }
@@ -176,14 +193,15 @@ impl<Mac: SupportMachine, DL: CellDataProvider + Send + Sync + Clone> Syscalls<M
         let index = machine.registers()[A3].to_u64();
         let source = Source::parse_from_u64(machine.registers()[A4].to_u64())?;
 
-        let cell = self.fetch_cell(source, index as usize);
-        if let Err(err) = cell {
-            machine.set_register(A0, Mac::REG::from_u8(err));
-            return Ok(true);
-        }
-        let cell = cell.unwrap();
+        let (cell, script_hashes) = match self.fetch_cell(source, index as usize) {
+            Ok(fetched) => fetched,
+            Err(err) => {
+                machine.set_register(A0, Mac::REG::from_u8(err));
+                return Ok(true);
+            }
+        };
         let (return_code, len) = if load_by_field {
-            self.load_by_field(machine, cell)?
+            self.load_by_field(machine, cell, script_hashes)?
         } else {
             self.load_full(machine, &cell.cell_output)?
         };
