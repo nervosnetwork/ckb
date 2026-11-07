@@ -1,4 +1,4 @@
-#[cfg(not(target_os = "windows"))]
+#[cfg(all(not(target_os = "windows"), not(target_os = "android")))]
 mod daemon;
 mod export;
 mod import;
@@ -12,7 +12,7 @@ mod reset_data;
 mod run;
 mod stats;
 
-#[cfg(not(target_os = "windows"))]
+#[cfg(all(not(target_os = "windows"), not(target_os = "android")))]
 pub use self::daemon::{check_process, daemon};
 pub use self::export::export;
 pub use self::import::import;
