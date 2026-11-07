@@ -517,6 +517,12 @@ where
         if block_number % self.prune_interval == 0 {
             self.prune()?;
         }
+
+        // Update indexer tip metric
+        if let Some(metrics) = ckb_metrics::handle() {
+            metrics.ckb_indexer_tip.set(block_number as i64);
+        }
+
         Ok(())
     }
 
@@ -672,6 +678,16 @@ where
             batch.delete(Key::Header(block_number, &block_hash, filtered).into_vec())?;
 
             batch.commit()?;
+
+            // Update indexer tip metric after rollback
+            if let Some(metrics) = ckb_metrics::handle() {
+                // After rollback, the new tip is block_number - 1
+                if block_number > 0 {
+                    metrics.ckb_indexer_tip.set((block_number - 1) as i64);
+                } else {
+                    metrics.ckb_indexer_tip.set(0);
+                }
+            }
         }
         Ok(())
     }
