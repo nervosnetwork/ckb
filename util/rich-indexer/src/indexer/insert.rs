@@ -86,36 +86,9 @@ pub(crate) async fn append_block(
     block_view: &BlockView,
     tx: &mut Transaction<'_, Any>,
 ) -> Result<i64, Error> {
-    // insert "uncle" first so that the row with the maximum ID in the "block" table corresponds to the tip block.
-    let uncle_id_list = insert_uncle_blocks(block_view, tx).await?;
     let block_id = insert_block_table(block_view, tx).await?;
     insert_block_proposals(block_id, block_view, tx).await?;
-    bulk_insert_block_association_uncle_table(block_id, &uncle_id_list, tx).await?;
     Ok(block_id)
-}
-
-pub(crate) async fn insert_uncle_blocks(
-    block_view: &BlockView,
-    tx: &mut Transaction<'_, Any>,
-) -> Result<Vec<i64>, Error> {
-    let uncle_blocks = block_view
-        .uncles()
-        .into_iter()
-        .map(|uncle| {
-            let uncle_block_header = uncle.header();
-            BlockView::new_advanced_builder()
-                .header(uncle_block_header)
-                .proposals(uncle.data().proposals())
-                .build()
-        })
-        .collect::<Vec<_>>();
-    let uncle_block_rows: Vec<Vec<FieldValue>> = uncle_blocks
-        .iter()
-        .map(block_view_to_field_values)
-        .collect();
-    let uncle_id_list = bulk_insert_block_table(&uncle_block_rows, tx).await?;
-    insert_blocks_proposals(&uncle_id_list, &uncle_blocks, tx).await?;
-    Ok(uncle_id_list)
 }
 
 async fn insert_block_table(
@@ -126,28 +99,6 @@ async fn insert_block_table(
     bulk_insert_block_table(&[block_row], tx)
         .await
         .map(|ids| ids[0])
-}
-
-async fn insert_blocks_proposals(
-    block_id_list: &[i64],
-    block_views: &[BlockView],
-    tx: &mut Transaction<'_, Any>,
-) -> Result<(), Error> {
-    let block_association_proposal_rows: Vec<_> = block_id_list
-        .iter()
-        .zip(block_views)
-        .flat_map(|(block_id, block_view)| {
-            block_view
-                .data()
-                .proposals()
-                .into_iter()
-                .map(move |proposal_hash| {
-                    vec![(*block_id).into(), proposal_hash.raw_data().to_vec().into()]
-                })
-        })
-        .collect();
-
-    bulk_insert_block_association_proposal_table(&block_association_proposal_rows, tx).await
 }
 
 async fn insert_block_proposals(
@@ -250,25 +201,6 @@ async fn bulk_insert_block_association_proposal_table(
         "block_association_proposal",
         &["block_id", "proposal"],
         &block_association_proposal_rows,
-        None,
-        tx,
-    )
-    .await
-}
-
-async fn bulk_insert_block_association_uncle_table(
-    block_id: i64,
-    uncle_id_list: &[i64],
-    tx: &mut Transaction<'_, Any>,
-) -> Result<(), Error> {
-    let block_association_uncle_rows: Vec<_> = uncle_id_list
-        .iter()
-        .map(|uncle_id| vec![block_id.into(), (*uncle_id).into()])
-        .collect();
-    bulk_insert(
-        "block_association_uncle",
-        &["block_id", "uncle_id"],
-        &block_association_uncle_rows,
         None,
         tx,
     )

@@ -26,7 +26,6 @@ use std::sync::{Arc, RwLock};
 /// - output
 /// - script
 /// - block_association_proposal
-/// - block_association_uncle
 /// - tx_association_header_dep
 /// - tx_association_cell_dep
 ///   The detailed table design can be found in the SQL files in the resources folder of this crate
