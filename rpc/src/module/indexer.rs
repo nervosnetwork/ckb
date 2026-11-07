@@ -66,6 +66,24 @@ pub trait IndexerRpc {
     /// * limit: result size limit
     /// * after: pagination parameter, optional
     ///
+    /// ## Ordering
+    ///
+    /// Results are ordered by the RocksDB key, which has the structure:
+    /// `[Script (code_hash + hash_type + args)] + [BlockNumber] + [TxIndex] + [OutputIndex]`
+    ///
+    /// This means cells are primarily sorted by script, then by block number within each script.
+    /// When using prefix search mode with the same code_hash and hash_type, cells with different
+    /// args values will be sorted by args lexicographically, NOT by block number.
+    ///
+    /// **Important**: If you're scanning cells with variable args (e.g., using prefix search),
+    /// new cells created in later blocks may appear before your cursor if their args are
+    /// lexicographically smaller, potentially causing you to miss them in subsequent scans.
+    ///
+    /// For wallet implementations that need to track all cells in block order, consider:
+    /// - Using the Rich Indexer instead (which sorts by insertion order)
+    /// - Periodically rescanning from the beginning
+    /// - Using block_range filters to limit the scope of each scan
+    ///
     /// ## Returns
     ///
     /// If the number of objects is less than the requested `limit`, it indicates that these are the last page of get_cells.
