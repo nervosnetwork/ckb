@@ -13,9 +13,11 @@ use crate::{
         types::{AddrInfo, BannedAddr, PeerInfo, ip_to_network},
     },
 };
+use ckb_logger::debug;
 use ipnetwork::IpNetwork;
 use rand::prelude::IteratorRandom;
-use std::collections::{HashMap, hash_map::Entry};
+use std::collections::{HashMap, HashSet, hash_map::Entry};
+use std::net::IpAddr;
 
 /// Peer store
 ///
@@ -28,6 +30,7 @@ pub struct PeerStore {
     anchors: Anchors,
     connected_peers: HashMap<PeerId, PeerInfo>,
     score_config: PeerScoreConfig,
+    shared_proxy_addrs: HashSet<IpAddr>,
 }
 
 impl PeerStore {
@@ -43,7 +46,16 @@ impl PeerStore {
             anchors,
             connected_peers: Default::default(),
             score_config: Default::default(),
+            shared_proxy_addrs: Default::default(),
         }
+    }
+
+    /// Addresses that many peers can share (e.g. the local socket a Tor hidden service
+    /// forwards to). Misbehaviour seen on these addresses is banned by peer identity so
+    /// that one peer cannot get every other peer behind the same address banned.
+    pub(crate) fn with_shared_proxy_addrs(mut self, addrs: &[IpAddr]) -> Self {
+        self.shared_proxy_addrs = addrs.iter().copied().collect();
+        self
     }
 
     /// this method will assume peer is connected, which implies address is "verified".
@@ -284,11 +296,38 @@ impl PeerStore {
 
     /// Ban an addr
     pub(crate) fn ban_addr(&mut self, addr: &Multiaddr, timeout_ms: u64, ban_reason: String) {
-        if let Some(addr) = multiaddr_to_socketaddr(addr) {
-            let network = ip_to_network(addr.ip());
-            self.ban_network(network, timeout_ms, ban_reason)
+        match multiaddr_to_socketaddr(addr) {
+            // The address carries an IP that belongs to this peer alone, ban the network.
+            Some(socket_addr) if !self.shared_proxy_addrs.contains(&socket_addr.ip()) => {
+                self.ban_network(ip_to_network(socket_addr.ip()), timeout_ms, ban_reason);
+            }
+            // Either the IP is shared by every peer behind a proxy (inbound hidden service
+            // traffic that Tor forwards to a local socket), or the address has no IP at all
+            // (an outbound `/onion3` peer dialled through SOCKS5). In both cases the IP does
+            // not identify the offender, so ban the peer identity instead. Note that a peer
+            // reached over Tor can rotate its identity for free, so this is about not letting
+            // one peer's misconduct take down every other peer sharing the address.
+            _ => self.ban_peer_identity(addr, timeout_ms, &ban_reason),
         }
         self.addr_manager.remove(addr);
+    }
+
+    fn ban_peer_identity(&mut self, addr: &Multiaddr, timeout_ms: u64, ban_reason: &str) {
+        match extract_peer_id(addr) {
+            Some(peer_id) => {
+                debug!(
+                    "Ban peer {:?} of {} by identity for {}ms, reason: {}",
+                    peer_id, addr, timeout_ms, ban_reason
+                );
+                self.ban_list.ban_peer(peer_id, timeout_ms);
+            }
+            None => {
+                debug!(
+                    "Cannot ban {}, it has neither a bannable IP nor a peer id, reason: {}",
+                    addr, ban_reason
+                );
+            }
+        }
     }
 
     pub(crate) fn ban_network(&mut self, network: IpNetwork, timeout_ms: u64, ban_reason: String) {
