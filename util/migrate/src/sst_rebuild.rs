@@ -4,13 +4,13 @@ use ckb_db::internal::{
 };
 use ckb_db::{DBIterator, IteratorMode, ReadOnlyDB, RocksDB, Schema};
 use ckb_db_schema::{
-    BlockHashIndexValue, BlockIndexFlag, CHAIN_SPEC_HASH_KEY, COLUMN_BLOCK_BODY,
-    COLUMN_BLOCK_EPOCH, COLUMN_BLOCK_EXT, COLUMN_BLOCK_EXTENSION, COLUMN_BLOCK_FILTER,
-    COLUMN_BLOCK_FILTER_HASH, COLUMN_BLOCK_HEADER, COLUMN_BLOCK_PROPOSAL_IDS, COLUMN_BLOCK_UNCLE,
-    COLUMN_CELL, COLUMN_CELL_DATA, COLUMN_CELL_DATA_HASH, COLUMN_CHAIN_ROOT_MMR, COLUMN_EPOCH,
-    COLUMN_FAMILIES, COLUMN_HASH_INDEX, COLUMN_INDEX, COLUMN_META, COLUMN_TRANSACTION_INFO,
-    COLUMN_UNCLES, Col, META_TIP_HEADER_KEY, MIGRATION_VERSION_KEY, block_body_key, block_key,
-    block_number_key, legacy,
+    BLOCK_BODY_KEY_SIZE, BLOCK_KEY_SIZE, BLOCK_NUMBER_KEY_SIZE, BlockHashIndexValue,
+    BlockIndexFlag, CHAIN_SPEC_HASH_KEY, COLUMN_BLOCK_BODY, COLUMN_BLOCK_EPOCH, COLUMN_BLOCK_EXT,
+    COLUMN_BLOCK_EXTENSION, COLUMN_BLOCK_FILTER, COLUMN_BLOCK_FILTER_HASH, COLUMN_BLOCK_HEADER,
+    COLUMN_BLOCK_PROPOSAL_IDS, COLUMN_BLOCK_UNCLE, COLUMN_CELL, COLUMN_CELL_DATA,
+    COLUMN_CELL_DATA_HASH, COLUMN_CHAIN_ROOT_MMR, COLUMN_EPOCH, COLUMN_FAMILIES, COLUMN_HASH_INDEX,
+    COLUMN_INDEX, COLUMN_META, COLUMN_TRANSACTION_INFO, COLUMN_UNCLES, Col, META_TIP_HEADER_KEY,
+    MIGRATION_VERSION_KEY, block_key, block_number_key, legacy,
 };
 use ckb_error::{Error, InternalErrorKind};
 use ckb_logger::info;
@@ -35,6 +35,8 @@ const COPY_SST_ENTRY_LIMIT: u64 = 1_000_000;
 const COPY_SST_BYTES_LIMIT: usize = 128 * 1024 * 1024;
 const COPY_COLUMN_PARALLELISM: usize = 4;
 const SPILL_RECORD_HEADER_BYTES: usize = 8;
+const BLOCK_BODY_BATCH_HEADER_BYTES: usize = 4;
+const BLOCK_BODY_TX_HEADER_BYTES: usize = 8;
 const MIN_LEGACY_REBUILD_VERSION: &str = "20231101000000";
 const DISK_SPACE_MARGIN_PERCENT: u64 = 10;
 
@@ -324,6 +326,68 @@ struct SpillBuffer {
 struct SpillShard {
     start: BlockNumber,
     paths: Vec<PathBuf>,
+}
+
+/// One block's transactions, encoded as a single spill value:
+/// `tx_count u32 BE || (tx_index u32 BE || value_len u32 BE || value)*`.
+///
+/// The matching spill key is `block_key(number, hash)`, so sorting and merging
+/// spill records orders whole blocks without touching individual transactions.
+struct PendingBlockBody {
+    hash: [u8; 32],
+    number: Option<BlockNumber>,
+    value: Vec<u8>,
+    tx_count: u32,
+}
+
+impl PendingBlockBody {
+    fn new(hash: [u8; 32], number: Option<BlockNumber>) -> Self {
+        let value = if number.is_some() {
+            vec![0u8; BLOCK_BODY_BATCH_HEADER_BYTES]
+        } else {
+            Vec::new()
+        };
+        Self {
+            hash,
+            number,
+            value,
+            tx_count: 0,
+        }
+    }
+
+    fn push_tx(&mut self, index: u32, value: &[u8]) -> Result<(), Error> {
+        self.tx_count = self
+            .tx_count
+            .checked_add(1)
+            .ok_or_else(|| internal_error("block body transaction count overflows u32"))?;
+        if self.number.is_some() {
+            let value_len = u32::try_from(value.len()).map_err(|_| {
+                internal_error(format!(
+                    "transaction value is too large: {} bytes",
+                    value.len()
+                ))
+            })?;
+            self.value.extend_from_slice(&index.to_be_bytes());
+            self.value.extend_from_slice(&value_len.to_be_bytes());
+            self.value.extend_from_slice(value);
+        }
+        Ok(())
+    }
+
+    fn into_value(mut self) -> Result<Vec<u8>, Error> {
+        if self.number.is_none() {
+            return Err(internal_error(
+                "orphan block body spill record cannot be encoded",
+            ));
+        }
+        if self.tx_count == 0 {
+            return Err(internal_error(
+                "block body spill record has no transactions",
+            ));
+        }
+        self.value[..BLOCK_BODY_BATCH_HEADER_BYTES].copy_from_slice(&self.tx_count.to_be_bytes());
+        Ok(self.value)
+    }
 }
 
 struct RewriteSpill<'a> {
@@ -902,6 +966,7 @@ impl SstGenerator<'_> {
         let mut scanned = 0u64;
         let mut migrated = 0u64;
         let mut skipped_orphans = 0u64;
+        let mut pending: Option<PendingBlockBody> = None;
 
         for (old_key, value) in iter {
             if old_key.len() < 36 {
@@ -910,26 +975,29 @@ impl SstGenerator<'_> {
                     old_key.len()
                 )));
             }
-            let hash = byte32_from_slice(&old_key[..32], "transaction key block hash")?;
-            let Some(number) = self.plan.block_number_by_hash_opt(hash.as_slice())? else {
-                skipped_orphans += 1;
-                scanned += 1;
-                if scanned.is_multiple_of(1_000_000) {
-                    info!(
-                        "SST rebuild: scanned {scanned} entries from old column {}",
-                        legacy::COLUMN_BLOCK_BODY
-                    );
+            let hash: [u8; 32] = old_key[..32]
+                .try_into()
+                .expect("transaction key hash slice length is checked");
+            if pending.as_ref().map(|block| block.hash) != Some(hash) {
+                if let Some(finished) = pending.take() {
+                    self.push_block_body_record(
+                        &mut spill,
+                        finished,
+                        &mut migrated,
+                        &mut skipped_orphans,
+                    )?;
                 }
-                continue;
-            };
+                let number = self.plan.block_number_by_hash_opt(&hash)?;
+                pending = Some(PendingBlockBody::new(hash, number));
+            }
+
             let index = tx_index_from_old_key(&old_key)?;
-            spill.push(
-                number,
-                block_body_key(number, &hash, index).to_vec(),
-                value.to_vec(),
-            )?;
+            pending
+                .as_mut()
+                .expect("pending block body initialized above")
+                .push_tx(index, &value)?;
+
             scanned += 1;
-            migrated += 1;
             if scanned.is_multiple_of(1_000_000) {
                 info!(
                     "SST rebuild: scanned {scanned} entries from old column {}",
@@ -938,21 +1006,45 @@ impl SstGenerator<'_> {
             }
         }
 
+        if let Some(finished) = pending.take() {
+            self.push_block_body_record(&mut spill, finished, &mut migrated, &mut skipped_orphans)?;
+        }
+
         let shards = spill.finish()?;
         info!(
             "SST rebuild: old column {} scan complete, scanned={scanned}, migrated={migrated}, skipped_orphans={skipped_orphans}, shards={}",
             legacy::COLUMN_BLOCK_BODY,
             shards.len()
         );
-        write_spilled_shards(
+        write_spilled_block_shards(
             self.pool,
-            COLUMN_BLOCK_BODY,
             self.sst_root,
             shards,
             self.ingestor,
             self.sst_options,
         )?;
         Ok(migrated)
+    }
+
+    fn push_block_body_record(
+        &self,
+        spill: &mut RewriteSpill<'_>,
+        pending: PendingBlockBody,
+        migrated: &mut u64,
+        skipped_orphans: &mut u64,
+    ) -> Result<(), Error> {
+        let tx_count = u64::from(pending.tx_count);
+        match pending.number {
+            Some(number) => {
+                let hash = packed::Byte32::new(pending.hash);
+                let key = block_key(number, &hash);
+                let value = pending.into_value()?;
+                spill.push(number, key.to_vec(), value)?;
+                *migrated += tx_count;
+            }
+            None => *skipped_orphans += tx_count,
+        }
+        Ok(())
     }
 
     fn build_hash_index(&self) -> Result<u64, Error> {
@@ -1345,6 +1437,199 @@ fn write_spilled_shard(
     writer.finish()
 }
 
+fn write_spilled_block_shards(
+    pool: &rayon::ThreadPool,
+    sst_root: &Path,
+    shards: Vec<SpillShard>,
+    ingestor: &SstIngestor<'_>,
+    sst_options: &SstWriterOptions,
+) -> Result<(), Error> {
+    if shards.is_empty() {
+        return Ok(());
+    }
+
+    let total = shards.len();
+    let completed = AtomicUsize::new(0);
+    let progress_interval = (total / 20).max(1);
+    info!(
+        "SST rebuild: writing {total} sorted SST shards for column {}",
+        COLUMN_BLOCK_BODY
+    );
+
+    let results: Vec<Result<(), Error>> = pool.install(|| {
+        shards
+            .into_par_iter()
+            .map(|shard| {
+                let result = write_spilled_block_shard(sst_root, shard, sst_options).and_then(
+                    |ssts| {
+                        for sst in ssts {
+                            ingestor.ingest(sst)?;
+                        }
+                        Ok(())
+                    },
+                );
+                let done = completed.fetch_add(1, Ordering::SeqCst) + 1;
+                if done == total || done.is_multiple_of(progress_interval) {
+                    info!(
+                        "SST rebuild: wrote and ingested sorted shards {done}/{total} for column {}",
+                        COLUMN_BLOCK_BODY
+                    );
+                }
+                result
+            })
+            .collect()
+    });
+
+    for result in results {
+        result?;
+    }
+    Ok(())
+}
+
+fn write_spilled_block_shard(
+    sst_root: &Path,
+    shard: SpillShard,
+    sst_options: &SstWriterOptions,
+) -> Result<Vec<GeneratedSst>, Error> {
+    let end = shard.start + RANGE_BLOCKS;
+    let mut writer = SplitSstWriter::new(
+        sst_options,
+        COLUMN_BLOCK_BODY,
+        sst_root,
+        format!("{:016x}-{end:016x}", shard.start),
+    )?;
+    let mut runs = Vec::with_capacity(shard.paths.len());
+    let mut heap = BinaryHeap::new();
+
+    for path in &shard.paths {
+        let mut run = SpillRecordIter::open(path)?;
+        if let Some(entry) = read_next_spill_entry(&mut run)? {
+            heap.push(HeapEntry {
+                entry,
+                run: runs.len(),
+            });
+        }
+        runs.push(run);
+    }
+
+    let mut key_buf = [0u8; BLOCK_BODY_KEY_SIZE];
+    let mut last_block_key: Option<[u8; BLOCK_KEY_SIZE]> = None;
+    while let Some(HeapEntry { entry, run }) = heap.pop() {
+        let block_key: [u8; BLOCK_KEY_SIZE] = entry.key.as_slice().try_into().map_err(|_| {
+            internal_error(format!(
+                "invalid block body spill key: expected {BLOCK_KEY_SIZE} bytes, actual {}",
+                entry.key.len()
+            ))
+        })?;
+        let number = u64::from_be_bytes(
+            block_key[..BLOCK_NUMBER_KEY_SIZE]
+                .try_into()
+                .expect("fixed-length block number slice"),
+        );
+        if number < shard.start || number >= end {
+            return Err(internal_error(format!(
+                "block body spill record number {number} is outside shard range {}..{end}",
+                shard.start
+            )));
+        }
+        if let Some(last) = last_block_key
+            && block_key <= last
+        {
+            return Err(internal_error(
+                "block body spill records are not strictly increasing",
+            ));
+        }
+        last_block_key = Some(block_key);
+
+        expand_block_body_batch(&block_key, &entry.value, &mut key_buf, |key, value| {
+            writer.put(key, value)
+        })?;
+
+        if let Some(next) = read_next_spill_entry(&mut runs[run])? {
+            heap.push(HeapEntry { entry: next, run });
+        }
+    }
+
+    for path in &shard.paths {
+        let _ = fs::remove_file(path);
+    }
+
+    writer.finish()
+}
+
+/// Expands one block-level spill record into per-transaction V1 block-body keys.
+fn expand_block_body_batch(
+    block_key: &[u8; BLOCK_KEY_SIZE],
+    batch: &[u8],
+    key_buf: &mut [u8; BLOCK_BODY_KEY_SIZE],
+    mut put: impl FnMut(&[u8], &[u8]) -> Result<(), Error>,
+) -> Result<(), Error> {
+    let Some(header) = batch.get(..BLOCK_BODY_BATCH_HEADER_BYTES) else {
+        return Err(internal_error(format!(
+            "block body spill value is too short: {} bytes",
+            batch.len()
+        )));
+    };
+    let tx_count = u32::from_be_bytes(header.try_into().expect("fixed-length batch header"));
+    if tx_count == 0 {
+        return Err(internal_error(
+            "block body spill value contains no transactions",
+        ));
+    }
+
+    key_buf[..BLOCK_KEY_SIZE].copy_from_slice(block_key);
+    let mut offset = BLOCK_BODY_BATCH_HEADER_BYTES;
+    let mut last_index: Option<u32> = None;
+    for _ in 0..tx_count {
+        let header_end = offset
+            .checked_add(BLOCK_BODY_TX_HEADER_BYTES)
+            .filter(|end| *end <= batch.len())
+            .ok_or_else(|| {
+                internal_error(format!(
+                    "truncated block body spill value at offset {offset}"
+                ))
+            })?;
+        let index = u32::from_be_bytes(
+            batch[offset..offset + 4]
+                .try_into()
+                .expect("fixed-length transaction index"),
+        );
+        let value_len = u32::from_be_bytes(
+            batch[offset + 4..header_end]
+                .try_into()
+                .expect("fixed-length transaction value length"),
+        ) as usize;
+        if let Some(last) = last_index
+            && index <= last
+        {
+            return Err(internal_error(format!(
+                "block body spill value has non-increasing transaction indexes: {index} after {last}"
+            )));
+        }
+        last_index = Some(index);
+        offset = header_end;
+
+        let value_end = offset
+            .checked_add(value_len)
+            .filter(|end| *end <= batch.len())
+            .ok_or_else(|| {
+                internal_error(format!(
+                    "truncated block body spill value at offset {offset}"
+                ))
+            })?;
+        key_buf[BLOCK_KEY_SIZE..BLOCK_BODY_KEY_SIZE].copy_from_slice(&index.to_be_bytes());
+        put(key_buf, &batch[offset..value_end])?;
+        offset = value_end;
+    }
+    if offset != batch.len() {
+        return Err(internal_error(format!(
+            "block body spill value has {} trailing bytes",
+            batch.len() - offset
+        )));
+    }
+    Ok(())
+}
+
 fn write_spill_record(writer: &mut BufWriter<File>, key: &[u8], value: &[u8]) -> Result<(), Error> {
     write_spill_record_io(writer, key, value)
         .map_err(|err| internal_error(format!("failed to write spill record: {err}")))
@@ -1636,6 +1921,13 @@ fn tx_index_from_old_key(key: &[u8]) -> Result<u32, Error> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use ckb_db_schema::block_body_key;
+
+    fn expand_test_batch(batch: &[u8]) -> Result<(), Error> {
+        let block_key = block_key(0, &packed::Byte32::new([0u8; 32]));
+        let mut key_buf = [0u8; BLOCK_BODY_KEY_SIZE];
+        expand_block_body_batch(&block_key, batch, &mut key_buf, |_, _| Ok(()))
+    }
 
     #[test]
     fn spill_record_roundtrips_raw_value() {
@@ -1647,5 +1939,166 @@ mod tests {
         assert_eq!(entry.key, b"key");
         assert_eq!(entry.value, b"small-value");
         assert!(read_spill_record_io(&mut cursor).unwrap().is_none());
+    }
+
+    #[test]
+    fn block_body_batch_roundtrips_txs() {
+        let hash = packed::Byte32::new([0xAB; 32]);
+        let mut pending = PendingBlockBody::new([0xAB; 32], Some(7));
+        pending.push_tx(0, b"first").unwrap();
+        pending.push_tx(3, &[0u8; 300]).unwrap();
+        let batch = pending.into_value().unwrap();
+        assert_eq!(&batch[..BLOCK_BODY_BATCH_HEADER_BYTES], &2u32.to_be_bytes());
+        assert_eq!(
+            batch.len(),
+            BLOCK_BODY_BATCH_HEADER_BYTES
+                + (BLOCK_BODY_TX_HEADER_BYTES + 5)
+                + (BLOCK_BODY_TX_HEADER_BYTES + 300)
+        );
+
+        let block_key = block_key(7, &hash);
+        let mut key_buf = [0u8; BLOCK_BODY_KEY_SIZE];
+        let mut expanded = Vec::new();
+        expand_block_body_batch(&block_key, &batch, &mut key_buf, |key, value| {
+            expanded.push((key.to_vec(), value.to_vec()));
+            Ok(())
+        })
+        .unwrap();
+
+        assert_eq!(expanded.len(), 2);
+        assert_eq!(
+            expanded[0].0.as_slice(),
+            block_body_key(7, &hash, 0).as_slice()
+        );
+        assert_eq!(expanded[0].1.as_slice(), b"first".as_slice());
+        assert_eq!(
+            expanded[1].0.as_slice(),
+            block_body_key(7, &hash, 3).as_slice()
+        );
+        assert_eq!(expanded[1].1, vec![0u8; 300]);
+    }
+
+    #[test]
+    fn block_body_batch_rejects_malformed_values() {
+        assert!(
+            expand_test_batch(&[])
+                .unwrap_err()
+                .to_string()
+                .contains("too short")
+        );
+        assert!(
+            expand_test_batch(&[0, 0, 0])
+                .unwrap_err()
+                .to_string()
+                .contains("too short")
+        );
+        assert!(
+            expand_test_batch(&0u32.to_be_bytes())
+                .unwrap_err()
+                .to_string()
+                .contains("no transactions")
+        );
+
+        let mut truncated = Vec::new();
+        truncated.extend_from_slice(&1u32.to_be_bytes());
+        truncated.extend_from_slice(&0u32.to_be_bytes());
+        truncated.extend_from_slice(&5u32.to_be_bytes());
+        assert!(
+            expand_test_batch(&truncated)
+                .unwrap_err()
+                .to_string()
+                .contains("truncated")
+        );
+
+        let mut trailing = Vec::new();
+        trailing.extend_from_slice(&1u32.to_be_bytes());
+        trailing.extend_from_slice(&0u32.to_be_bytes());
+        trailing.extend_from_slice(&0u32.to_be_bytes());
+        trailing.push(0);
+        assert!(
+            expand_test_batch(&trailing)
+                .unwrap_err()
+                .to_string()
+                .contains("trailing")
+        );
+
+        let mut non_increasing = Vec::new();
+        non_increasing.extend_from_slice(&2u32.to_be_bytes());
+        for _ in 0..2 {
+            non_increasing.extend_from_slice(&1u32.to_be_bytes());
+            non_increasing.extend_from_slice(&0u32.to_be_bytes());
+        }
+        assert!(
+            expand_test_batch(&non_increasing)
+                .unwrap_err()
+                .to_string()
+                .contains("non-increasing")
+        );
+    }
+
+    #[test]
+    fn block_body_spill_merge_expands_and_orders_across_runs() {
+        fn push_block(
+            spill: &mut RewriteSpill<'_>,
+            number: BlockNumber,
+            hash_byte: u8,
+            txs: &[(u32, &[u8])],
+        ) {
+            let mut pending = PendingBlockBody::new([hash_byte; 32], Some(number));
+            for (index, value) in txs {
+                pending.push_tx(*index, value).unwrap();
+            }
+            let key = block_key(number, &packed::Byte32::new([hash_byte; 32]));
+            spill
+                .push(number, key.to_vec(), pending.into_value().unwrap())
+                .unwrap();
+        }
+
+        let dir = tempfile::tempdir().unwrap();
+        let pool = rayon::ThreadPoolBuilder::new()
+            .num_threads(2)
+            .build()
+            .unwrap();
+        let mut spill = RewriteSpill::new(dir.path(), COLUMN_BLOCK_BODY, &pool).unwrap();
+
+        push_block(&mut spill, 0, 0x02, &[(0, b"a0"), (1, b"a1")]);
+        spill.flush().unwrap();
+        push_block(&mut spill, 1, 0x09, &[(0, b"c1")]);
+        push_block(&mut spill, 1, 0x01, &[(0, b"b0"), (1, b"b1")]);
+        push_block(&mut spill, 50_000, 0x00, &[(0, b"d0")]);
+
+        let shards = spill.finish().unwrap();
+        assert_eq!(shards.len(), 2);
+        assert_eq!(shards[0].start, 0);
+        assert_eq!(shards[0].paths.len(), 2);
+        assert_eq!(shards[1].start, 50_000);
+        assert_eq!(shards[1].paths.len(), 1);
+
+        let target =
+            RocksDB::create_for_bulk_load_open(dir.path().join("migrated"), Schema::V1).unwrap();
+        let ingestor = SstIngestor::new(&target);
+        let sst_options = SstWriterOptions::load();
+        write_spilled_block_shards(&pool, dir.path(), shards, &ingestor, &sst_options).unwrap();
+        assert_eq!(ingestor.entries(), 6);
+
+        let mut actual = Vec::new();
+        for (key, value) in target.iter(COLUMN_BLOCK_BODY, IteratorMode::Start).unwrap() {
+            actual.push((key.to_vec(), value.to_vec()));
+        }
+
+        let expected = [
+            ((0u64, 0x02u8, 0u32), b"a0".as_slice()),
+            ((0, 0x02, 1), b"a1".as_slice()),
+            ((1, 0x01, 0), b"b0".as_slice()),
+            ((1, 0x01, 1), b"b1".as_slice()),
+            ((1, 0x09, 0), b"c1".as_slice()),
+            ((50_000, 0x00, 0), b"d0".as_slice()),
+        ];
+        assert_eq!(actual.len(), expected.len());
+        for (i, ((number, hash_byte, index), value)) in expected.iter().enumerate() {
+            let key = block_body_key(*number, &packed::Byte32::new([*hash_byte; 32]), *index);
+            assert_eq!(actual[i].0.as_slice(), key.as_slice());
+            assert_eq!(actual[i].1.as_slice(), *value);
+        }
     }
 }

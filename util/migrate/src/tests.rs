@@ -2,7 +2,7 @@ use crate::migrate::Migrate;
 use crate::sst_rebuild::SstRebuild;
 use ckb_app_config::DBConfig;
 use ckb_chain_spec::consensus::build_genesis_epoch_ext;
-use ckb_db::{RocksDB, Schema};
+use ckb_db::{DBIterator, IteratorMode, RocksDB, Schema};
 use ckb_db_schema::{
     BlockHashIndexValue, BlockIndexFlag, COLUMN_BLOCK_BODY, COLUMN_BLOCK_EXT, COLUMN_BLOCK_HEADER,
     COLUMN_HASH_INDEX, COLUMN_INDEX, META_CURRENT_EPOCH_KEY, META_TIP_HEADER_KEY,
@@ -276,10 +276,21 @@ fn test_sst_rebuild_migrates_old_block_keys() {
             b"filter_hash",
         )
         .unwrap();
+    let orphan_tx_key_1 = packed::TransactionKey::new_builder()
+        .block_hash(orphan_hash.clone())
+        .index(1u32)
+        .build();
     db_txn
         .put(
             legacy::COLUMN_BLOCK_BODY,
             orphan_tx_key.as_slice(),
+            orphan_tx.as_slice(),
+        )
+        .unwrap();
+    db_txn
+        .put(
+            legacy::COLUMN_BLOCK_BODY,
+            orphan_tx_key_1.as_slice(),
             orphan_tx.as_slice(),
         )
         .unwrap();
@@ -349,6 +360,43 @@ fn test_sst_rebuild_migrates_old_block_keys() {
     assert!(
         migrated
             .get_pinned(COLUMN_BLOCK_BODY, orphan_tx_key.as_slice())
+            .unwrap()
+            .is_none()
+    );
+    assert!(
+        migrated
+            .get_pinned(COLUMN_BLOCK_BODY, orphan_tx_key_1.as_slice())
+            .unwrap()
+            .is_none()
+    );
+
+    let mut expected_body = Vec::new();
+    for (number, block) in [(0u64, &genesis), (1u64, &block1), (1u64, &fork1)] {
+        for (index, tx) in block.transactions().into_iter().enumerate() {
+            let key = block_body_key(number, &block.hash(), index as u32).to_vec();
+            let value = Into::<packed::TransactionView>::into(tx)
+                .as_slice()
+                .to_vec();
+            expected_body.push((key, value));
+        }
+    }
+    expected_body.sort_by(|left, right| left.0.cmp(&right.0));
+
+    let mut actual_body = Vec::new();
+    for (key, value) in migrated
+        .iter(COLUMN_BLOCK_BODY, IteratorMode::Start)
+        .unwrap()
+    {
+        assert_eq!(key.len(), 44);
+        actual_body.push((key.to_vec(), value.to_vec()));
+    }
+    assert_eq!(actual_body, expected_body);
+    assert_eq!(actual_body.len(), 4);
+
+    let extra_tx_key = block_body_key(1, &block1.hash(), 2);
+    assert!(
+        migrated
+            .get_pinned(COLUMN_BLOCK_BODY, &extra_tx_key)
             .unwrap()
             .is_none()
     );
