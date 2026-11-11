@@ -1,0 +1,15 @@
+# Configuration for `cargo audit`, used by the scheduled Security Audit workflow.
+# Keep the ignores in sync with the `[advisories] ignore` list in ../deny.toml,
+# which is used by `cargo deny` / `make security-audit`.
+
+[advisories]
+ignore = [
+  # RUSTSEC-2026-0459: sqlx 0.9.0 caps libsqlite3-sys at < 0.38.0, so the
+  # patched libsqlite3-sys >= 0.39.0 cannot be adopted yet. The upstream fix is
+  # merged (transact-rs/sqlx#4502) and will be released in sqlx 0.9.1
+  # (transact-rs/sqlx#4517). CKB only opens the local rich-indexer SQLite
+  # database it creates itself and never opens a database/WAL pair supplied by
+  # an untrusted party, so the advisory's attack path is not reachable.
+  # Remove this ignore once sqlx >= 0.9.1 is adopted.
+  "RUSTSEC-2026-0459",
+]
