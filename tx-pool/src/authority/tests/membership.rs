@@ -195,6 +195,120 @@ fn replacement_counts_shared_descendants_once_and_accepts_the_exact_fee_boundary
 }
 
 #[test]
+fn replacement_checks_late_descendant_limits_after_removing_overlapping_victims() {
+    // S -> R -> D, P/Q[/T] -> C -> X -> D. R and late C spend the same cell.
+    // RBF removes R and D even though D is also reached through retained X.
+    for parent_count in [2, 3] {
+        let store = store();
+        let configuration = TxPoolConfig {
+            max_ancestors_count: 4,
+            ..rbf()
+        };
+        let roots: Vec<_> = (90_400..90_404)
+            .map(|nonce| accept(&store, output_tx(nonce), 1, 1, Status::Pending))
+            .collect();
+        let input = point(206);
+        let parents: Vec<_> = roots[1..=parent_count]
+            .iter()
+            .map(|hash| OutPoint::new(hash.clone(), 0))
+            .collect();
+        let candidate = entry(
+            &store,
+            spend(90_404, std::slice::from_ref(&input), &parents),
+            Source::Local,
+        );
+        let victim = accept(
+            &store,
+            spend(90_405, &[input], &[OutPoint::new(roots[0].clone(), 0)]),
+            1,
+            1,
+            Status::Pending,
+        );
+        let child = accept(
+            &store,
+            spend(90_406, &[], &[OutPoint::new(candidate.hash(), 0)]),
+            1,
+            1,
+            Status::Pending,
+        );
+        let descendant = accept(
+            &store,
+            spend(
+                90_407,
+                &[],
+                &[
+                    OutPoint::new(victim.clone(), 0),
+                    OutPoint::new(child.clone(), 0),
+                ],
+            ),
+            1,
+            1,
+            Status::Pending,
+        );
+        let before = store.capture_accepted().owners;
+        let charged = store.budget.accepted_usage();
+        assert_parents_match_transactions(&store);
+        let (plan, reject) = admission(
+            &store,
+            &candidate,
+            1_000_000,
+            1,
+            Status::Pending,
+            &configuration,
+        )
+        .unwrap();
+        for owner in &before {
+            assert!(std::sync::Arc::ptr_eq(
+                owner,
+                &store.point(&owner.hash()).1.unwrap()
+            ));
+        }
+        assert_eq!(store.budget.accepted_usage(), charged);
+        if parent_count == 2 {
+            assert!(reject.is_none(), "unexpected rejection: {reject:?}");
+            store.apply(plan).unwrap();
+            let expected = roots
+                .into_iter()
+                .chain([candidate.hash(), child.clone()])
+                .collect();
+            assert_eq!(hashes(&store), expected);
+            assert!(store.outbox.pending_reject(&victim).is_some());
+            assert!(store.outbox.pending_reject(&descendant).is_some());
+            let members = store
+                .capture_accepted()
+                .owners
+                .into_iter()
+                .map(|owner| (owner.hash(), owner))
+                .collect();
+            let totals =
+                membership::aggregates(&members, configuration.max_ancestors_count).unwrap();
+            assert_eq!(totals[&candidate.hash()].ancestors.count, 3);
+            assert_eq!(totals[&child].ancestors.count, 4);
+        } else {
+            assert!(matches!(
+                reject,
+                Some(Reject::ExceededMaximumAncestorsCount)
+            ));
+            store.apply(plan).unwrap();
+            assert_eq!(
+                hashes(&store),
+                before.iter().map(|owner| owner.hash()).collect()
+            );
+            assert_eq!(store.budget.accepted_usage(), charged);
+            assert!(store.outbox.pending_reject(&victim).is_none());
+            assert!(store.outbox.pending_reject(&descendant).is_none());
+            for owner in &before {
+                assert!(std::sync::Arc::ptr_eq(
+                    owner,
+                    &store.point(&owner.hash()).1.unwrap()
+                ));
+            }
+        }
+        assert_parents_match_transactions(&store);
+    }
+}
+
+#[test]
 fn replacement_cannot_add_an_unrelated_unconfirmed_input() {
     let store = store();
     let input = point(4);
