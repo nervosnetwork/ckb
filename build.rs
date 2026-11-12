@@ -29,6 +29,8 @@ fn rerun_if_changed(path_str: &str) -> bool {
 
 #[allow(clippy::manual_strip)]
 fn main() {
+    println!("cargo:rustc-check-cfg=cfg(tokio_unstable)");
+
     let files_stdout = std::process::Command::new("git")
         .args(["ls-tree", "-r", "--name-only", "HEAD"])
         .output()

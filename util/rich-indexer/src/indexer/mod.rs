@@ -7,7 +7,7 @@ pub(crate) use remove::*;
 use crate::{RichIndexerHandle, service::SUBSCRIBER_NAME, store::SQLXPool};
 
 use ckb_async_runtime::Handle;
-use ckb_indexer_sync::{CustomFilters, Error, IndexerSync, Pool};
+use ckb_indexer_sync::{CustomFilters, Error, IndexerSync};
 use ckb_types::{
     H256,
     core::{BlockNumber, BlockView, TransactionView},
@@ -16,7 +16,6 @@ use ckb_types::{
 use sqlx::{Any, Transaction};
 
 use std::collections::HashSet;
-use std::sync::{Arc, RwLock};
 
 /// the database tables are as follows:
 ///
@@ -57,13 +56,12 @@ impl RichIndexer {
     /// Construct new Rich Indexer instance
     pub fn new(
         store: SQLXPool,
-        pool: Option<Arc<RwLock<Pool>>>,
         custom_filters: CustomFilters,
         async_runtime: Handle,
         request_limit: usize,
     ) -> Self {
         Self {
-            async_rich_indexer: AsyncRichIndexer::new(store, pool, custom_filters),
+            async_rich_indexer: AsyncRichIndexer::new(store, custom_filters),
             async_runtime,
             request_limit,
         }
@@ -75,7 +73,7 @@ impl IndexerSync for RichIndexer {
     fn tip(&self) -> Result<Option<(BlockNumber, Byte32)>, Error> {
         let indexer_handle = RichIndexerHandle::new(
             self.async_rich_indexer.store.clone(),
-            self.async_rich_indexer.pool.clone(),
+            None,
             self.async_runtime.clone(),
             self.request_limit,
         );
@@ -130,23 +128,15 @@ impl IndexerSync for RichIndexer {
 pub(crate) struct AsyncRichIndexer {
     /// storage
     pub(crate) store: SQLXPool,
-    /// An optional overlay to index the pending txs in the ckb tx pool
-    /// currently only supports removals of dead cells from the pending txs
-    pub(crate) pool: Option<Arc<RwLock<Pool>>>,
     /// custom filters
     custom_filters: CustomFilters,
 }
 
 impl AsyncRichIndexer {
     /// Construct new AsyncRichIndexer instance
-    pub fn new(
-        store: SQLXPool,
-        pool: Option<Arc<RwLock<Pool>>>,
-        custom_filters: CustomFilters,
-    ) -> Self {
+    pub fn new(store: SQLXPool, custom_filters: CustomFilters) -> Self {
         Self {
             store,
-            pool,
             custom_filters,
         }
     }
@@ -169,10 +159,6 @@ impl AsyncRichIndexer {
         tx.commit()
             .await
             .map_err(|err| Error::DB(err.to_string()))?;
-
-        if let Some(mut pool) = self.pool.as_ref().map(|p| p.write().expect("acquire lock")) {
-            pool.transactions_committed(&block.transactions());
-        }
 
         Ok(())
     }

@@ -357,7 +357,7 @@ async fn async_check_exec_wrong_callee_format() {
 
     let verifier = TransactionScriptsVerifierWithEnv::new();
     let result = verifier
-        .verify_without_limit_async(script_version, &rtx)
+        .verify_with_runner(script_version, &rtx, Cycle::MAX)
         .await;
     assert!(result.is_err());
 }

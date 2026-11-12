@@ -27,6 +27,9 @@ use ckb_types::{
 };
 use std::sync::Arc;
 
+const CELL_WRITE_BATCH_SIZE: usize = 256;
+const CELL_WRITE_BATCH_BYTES: usize = 64 * 1024;
+
 /// A Transaction DB
 pub struct StoreTransaction {
     pub(crate) inner: RocksDBTransaction,
@@ -177,7 +180,8 @@ impl StoreTransaction {
         let header = Into::<packed::HeaderView>::into(block.header());
         let uncles = Into::<packed::UncleBlockVecView>::into(block.uncles());
         let proposals = block.data().proposals();
-        let txs_len: packed::Uint32 = (block.transactions().len() as u32).into();
+        let transactions = block.transactions();
+        let txs_len: packed::Uint32 = (transactions.len() as u32).into();
         self.insert_raw(COLUMN_BLOCK_HEADER, hash.as_slice(), header.as_slice())?;
         self.insert_raw(COLUMN_BLOCK_UNCLE, hash.as_slice(), uncles.as_slice())?;
         if let Some(extension) = block.extension() {
@@ -201,7 +205,7 @@ impl StoreTransaction {
             hash.as_slice(),
             proposals.as_slice(),
         )?;
-        for (index, tx) in block.transactions().into_iter().enumerate() {
+        for (index, tx) in transactions.into_iter().enumerate() {
             let key = packed::TransactionKey::new_builder()
                 .block_hash(hash.clone())
                 .index(index)
@@ -228,7 +232,7 @@ impl StoreTransaction {
     /// Deletes a block from the store.
     pub fn delete_block(&self, block: &BlockView) -> Result<(), Error> {
         let hash = block.hash();
-        let txs_len = block.transactions().len();
+        let txs_len = block.data().transactions().len();
         self.delete(COLUMN_BLOCK_HEADER, hash.as_slice())?;
         self.delete(COLUMN_BLOCK_UNCLE, hash.as_slice())?;
         self.delete(COLUMN_BLOCK_EXTENSION, hash.as_slice())?;
@@ -269,7 +273,7 @@ impl StoreTransaction {
 
     /// Attaches a block to the main chain, indexing its transactions and uncles.
     pub fn attach_block(&self, block: &BlockView) -> Result<(), Error> {
-        let header = block.data().header();
+        let header = block.data().header().raw();
         let block_hash = block.hash();
         for (index, tx_hash) in block.tx_hashes().iter().enumerate() {
             let key = packed::TransactionKey::new_builder()
@@ -278,12 +282,12 @@ impl StoreTransaction {
                 .build();
             let info = packed::TransactionInfo::new_builder()
                 .key(key)
-                .block_number(header.raw().number())
-                .block_epoch(header.raw().epoch())
+                .block_number(header.number())
+                .block_epoch(header.epoch())
                 .build();
             self.insert_raw(COLUMN_TRANSACTION_INFO, tx_hash.as_slice(), info.as_slice())?;
         }
-        let block_number: packed::Uint64 = block.number().into();
+        let block_number = header.number();
         self.insert_raw(COLUMN_INDEX, block_number.as_slice(), block_hash.as_slice())?;
         for uncle in block.uncles().into_iter() {
             self.insert_raw(
@@ -352,22 +356,49 @@ impl StoreTransaction {
             ),
         >,
     ) -> Result<(), Error> {
-        for (out_point, cell, cell_data) in cells {
-            let key = out_point.to_cell_key();
-            self.insert_raw(COLUMN_CELL, &key, cell.as_slice())?;
-            if let Some(data) = cell_data {
-                self.insert_raw(COLUMN_CELL_DATA, &key, data.as_slice())?;
+        let mut cells = cells.fuse();
+        loop {
+            let mut batch = Vec::new();
+            let mut bytes = 0usize;
+            for (point, cell, data) in cells.by_ref().take(CELL_WRITE_BATCH_SIZE) {
+                bytes = bytes
+                    .saturating_add(cell.as_slice().len())
+                    .saturating_add(data.as_ref().map_or(0, |data| data.as_slice().len()));
+                batch.push((point.to_cell_key(), cell, data));
+                // A single large cell can cross the threshold. Encoded values
+                // from the rest stay below it, even when restoring old inputs.
+                if bytes >= CELL_WRITE_BATCH_BYTES {
+                    break;
+                }
+            }
+            if batch.is_empty() {
+                return Ok(());
+            }
+            // Stable order keeps the last value of repeated keys. Grouping
+            // columns lets RocksDB reuse its sequential insertion position.
+            batch.sort_by(|left, right| left.0.cmp(&right.0));
+            for (key, cell, _) in &batch {
+                self.insert_raw(COLUMN_CELL, key, cell.as_slice())?;
+            }
+            for (key, _, data) in &batch {
                 self.insert_raw(
-                    COLUMN_CELL_DATA_HASH,
-                    &key,
-                    data.output_data_hash().as_slice(),
+                    COLUMN_CELL_DATA,
+                    key,
+                    data.as_ref().map_or(&[], Entity::as_slice),
                 )?;
-            } else {
-                self.insert_raw(COLUMN_CELL_DATA, &key, &[])?;
-                self.insert_raw(COLUMN_CELL_DATA_HASH, &key, &[])?;
+            }
+            for (key, _, data) in &batch {
+                if let Some(data) = data {
+                    self.insert_raw(
+                        COLUMN_CELL_DATA_HASH,
+                        key,
+                        data.output_data_hash().as_slice(),
+                    )?;
+                } else {
+                    self.insert_raw(COLUMN_CELL_DATA_HASH, key, &[])?;
+                }
             }
         }
-        Ok(())
     }
 
     /// Deletes multiple cells from the store.
@@ -375,13 +406,23 @@ impl StoreTransaction {
         &self,
         out_points: impl Iterator<Item = packed::OutPoint>,
     ) -> Result<(), Error> {
-        for out_point in out_points {
-            let key = out_point.to_cell_key();
-            self.delete(COLUMN_CELL, &key)?;
-            self.delete(COLUMN_CELL_DATA, &key)?;
-            self.delete(COLUMN_CELL_DATA_HASH, &key)?;
+        let mut out_points = out_points.fuse();
+        loop {
+            let mut keys: Vec<_> = out_points
+                .by_ref()
+                .take(CELL_WRITE_BATCH_SIZE)
+                .map(|point| point.to_cell_key())
+                .collect();
+            if keys.is_empty() {
+                return Ok(());
+            }
+            keys.sort_unstable();
+            for column in [COLUMN_CELL, COLUMN_CELL_DATA, COLUMN_CELL_DATA_HASH] {
+                for key in &keys {
+                    self.delete(column, key)?;
+                }
+            }
         }
-        Ok(())
     }
 
     /// Inserts a header digest.

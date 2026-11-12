@@ -282,43 +282,71 @@ proptest! {
 }
 
 #[test]
-fn test_load_extension_missing_transaction_info() {
-    for source in [
-        Source::Transaction(SourceEntry::Input),
-        Source::Transaction(SourceEntry::CellDep),
-        Source::Group(SourceEntry::Input),
+fn test_load_extension_cell_origin_visibility() {
+    let header = HeaderBuilder::default().build();
+    let other = HeaderBuilder::default().nonce(1u128).build();
+    let data_loader = MockDataLoader {
+        extensions: [header.hash(), other.hash()]
+            .into_iter()
+            .map(|hash| (hash, Bytes::from_static(b"extension").into()))
+            .collect(),
+        ..Default::default()
+    };
+    for (case, origin, has_header_dep, expected) in [
+        ("unconfirmed", None, true, ITEM_MISSING),
+        (
+            "outside header deps",
+            Some(other.hash()),
+            true,
+            ITEM_MISSING,
+        ),
+        ("no header deps", Some(header.hash()), false, ITEM_MISSING),
+        ("visible", Some(header.hash()), true, SUCCESS),
     ] {
-        let mut machine = SCRIPT_VERSION.init_core_machine_without_limit();
-        let size_addr: u64 = 0;
-        let addr: u64 = 100;
-
-        machine.set_register(A0, addr);
-        machine.set_register(A1, size_addr);
-        machine.set_register(A2, 0);
-        machine.set_register(A3, 0);
-        machine.set_register(A4, u64::from(source));
-        machine.set_register(A7, LOAD_BLOCK_EXTENSION);
-
-        let header = HeaderBuilder::default().build();
-        let cell = build_cell_meta(100, Bytes::new());
-        let mut extensions = HashMap::default();
-        extensions.insert(header.hash(), Bytes::from_static(b"extension").into());
-        let data_loader = MockDataLoader {
-            extensions,
-            ..Default::default()
-        };
+        let mut cell = build_cell_meta(100, Bytes::new());
+        cell.transaction_info = origin.map(|block_hash| TransactionInfo {
+            block_number: header.number(),
+            block_hash,
+            block_epoch: header.epoch(),
+            index: 1,
+        });
         let rtx = Arc::new(ResolvedTransaction {
             transaction: TransactionBuilder::default()
-                .header_dep(header.hash())
+                .set_header_deps(if has_header_dep {
+                    vec![header.hash()]
+                } else {
+                    vec![]
+                })
                 .build(),
             resolved_cell_deps: vec![cell.clone()],
             resolved_inputs: vec![cell],
             resolved_dep_groups: vec![],
         });
-        let sg_data = build_sg_data_with_loader(rtx, data_loader, vec![0], vec![]);
-        let mut load_block_extension = LoadBlockExtension::new(&sg_data);
+        let sg_data = build_sg_data_with_loader(rtx, data_loader.clone(), vec![0], vec![]);
+        for source in [
+            Source::Transaction(SourceEntry::Input),
+            Source::Transaction(SourceEntry::CellDep),
+            Source::Group(SourceEntry::Input),
+        ] {
+            let mut machine = SCRIPT_VERSION.init_core_machine_without_limit();
+            machine.set_register(A0, 100);
+            machine.set_register(A1, 0);
+            machine.set_register(A2, 0);
+            machine.set_register(A3, 0);
+            machine.set_register(A4, u64::from(source));
+            machine.set_register(A7, LOAD_BLOCK_EXTENSION);
+            machine.memory_mut().store64(&0, &0).unwrap();
 
-        assert!(load_block_extension.ecall(&mut machine).is_ok());
-        assert_eq!(machine.registers()[A0], u64::from(ITEM_MISSING));
+            assert!(
+                LoadBlockExtension::new(&sg_data)
+                    .ecall(&mut machine)
+                    .unwrap()
+            );
+            assert_eq!(
+                machine.registers()[A0],
+                u64::from(expected),
+                "{case}, {source:?}"
+            );
+        }
     }
 }

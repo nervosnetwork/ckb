@@ -179,12 +179,19 @@ impl_cmp_partial_ord!(CellDep);
 impl ::core::cmp::Ord for packed::OutPoint {
     #[inline]
     fn cmp(&self, other: &Self) -> ::core::cmp::Ordering {
-        let tx_hash_order = self.tx_hash().cmp(&other.tx_hash());
+        let self_reader = self.as_reader();
+        let other_reader = other.as_reader();
+        let tx_hash_order = self_reader
+            .tx_hash()
+            .as_slice()
+            .cmp(other_reader.tx_hash().as_slice());
         if tx_hash_order != ::core::cmp::Ordering::Equal {
             return tx_hash_order;
         }
 
-        self.index().cmp(&other.index())
+        let self_index: u32 = self_reader.index().into();
+        let other_index: u32 = other_reader.index().into();
+        self_index.cmp(&other_index)
     }
 }
 impl_cmp_partial_ord!(OutPoint);
