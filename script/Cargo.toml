@@ -41,7 +41,6 @@ ckb-store.workspace = true
 ckb-test-chain-utils.workspace = true
 tiny-keccak = { workspace = true, features = ["sha3"] }
 ckb-crypto.workspace = true
-ckb-db-schema.workspace = true
 tempfile.workspace = true
 rand.workspace = true
 daggy.workspace = true

@@ -135,6 +135,7 @@ H256::from_str(&target[2..]).expect("default assume_valid_target for testnet mus
         let check = matches.get_flag(cli::ARG_MIGRATE_CHECK);
         let force = matches.get_flag(cli::ARG_FORCE);
         let include_background = matches.get_flag(cli::ARG_INCLUDE_BACKGROUND);
+        let sst_rebuild = matches.get_flag(cli::ARG_SST_REBUILD);
 
         Ok(MigrateArgs {
             config,
@@ -142,6 +143,7 @@ H256::from_str(&target[2..]).expect("default assume_valid_target for testnet mus
             check,
             force,
             include_background,
+            sst_rebuild,
         })
     }
 
