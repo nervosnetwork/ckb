@@ -5,7 +5,7 @@ use std::sync::Arc;
 use ckb_logger::{debug, error, trace, warn};
 use ckb_systemtime::{Duration, Instant};
 use p2p::{
-    SessionId, async_trait,
+    ProtocolId, SessionId, async_trait,
     bytes::Bytes,
     context::{ProtocolContext, ProtocolContextMutRef, SessionContext},
     multiaddr::{Multiaddr, Protocol},
@@ -28,6 +28,25 @@ const CHECK_TIMEOUT_TOKEN: u64 = 100;
 const CHECK_TIMEOUT_INTERVAL: u64 = 1;
 const DEFAULT_TIMEOUT: u64 = 8;
 const MAX_ADDRS: usize = 10;
+
+/// Protocols opened towards a block-relay-only session.
+///
+/// Such a connection exists purely to propagate blocks, so the protocols that only
+/// exist to serve the remote peer (address discovery, light client, block filter, ...)
+/// are left closed.
+///
+/// This is defense in depth, not a security boundary: tentacle lets the remote open
+/// any registered protocol on its own, so the actual enforcement has to live in the
+/// protocol handlers themselves.
+fn block_relay_only_protocols() -> [ProtocolId; 5] {
+    [
+        SupportProtocols::Ping.protocol_id(),
+        SupportProtocols::Identify.protocol_id(),
+        SupportProtocols::DisconnectMessage.protocol_id(),
+        SupportProtocols::Sync.protocol_id(),
+        SupportProtocols::RelayV3.protocol_id(),
+    ]
+}
 
 pub(super) fn is_remote_listen_addr_allowed(addr: &Multiaddr, global_ip_only: bool) -> bool {
     if let Some(socket_addr) = multiaddr_to_socketaddr(addr) {
@@ -357,6 +376,38 @@ impl IdentifyCallback {
             .take(MAX_RETURN_LISTEN_ADDRS)
             .collect::<Vec<_>>()
     }
+
+    fn store_remote_listen_addrs(&self, session_id: SessionId, addrs: Vec<Multiaddr>) {
+        // Identify stays open on block-relay-only sessions so the handshake can still
+        // happen, but the addresses such a peer advertises must not reach the peer
+        // store: accepting them would hand an anchor influence over our address
+        // selection, which is precisely the address relay these connections avoid.
+        let flags = self.network_state.with_peer_registry_mut(|reg| {
+            if reg.is_anchor(session_id) {
+                return None;
+            }
+            Some(match reg.get_peer_mut(session_id) {
+                Some(peer) => {
+                    peer.listened_addrs = addrs.clone();
+                    peer.identify_info
+                        .as_ref()
+                        .map(|a| a.flags)
+                        .unwrap_or(Flags::COMPATIBILITY)
+                }
+                None => Flags::COMPATIBILITY,
+            })
+        });
+        let Some(flags) = flags else {
+            return;
+        };
+        self.network_state.with_peer_store_mut(|peer_store| {
+            for addr in addrs {
+                if let Err(err) = peer_store.add_addr(addr.clone(), flags) {
+                    error!("IdentifyProtocol failed to add address to peer store, address: {}, error: {:?}", addr, err);
+                }
+            }
+        })
+    }
 }
 
 #[async_trait]
@@ -418,12 +469,24 @@ impl Callback for IdentifyCallback {
 
                 let required_flags = self.network_state.required_flags;
 
+                // NOTE: `session.ty` is tentacle's transport-level direction. A CKB
+                // block-relay-only session is dialed by us, so it is transport-outbound
+                // and lands here as well.
                 if context.session.ty.is_outbound() {
+                    let is_anchor = self
+                        .network_state
+                        .with_peer_registry(|reg| reg.is_anchor(context.session.id));
+
                     // why don't set inbound here?
                     // because inbound address can't feeler during staying connected
                     // and if set it to peer store, it will be broadcast to the entire network,
                     // but this is an unverified address
-
+                    //
+                    // This stays enabled for block-relay-only sessions on purpose: the
+                    // address is one we dialed ourselves out of the peer store, so it is
+                    // not something the remote peer gets to choose. Filtering what the
+                    // peer *claims* is handled in `store_remote_listen_addrs` and
+                    // `add_observed_addr`.
                     self.network_state.with_peer_store_mut(|peer_store| {
                         peer_store.add_outbound_addr(context.session.address.clone(), flags);
                     });
@@ -443,7 +506,11 @@ impl Callback for IdentifyCallback {
                             .open_protocols(
                                 context.session.id,
                                 TargetProtocol::Filter(Box::new(move |id| {
-                                    id != &SupportProtocols::Feeler.protocol_id()
+                                    if is_anchor {
+                                        block_relay_only_protocols().contains(id)
+                                    } else {
+                                        id != &SupportProtocols::Feeler.protocol_id()
+                                    }
                                 })),
                             )
                             .await;
@@ -477,30 +544,21 @@ impl Callback for IdentifyCallback {
 
     fn add_remote_listen_addrs(&mut self, session: &SessionContext, addrs: Vec<Multiaddr>) {
         trace!(
-            "IdentifyProtocol add remote listening addresses, session: {:?}, addresses : {:?}",
+            "IdentifyProtocol received remote listening addresses, session: {:?}, addresses : {:?}",
             session, addrs,
         );
-        let flags = self.network_state.with_peer_registry_mut(|reg| {
-            if let Some(peer) = reg.get_peer_mut(session.id) {
-                peer.listened_addrs = addrs.clone();
-                peer.identify_info
-                    .as_ref()
-                    .map(|a| a.flags)
-                    .unwrap_or(Flags::COMPATIBILITY)
-            } else {
-                Flags::COMPATIBILITY
-            }
-        });
-        self.network_state.with_peer_store_mut(|peer_store| {
-            for addr in addrs {
-                if let Err(err) = peer_store.add_addr(addr.clone(), flags) {
-                    error!("IdentifyProtocol failed to add address to peer store, address: {}, error: {:?}", addr, err);
-                }
-            }
-        })
+        self.store_remote_listen_addrs(session.id, addrs);
     }
 
     fn add_observed_addr(&mut self, mut addr: Multiaddr, session_id: SessionId) -> MisbehaveResult {
+        // Same reasoning as `store_remote_listen_addrs`: an anchor must not get to
+        // influence which address we believe is ours.
+        if self
+            .network_state
+            .with_peer_registry(|reg| reg.is_anchor(session_id))
+        {
+            return MisbehaveResult::Continue;
+        }
         if extract_peer_id(&addr).is_none() {
             addr.push(Protocol::P2P(Cow::Borrowed(
                 self.network_state.local_peer_id().as_bytes(),
@@ -590,6 +648,114 @@ bitflags::bitflags! {
 mod tests {
     use super::is_remote_listen_addr_allowed;
     use p2p::multiaddr::Multiaddr;
+
+    #[test]
+    fn block_relay_only_protocols_cover_block_propagation_only() {
+        use super::block_relay_only_protocols;
+        use crate::SupportProtocols;
+
+        let opened = block_relay_only_protocols();
+        for proto in [
+            SupportProtocols::Ping,
+            SupportProtocols::Identify,
+            SupportProtocols::DisconnectMessage,
+            SupportProtocols::Sync,
+            SupportProtocols::RelayV3,
+        ] {
+            assert!(
+                opened.contains(&proto.protocol_id()),
+                "{proto:?} is required to propagate blocks"
+            );
+        }
+        // Address relay and the light-client / block-filter server protocols exist only
+        // to serve the remote peer, they have no place on a block-relay-only session.
+        for proto in [
+            SupportProtocols::Discovery,
+            SupportProtocols::Feeler,
+            SupportProtocols::LightClient,
+            SupportProtocols::Filter,
+        ] {
+            assert!(
+                !opened.contains(&proto.protocol_id()),
+                "{proto:?} must not be opened towards an anchor"
+            );
+        }
+    }
+
+    #[cfg(not(target_family = "wasm"))]
+    #[test]
+    fn block_only_identify_does_not_store_addresses() {
+        use super::{Callback, Flags, IdentifyCallback};
+        use crate::{NetworkState, PeerId, RawSessionType, network};
+        use std::sync::Arc;
+
+        let dir = tempfile::tempdir().unwrap();
+        let state = Arc::new(
+            NetworkState::from_config(ckb_app_config::NetworkConfig {
+                path: dir.path().to_owned(),
+                max_peers: 10,
+                max_outbound_peers: 0,
+                ..Default::default()
+            })
+            .unwrap(),
+        );
+        let mut callback = IdentifyCallback::new(
+            Arc::<network::NetworkState>::clone(&state),
+            "test".into(),
+            "test".into(),
+            Flags::COMPATIBILITY,
+        );
+        for (id, ty) in [(1, RawSessionType::Outbound), (2, RawSessionType::Inbound)] {
+            let addr: Multiaddr = format!("/ip4/192.0.2.1/tcp/8115/p2p/{}", PeerId::random())
+                .parse()
+                .unwrap();
+            let mut store = state.peer_store.lock();
+            state
+                .peer_registry
+                .write()
+                .accept_peer(addr, id.into(), ty, &mut store)
+                .unwrap();
+        }
+        assert!(state.with_peer_registry(|reg| reg.is_anchor(1.into())));
+        let advertised: Multiaddr = format!("/ip4/192.0.2.2/tcp/8115/p2p/{}", PeerId::random())
+            .parse()
+            .unwrap();
+        let observed: Multiaddr = "/ip4/192.0.2.3/tcp/8115".parse().unwrap();
+        callback.store_remote_listen_addrs(1.into(), vec![advertised.clone()]);
+        callback.add_observed_addr(observed.clone(), 1.into());
+        assert!(
+            state
+                .peer_store
+                .lock()
+                .addr_manager()
+                .get(&advertised)
+                .is_none()
+        );
+        assert!(
+            state.with_peer_registry(|reg| reg
+                .get_peer(1.into())
+                .unwrap()
+                .listened_addrs
+                .is_empty())
+        );
+        assert!(state.observed_addrs(10).is_empty());
+
+        callback.store_remote_listen_addrs(2.into(), vec![advertised.clone()]);
+        callback.add_observed_addr(observed, 2.into());
+        assert!(
+            state
+                .peer_store
+                .lock()
+                .addr_manager()
+                .get(&advertised)
+                .is_some()
+        );
+        assert_eq!(
+            state.with_peer_registry(|reg| reg.get_peer(2.into()).unwrap().listened_addrs.clone()),
+            vec![advertised]
+        );
+        assert_eq!(state.observed_addrs(10).len(), 1);
+    }
 
     #[test]
     fn test_identify_rejects_dns_loopback_listen_addr() {

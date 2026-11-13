@@ -31,7 +31,7 @@ use ckb_types::{
     utilities::difficulty_to_compact,
 };
 use ckb_verification_traits::Switch;
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::{cell::RefCell, future::Future, pin::Pin, sync::Arc, time::Duration};
 
 pub(crate) fn new_index_transaction(index: usize) -> IndexTransaction {
@@ -300,6 +300,7 @@ pub(crate) fn gen_block(
 pub(crate) struct MockProtocolContext {
     protocol: SupportProtocols,
     sent_messages: RefCell<Vec<(ProtocolId, PeerIndex, P2pBytes)>>,
+    peers: HashMap<PeerIndex, Peer>,
 }
 
 // test mock context with single thread
@@ -312,7 +313,13 @@ impl MockProtocolContext {
         Self {
             protocol,
             sent_messages: Default::default(),
+            peers: Default::default(),
         }
+    }
+
+    pub(crate) fn with_peer(mut self, peer: Peer) -> Self {
+        self.peers.insert(peer.session_id, peer);
+        self
     }
 
     pub(crate) fn has_sent(
@@ -480,8 +487,8 @@ impl CKBProtocolContext for MockProtocolContext {
     fn disconnect(&self, _peer_index: PeerIndex, _message: &str) -> Result<(), Error> {
         unimplemented!();
     }
-    fn get_peer(&self, _peer_index: PeerIndex) -> Option<Peer> {
-        unimplemented!();
+    fn get_peer(&self, peer_index: PeerIndex) -> Option<Peer> {
+        self.peers.get(&peer_index).cloned()
     }
     fn with_peer_mut(&self, _peer_index: PeerIndex, _f: Box<dyn FnOnce(&mut Peer)>) {
         unimplemented!();
