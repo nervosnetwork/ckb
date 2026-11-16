@@ -36,14 +36,36 @@ pub struct IndexerConfig {
     #[serde(default)]
     pub init_tip_hash: Option<H256>,
     /// limit of indexer request
-    #[serde(default)]
+    #[serde(default = "default_request_limit")]
     pub request_limit: Option<usize>,
     /// limit of indexer request timeout
-    #[serde(default)]
+    #[serde(default = "default_timeout_limit")]
     pub timeout_limit: Option<u64>,
     /// Rich indexer config options
     #[serde(default)]
     pub rich_indexer: RichIndexerConfig,
+}
+
+/// The default cap on how many items one indexer request may return.
+///
+/// This is the value `ckb.toml` has been recommending for years: serializing the response to
+/// JSON costs roughly ten times the size of the raw cell data, so a small page keeps a single
+/// request far away from exhausting memory. Operators that really need bigger pages can raise
+/// it explicitly; the previous default of "no limit" made every enabled indexer endpoint
+/// unbounded by accident rather than by choice.
+pub const DEFAULT_REQUEST_LIMIT: usize = 400;
+
+/// The default time budget of one indexer request, in seconds.
+pub const DEFAULT_TIMEOUT_LIMIT: u64 = 10;
+
+/// Default for [`IndexerConfig::request_limit`].
+fn default_request_limit() -> Option<usize> {
+    Some(DEFAULT_REQUEST_LIMIT)
+}
+
+/// Default for [`IndexerConfig::timeout_limit`].
+fn default_timeout_limit() -> Option<u64> {
+    Some(DEFAULT_TIMEOUT_LIMIT)
 }
 
 const fn default_poll_interval() -> u64 {
@@ -62,8 +84,8 @@ impl Default for IndexerConfig {
             db_background_jobs: None,
             db_keep_log_file_num: None,
             init_tip_hash: None,
-            request_limit: None,
-            timeout_limit: None,
+            request_limit: default_request_limit(),
+            timeout_limit: default_timeout_limit(),
             rich_indexer: RichIndexerConfig::default(),
         }
     }
@@ -126,5 +148,49 @@ impl From<&IndexerConfig> for IndexerSyncConfig {
             poll_interval: config.poll_interval,
             index_tx_pool: config.index_tx_pool,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // `sec-desk` report 638: an enabled indexer used to be unbounded unless the operator
+    // explicitly set `request_limit`. The default must cap a request even when the whole
+    // `[indexer_v2]` section is missing from `ckb.toml`.
+    #[test]
+    fn default_indexer_config_caps_requests() {
+        let config = IndexerConfig::default();
+        assert_eq!(config.request_limit, Some(DEFAULT_REQUEST_LIMIT));
+        assert_eq!(config.timeout_limit, Some(DEFAULT_TIMEOUT_LIMIT));
+    }
+
+    // A section that exists but omits the two keys must get the same caps: serde's field
+    // defaults are what actually apply when `[indexer_v2]` is present without them.
+    #[test]
+    fn indexer_section_without_limits_uses_defaults() {
+        let config: IndexerConfig = toml::from_str(
+            r#"
+            index_tx_pool = false
+            "#,
+        )
+        .expect("parse indexer config");
+
+        assert_eq!(config.request_limit, Some(DEFAULT_REQUEST_LIMIT));
+        assert_eq!(config.timeout_limit, Some(DEFAULT_TIMEOUT_LIMIT));
+    }
+
+    #[test]
+    fn explicit_limits_are_honoured() {
+        let config: IndexerConfig = toml::from_str(
+            r#"
+            request_limit = 5000
+            timeout_limit = 30
+            "#,
+        )
+        .expect("parse indexer config");
+
+        assert_eq!(config.request_limit, Some(5000));
+        assert_eq!(config.timeout_limit, Some(30));
     }
 }

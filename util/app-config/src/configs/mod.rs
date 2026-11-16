@@ -12,7 +12,10 @@ mod tx_pool;
 
 pub use db::Config as DBConfig;
 pub use fee_estimator::{Algorithm as FeeEstimatorAlgo, Config as FeeEstimatorConfig};
-pub use indexer::{IndexerConfig, IndexerSyncConfig};
+pub use indexer::{
+    DEFAULT_REQUEST_LIMIT as DEFAULT_INDEXER_REQUEST_LIMIT,
+    DEFAULT_TIMEOUT_LIMIT as DEFAULT_INDEXER_TIMEOUT_LIMIT, IndexerConfig, IndexerSyncConfig,
+};
 pub use memory_tracker::Config as MemoryTrackerConfig;
 pub use miner::{
     ClientConfig as MinerClientConfig, Config as MinerConfig, DummyConfig, EaglesongSimpleConfig,

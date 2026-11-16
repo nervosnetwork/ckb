@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- Cap indexer requests by default: `indexer_v2.request_limit` now defaults to 400 items and
+  `indexer_v2.timeout_limit` to 10 seconds, instead of leaving an enabled indexer endpoint
+  unbounded unless the operator set them explicitly.
+
 ## [0.210.0](https://github.com/nervosnetwork/ckb/compare/v0.207.0...v0.210.0) - 2026-07-14
 
 ### Changed
