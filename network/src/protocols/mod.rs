@@ -18,8 +18,10 @@ use p2p::{
     builder::MetaBuilder,
     bytes::Bytes,
     context::{ProtocolContext, ProtocolContextMutRef},
+    multiaddr::{Multiaddr, Protocol},
     service::{ProtocolHandle, ProtocolMeta, ServiceAsyncControl, ServiceControl, TargetSession},
     traits::ServiceProtocol,
+    utils::{is_reachable, multiaddr_to_socketaddr},
 };
 use std::{
     pin::Pin,
@@ -42,6 +44,30 @@ use crate::{
 
 #[cfg(not(target_family = "wasm"))]
 use crate::SupportProtocols;
+
+/// Whether an address is acceptable to advertise to, or accept from, a remote peer.
+///
+/// Socket addresses are subject to the global-IP policy. DNS names are always
+/// rejected: they are resolved by the dialer after this check and could point
+/// at private or loopback addresses. This includes mixed addresses that also
+/// contain a literal socket pair, which the dialer would ignore in favour of
+/// the DNS name. Other non-socket addresses are accepted only when they
+/// contain an onion3 component, which is dialed through the Tor proxy.
+pub(crate) fn is_remote_listen_addr_allowed(addr: &Multiaddr, global_ip_only: bool) -> bool {
+    if addr
+        .iter()
+        .any(|protocol| matches!(protocol, Protocol::Dns4(_) | Protocol::Dns6(_)))
+    {
+        return false;
+    }
+
+    if let Some(socket_addr) = multiaddr_to_socketaddr(addr) {
+        !global_ip_only || is_reachable(socket_addr.ip())
+    } else {
+        addr.iter()
+            .any(|protocol| matches!(protocol, Protocol::Onion3(_)))
+    }
+}
 
 /// Abstract protocol context
 #[async_trait]

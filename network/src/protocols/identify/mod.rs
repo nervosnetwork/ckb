@@ -11,10 +11,12 @@ use p2p::{
     multiaddr::{Multiaddr, Protocol},
     service::TargetProtocol,
     traits::ServiceProtocol,
-    utils::{extract_peer_id, is_reachable, multiaddr_to_socketaddr},
+    utils::extract_peer_id,
 };
 
 mod protocol;
+
+use super::is_remote_listen_addr_allowed;
 
 use crate::{NetworkState, PeerIdentifyInfo, SupportProtocols, peer_store::required_flags_filter};
 use ckb_types::{packed, prelude::*};
@@ -28,15 +30,6 @@ const CHECK_TIMEOUT_TOKEN: u64 = 100;
 const CHECK_TIMEOUT_INTERVAL: u64 = 1;
 const DEFAULT_TIMEOUT: u64 = 8;
 const MAX_ADDRS: usize = 10;
-
-pub(super) fn is_remote_listen_addr_allowed(addr: &Multiaddr, global_ip_only: bool) -> bool {
-    if let Some(socket_addr) = multiaddr_to_socketaddr(addr) {
-        !global_ip_only || is_reachable(socket_addr.ip())
-    } else {
-        addr.iter()
-            .any(|protocol| matches!(protocol, Protocol::Onion3(_)))
-    }
-}
 
 /// The misbehavior to report to underlying peer storage
 #[allow(dead_code)]
@@ -220,15 +213,7 @@ impl<T: Callback> ServiceProtocol for IdentifyProtocol<T> {
             self.callback
                 .local_listen_addrs()
                 .iter()
-                .filter(|addr| {
-                    if let Some(socket_addr) = multiaddr_to_socketaddr(addr) {
-                        !self.global_ip_only || is_reachable(socket_addr.ip())
-                    } else {
-                        // allow /onion3 address
-                        addr.iter()
-                            .any(|protocol| matches!(protocol, Protocol::Onion3(_)))
-                    }
-                })
+                .filter(|addr| is_remote_listen_addr_allowed(addr, self.global_ip_only))
                 .take(MAX_ADDRS)
                 .cloned()
                 .collect()
@@ -588,7 +573,7 @@ bitflags::bitflags! {
 
 #[cfg(test)]
 mod tests {
-    use super::is_remote_listen_addr_allowed;
+    use crate::protocols::is_remote_listen_addr_allowed;
     use p2p::multiaddr::Multiaddr;
 
     #[test]
@@ -600,6 +585,16 @@ mod tests {
         )
         .parse()
         .unwrap();
+
+        assert!(!is_remote_listen_addr_allowed(&addr, true));
+        assert!(!is_remote_listen_addr_allowed(&addr, false));
+    }
+
+    #[test]
+    fn test_identify_rejects_mixed_literal_ip_and_dns_listen_addr() {
+        let addr: Multiaddr = "/ip4/8.8.8.8/tcp/80/dns4/internal.corp/tcp/81"
+            .parse()
+            .unwrap();
 
         assert!(!is_remote_listen_addr_allowed(&addr, true));
         assert!(!is_remote_listen_addr_allowed(&addr, false));

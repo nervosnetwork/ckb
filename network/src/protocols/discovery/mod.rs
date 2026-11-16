@@ -7,9 +7,10 @@ use p2p::{
     context::{ProtocolContext, ProtocolContextMutRef, SessionContext},
     multiaddr::Multiaddr,
     traits::ServiceProtocol,
-    utils::{is_reachable, multiaddr_to_socketaddr},
 };
 use rand::seq::SliceRandom;
+
+use super::is_remote_listen_addr_allowed;
 
 pub use self::{
     addr::{AddressManager, MisbehaveResult, Misbehavior},
@@ -315,6 +316,10 @@ fn verify_nodes_message(nodes: &Nodes) -> Option<Misbehavior> {
     misbehavior
 }
 
+fn is_valid_discovered_addr(addr: &Multiaddr, discovery_local_address: bool) -> bool {
+    is_remote_listen_addr_allowed(addr, !discovery_local_address)
+}
+
 pub struct DiscoveryAddressManager {
     pub network_state: Arc<NetworkState>,
     pub discovery_local_address: bool,
@@ -346,14 +351,7 @@ impl AddressManager for DiscoveryAddressManager {
     }
 
     fn is_valid_addr(&self, addr: &Multiaddr) -> bool {
-        if !self.discovery_local_address {
-            match multiaddr_to_socketaddr(addr) {
-                Some(socket_addr) => is_reachable(socket_addr.ip()),
-                None => true,
-            }
-        } else {
-            true
-        }
+        is_valid_discovered_addr(addr, self.discovery_local_address)
     }
 
     fn add_new_addr(&mut self, session_id: SessionId, addr: (Multiaddr, Flags)) {
@@ -531,5 +529,61 @@ mod tests {
         assert_eq!(ANNOUNCE_THRESHOLD * 2, total_addresses);
 
         assert!(verify_nodes_message(&nodes).is_some());
+    }
+
+    #[test]
+    fn rejects_dns_multiaddrs() {
+        for addr in [
+            format!(
+                "/dns4/localhost/tcp/{}/p2p/{}",
+                rand::random::<u16>(),
+                PeerId::random().to_base58()
+            ),
+            format!(
+                "/dns6/localhost/tcp/{}/p2p/{}",
+                rand::random::<u16>(),
+                PeerId::random().to_base58()
+            ),
+        ] {
+            let addr: Multiaddr = addr.parse().unwrap();
+            // DNS names can resolve to private or loopback addresses after
+            // the check, so they are rejected regardless of the setting.
+            assert!(!is_valid_discovered_addr(&addr, false));
+            assert!(!is_valid_discovered_addr(&addr, true));
+        }
+    }
+
+    #[test]
+    fn rejects_mixed_literal_ip_and_dns_multiaddrs() {
+        // `multiaddr_to_socketaddr` returns the first literal Ip4+Tcp pair,
+        // while the dialer resolves the first Dns4+Tcp pair. An address with
+        // both must be rejected as a whole, not accepted on the literal pair.
+        let addr: Multiaddr = "/ip4/8.8.8.8/tcp/80/dns4/internal.corp/tcp/81"
+            .parse()
+            .unwrap();
+
+        assert!(!is_valid_discovered_addr(&addr, false));
+        assert!(!is_valid_discovered_addr(&addr, true));
+    }
+
+    #[test]
+    fn allows_onion3_multiaddrs() {
+        let addr: Multiaddr =
+            "/onion3/vww6ybal4bd7szmgncyruucpgfkqahzddi37ktceo3ah7ngmcopnpyyd:1234"
+                .parse()
+                .unwrap();
+
+        assert!(is_valid_discovered_addr(&addr, false));
+        assert!(is_valid_discovered_addr(&addr, true));
+    }
+
+    #[test]
+    fn applies_reachability_policy_to_socket_addrs() {
+        let global: Multiaddr = "/ip4/8.8.8.8/tcp/1234".parse().unwrap();
+        let loopback: Multiaddr = "/ip4/127.0.0.1/tcp/1234".parse().unwrap();
+
+        assert!(is_valid_discovered_addr(&global, false));
+        assert!(!is_valid_discovered_addr(&loopback, false));
+        assert!(is_valid_discovered_addr(&loopback, true));
     }
 }

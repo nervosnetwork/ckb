@@ -2,7 +2,8 @@ use super::{
     disconnect_message::DisconnectMessageProtocol,
     discovery::{DiscoveryAddressManager, DiscoveryProtocol},
     feeler::Feeler,
-    identify::{Flags, IdentifyCallback, IdentifyProtocol, is_remote_listen_addr_allowed},
+    identify::{Flags, IdentifyCallback, IdentifyProtocol},
+    is_remote_listen_addr_allowed,
     ping::PingHandler,
 };
 
