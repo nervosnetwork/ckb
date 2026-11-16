@@ -82,6 +82,14 @@ ignore = [
   # and recovery through catch_unwind. All CKB LRU keys are plain value types
   # without custom Drop implementations, so the vulnerable path is unreachable.
   { id = "RUSTSEC-2026-0253", reason = "CKB only uses LRU keys with non-panicking Drop implementations" },
+  # RUSTSEC-2026-0459: bundled SQLite < 3.54.0 may expose uninitialized page-cache
+  # memory when a database is opened together with a crafted sibling `-wal` file.
+  # CKB only opens the local rich-indexer database it creates itself and never
+  # opens database files supplied by untrusted peers, so the attack path is not
+  # reachable. sqlx 0.9.0 caps libsqlite3-sys at < 0.38.0; the fix is merged
+  # upstream (transact-rs/sqlx#4502) and will be released in sqlx 0.9.1
+  # (transact-rs/sqlx#4517). Remove this ignore once sqlx >= 0.9.1 is adopted.
+  { id = "RUSTSEC-2026-0459", reason = "CKB only opens its own local rich-indexer SQLite database, never an untrusted database/WAL pair" },
   #"RUSTSEC-0000-0000",
   #{ id = "RUSTSEC-0000-0000", reason = "you can specify a reason the advisory is ignored" },
   #"a-crate-that-is-yanked@0.1.1", # you can also ignore yanked crate versions if you wish
