@@ -26,6 +26,7 @@ sql-builder.workspace = true
 sqlx = { workspace = true, features = ["runtime-tokio-rustls", "any", "sqlite", "postgres"] }
 include_dir.workspace = true
 tempfile.workspace = true
+tokio = { workspace = true, features = ["time"] }
 
 [dev-dependencies]
 hex.workspace = true

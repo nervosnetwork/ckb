@@ -22,6 +22,17 @@ impl AsyncRichIndexerHandle {
         limit: Uint32,
         after: Option<JsonBytes>,
     ) -> Result<IndexerPagination<IndexerCell>, Error> {
+        self.with_deadline(self.get_cells_inner(search_key, order, limit, after))
+            .await
+    }
+
+    async fn get_cells_inner(
+        &self,
+        search_key: IndexerSearchKey,
+        order: IndexerOrder,
+        limit: Uint32,
+        after: Option<JsonBytes>,
+    ) -> Result<IndexerPagination<IndexerCell>, Error> {
         let limit = limit.value();
         if limit == 0 {
             return Err(Error::invalid_params("limit should be greater than 0"));

@@ -15,6 +15,17 @@ impl AsyncRichIndexerHandle {
     /// Get transactions
     pub async fn get_transactions(
         &self,
+        search_key: IndexerSearchKey,
+        order: IndexerOrder,
+        limit: Uint32,
+        after: Option<JsonBytes>,
+    ) -> Result<IndexerPagination<IndexerTx>, Error> {
+        self.with_deadline(self.get_transactions_inner(search_key, order, limit, after))
+            .await
+    }
+
+    async fn get_transactions_inner(
+        &self,
         mut search_key: IndexerSearchKey,
         order: IndexerOrder,
         limit: Uint32,

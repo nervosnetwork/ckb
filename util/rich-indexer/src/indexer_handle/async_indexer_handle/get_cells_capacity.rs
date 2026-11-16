@@ -14,6 +14,14 @@ impl AsyncRichIndexerHandle {
         &self,
         search_key: IndexerSearchKey,
     ) -> Result<Option<IndexerCellsCapacity>, Error> {
+        self.with_deadline(self.get_cells_capacity_inner(search_key))
+            .await
+    }
+
+    async fn get_cells_capacity_inner(
+        &self,
+        search_key: IndexerSearchKey,
+    ) -> Result<Option<IndexerCellsCapacity>, Error> {
         // sub query for script
         let mut param_index = 1;
         let script_sub_query_sql = build_query_script_id_sql(

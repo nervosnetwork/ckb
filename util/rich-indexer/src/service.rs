@@ -4,10 +4,11 @@ use crate::indexer::RichIndexer;
 use crate::store::SQLXPool;
 use crate::{AsyncRichIndexerHandle, RichIndexerHandle};
 
-use ckb_app_config::IndexerConfig;
+use ckb_app_config::{DEFAULT_INDEXER_TIMEOUT_LIMIT, IndexerConfig};
 use ckb_async_runtime::Handle;
 use ckb_indexer_sync::{CustomFilters, IndexerSyncService, PoolService, SecondaryDB};
 use ckb_notify::NotifyController;
+use std::time::Duration;
 
 pub(crate) const SUBSCRIBER_NAME: &str = "Rich-Indexer";
 
@@ -20,6 +21,7 @@ pub struct RichIndexerService {
     cell_filter: Option<String>,
     async_handle: Handle,
     request_limit: usize,
+    timeout_limit: Duration,
 }
 
 impl RichIndexerService {
@@ -49,6 +51,11 @@ impl RichIndexerService {
             cell_filter: config.cell_filter.clone(),
             async_handle,
             request_limit: config.request_limit.unwrap_or(usize::MAX),
+            timeout_limit: Duration::from_secs(
+                config
+                    .timeout_limit
+                    .unwrap_or(DEFAULT_INDEXER_TIMEOUT_LIMIT),
+            ),
         }
     }
 
@@ -82,11 +89,12 @@ impl RichIndexerService {
     /// The returned handle can be used to get data from rich-indexer,
     /// and can be cloned to allow moving the Handle to other threads.
     pub fn handle(&self) -> RichIndexerHandle {
-        RichIndexerHandle::new(
+        RichIndexerHandle::new_with_timeout(
             self.store.clone(),
             self.sync.pool(),
             self.async_handle.clone(),
             self.request_limit,
+            self.timeout_limit,
         )
     }
 
@@ -95,6 +103,11 @@ impl RichIndexerService {
     /// The returned handle can be used to get data from rich-indexer,
     /// and can be cloned to allow moving the Handle to other threads.
     pub fn async_handle(&self) -> AsyncRichIndexerHandle {
-        AsyncRichIndexerHandle::new(self.store.clone(), self.sync.pool(), self.request_limit)
+        AsyncRichIndexerHandle::new_with_timeout(
+            self.store.clone(),
+            self.sync.pool(),
+            self.request_limit,
+            self.timeout_limit,
+        )
     }
 }

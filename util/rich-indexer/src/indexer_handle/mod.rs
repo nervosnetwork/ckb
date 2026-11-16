@@ -9,6 +9,7 @@ use ckb_indexer_sync::{Error, Pool};
 use ckb_jsonrpc_types::IndexerTip;
 
 use std::sync::{Arc, RwLock};
+use std::time::Duration;
 
 /// Handle to the rich-indexer.
 ///
@@ -30,6 +31,25 @@ impl RichIndexerHandle {
     ) -> Self {
         Self {
             async_handle: AsyncRichIndexerHandle::new(store, pool, request_limit),
+            async_runtime: async_handle,
+        }
+    }
+
+    /// Construct new RichIndexerHandle instance with an explicit request time budget.
+    pub fn new_with_timeout(
+        store: SQLXPool,
+        pool: Option<Arc<RwLock<Pool>>>,
+        async_handle: Handle,
+        request_limit: usize,
+        timeout_limit: Duration,
+    ) -> Self {
+        Self {
+            async_handle: AsyncRichIndexerHandle::new_with_timeout(
+                store,
+                pool,
+                request_limit,
+                timeout_limit,
+            ),
             async_runtime: async_handle,
         }
     }

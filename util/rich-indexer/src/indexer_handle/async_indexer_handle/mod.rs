@@ -17,6 +17,7 @@ use sql_builder::SqlBuilder;
 use sqlx::Row;
 
 use std::sync::{Arc, RwLock};
+use std::time::Duration;
 
 /// Async handle to the rich-indexer.
 #[derive(Clone)]
@@ -24,15 +25,49 @@ pub struct AsyncRichIndexerHandle {
     store: SQLXPool,
     pool: Option<Arc<RwLock<Pool>>>,
     request_limit: usize,
+    timeout_limit: Duration,
 }
 
 impl AsyncRichIndexerHandle {
     /// Construct new AsyncRichIndexerHandle instance
     pub fn new(store: SQLXPool, pool: Option<Arc<RwLock<Pool>>>, request_limit: usize) -> Self {
+        Self::new_with_timeout(
+            store,
+            pool,
+            request_limit,
+            Duration::from_secs(ckb_app_config::DEFAULT_INDEXER_TIMEOUT_LIMIT),
+        )
+    }
+
+    /// Construct new AsyncRichIndexerHandle instance with an explicit request time budget.
+    pub fn new_with_timeout(
+        store: SQLXPool,
+        pool: Option<Arc<RwLock<Pool>>>,
+        request_limit: usize,
+        timeout_limit: Duration,
+    ) -> Self {
         Self {
             store,
             pool,
             request_limit,
+            timeout_limit,
+        }
+    }
+
+    /// Run `future` under the handle's time budget.
+    ///
+    /// The legacy indexer bounds every request with `indexer.timeout_limit` and answers
+    /// `Indexer request timeout` when the budget is gone; the rich indexer used to have no
+    /// bound at all, so a caller-supplied `limit` was the only thing between an enabled
+    /// endpoint and a full-table scan. Failing the request is what keeps the error meaningful:
+    /// a truncated page would look like the end of the result set.
+    async fn with_deadline<T, F>(&self, future: F) -> Result<T, Error>
+    where
+        F: std::future::Future<Output = Result<T, Error>>,
+    {
+        match tokio::time::timeout(self.timeout_limit, future).await {
+            Ok(result) => result,
+            Err(_) => Err(Error::invalid_params("Indexer request timeout")),
         }
     }
 }
@@ -437,5 +472,41 @@ mod tests {
         let result = get_binary_upper_boundary(&input);
         assert_eq!(result.len(), input.len());
         assert_eq!(result, expected);
+    }
+
+    // `sec-desk` report 638: the rich-indexer used to have no time budget at all, so a request
+    // with a huge `limit` could scan the whole table. The budget must turn into a parameter
+    // error that a client can tell apart from an empty page.
+    #[tokio::test]
+    async fn deadline_turns_into_a_timeout_error() {
+        let handle = AsyncRichIndexerHandle::new_with_timeout(
+            SQLXPool::default(),
+            None,
+            400,
+            Duration::from_millis(10),
+        );
+
+        let err = handle
+            .with_deadline(async {
+                tokio::time::sleep(Duration::from_secs(5)).await;
+                Err::<(), Error>(Error::invalid_params("unreachable"))
+            })
+            .await
+            .expect_err("the deadline must expire");
+
+        assert!(matches!(err, Error::Params(message) if message == "Indexer request timeout"));
+    }
+
+    #[tokio::test]
+    async fn a_fast_request_is_not_affected() {
+        let handle = AsyncRichIndexerHandle::new_with_timeout(
+            SQLXPool::default(),
+            None,
+            400,
+            Duration::from_secs(10),
+        );
+
+        let value = handle.with_deadline(async { Ok::<_, Error>(42u8) }).await;
+        assert_eq!(value.expect("deadline not reached"), 42);
     }
 }
