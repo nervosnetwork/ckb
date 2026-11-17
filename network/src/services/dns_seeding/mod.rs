@@ -68,33 +68,38 @@ impl DnsSeedingService {
         let pubkey = PublicKey::from_slice(&pubkey_bytes)
             .map_err(|err| format!("create PublicKey failed: {err:?}"))?;
 
-        let resolver = hickory_resolver::AsyncResolver::tokio_from_system_conf()
-            .map_err(|err| format!("Failed to create DNS resolver: {err}"))?;
+        let resolver = hickory_resolver::Resolver::builder_tokio()
+            .map_err(|err| format!("Failed to create DNS resolver builder: {err}"))?;
+        let resolver = resolver
+            .build()
+            .map_err(|err| format!("Failed to build DNS resolver: {err}"))?;
 
         let mut addrs = Vec::new();
         for seed in &self.seeds {
             debug!("query txt records from: {}", seed);
             match resolver.txt_lookup(seed.as_str()).await {
                 Ok(records) => {
-                    for record in records.iter() {
-                        for inner in record.iter() {
-                            match std::str::from_utf8(inner) {
-                                Ok(record) => {
-                                    match SeedRecord::decode_with_pubkey(record, &pubkey) {
-                                        Ok(seed_record) => {
-                                            let address = seed_record.address();
-                                            trace!("Received DNS txt address: {}", address);
-                                            addrs.push(address);
-                                        }
-                                        Err(err) => {
-                                            debug!(
-                                                "DNS txt record decode failed: {err:?}, {record:?}"
-                                            );
+                    for record in records.answers() {
+                        if let hickory_resolver::proto::rr::RData::TXT(txt) = &record.data {
+                            for inner in txt.txt_data.iter() {
+                                match std::str::from_utf8(inner) {
+                                    Ok(record) => {
+                                        match SeedRecord::decode_with_pubkey(record, &pubkey) {
+                                            Ok(seed_record) => {
+                                                let address = seed_record.address();
+                                                trace!("Received DNS txt address: {}", address);
+                                                addrs.push(address);
+                                            }
+                                            Err(err) => {
+                                                debug!(
+                                                    "DNS txt record decode failed: {err:?}, {record:?}"
+                                                );
+                                            }
                                         }
                                     }
-                                }
-                                Err(err) => {
-                                    debug!("DNS txt record retrivial error: {:?}", err);
+                                    Err(err) => {
+                                        debug!("DNS txt record retrieval error: {:?}", err);
+                                    }
                                 }
                             }
                         }
