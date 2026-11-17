@@ -36,8 +36,10 @@ set. The [membership graph](../../src/authority/membership/graph.rs) borrows the
 Plan and hides its Store and owner cache from membership policy. It preserves the
 first owner observation, including absence, and records complete input/dep reader
 and child relations even when they are empty. Capacity planning can extend the
-same decision with a full accepted capture. Only full captures allocate the
-optional shard-revision arrays; ordinary reads stay sparse.
+same decision with a full accepted capture. Its shard revisions cover every
+captured owner. The Plan checks earlier point observations against overlapping
+captured owners and keeps those original observations through Apply, including
+absences and owners that have since left. Ordinary reads stay sparse.
 
 `Plan::readers` and `Plan::children` select the key and role mask internally.
 Their complete-set observations track accepted membership. Waiting-only edits

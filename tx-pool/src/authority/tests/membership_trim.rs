@@ -1,5 +1,8 @@
 use super::*;
-use crate::authority::tests::common::{accept, config, spend, store};
+use crate::authority::{
+    notice::Class,
+    tests::common::{self, accept, config, spend, store},
+};
 
 fn charge(entries: &Members) -> Amount {
     entries.values().fold(Amount::default(), |total, entry| {
@@ -9,8 +12,6 @@ fn charge(entries: &Members) -> Amount {
 
 #[test]
 fn a_fresh_capacity_capture_keeps_prior_removed_owner_observations() {
-    use crate::authority::{notice::Class, tests::common};
-
     let store = store();
     let hash = accept(&store, common::tx(10620), 1, 1, Status::Pending);
     let mut plan = Plan::new(store.snapshot().0, Class::Trusted, Default::default());
@@ -21,6 +22,44 @@ fn a_fresh_capacity_capture_keeps_prior_removed_owner_observations() {
         assert_eq!(graph.capture_accepted().unwrap(), Amount::default());
         assert!(graph.observed().is_empty());
     }
+    assert!(matches!(store.apply(plan), Err(Error::Stale)));
+}
+
+#[test]
+fn capacity_capture_rejects_an_insert_or_replacement_after_a_point_read() {
+    let store = store();
+    let transaction = common::tx(10621);
+    let hash = transaction.hash();
+    let mut absent = Plan::new(store.snapshot().0, Class::Trusted, Default::default());
+    assert!(absent.get(&store, &hash).unwrap().is_none());
+    accept(&store, transaction, 1, 1, Status::Pending);
+    assert!(matches!(absent.capture_accepted(&store), Err(Error::Stale)));
+
+    let mut present = Plan::new(store.snapshot().0, Class::Trusted, Default::default());
+    let original = present.get(&store, &hash).unwrap().unwrap();
+    common::replace(&store, Arc::clone(&original), original.phase.clone());
+    assert!(matches!(
+        present.capture_accepted(&store),
+        Err(Error::Stale)
+    ));
+}
+
+#[test]
+fn capacity_capture_tracks_untouched_owners_by_revision() {
+    let store = store();
+    let hash = accept(&store, common::tx(10622), 1, 1, Status::Pending);
+    let owner = store.point(&hash).1.unwrap();
+    let weak_count = Arc::weak_count(&owner);
+    let mut plan = Plan::new(store.snapshot().0, Class::Trusted, Default::default());
+    plan.capture_accepted(&store).unwrap();
+    assert_eq!(Arc::weak_count(&owner), weak_count);
+
+    common::insert(
+        &store,
+        common::entry(&store, common::tx(10623), Source::Local),
+    );
+    store.apply(plan.clone()).unwrap();
+    common::replace(&store, Arc::clone(&owner), owner.phase.clone());
     assert!(matches!(store.apply(plan), Err(Error::Stale)));
 }
 

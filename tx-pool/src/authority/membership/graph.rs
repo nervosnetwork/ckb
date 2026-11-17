@@ -43,11 +43,8 @@ impl<'a> Graph<'a> {
 
     /// Capture the full accepted graph and its charge, preserving earlier premises.
     pub(super) fn capture_accepted(&mut self) -> Result<Amount, Error> {
-        let (entries, charge) = self.plan.capture_accepted(self.store)?;
-        self.observed = entries
-            .into_iter()
-            .map(|entry| (entry.hash(), entry))
-            .collect();
+        let (members, charge) = self.plan.capture_accepted(self.store)?;
+        self.observed = members;
         Ok(charge)
     }
 

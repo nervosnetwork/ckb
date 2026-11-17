@@ -280,6 +280,15 @@ pub(super) fn detail(
     hash: &Byte32,
     config: &TxPoolConfig,
 ) -> Result<PoolTxDetailInfo, Error> {
+    // A miss is complete at the point read. On a hit, rank and owner must
+    // both come from the later capture, including if the owner has left.
+    if store
+        .point(hash)
+        .1
+        .is_none_or(|owner| owner.accepted().is_none())
+    {
+        return Ok(PoolTxDetailInfo::with_unknown());
+    }
     let Captured {
         snapshot, owners, ..
     } = store.capture_accepted();

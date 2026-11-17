@@ -7,6 +7,7 @@ use super::{
 use crate::{
     authority::{
         budget::Amount,
+        membership::Members,
         model::{DependencyKey, Entry, Error, RelationKey, Status},
         notice::{Class, Effect},
     },
@@ -50,6 +51,11 @@ fn same_weak<T>(a: &Option<Weak<T>>, b: &Option<Weak<T>>) -> bool {
     }
 }
 
+pub(super) fn matches_current<T>(expected: &Option<Weak<T>>, current: Option<&Arc<T>>) -> bool {
+    // The retained Weak keeps the original allocation identity from being reused.
+    expected.as_ref().map(Weak::as_ptr) == current.map(Arc::as_ptr)
+}
+
 /// Whether to retain a new fact, preserving the original on every reread.
 fn first_observation<V>(
     original: Option<&V>,
@@ -86,14 +92,19 @@ impl ReadSet {
     }
 
     /// Reject a contradiction with an earlier owner observation without adding
-    /// that owner to this read set's verification premises.
+    /// that owner to the read set.
     pub(in crate::authority) fn check_owner_observation(
         &self,
         hash: &Byte32,
         entry: Option<&Arc<Entry>>,
     ) -> Result<(), Error> {
-        let observed = entry.map(Arc::downgrade);
-        first_observation(self.observed_owner(hash), &observed, same_weak).map(|_| ())
+        if self
+            .observed_owner(hash)
+            .is_some_and(|expected| !matches_current(expected, entry))
+        {
+            return Err(Error::Stale);
+        }
+        Ok(())
     }
 
     pub(in crate::authority) fn observe_owner(
@@ -475,7 +486,7 @@ impl Plan {
     pub(in crate::authority) fn capture_accepted(
         &mut self,
         store: &Store,
-    ) -> Result<(Vec<Arc<Entry>>, Amount), Error> {
+    ) -> Result<(Members, Amount), Error> {
         let Captured {
             view,
             owners: entries,
@@ -487,10 +498,17 @@ impl Plan {
             return Err(Error::Stale);
         }
         self.reads.merge(&reads)?;
-        for entry in &entries {
-            self.observe_owner(&entry.hash(), Some(entry))?;
-        }
-        Ok((entries, accepted))
+        // The shard revisions cover every captured owner. Point reads made
+        // before the capture must still agree wherever the two overlap.
+        let members = entries
+            .into_iter()
+            .map(|entry| {
+                let hash = entry.hash();
+                self.reads.check_owner_observation(&hash, Some(&entry))?;
+                Ok((hash, entry))
+            })
+            .collect::<Result<Members, Error>>()?;
+        Ok((members, accepted))
     }
 
     /// A refused policy keeps every premise, including peer eligibility, while

@@ -208,6 +208,12 @@ fn history_is_hidden_from_live_queries_but_exposed_in_conflicted_entries() {
             .unwrap()
             .is_none()
     );
+    for hash in [victim.hash(), pending.hash(), tx(6007).hash()] {
+        assert_eq!(
+            detail(&store, &hash, &config()).unwrap(),
+            PoolTxDetailInfo::with_unknown()
+        );
+    }
     assert_eq!(ids(&store).pending, vec![accepted]);
     let info = summary(&store, &config()).unwrap();
     assert_eq!(info.pending_size, 1);

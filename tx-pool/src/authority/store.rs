@@ -5,6 +5,7 @@ mod apply;
 mod plan;
 mod shards;
 
+use plan::matches_current;
 pub(super) use plan::{Edit, Plan, ReadSet};
 use shards::{
     Guard, LockFootprint, Routing, SHARDS, ShardGuards, ShardIndex, Shards, proposal_key,
@@ -366,13 +367,14 @@ impl CommitLocks {
             all,
             accepted,
         } = reads;
-        for hash in owners.keys() {
-            self.owners
-                .insert(store.owner_shard(hash.as_slice()), false);
-        }
         if all.is_some() || accepted.is_some() {
             for index in ShardIndex::all() {
                 self.owners.insert(index, false);
+            }
+        } else {
+            for hash in owners.keys() {
+                self.owners
+                    .insert(store.owner_shard(hash.as_slice()), false);
             }
         }
         for point in spenders.keys() {
@@ -1295,12 +1297,6 @@ impl Store {
         reads: &ReadSet,
         guards: &ShardGuards<'_, Shard>,
     ) -> Result<(), Error> {
-        fn matches_current<T>(expected: &Option<Weak<T>>, current: Option<&Arc<T>>) -> bool {
-            // The retained Weak keeps its allocation identity from being reused,
-            // even after the original value is gone. No temporary Weak is needed.
-            expected.as_ref().map(Weak::as_ptr) == current.map(Arc::as_ptr)
-        }
-
         let ReadSet {
             owners,
             spenders,
