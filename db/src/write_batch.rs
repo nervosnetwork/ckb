@@ -1,5 +1,5 @@
 //! RocksDB write batch wrapper
-use crate::db::cf_handle;
+use crate::generation::{Generation, WriterPermit};
 use crate::{Result, internal_error};
 use ckb_db_schema::Col;
 use rocksdb::{OptimisticTransactionDB, WriteBatch};
@@ -8,9 +8,12 @@ use std::sync::Arc;
 /// An atomic batch of write operations.
 ///
 /// Making an atomic commit of several write operations.
+#[derive(Clone)]
 pub struct RocksDBWriteBatch {
-    pub(crate) db: Arc<OptimisticTransactionDB>,
     pub(crate) inner: WriteBatch,
+    pub(crate) generation: Arc<Generation>,
+    pub(crate) db: Arc<OptimisticTransactionDB>,
+    pub(crate) permit: Arc<WriterPermit>,
 }
 
 impl RocksDBWriteBatch {
@@ -31,38 +34,33 @@ impl RocksDBWriteBatch {
 
     /// Write the bytes into the given column with associated key.
     pub fn put(&mut self, col: Col, key: &[u8], value: &[u8]) -> Result<()> {
-        let cf = cf_handle(&self.db, col)?;
+        let cf = self.generation.cf(col)?;
+        self.permit.record(col, key)?;
         self.inner.put_cf(cf, key, value).map_err(internal_error)
     }
 
     /// Delete the data associated with the given key and given column.
     pub fn delete(&mut self, col: Col, key: &[u8]) -> Result<()> {
-        let cf = cf_handle(&self.db, col)?;
+        let cf = self.generation.cf(col)?;
+        self.permit.record(col, key)?;
         self.inner.delete_cf(cf, key).map_err(internal_error)
     }
 
-    /// Remove database entries from start key to end key.
-    ///
-    /// Removes the database entries in the range ["begin_key", "end_key"), i.e.,
-    /// including "begin_key" and excluding "end_key". It is not an error if no
-    /// keys exist in the range ["begin_key", "end_key").
+    /// Delete each key yielded by the iterator. Missing keys are ignored.
     pub fn delete_range<K: AsRef<[u8]>>(
         &mut self,
         col: Col,
         range: impl Iterator<Item = K>,
     ) -> Result<()> {
-        let cf = cf_handle(&self.db, col)?;
+        let cf = self.generation.cf(col)?;
 
+        // OptimisticTransactionDB does not support range tombstones.
         for key in range {
-            self.inner
-                .delete_cf(cf, key.as_ref())
-                .map_err(internal_error)?;
+            let key = key.as_ref();
+            self.permit.record(col, key)?;
+            self.inner.delete_cf(cf, key).map_err(internal_error)?;
         }
         Ok(())
-
-        // since 6.18 delete_range_cf
-        // OptimisticTransactionDB now returns error Statuses from calls to DeleteRange() and calls to Write() where the WriteBatch contains a range deletion.
-        // Previously such operations may have succeeded while not providing the expected transactional guarantees.
     }
 
     /// Clear all updates buffered in this batch.

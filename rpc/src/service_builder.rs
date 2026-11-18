@@ -11,11 +11,12 @@ use crate::{IoHandler, RPCError};
 use ckb_app_config::{DBConfig, IndexerConfig, RpcConfig};
 use ckb_chain::ChainController;
 use ckb_indexer::IndexerService;
-use ckb_indexer_sync::{PoolService, new_secondary_db};
+use ckb_indexer_sync::{IndexerSource, PoolService, new_secondary_db};
 use ckb_network::NetworkController;
 use ckb_pow::Pow;
 use ckb_rich_indexer::RichIndexerService;
 use ckb_shared::shared::Shared;
+use ckb_store::ChainStore;
 use ckb_sync::SyncShared;
 use ckb_types::packed::Script;
 use jsonrpc_core::{MetaIoHandler, RemoteProcedure};
@@ -196,7 +197,14 @@ impl<'a> ServiceBuilder<'a> {
         indexer_config: &IndexerConfig,
     ) -> Self {
         // Initialize instances of data sources that will be shared for use by indexer and rich-indexer.
-        let ckb_secondary_db = new_secondary_db(db_config, &indexer_config.into());
+        let ckb_secondary_db = match shared.store().freezer() {
+            Some(archive) => IndexerSource::with_freezer(
+                &db_config.path,
+                &indexer_config.secondary_path,
+                archive.path(),
+            ),
+            None => new_secondary_db(db_config, &indexer_config.into()).into(),
+        };
         let pool_service =
             PoolService::new(indexer_config.index_tx_pool, shared.async_handle().clone());
 

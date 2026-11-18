@@ -1,7 +1,7 @@
 //! DB with ttl support wrapper
 
 use crate::{Result, internal_error};
-use rocksdb::ops::{DropCF, GetColumnFamilys, GetPinnedCF, GetPropertyCF, OpenCF, PutCF};
+use rocksdb::ops::{DropCF, FlushCF, GetColumnFamilys, GetPinnedCF, GetPropertyCF, OpenCF, PutCF};
 use rocksdb::{
     ColumnFamilyDescriptor, DBPinnableSlice, DBWithTTL as RawDBWithTTL, Options, TTLOpenDescriptor,
 };
@@ -87,6 +87,13 @@ impl DBWithTTL {
 
     /// Delete column family.
     pub fn drop_cf(&mut self, col: &str) -> Result<()> {
+        if col != "default"
+            && let Some(cf) = self.inner.cf_handle(col)
+        {
+            // Persist this family's WAL boundary before removing it. Unlike the
+            // chain DB, a TTL database has no durable metadata marker to refresh.
+            self.inner.flush_cf(cf).map_err(internal_error)?;
+        }
         self.inner.drop_cf(col).map_err(internal_error)
     }
 

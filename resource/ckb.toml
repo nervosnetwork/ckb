@@ -52,6 +52,8 @@ dsn = "" # {{
 # target = { type = "prometheus", listen_address = "127.0.0.1:8100" }
 
 [db]
+# Freezer window size on first activation (8 or 16). Persisted by the database.
+# freezer_epoch_width = 16
 # The capacity of RocksDB cache, which caches uncompressed data blocks, indexes and filters, default is 256MB.
 # Rocksdb will automatically create and use an 32MB internal cache for each column family by default if you set this value to 0.
 # To turning off cache, you need to set this value to 0 and set `no_block_cache = true` in the options_file,
@@ -211,6 +213,12 @@ max_tx_verify_cycles = 70_000_000
 max_ancestors_count = 25
 
 [store]
+# Enable historical block archiving. Once enabled for this database, it cannot be disabled.
+# Keep this set to true on every subsequent start, even before any blocks are archived.
+# The current epoch and the preceding 100 complete epochs remain in the hot database.
+# freezer_enable = false
+# Activate write-time epoch segments for this Freezer database. The layout persists on restart.
+# freezer_epoch_segments = false
 header_cache_size          = 4096
 cell_data_cache_size       = 128
 block_proposals_cache_size = 30

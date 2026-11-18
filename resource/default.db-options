@@ -11,6 +11,7 @@ max_total_wal_size=134217728
 keep_log_file_num=32
 
 [CFOptions "default"]
+compression=kLZ4Compression
 level_compaction_dynamic_level_bytes=true
 write_buffer_size=8388608
 min_write_buffer_number_to_merge=1

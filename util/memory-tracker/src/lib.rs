@@ -41,6 +41,7 @@ mod rocksdb;
 
 pub use jemalloc::jemalloc_profiling_dump;
 pub use process::track_current_process;
+pub use rocksdb::RocksDBMemoryTracker;
 pub use rocksdb::TrackRocksDBMemory;
 
 /// Track the memory usage of the CKB process and Jemalloc.

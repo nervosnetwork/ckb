@@ -6,7 +6,7 @@ use crate::{AsyncRichIndexerHandle, RichIndexerHandle};
 
 use ckb_app_config::IndexerConfig;
 use ckb_async_runtime::Handle;
-use ckb_indexer_sync::{CustomFilters, IndexerSyncService, PoolService, SecondaryDB};
+use ckb_indexer_sync::{CustomFilters, IndexerSource, IndexerSyncService, PoolService};
 use ckb_notify::NotifyController;
 
 pub(crate) const SUBSCRIBER_NAME: &str = "Rich-Indexer";
@@ -25,7 +25,7 @@ pub struct RichIndexerService {
 impl RichIndexerService {
     /// Construct new RichIndexerService instance
     pub fn new(
-        ckb_db: SecondaryDB,
+        ckb_db: impl Into<IndexerSource>,
         pool_service: PoolService,
         config: &IndexerConfig,
         async_handle: Handle,

@@ -5,7 +5,9 @@ use crate::store::{IteratorDirection, RocksdbStore, Store};
 
 use ckb_app_config::IndexerConfig;
 use ckb_async_runtime::Handle;
-use ckb_indexer_sync::{CustomFilters, Error, IndexerSyncService, Pool, PoolService, SecondaryDB};
+use ckb_indexer_sync::{
+    CustomFilters, Error, IndexerSource, IndexerSyncService, Pool, PoolService,
+};
 use ckb_jsonrpc_types::{
     IndexerCell, IndexerCellType, IndexerCellsCapacity, IndexerOrder, IndexerPagination,
     IndexerScriptType, IndexerSearchKey, IndexerSearchMode, IndexerTip, IndexerTx,
@@ -75,7 +77,7 @@ pub struct IndexerService {
 impl IndexerService {
     /// Construct new Indexer service instance from DBConfig and IndexerConfig
     pub fn new(
-        ckb_db: SecondaryDB,
+        ckb_db: impl Into<IndexerSource>,
         pool_service: PoolService,
         config: &IndexerConfig,
         async_handle: Handle,

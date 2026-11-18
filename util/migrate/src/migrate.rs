@@ -69,7 +69,15 @@ impl Migrate {
 
     /// Open bulk load db.
     pub fn open_bulk_load_db(&self) -> Result<Option<RocksDB>, Error> {
-        RocksDB::prepare_for_bulk_load_open(&self.path, COLUMNS)
+        self.open_bulk_load_with_epoch_width(None)
+    }
+
+    /// Apply the configured epoch layout constraint before repairing or migrating columns.
+    pub fn open_bulk_load_with_epoch_width(
+        &self,
+        width: Option<u64>,
+    ) -> Result<Option<RocksDB>, Error> {
+        RocksDB::prepare_for_bulk_load_with_width(&self.path, COLUMNS, width)
     }
 
     /// Perform migrate.

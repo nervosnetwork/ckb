@@ -235,6 +235,8 @@ pub struct MigrateArgs {
     pub force: bool,
     /// Whether include background migrations
     pub include_background: bool,
+    /// Fresh parent directory for a verified rebuilt database and archive pair.
+    pub freezer_output: Option<PathBuf>,
 }
 
 impl CustomizeSpec {

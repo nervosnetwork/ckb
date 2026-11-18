@@ -6,6 +6,20 @@ use std::cmp::Ordering;
 use crate::helper::prompt;
 
 pub fn migrate(args: MigrateArgs) -> Result<(), ExitCode> {
+    if let Some(output) = &args.freezer_output {
+        let stats = ckb_store::rebuild::stopped_pair(&args.config.db, &args.config.ancient, output)
+            .map_err(|error| {
+                eprintln!("Freezer rebuild failed: {error:#}");
+                ExitCode::Failure
+            })?;
+        println!(
+            "Verified {} rows, omitted {} duplicate rows. Rebuilt pair: {}",
+            stats.copied,
+            stats.omitted,
+            output.join("ready").display()
+        );
+        return Ok(());
+    }
     let migrate = Migrate::new(&args.config.db.path, args.consensus.hardfork_switch);
 
     {
@@ -69,10 +83,12 @@ pub fn migrate(args: MigrateArgs) -> Result<(), ExitCode> {
         }
     }
 
-    let bulk_load_db_db = migrate.open_bulk_load_db().map_err(|e| {
-        eprintln!("Migration error {e}");
-        ExitCode::Failure
-    })?;
+    let bulk_load_db_db = migrate
+        .open_bulk_load_with_epoch_width(args.config.db.freezer_epoch_width)
+        .map_err(|e| {
+            eprintln!("Migration error {e}");
+            ExitCode::Failure
+        })?;
 
     if let Some(db) = bulk_load_db_db {
         migrate.migrate(db, false).map_err(|err| {

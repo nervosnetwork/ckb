@@ -1,6 +1,6 @@
 use ckb_chain_spec::consensus::ConsensusBuilder;
 use ckb_db::RocksDB;
-use ckb_db_schema::{COLUMN_BLOCK_HEADER, COLUMNS};
+use ckb_db_schema::COLUMNS;
 use ckb_freezer::Freezer;
 use ckb_types::{core::BlockExt, packed, prelude::*};
 use tempfile::TempDir;
@@ -95,7 +95,7 @@ fn freeze_blockv0() {
     let db = RocksDB::open_in(&tmp_dir, COLUMNS);
     let tmp_dir2 = TempDir::new().unwrap();
     let freezer = Freezer::open_in(&tmp_dir2).expect("tmp freezer");
-    let store = ChainDB::new_with_freezer(db, freezer.clone(), Default::default());
+    let store = ChainDB::new_with_freezer(db, freezer, Default::default());
 
     let raw = packed::RawHeader::new_builder().number(1u64).build();
     let block = packed::Block::new_builder()
@@ -104,20 +104,13 @@ fn freeze_blockv0() {
         .into_view();
 
     let block_hash = block.hash();
-    let header = block.header();
 
     let txn = store.begin_transaction();
-    txn.insert_raw(
-        COLUMN_BLOCK_HEADER,
-        block_hash.as_slice(),
-        Into::<packed::HeaderView>::into(header).as_slice(),
-    )
-    .expect("insert header");
+    txn.insert_block(&block).expect("insert complete hot block");
     txn.commit().expect("commit");
+    drop(txn);
 
-    freezer
-        .freeze(2, |_number| Some(block.clone()))
-        .expect("freeze");
+    archive(&store, std::slice::from_ref(&block));
 
     assert_eq!(store.get_block(&block_hash), Some(block));
 }
@@ -128,7 +121,7 @@ fn freeze_blockv1_with_extension() {
     let db = RocksDB::open_in(&tmp_dir, COLUMNS);
     let tmp_dir2 = TempDir::new().unwrap();
     let freezer = Freezer::open_in(&tmp_dir2).expect("tmp freezer");
-    let store = ChainDB::new_with_freezer(db, freezer.clone(), Default::default());
+    let store = ChainDB::new_with_freezer(db, freezer, Default::default());
 
     let extension: packed::Bytes = [1u8; 96].into();
     let raw = packed::RawHeader::new_builder().number(1u64).build();
@@ -140,20 +133,13 @@ fn freeze_blockv1_with_extension() {
         .into_view();
 
     let block_hash = block.hash();
-    let header = block.header();
 
     let txn = store.begin_transaction();
-    txn.insert_raw(
-        COLUMN_BLOCK_HEADER,
-        block_hash.as_slice(),
-        Into::<packed::HeaderView>::into(header).as_slice(),
-    )
-    .expect("insert header");
+    txn.insert_block(&block).expect("insert complete hot block");
     txn.commit().expect("commit");
+    drop(txn);
 
-    freezer
-        .freeze(2, |_number| Some(block.clone()))
-        .expect("freeze");
+    archive(&store, std::slice::from_ref(&block));
 
     let block = store.get_block(&block_hash).expect("get_block");
     assert_eq!(store.get_block(&block_hash), Some(block));
@@ -165,7 +151,7 @@ fn freezer_get_block_keeps_hash_lookup_contract_for_same_height_side_block() {
     let db = RocksDB::open_in(&tmp_dir, COLUMNS);
     let tmp_dir2 = TempDir::new().unwrap();
     let freezer = Freezer::open_in(&tmp_dir2).expect("tmp freezer");
-    let store = ChainDB::new_with_freezer(db, freezer.clone(), Default::default());
+    let store = ChainDB::new_with_freezer(db, freezer, Default::default());
 
     let frozen_block = packed::Block::new_builder()
         .header(
@@ -192,10 +178,9 @@ fn freezer_get_block_keeps_hash_lookup_contract_for_same_height_side_block() {
     txn.insert_block(&frozen_block).unwrap();
     txn.insert_block(&side_block).unwrap();
     txn.commit().unwrap();
+    drop(txn);
 
-    freezer
-        .freeze(2, |_number| Some(frozen_block.clone()))
-        .expect("freeze");
+    archive(&store, std::slice::from_ref(&frozen_block));
 
     assert_eq!(store.get_block(&side_hash), Some(side_block));
 }
@@ -206,7 +191,7 @@ fn freezer_get_transaction_keeps_hash_lookup_contract_for_same_height_side_tx() 
     let db = RocksDB::open_in(&tmp_dir, COLUMNS);
     let tmp_dir2 = TempDir::new().unwrap();
     let freezer = Freezer::open_in(&tmp_dir2).expect("tmp freezer");
-    let store = ChainDB::new_with_freezer(db, freezer.clone(), Default::default());
+    let store = ChainDB::new_with_freezer(db, freezer, Default::default());
 
     let frozen_tx = packed::Transaction::new_builder()
         .raw(packed::RawTransaction::new_builder().version(1u32).build())
@@ -247,14 +232,54 @@ fn freezer_get_transaction_keeps_hash_lookup_contract_for_same_height_side_tx() 
     txn.insert_block(&side_block).unwrap();
     txn.attach_block(&side_block).unwrap();
     txn.commit().unwrap();
+    drop(txn);
 
-    freezer
-        .freeze(2, |_number| Some(frozen_block.clone()))
-        .expect("freeze");
+    archive(&store, std::slice::from_ref(&frozen_block));
 
     let (tx, tx_info) = store
         .get_transaction_with_info(&side_tx_hash)
         .expect("get side transaction");
     assert_eq!(tx, side_tx);
     assert_eq!(tx_info.block_hash, side_block_hash);
+}
+
+pub(super) fn archive(store: &ChainDB, blocks: &[ckb_types::core::BlockView]) {
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .build()
+        .unwrap();
+    let controller = ckb_freezer::FreezerController::start(
+        store.freezer().unwrap().clone(),
+        runtime.handle().clone(),
+        ckb_freezer::FreezerServiceConfig::default(),
+    )
+    .unwrap();
+    let txn = store.begin_transaction();
+    for block in blocks {
+        txn.insert_block_ext(
+            &block.hash(),
+            &BlockExt {
+                received_at: 0,
+                total_difficulty: Default::default(),
+                total_uncles_count: 0,
+                verified: Some(true),
+                txs_fees: vec![],
+                cycles: None,
+                txs_sizes: None,
+            },
+        )
+        .unwrap();
+    }
+    txn.commit().unwrap();
+    drop(txn);
+    runtime
+        .block_on(controller.append(blocks.iter().map(|block| block.data()).collect()))
+        .unwrap();
+    assert_eq!(
+        store.recover_archive().unwrap(),
+        store.freezer().unwrap().number()
+    );
+    for block in blocks {
+        assert!(store.get_archived_block(&block.hash()).is_some());
+    }
+    runtime.block_on(controller.shutdown()).unwrap();
 }

@@ -47,7 +47,6 @@ ckb-jsonrpc-types.workspace = true
 ckb-network.workspace = true
 tempfile.workspace = true
 ckb-systemtime = { workspace = true, features = ["enable_faketime"] }
-ckb-logger-service.workspace = true
 
 [features]
 default = []

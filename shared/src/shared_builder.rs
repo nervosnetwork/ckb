@@ -65,6 +65,12 @@ pub fn open_or_create_db(
 ) -> Result<RocksDB, ExitCode> {
     let migrate = Migrate::new(&config.path, hardforks);
 
+    let open = || {
+        RocksDB::open_with_check(config, COLUMNS).map_err(|error| {
+            eprintln!("Open chain database: {error}");
+            ExitCode::Failure
+        })
+    };
     let read_only_db = migrate.open_read_only_db().map_err(|e| {
         eprintln!("Migration error {e}");
         ExitCode::Failure
@@ -80,7 +86,7 @@ pub fn open_or_create_db(
                 );
                 Err(ExitCode::Failure)
             }
-            Ordering::Equal => Ok(RocksDB::open(config, COLUMNS)),
+            Ordering::Equal => open(),
             Ordering::Less => {
                 let can_run_in_background = migrate.can_run_in_background(&db);
                 if migrate.require_expensive(&db, false) && !can_run_in_background {
@@ -96,7 +102,7 @@ pub fn open_or_create_db(
                     Err(ExitCode::Failure)
                 } else if can_run_in_background {
                     info!("process migrations in background ...");
-                    let db = RocksDB::open(config, COLUMNS);
+                    let db = open()?;
                     migrate.migrate(db.clone(), true).map_err(|err| {
                         eprintln!("Run error: {err:?}");
                         ExitCode::Failure
@@ -105,10 +111,12 @@ pub fn open_or_create_db(
                 } else {
                     info!("Processing fast migrations ...");
 
-                    let bulk_load_db_db = migrate.open_bulk_load_db().map_err(|e| {
-                        eprintln!("Migration error {e}");
-                        ExitCode::Failure
-                    })?;
+                    let bulk_load_db_db = migrate
+                        .open_bulk_load_with_epoch_width(config.freezer_epoch_width)
+                        .map_err(|e| {
+                            eprintln!("Migration error {e}");
+                            ExitCode::Failure
+                        })?;
 
                     if let Some(db) = bulk_load_db_db {
                         migrate.migrate(db, false).map_err(|err| {
@@ -117,12 +125,12 @@ pub fn open_or_create_db(
                         })?;
                     }
 
-                    Ok(RocksDB::open(config, COLUMNS))
+                    open()
                 }
             }
         }
     } else {
-        let db = RocksDB::open(config, COLUMNS);
+        let db = open()?;
         migrate.init_db_version(&db).map_err(|e| {
             eprintln!("Migrate init_db_version error {e}");
             ExitCode::Failure
@@ -373,19 +381,8 @@ impl SharedBuilder {
         let sync_config = sync_config.unwrap_or_default();
         let consensus = Arc::new(consensus);
 
-        let header_map_memory_limit = sync_config.header_map.memory_limit.as_u64() as usize;
-
-        let ibd_finished = Arc::new(AtomicBool::new(false));
-
-        let header_map = Arc::new(HeaderMap::new(
-            header_map_tmp_dir,
-            header_map_memory_limit,
-            &async_handle,
-            Arc::clone(&ibd_finished),
-        ));
-
-        let notify_controller = start_notify_service(notify_config, async_handle.clone());
-
+        // Validate and recover storage before spawning services that wait for a
+        // process exit signal, which is not installed on a failed startup.
         let store = build_store(db, store_config, ancient_path).map_err(|e| {
             eprintln!("build_store {e}");
             ExitCode::Failure
@@ -400,6 +397,16 @@ impl SharedBuilder {
             })?;
         let snapshot = Arc::new(snapshot);
         let snapshot_mgr = Arc::new(SnapshotMgr::new(Arc::clone(&snapshot)));
+
+        let header_map_memory_limit = sync_config.header_map.memory_limit.as_u64() as usize;
+        let ibd_finished = Arc::new(AtomicBool::new(false));
+        let header_map = Arc::new(HeaderMap::new(
+            header_map_tmp_dir,
+            header_map_memory_limit,
+            &async_handle,
+            Arc::clone(&ibd_finished),
+        ));
+        let notify_controller = start_notify_service(notify_config, async_handle.clone());
 
         let (sender, receiver) = ckb_channel::unbounded();
 
@@ -530,14 +537,56 @@ fn build_store(
     store_config: StoreConfig,
     ancient_path: Option<PathBuf>,
 ) -> Result<ChainDB, Error> {
-    let store = if let (true, Some(ancient_path)) = (store_config.freezer_enable, ancient_path) {
-        let freezer = Freezer::open(ancient_path)?;
-        ChainDB::new_with_freezer(db, freezer, store_config)
-    } else {
-        ChainDB::new(db, store_config)
+    use ckb_db_schema::{COLUMN_META, META_ARCHIVE_NEXT_RECORD};
+    let requires_archive = db
+        .get_pinned(COLUMN_META, META_ARCHIVE_NEXT_RECORD)?
+        .is_some();
+    if db.epoch_segments().active().is_some() && !requires_archive {
+        return Err(InternalErrorKind::DataCorrupted
+            .other("published epoch layout is missing its archive cursor")
+            .into());
+    }
+    let archive_file_exists = |name: &str| {
+        ancient_path
+            .as_ref()
+            .map_or(Ok(false), |path| path.join(name).try_exists())
+            .map_err(|error| InternalErrorKind::System.other(error))
     };
+    let archive_exists = archive_file_exists("COMMIT")?;
+    if !store_config.freezer_enable {
+        if store_config.freezer_epoch_segments {
+            return Err(InternalErrorKind::Config
+                .other("epoch segments require store.freezer_enable = true")
+                .into());
+        }
+        // The file commit also covers activation interrupted before the database
+        // cursor was written, and empty archives opened by an earlier version.
+        let archive_started = archive_exists || archive_file_exists("INDEX")?;
+        if requires_archive || archive_started {
+            return Err(InternalErrorKind::Config
+                .other("Freezer cannot be disabled once enabled; set store.freezer_enable = true")
+                .into());
+        }
+        return Ok(ChainDB::new(db, store_config));
+    }
+    let ancient_path = ancient_path
+        .ok_or_else(|| InternalErrorKind::Config.other("Freezer requires an archive directory"))?;
+    if requires_archive && !archive_exists {
+        return Err(InternalErrorKind::DataCorrupted
+            .other("database requires its committed archive directory")
+            .into());
+    }
+    let freezer = Freezer::open(ancient_path)?;
+    let store = ChainDB::new_with_freezer(db, freezer, store_config);
+    store.recover_archive()?;
+    if store_config.freezer_epoch_segments {
+        store.enable_epoch_segments()?;
+    }
     Ok(store)
 }
+
+#[cfg(test)]
+mod freezer_startup_tests;
 
 fn register_tx_pool_callback(
     tx_pool_builder: &mut TxPoolServiceBuilder,

@@ -27,9 +27,96 @@ pub struct ChainDB {
     db: RocksDB,
     freezer: Option<Freezer>,
     cache: Arc<StoreCache>,
+    pub(crate) archive_writer: Arc<ckb_util::Mutex<()>>,
+    pub(crate) archive_commit: Arc<ckb_util::Mutex<()>>,
 }
 
 impl ChainStore for ChainDB {
+    // Multi-key reads need one sequence and one CF generation. Capturing a short
+    // store snapshot also covers an archive publication between lookup and body.
+    fn try_get_block(
+        &self,
+        hash: &packed::Byte32,
+    ) -> Result<Option<ckb_types::core::BlockView>, ckb_error::Error> {
+        self.get_snapshot().try_get_block(hash)
+    }
+
+    fn get_archived_block(&self, hash: &packed::Byte32) -> Option<packed::Block> {
+        self.get_snapshot().get_archived_block(hash)
+    }
+
+    fn get_archived_block_view(&self, hash: &packed::Byte32) -> Option<ckb_types::core::BlockView> {
+        self.get_snapshot().get_archived_block_view(hash)
+    }
+
+    fn immutable_block(
+        &self,
+        hash: &packed::Byte32,
+    ) -> Result<Option<ckb_types::core::BlockView>, Error> {
+        self.get_snapshot().immutable_block(hash)
+    }
+
+    fn get_hot_block_body(&self, hash: &packed::Byte32) -> Vec<TransactionView> {
+        self.get_snapshot().get_hot_block_body(hash)
+    }
+
+    fn get_unfrozen_block(&self, hash: &packed::Byte32) -> Option<ckb_types::core::BlockView> {
+        self.get_snapshot().get_unfrozen_block(hash)
+    }
+
+    fn get_block_body(&self, hash: &packed::Byte32) -> Vec<TransactionView> {
+        self.get_snapshot().get_block_body(hash)
+    }
+
+    fn get_block_txs_hashes(&self, hash: &packed::Byte32) -> Vec<packed::Byte32> {
+        self.get_snapshot().get_block_txs_hashes(hash)
+    }
+
+    fn get_block_uncles(
+        &self,
+        hash: &packed::Byte32,
+    ) -> Option<ckb_types::core::UncleBlockVecView> {
+        self.get_snapshot().get_block_uncles(hash)
+    }
+
+    fn get_block_proposal_txs_ids(
+        &self,
+        hash: &packed::Byte32,
+    ) -> Option<packed::ProposalShortIdVec> {
+        self.get_snapshot().get_block_proposal_txs_ids(hash)
+    }
+
+    fn get_block_extension(&self, hash: &packed::Byte32) -> Option<packed::Bytes> {
+        self.get_snapshot().get_block_extension(hash)
+    }
+
+    fn get_cellbase(&self, hash: &packed::Byte32) -> Option<TransactionView> {
+        self.get_snapshot().get_cellbase(hash)
+    }
+
+    fn get_transaction_with_info(
+        &self,
+        hash: &packed::Byte32,
+    ) -> Option<(TransactionView, ckb_types::core::TransactionInfo)> {
+        self.get_snapshot().get_transaction_with_info(hash)
+    }
+
+    fn get_packed_block(&self, hash: &packed::Byte32) -> Option<packed::Block> {
+        self.get_snapshot().get_packed_block(hash)
+    }
+
+    fn segment_value(
+        &self,
+        start: u64,
+        key: &[u8],
+    ) -> Result<Option<DBPinnableSlice<'_>>, ckb_error::Error> {
+        self.db.segment_get(start, key)
+    }
+
+    fn segment_rows(&self, start: u64, mode: IteratorMode) -> Result<DBIter<'_>, ckb_error::Error> {
+        self.db.segment_iter(start, mode)
+    }
+
     fn cache(&self) -> Option<&StoreCache> {
         Some(&self.cache)
     }
@@ -68,6 +155,41 @@ impl VersionbitsIndexer for ChainDB {
 }
 
 impl ChainDB {
+    /// Enable epoch routing after the archive has been recovered. Existing fixed
+    /// payloads and E4 archives remain readable without rewriting them.
+    pub fn enable_epoch_segments(&self) -> Result<(), Error> {
+        if self.freezer.is_none() {
+            return Err(InternalErrorKind::Config
+                .other("epoch segments require Freezer")
+                .into());
+        }
+        let epoch = self.get_tip_header().map_or(0, |h| h.epoch().number());
+        self.db
+            .open_epoch_segment(self.db.epoch_segments().start(epoch))
+    }
+
+    /// Open a boundary before obtaining a writer permit. One unverified header
+    /// cannot allocate arbitrary windows: the canonical tip must be in or next
+    /// to the requested epoch. Far-future arrivals stay in the fixed hot layout.
+    pub fn begin_block_transaction(
+        &self,
+        block: &ckb_types::core::BlockView,
+    ) -> Result<StoreTransaction, Error> {
+        let layout = self.db.epoch_segments();
+        if let Some(active) = layout.active() {
+            let epoch = block.epoch().number();
+            let start = layout.start(epoch);
+            if start > active
+                && self
+                    .get_tip_header()
+                    .is_some_and(|h| epoch <= h.epoch().number() + 1)
+            {
+                self.db.open_epoch_segment(start)?;
+            }
+        }
+        Ok(self.begin_transaction())
+    }
+
     /// Allocate a new ChainDB instance with the given config
     pub fn new(db: RocksDB, config: StoreConfig) -> Self {
         let cache = StoreCache::from_config(config);
@@ -75,6 +197,8 @@ impl ChainDB {
             db,
             freezer: None,
             cache: Arc::new(cache),
+            archive_writer: Arc::new(ckb_util::Mutex::new(())),
+            archive_commit: Arc::new(ckb_util::Mutex::new(())),
         }
     }
 
@@ -85,6 +209,8 @@ impl ChainDB {
             db,
             freezer: Some(freezer),
             cache: Arc::new(cache),
+            archive_writer: Arc::new(ckb_util::Mutex::new(())),
+            archive_commit: Arc::new(ckb_util::Mutex::new(())),
         }
     }
 
@@ -123,7 +249,7 @@ impl ChainDB {
         StoreTransaction {
             inner: self.db.transaction(),
             freezer: self.freezer.clone(),
-            cache: Arc::clone(&self.cache),
+            archive_commit: Arc::clone(&self.archive_commit),
         }
     }
 
@@ -140,19 +266,21 @@ impl ChainDB {
     pub fn new_write_batch(&self) -> StoreWriteBatch {
         StoreWriteBatch {
             inner: self.db.new_write_batch(),
+            store: self.clone(),
+            payload: Vec::new(),
         }
     }
 
     /// Write batch into chain db.
     pub fn write(&self, write_batch: &StoreWriteBatch) -> Result<(), Error> {
-        self.db.write(&write_batch.inner)
+        write_batch.commit(&self.db, false)
     }
 
     /// write options set_sync = true
     ///
     /// see [`RocksDB::write_sync`](ckb_db::RocksDB::write_sync).
     pub fn write_sync(&self, write_batch: &StoreWriteBatch) -> Result<(), Error> {
-        self.db.write_sync(&write_batch.inner)
+        write_batch.commit(&self.db, true)
     }
 
     /// Force the data to go through the compaction in order to consolidate it

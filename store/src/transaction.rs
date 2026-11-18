@@ -6,11 +6,11 @@ use ckb_db::{
     iter::{DBIter, DBIterator, IteratorMode},
 };
 use ckb_db_schema::{
-    COLUMN_BLOCK_BODY, COLUMN_BLOCK_EPOCH, COLUMN_BLOCK_EXT, COLUMN_BLOCK_EXTENSION,
-    COLUMN_BLOCK_FILTER, COLUMN_BLOCK_FILTER_HASH, COLUMN_BLOCK_HEADER, COLUMN_BLOCK_PROPOSAL_IDS,
-    COLUMN_BLOCK_UNCLE, COLUMN_CELL, COLUMN_CELL_DATA, COLUMN_CELL_DATA_HASH,
-    COLUMN_CHAIN_ROOT_MMR, COLUMN_EPOCH, COLUMN_INDEX, COLUMN_META, COLUMN_NUMBER_HASH,
-    COLUMN_TRANSACTION_INFO, COLUMN_UNCLES, Col, META_CURRENT_EPOCH_KEY,
+    COLUMN_BLOCK_ARCHIVE, COLUMN_BLOCK_BODY, COLUMN_BLOCK_EPOCH, COLUMN_BLOCK_EXT,
+    COLUMN_BLOCK_EXTENSION, COLUMN_BLOCK_FILTER, COLUMN_BLOCK_FILTER_HASH, COLUMN_BLOCK_HEADER,
+    COLUMN_BLOCK_PROPOSAL_IDS, COLUMN_BLOCK_UNCLE, COLUMN_CELL, COLUMN_CELL_DATA,
+    COLUMN_CELL_DATA_HASH, COLUMN_CHAIN_ROOT_MMR, COLUMN_EPOCH, COLUMN_INDEX, COLUMN_META,
+    COLUMN_NUMBER_HASH, COLUMN_TRANSACTION_INFO, COLUMN_UNCLES, Col, META_CURRENT_EPOCH_KEY,
     META_LATEST_BUILT_FILTER_DATA_KEY, META_TIP_HEADER_KEY,
 };
 use ckb_error::{Error, InternalErrorKind};
@@ -25,18 +25,30 @@ use ckb_types::{
     prelude::*,
     utilities::calc_filter_hash,
 };
-use std::sync::Arc;
 
 /// A Transaction DB
 pub struct StoreTransaction {
     pub(crate) inner: RocksDBTransaction,
     pub(crate) freezer: Option<Freezer>,
-    pub(crate) cache: Arc<StoreCache>,
+    pub(crate) archive_commit: std::sync::Arc<ckb_util::Mutex<()>>,
 }
 
 impl ChainStore for StoreTransaction {
+    fn segment_value(
+        &self,
+        start: u64,
+        key: &[u8],
+    ) -> Result<Option<DBPinnableSlice<'_>>, ckb_error::Error> {
+        self.inner.segment_get(start, key)
+    }
+
+    fn segment_rows(&self, start: u64, mode: IteratorMode) -> Result<DBIter<'_>, ckb_error::Error> {
+        self.inner.segment_iter(start, mode)
+    }
+
     fn cache(&self) -> Option<&StoreCache> {
-        Some(&self.cache)
+        // Shared caches must not override this transaction's uncommitted view.
+        None
     }
 
     fn freezer(&self) -> Option<&Freezer> {
@@ -102,12 +114,23 @@ impl CellChecker for StoreTransaction {
 pub struct StoreTransactionSnapshot<'a> {
     pub(crate) inner: RocksDBTransactionSnapshot<'a>,
     pub(crate) freezer: Option<Freezer>,
-    pub(crate) cache: Arc<StoreCache>,
 }
 
 impl<'a> ChainStore for StoreTransactionSnapshot<'a> {
+    fn segment_value(
+        &self,
+        start: u64,
+        key: &[u8],
+    ) -> Result<Option<DBPinnableSlice<'_>>, ckb_error::Error> {
+        self.inner.segment_get(start, key)
+    }
+
+    fn segment_rows(&self, start: u64, mode: IteratorMode) -> Result<DBIter<'_>, ckb_error::Error> {
+        self.inner.segment_iter(start, mode)
+    }
+
     fn cache(&self) -> Option<&StoreCache> {
-        Some(&self.cache)
+        None
     }
 
     fn freezer(&self) -> Option<&Freezer> {
@@ -130,16 +153,33 @@ impl<'a> ChainStore for StoreTransactionSnapshot<'a> {
 impl StoreTransaction {
     /// Inserts a raw key-value pair into the specified column.
     pub fn insert_raw(&self, col: Col, key: &[u8], value: &[u8]) -> Result<(), Error> {
+        self.restore_archived_payload(col, key)?;
         self.inner.put(col, key, value)
     }
 
     /// Deletes a key from the specified column.
     pub fn delete(&self, col: Col, key: &[u8]) -> Result<(), Error> {
+        self.restore_archived_payload(col, key)?;
         self.inner.delete(col, key)
+    }
+
+    fn restore_archived_payload(&self, col: Col, key: &[u8]) -> Result<(), Error> {
+        if self.freezer.is_some()
+            && let Some(hash) = crate::archive::block_hash(col, key)
+            && let Some(block) = self.immutable_block(&packed::Byte32::from(*hash))?
+        {
+            crate::archive::restore_payload(&block, |col, key, value| {
+                self.inner.put(col, key, value)
+            })?;
+            self.inner
+                .put(COLUMN_BLOCK_ARCHIVE, hash.as_slice(), &0u64.to_le_bytes())?;
+        }
+        Ok(())
     }
 
     /// Commits the transaction, writing all changes to the database.
     pub fn commit(&self) -> Result<(), Error> {
+        let _commit = self.archive_commit.lock();
         self.inner.commit()
     }
 
@@ -148,7 +188,6 @@ impl StoreTransaction {
         StoreTransactionSnapshot {
             inner: self.inner.get_snapshot(),
             freezer: self.freezer.clone(),
-            cache: Arc::clone(&self.cache),
         }
     }
 
@@ -175,6 +214,38 @@ impl StoreTransaction {
             return self.ensure_block_body_identical(block);
         }
         let header = Into::<packed::HeaderView>::into(block.header());
+        if let Some(active) = self.inner.writable_segment(block.epoch().number())
+            && self.freezer.is_some()
+            && block.number() != 0
+            && block.data().as_reader().count_extra_fields() <= 1
+            && block.data().calc_tx_witness_hashes().as_slice() == block.tx_witness_hashes()
+            && block.data().calc_tx_hashes().as_slice() == block.tx_hashes()
+            && ckb_types::core::UncleBlockVecView::from(block.data().uncles())
+                .hashes()
+                .as_slice()
+                == block.uncles().hashes().as_slice()
+            && block.data().calc_header_hash() == hash
+            && self.get(COLUMN_BLOCK_ARCHIVE, hash.as_slice()).is_none()
+        {
+            // A late block goes into today's open segment; sealed CFs never reopen.
+            crate::segment_block::write_rows(block, |key, value| {
+                self.inner.put_segment(active, key, value)
+            })?;
+            self.inner
+                .put(COLUMN_BLOCK_HEADER, hash.as_slice(), header.as_slice())?;
+            let count: packed::Uint32 = (block.transactions().len() as u32).into();
+            let number_hash = packed::NumberHash::new_builder()
+                .number(block.number())
+                .block_hash(hash.clone())
+                .build();
+            self.inner
+                .put(COLUMN_NUMBER_HASH, number_hash.as_slice(), count.as_slice())?;
+            return self.inner.put(
+                COLUMN_BLOCK_ARCHIVE,
+                hash.as_slice(),
+                &ckb_db_schema::freezer::segment_route(active),
+            );
+        }
         let uncles = Into::<packed::UncleBlockVecView>::into(block.uncles());
         let proposals = block.data().proposals();
         let txs_len: packed::Uint32 = (block.transactions().len() as u32).into();
@@ -214,7 +285,7 @@ impl StoreTransaction {
 
     fn ensure_block_body_identical(&self, block: &BlockView) -> Result<(), Error> {
         let hash = block.hash();
-        match self.get_block(&hash) {
+        match self.try_get_block(&hash)? {
             Some(stored) if stored.data().as_slice() == block.data().as_slice() => Ok(()),
             _ => Err(InternalErrorKind::Other
                 .other(format!(

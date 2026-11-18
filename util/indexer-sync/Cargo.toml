@@ -12,6 +12,7 @@ rust-version = "1.95.0"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
+ckb-error.workspace = true
 ckb-app-config.workspace = true
 ckb-async-runtime.workspace = true
 ckb-db-schema.workspace = true

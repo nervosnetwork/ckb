@@ -34,7 +34,8 @@ LIB_BUILDER_DOCKER := nervos/ckb-riscv-gnu-toolchain@sha256:2341ea4e98836b40c382
 
 # TODO How to build other binaries?
 # Such as `always_success`, `always_failure`, `verify` and `defected_binary`.
-ALL_BINS := jalr_zero \
+ALL_BINS := archive_extension \
+            jalr_zero \
             cadd_hint_lock \
             cpop_lock \
             mop_adc_lock \
@@ -85,6 +86,12 @@ ALL_LIBS := is_even.lib \
 
 all-bins: $(ALL_BINS)
 all-libs: $(ALL_LIBS)
+
+# This fixture needs no C library. BIN_CC can also select Clang with its target flags.
+archive_extension: archive_extension.c
+	$(BIN_CC) -march=rv64imc -mabi=lp64 -O2 \
+		-ffreestanding -nostdlib -msmall-data-limit=0 \
+		-Wl,-e,_start -Wl,--build-id=none -o $@ $<
 
 bins-in-docker:
 	docker run --rm -v `pwd`:/code $(BIN_BUILDER_DOCKER) bash -c "cd /code && make all-bins"

@@ -48,6 +48,24 @@ pub trait TrackRocksDBMemory {
 
 pub(crate) struct DummyRocksDB;
 
+/// Memory statistics for the current logical columns of a routed CKB database.
+pub struct RocksDBMemoryTracker(pub ckb_db::RocksDB);
+
+impl TrackRocksDBMemory for RocksDBMemoryTracker {
+    fn gather_int_values(&self, key: &str) {
+        let Some(metrics) = ckb_metrics::handle() else {
+            return;
+        };
+        for (name, value) in self.0.property_int_values(&format!("rocksdb.{key}")) {
+            let value: PropertyValue<u64> = value.map_err(|error| error.to_string()).into();
+            metrics
+                .ckb_sys_mem_rocksdb
+                .with_label_values(&[key, &name])
+                .set(value.as_i64());
+        }
+    }
+}
+
 impl TrackRocksDBMemory for DummyRocksDB {}
 
 impl<RocksDB> TrackRocksDBMemory for RocksDB

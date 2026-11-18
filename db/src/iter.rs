@@ -1,10 +1,11 @@
 //! RocksDB iterator wrapper base on DBIter
-use crate::db::cf_handle;
 use crate::{
     Result, RocksDB, RocksDBSnapshot, RocksDBTransaction, RocksDBTransactionSnapshot,
     internal_error,
 };
 use ckb_db_schema::Col;
+// OwnedColumnFamily::iterator_opt retains the physical CF and its database.
+// The binding's iterator already carries that ownership; another wrapper adds no safety.
 pub use rocksdb::{DBIterator as DBIter, Direction, IteratorMode};
 use rocksdb::{ReadOptions, ops::IterateCF};
 
@@ -24,16 +25,15 @@ pub trait DBIterator {
 
 impl DBIterator for RocksDB {
     fn iter_opt(&self, col: Col, mode: IteratorMode, readopts: &ReadOptions) -> Result<DBIter<'_>> {
-        let cf = cf_handle(&self.inner, col)?;
-        self.inner
-            .iterator_cf_opt(cf, mode, readopts)
-            .map_err(internal_error)
+        let generation = self.generation();
+        let cf = generation.cf(col)?;
+        Ok(cf.iterator_opt(mode, readopts))
     }
 }
 
 impl DBIterator for RocksDBTransaction {
     fn iter_opt(&self, col: Col, mode: IteratorMode, readopts: &ReadOptions) -> Result<DBIter<'_>> {
-        let cf = cf_handle(&self.db, col)?;
+        let cf = self.generation.cf(col)?;
         self.inner
             .iterator_cf_opt(cf, mode, readopts)
             .map_err(internal_error)
@@ -42,7 +42,7 @@ impl DBIterator for RocksDBTransaction {
 
 impl<'a> DBIterator for RocksDBTransactionSnapshot<'a> {
     fn iter_opt(&self, col: Col, mode: IteratorMode, readopts: &ReadOptions) -> Result<DBIter<'_>> {
-        let cf = cf_handle(&self.db, col)?;
+        let cf = self.generation.cf(col)?;
         self.inner
             .iterator_cf_opt(cf, mode, readopts)
             .map_err(internal_error)
@@ -51,7 +51,7 @@ impl<'a> DBIterator for RocksDBTransactionSnapshot<'a> {
 
 impl DBIterator for RocksDBSnapshot {
     fn iter_opt(&self, col: Col, mode: IteratorMode, readopts: &ReadOptions) -> Result<DBIter<'_>> {
-        let cf = cf_handle(&self.db, col)?;
+        let cf = self.generation.cf(col)?;
         self.iterator_cf_opt(cf, mode, readopts)
             .map_err(internal_error)
     }

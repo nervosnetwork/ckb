@@ -1,7 +1,14 @@
-//! Freezer is an memory mapped append-only database to store immutable chain data into flat files
+//! An append-only archive for immutable chain data, with explicit durable commits.
 
+mod block;
+mod controller;
+mod decode_cache;
+mod format;
 mod freezer;
 mod freezer_files;
+mod payload;
+mod reader;
+mod storage;
 #[cfg(test)]
 mod tests;
 
@@ -12,5 +19,8 @@ fn internal_error<S: Display + Debug + Sync + Send + 'static>(reason: S) -> Erro
     InternalErrorKind::Database.other(reason).into()
 }
 
+pub use block::ArchivedBlock;
+pub use controller::{FreezerController, FreezerServiceConfig, FreezerServiceStatus};
 pub use freezer::Freezer;
 pub use freezer_files::FreezerFilesBuilder;
+pub use reader::{ArchiveRecord, FreezerReader};

@@ -1,4 +1,5 @@
 //! Provide several functions used for testing.
+pub mod archive;
 mod chain;
 mod median_time;
 mod mock_chain;

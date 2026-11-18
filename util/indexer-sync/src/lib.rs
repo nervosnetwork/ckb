@@ -3,11 +3,13 @@
 pub(crate) mod custom_filters;
 pub(crate) mod error;
 pub(crate) mod pool;
+mod source;
 pub(crate) mod store;
 
 pub use crate::custom_filters::CustomFilters;
 pub use crate::error::Error;
 pub use crate::pool::{Pool, PoolService};
+pub use crate::source::IndexerSource;
 pub use crate::store::SecondaryDB;
 
 use ckb_app_config::{DBConfig, IndexerSyncConfig};
@@ -15,17 +17,12 @@ use ckb_async_runtime::{
     Handle,
     tokio::{self, time},
 };
-use ckb_db_schema::{
-    COLUMN_BLOCK_BODY, COLUMN_BLOCK_EXTENSION, COLUMN_BLOCK_HEADER, COLUMN_BLOCK_PROPOSAL_IDS,
-    COLUMN_BLOCK_UNCLE, COLUMN_INDEX, COLUMN_META,
-};
 use ckb_logger::{error, info};
 use ckb_notify::NotifyController;
 use ckb_stop_handler::{CancellationToken, has_received_stop_signal, new_tokio_exit_rx};
-use ckb_store::ChainStore;
 use ckb_types::{
     H256,
-    core::{self, BlockNumber, BlockView},
+    core::{BlockNumber, BlockView},
     packed::Byte32,
 };
 use rocksdb::{LogLevel, prelude::*};
@@ -53,20 +50,11 @@ pub trait IndexerSync {
 
 /// Construct new secondary db instance
 pub fn new_secondary_db(ckb_db_config: &DBConfig, config: &IndexerSyncConfig) -> SecondaryDB {
-    let cf_names = vec![
-        COLUMN_INDEX,
-        COLUMN_META,
-        COLUMN_BLOCK_HEADER,
-        COLUMN_BLOCK_BODY,
-        COLUMN_BLOCK_UNCLE,
-        COLUMN_BLOCK_PROPOSAL_IDS,
-        COLUMN_BLOCK_EXTENSION,
-    ];
     let secondary_opts = indexer_secondary_options();
     SecondaryDB::open_cf(
         &secondary_opts,
         &ckb_db_config.path,
-        cf_names,
+        store::INDEXER_COLUMNS,
         config.secondary_path.to_string_lossy().to_string(),
     )
 }
@@ -74,7 +62,7 @@ pub fn new_secondary_db(ckb_db_config: &DBConfig, config: &IndexerSyncConfig) ->
 /// Indexer sync service
 #[derive(Clone)]
 pub struct IndexerSyncService {
-    secondary_db: SecondaryDB,
+    secondary_db: IndexerSource,
     pool_service: PoolService,
     poll_interval: Duration,
     async_handle: Handle,
@@ -84,14 +72,14 @@ pub struct IndexerSyncService {
 impl IndexerSyncService {
     /// Construct new Indexer sync service instance
     pub fn new(
-        secondary_db: SecondaryDB,
+        secondary_db: impl Into<IndexerSource>,
         pool_service: PoolService,
         config: &IndexerSyncConfig,
         async_handle: Handle,
         init_tip_hash: Option<H256>,
     ) -> Self {
         Self {
-            secondary_db,
+            secondary_db: secondary_db.into(),
             pool_service,
             poll_interval: Duration::from_secs(config.poll_interval),
             async_handle,
@@ -104,99 +92,75 @@ impl IndexerSyncService {
     where
         I: IndexerSync + Clone + Send + 'static,
     {
-        if let Some(init_tip_hash) = &self.init_tip_hash {
-            let indexer_tip = indexer_service
-                .tip()
-                .expect("indexer_service tip should be OK");
-            if let Some((indexer_tip, _)) = indexer_tip
-                && let Some(init_tip) = self.secondary_db.get_block_header(&init_tip_hash.into())
-                && indexer_tip >= init_tip.number()
+        let Some(hash) = &self.init_tip_hash else {
+            return;
+        };
+        while !has_received_stop_signal() {
+            match self
+                .secondary_db
+                .refresh()
+                .and_then(|_| self.secondary_db.header(&hash.into()))
             {
-                return;
+                Ok(Some(header)) => {
+                    // A lazy Freezer view has no header before its first refresh.
+                    // Recheck the persisted tip here so restart cannot rewind it.
+                    match indexer_service.tip() {
+                        Ok(tip) => {
+                            if tip.is_none_or(|(n, _)| n < header.number()) {
+                                indexer_service.set_init_tip(header.number(), hash);
+                            }
+                            return;
+                        }
+                        Err(e) => error!("Cannot read persisted indexer tip: {e}"),
+                    }
+                }
+                Ok(None) => (),
+                Err(e) => error!("Cannot read initial indexer tip: {e}"),
             }
-            loop {
-                if has_received_stop_signal() {
-                    info!("apply_init_tip received exit signal, exit now");
-                    break;
-                }
-
-                if let Err(e) = self.secondary_db.try_catch_up_with_primary() {
-                    error!("secondary_db try_catch_up_with_primary error {}", e);
-                }
-                if let Some(header) = self.secondary_db.get_block_header(&init_tip_hash.into()) {
-                    let init_tip_number = header.number();
-                    indexer_service.set_init_tip(init_tip_number, init_tip_hash);
-                    break;
-                }
-                sleep(Duration::from_secs(1));
-            }
+            sleep(Duration::from_secs(1));
         }
     }
 
-    fn try_loop_sync<I>(&self, indexer: I)
-    where
-        I: IndexerSync + Clone + Send + 'static,
-    {
-        if let Err(e) = self.secondary_db.try_catch_up_with_primary() {
-            error!("secondary_db try_catch_up_with_primary error {}", e);
+    fn try_loop_sync<I: IndexerSync>(&self, indexer: I) {
+        if let Err(e) = self.sync_available(&indexer) {
+            error!("{}: {e}; retrying on the next poll", indexer.get_identity());
         }
-        loop {
-            if has_received_stop_signal() {
-                info!("try_loop_sync received exit signal, exit now");
-                break;
-            }
+    }
 
-            match indexer.tip() {
-                Ok(Some((tip_number, tip_hash))) => {
-                    match self.get_block_by_number(tip_number + 1) {
-                        Some(block) => {
-                            if block.parent_hash() == tip_hash {
-                                info!(
-                                    "{} append {}, {}",
-                                    indexer.get_identity(),
-                                    block.number(),
-                                    block.hash()
-                                );
-                                if let Err(e) = indexer.append(&block) {
-                                    error!("Failed to append block: {}. Will attempt to retry.", e);
-                                }
-                            } else {
-                                info!(
-                                    "{} rollback {}, {}",
-                                    indexer.get_identity(),
-                                    tip_number,
-                                    tip_hash
-                                );
-                                indexer.rollback().expect("rollback block should be OK");
-                                if let Err(e) = self.secondary_db.try_catch_up_with_primary() {
-                                    error!(
-                                        "after rollback, secondary_db try_catch_up_with_primary error {}",
-                                        e
-                                    );
-                                }
-                            }
-                        }
-                        None => {
-                            break;
-                        }
-                    }
-                }
-                Ok(None) => match self.get_block_by_number(0) {
-                    Some(block) => {
-                        if let Err(e) = indexer.append(&block) {
-                            error!("Failed to append block: {}. Will attempt to retry.", e);
-                        }
-                    }
-                    None => {
-                        error!("CKB node returns an empty genesis block");
-                        break;
-                    }
-                },
-                Err(e) => {
-                    error!("Failed to get tip: {}", e);
+    fn sync_available<I: IndexerSync>(&self, indexer: &I) -> Result<(), Error> {
+        self.secondary_db.refresh()?;
+        while !has_received_stop_signal() {
+            let tip = indexer.tip()?;
+            let number = tip.as_ref().map_or(0, |(n, _)| n + 1);
+            let block = self.secondary_db.block(number)?;
+            if let Some((height, hash)) = tip {
+                let parent = match &block {
+                    Some(child) => Some(child.parent_hash()),
+                    None => self.secondary_db.canonical_hash(height)?,
+                };
+                let orphaned = match parent {
+                    Some(canonical) => canonical != hash,
+                    None => self
+                        .secondary_db
+                        .tip()?
+                        .is_some_and(|tip| tip.number() < height),
+                };
+                if orphaned {
+                    info!("{} rollback {height}, {hash}", indexer.get_identity());
+                    indexer.rollback()?;
+                    self.secondary_db.refresh()?;
+                    continue;
                 }
             }
+            let Some(block) = block else { break };
+            info!(
+                "{} append {number}, {}",
+                indexer.get_identity(),
+                block.hash()
+            );
+            indexer.append(&block)?;
         }
+        Ok(())
     }
 
     /// Processes that handle block cell and expect to be spawned to run in tokio runtime
@@ -279,16 +243,18 @@ impl IndexerSyncService {
                     break;
                 }
 
-                if let Err(e) = secondary_db.try_catch_up_with_primary() {
-                    error!("secondary_db try_catch_up_with_primary error {}", e);
-                }
-                if let (Some(header), Ok(Some((indexer_tip, _)))) =
-                    (secondary_db.get_tip_header(), indexer_service.tip())
-                {
-                    let node_tip = header.number();
-                    if node_tip - indexer_tip <= INDEXER_NODE_TIP_GAP {
+                match secondary_db.refresh().and_then(|_| secondary_db.tip()) {
+                    Ok(Some(header))
+                        if indexer_service.tip().is_ok_and(|tip| {
+                            tip.is_some_and(|(n, _)| {
+                                n.abs_diff(header.number()) <= INDEXER_NODE_TIP_GAP
+                            })
+                        }) =>
+                    {
                         break;
                     }
+                    Err(e) => error!("Cannot read node tip for indexer: {e}"),
+                    _ => (),
                 }
                 std::thread::sleep(Duration::from_secs(1));
             }
@@ -296,11 +262,6 @@ impl IndexerSyncService {
 
         self.pool_service
             .index_tx_pool(notify_controller, check_index_tx_pool_ready);
-    }
-
-    fn get_block_by_number(&self, block_number: u64) -> Option<core::BlockView> {
-        let block_hash = self.secondary_db.get_block_hash(block_number)?;
-        self.secondary_db.get_block(&block_hash)
     }
 }
 

@@ -451,6 +451,14 @@ fn migrate() -> Command {
     Command::new(CMD_MIGRATE)
         .about("Run CKB migration")
         .arg(
+            Arg::new("freezer-output")
+                .long("freezer-output")
+                .value_name("NEW_DIRECTORY")
+                .value_parser(clap::value_parser!(std::path::PathBuf))
+                .conflicts_with_all([ARG_FORCE, ARG_MIGRATE_CHECK, ARG_INCLUDE_BACKGROUND])
+                .help("Rebuild a stopped fixed-column Freezer pair in NEW_DIRECTORY/ready"),
+        )
+        .arg(
             Arg::new(ARG_MIGRATE_CHECK)
                 .long(ARG_MIGRATE_CHECK)
                 .action(clap::ArgAction::SetTrue)

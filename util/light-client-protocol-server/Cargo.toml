@@ -19,6 +19,7 @@ ckb-merkle-mountain-range.workspace = true
 ckb-systemtime.workspace = true
 
 [dev-dependencies]
+ckb-async-runtime.workspace = true
 ckb-chain.workspace = true
 ckb-chain-spec.workspace = true
 ckb-tx-pool.workspace = true

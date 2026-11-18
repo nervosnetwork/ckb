@@ -5,7 +5,7 @@ use std::{
 
 use ckb_app_config::{BlockAssemblerConfig, NetworkConfig};
 use ckb_chain::{ChainController, ChainServiceScope};
-use ckb_chain_spec::consensus::{ConsensusBuilder, build_genesis_epoch_ext};
+use ckb_chain_spec::consensus::{Consensus, ConsensusBuilder, build_genesis_epoch_ext};
 use ckb_dao_utils::genesis_dao_data;
 use ckb_jsonrpc_types::ScriptHashType;
 use ckb_network::{Flags, NetworkController, NetworkService, NetworkState, network::TransportType};
@@ -30,6 +30,10 @@ pub(crate) struct MockChain {
 
 impl MockChain {
     pub(crate) fn new() -> Self {
+        Self::with_builder(|consensus| SharedBuilder::with_temp_db().consensus(consensus))
+    }
+
+    pub(crate) fn with_builder(build: impl FnOnce(Consensus) -> SharedBuilder) -> Self {
         let (always_success_cell, always_success_cell_data, always_success_script) =
             always_success_cell();
 
@@ -78,8 +82,7 @@ impl MockChain {
                 notify_timeout_millis: 800,
                 notify_auth_token: None,
             };
-            SharedBuilder::with_temp_db()
-                .consensus(consensus)
+            build(consensus)
                 .block_assembler_config(Some(config))
                 .build()
                 .unwrap()
@@ -142,6 +145,13 @@ impl MockChain {
         let block: packed::Block = block_template.into();
         let block = build(block);
         let block_number = block.number();
+        self.process_block(block);
+        block_number
+    }
+
+    /// Validate an already constructed next block and wait for the pool view.
+    pub(crate) fn process_block(&self, block: BlockView) {
+        let block_number = block.number();
         let is_ok = self
             .controller()
             .blocking_process_block(Arc::new(block))
@@ -154,7 +164,6 @@ impl MockChain {
             .tip_number
             != block_number
         {}
-        block_number
     }
 
     pub(crate) fn rollback_to(

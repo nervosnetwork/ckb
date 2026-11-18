@@ -137,6 +137,7 @@ H256::from_str(&target[2..]).expect("default assume_valid_target for testnet mus
         let include_background = matches.get_flag(cli::ARG_INCLUDE_BACKGROUND);
 
         Ok(MigrateArgs {
+            freezer_output: matches.get_one::<PathBuf>("freezer-output").cloned(),
             config,
             consensus,
             check,

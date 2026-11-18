@@ -1,3 +1,4 @@
+use crate::archive::{ArchiveIndex, invalid};
 use crate::cache::StoreCache;
 use crate::data_loader_wrapper::BorrowedDataLoaderWrapper;
 use ckb_db::{
@@ -5,14 +6,14 @@ use ckb_db::{
     iter::{DBIter, Direction, IteratorMode},
 };
 use ckb_db_schema::{
-    COLUMN_BLOCK_BODY, COLUMN_BLOCK_EPOCH, COLUMN_BLOCK_EXT, COLUMN_BLOCK_EXTENSION,
-    COLUMN_BLOCK_FILTER, COLUMN_BLOCK_FILTER_HASH, COLUMN_BLOCK_HEADER, COLUMN_BLOCK_PROPOSAL_IDS,
-    COLUMN_BLOCK_UNCLE, COLUMN_CELL, COLUMN_CELL_DATA, COLUMN_CELL_DATA_HASH,
-    COLUMN_CHAIN_ROOT_MMR, COLUMN_EPOCH, COLUMN_INDEX, COLUMN_META, COLUMN_TRANSACTION_INFO,
-    COLUMN_UNCLES, Col, META_CURRENT_EPOCH_KEY, META_LATEST_BUILT_FILTER_DATA_KEY,
-    META_TIP_HEADER_KEY,
+    COLUMN_BLOCK_ARCHIVE, COLUMN_BLOCK_BODY, COLUMN_BLOCK_EPOCH, COLUMN_BLOCK_EXT,
+    COLUMN_BLOCK_EXTENSION, COLUMN_BLOCK_FILTER, COLUMN_BLOCK_FILTER_HASH, COLUMN_BLOCK_HEADER,
+    COLUMN_BLOCK_PROPOSAL_IDS, COLUMN_BLOCK_UNCLE, COLUMN_CELL, COLUMN_CELL_DATA,
+    COLUMN_CELL_DATA_HASH, COLUMN_CHAIN_ROOT_MMR, COLUMN_EPOCH, COLUMN_INDEX, COLUMN_META,
+    COLUMN_TRANSACTION_INFO, COLUMN_UNCLES, Col, META_CURRENT_EPOCH_KEY,
+    META_LATEST_BUILT_FILTER_DATA_KEY, META_TIP_HEADER_KEY,
 };
-use ckb_freezer::Freezer;
+use ckb_freezer::{ArchivedBlock, Freezer, FreezerReader};
 use ckb_types::{
     bytes::Bytes,
     core::{
@@ -29,6 +30,26 @@ pub trait ChainStore: Send + Sync + Sized {
     fn cache(&self) -> Option<&StoreCache>;
     /// Return freezer reference
     fn freezer(&self) -> Option<&Freezer>;
+    /// Archive reads need only a committed reader, including on an independent Secondary.
+    fn archive_reader(&self) -> Option<&FreezerReader> {
+        self.freezer().map(Freezer::reader)
+    }
+    /// Read one epoch payload in the same view that supplied its exact-hash route.
+    fn segment_value(
+        &self,
+        _start: u64,
+        _key: &[u8],
+    ) -> Result<Option<DBPinnableSlice<'_>>, ckb_error::Error> {
+        Err(invalid("epoch payload not supported by this store"))
+    }
+    /// Iterate a segment in the same view that supplied its exact-hash route.
+    fn segment_rows(
+        &self,
+        _start: u64,
+        _mode: IteratorMode,
+    ) -> Result<DBIter<'_>, ckb_error::Error> {
+        Err(invalid("epoch rows not supported by this store"))
+    }
     /// Return the bytes associated with a key value and the given column family.
     fn get(&self, col: Col, key: &[u8]) -> Option<DBPinnableSlice<'_>>;
     /// Return an iterator over the database key-value pairs in the given column family.
@@ -38,37 +59,79 @@ pub trait ChainStore: Send + Sync + Sized {
         BorrowedDataLoaderWrapper::new(self)
     }
 
-    /// Get block by block header hash
-    fn get_block(&self, h: &packed::Byte32) -> Option<BlockView> {
-        let header = self.get_block_header(h)?;
-        if let Some(freezer) = self.freezer()
-            && header.number() > 0
-            && header.number() < freezer.number()
-        {
-            let raw_block = freezer.retrieve(header.number()).expect("block frozen")?;
-            let raw_block_reader =
-                packed::BlockReader::from_compatible_slice(&raw_block).expect("checked data");
-            if raw_block_reader.calc_header_hash().as_slice() == h.as_slice() {
-                return Some(raw_block_reader.to_entity().into_view());
+    /// Read an exact hash from the immutable archive using this store's DB view.
+    fn get_archived_block(&self, hash: &packed::Byte32) -> Option<packed::Block> {
+        match block_source(self, hash) {
+            BlockSource::Archived { freezer, index } => {
+                Some(read_archived_block(freezer, &index, hash).expect("archive read failed"))
             }
+            BlockSource::Segment(_) | BlockSource::Hot(_) => None,
         }
-        let body = self.get_block_body(h);
-        let uncles = self
-            .get_block_uncles(h)
-            .expect("block uncles must be stored");
-        let proposals = self
-            .get_block_proposal_txs_ids(h)
-            .expect("block proposal_ids must be stored");
-        let extension_opt = self.get_block_extension(h);
-
-        let block = if let Some(extension) = extension_opt {
-            BlockView::new_unchecked_with_extension(header, uncles, body, proposals, extension)
-        } else {
-            BlockView::new_unchecked(header, uncles, body, proposals)
-        };
-        Some(block)
     }
 
+    /// Read an archived view with the witness hashes committed in this DB view.
+    fn get_archived_block_view(&self, hash: &packed::Byte32) -> Option<BlockView> {
+        match block_source(self, hash) {
+            BlockSource::Archived { freezer, index } => {
+                let block =
+                    read_archived_block(freezer, &index, hash).expect("archive read failed");
+                Some(
+                    index
+                        .block_view(block)
+                        .expect("valid archive witness hashes"),
+                )
+            }
+            BlockSource::Segment(_) | BlockSource::Hot(_) => None,
+        }
+    }
+
+    /// Canonical publication accepts unindexed fixed payloads and segmented payloads.
+    fn needs_archive(&self, hash: &packed::Byte32) -> Result<bool, ckb_error::Error> {
+        use crate::archive::PayloadRoute;
+        let route = self
+            .get(COLUMN_BLOCK_ARCHIVE, hash.as_slice())
+            .map(PayloadRoute::decode)
+            .transpose()?;
+        Ok(matches!(route, None | Some(PayloadRoute::Segment(_))))
+    }
+
+    /// Immutable payload to materialize before an exceptional logical edit.
+    fn immutable_block(
+        &self,
+        hash: &packed::Byte32,
+    ) -> Result<Option<BlockView>, ckb_error::Error> {
+        match try_block_source(self, hash)? {
+            BlockSource::Segment(block) => block.read(self).map(Some),
+            BlockSource::Archived { freezer, index } => index
+                .block_view(read_archived_block(freezer, &index, hash)?)
+                .map(Some),
+            BlockSource::Hot(_) => Ok(None),
+        }
+    }
+
+    /// Get block by block header hash.
+    fn get_block(&self, hash: &packed::Byte32) -> Option<BlockView> {
+        self.try_get_block(hash).expect("block read failed")
+    }
+
+    /// Read an exact block, distinguishing an absent header from incomplete payloads.
+    /// Underlying database failures retain the ChainStore fatal-storage contract.
+    fn try_get_block(&self, hash: &packed::Byte32) -> Result<Option<BlockView>, ckb_error::Error> {
+        let Some(header) = self.get(COLUMN_BLOCK_HEADER, hash.as_slice()) else {
+            return Ok(None);
+        };
+        match try_block_source(self, hash)? {
+            BlockSource::Archived { freezer, index } => {
+                index.block_view(read_archived_block(freezer, &index, hash)?)
+            }
+            BlockSource::Segment(block) => block.read(self),
+            BlockSource::Hot(_) => {
+                let header = packed::HeaderViewReader::from_slice_should_be_ok(header.as_ref());
+                read_hot_block(self, hash, header.into())
+            }
+        }
+        .map(Some)
+    }
     /// Get header by block header hash
     fn get_block_header(&self, hash: &packed::Byte32) -> Option<HeaderView> {
         if let Some(cache) = self.cache()
@@ -92,17 +155,30 @@ pub trait ChainStore: Send + Sync + Sized {
 
     /// Get block body by block header hash
     fn get_block_body(&self, hash: &packed::Byte32) -> Vec<TransactionView> {
-        let prefix = hash.as_slice();
-        self.get_iter(
-            COLUMN_BLOCK_BODY,
-            IteratorMode::From(prefix, Direction::Forward),
-        )
-        .take_while(|(key, _)| key.starts_with(prefix))
-        .map(|(_key, value)| {
-            let reader = packed::TransactionViewReader::from_slice_should_be_ok(value.as_ref());
-            Into::<TransactionView>::into(reader)
-        })
-        .collect()
+        match block_source(self, hash) {
+            BlockSource::Segment(block) => block
+                .read(self)
+                .expect("epoch body read failed")
+                .transactions(),
+            BlockSource::Archived { freezer, index } => index
+                .block_view(
+                    read_archived_block(freezer, &index, hash).expect("archive read failed"),
+                )
+                .expect("valid archived block")
+                .transactions(),
+            BlockSource::Hot(_) => fixed_body(self, hash),
+        }
+    }
+
+    /// Read only the current KV view, including a transaction's own writes.
+    fn get_hot_block_body(&self, hash: &packed::Byte32) -> Vec<TransactionView> {
+        if let BlockSource::Segment(block) = block_source(self, hash) {
+            return block
+                .read(self)
+                .expect("epoch body read failed")
+                .transactions();
+        }
+        fixed_body(self, hash)
     }
 
     /// Get unfrozen block from ky-store with given hash
@@ -114,64 +190,31 @@ pub trait ChainStore: Send + Sync + Sized {
                 Into::<HeaderView>::into(reader)
             })?;
 
-        let body = self.get_block_body(hash);
-
-        let uncles = self
-            .get(COLUMN_BLOCK_UNCLE, hash.as_slice())
-            .map(|slice| {
-                let reader =
-                    packed::UncleBlockVecViewReader::from_slice_should_be_ok(slice.as_ref());
-                Into::<UncleBlockVecView>::into(reader)
-            })
-            .expect("block uncles must be stored");
-
-        let proposals = self
-            .get(COLUMN_BLOCK_PROPOSAL_IDS, hash.as_slice())
-            .map(|slice| {
-                packed::ProposalShortIdVecReader::from_slice_should_be_ok(slice.as_ref())
-                    .to_entity()
-            })
-            .expect("block proposal_ids must be stored");
-
-        let extension_opt = self
-            .get(COLUMN_BLOCK_EXTENSION, hash.as_slice())
-            .map(|slice| packed::BytesReader::from_slice_should_be_ok(slice.as_ref()).to_entity());
-
-        let block = if let Some(extension) = extension_opt {
-            BlockView::new_unchecked_with_extension(header, uncles, body, proposals, extension)
-        } else {
-            BlockView::new_unchecked(header, uncles, body, proposals)
-        };
-
-        Some(block)
+        if let BlockSource::Segment(block) = block_source(self, hash) {
+            return Some(block.read(self).expect("epoch block read failed"));
+        }
+        Some(read_hot_block(self, hash, header).expect("hot block read failed"))
     }
 
     /// Get all transaction-hashes in block body by block header hash
     fn get_block_txs_hashes(&self, hash: &packed::Byte32) -> Vec<packed::Byte32> {
-        if let Some(cache) = self.cache()
-            && let Some(hashes) = cache.block_tx_hashes.lock().get(hash)
-        {
-            return hashes.clone();
-        };
-
-        let prefix = hash.as_slice();
-        let ret: Vec<_> = self
-            .get_iter(
-                COLUMN_BLOCK_BODY,
-                IteratorMode::From(prefix, Direction::Forward),
-            )
-            .take_while(|(key, _)| key.starts_with(prefix))
-            .map(|(_key, value)| {
-                let reader = packed::TransactionViewReader::from_slice_should_be_ok(value.as_ref());
-                reader.hash().to_entity()
-            })
-            .collect();
-
-        if let Some(cache) = self.cache() {
-            cache.block_tx_hashes.lock().put(hash.clone(), ret.clone());
+        match block_source(self, hash) {
+            BlockSource::Archived { freezer, index } => {
+                let block =
+                    read_archived_block(freezer, &index, hash).expect("archive read failed");
+                block
+                    .transactions()
+                    .into_iter()
+                    .map(|tx| tx.calc_tx_hash())
+                    .collect()
+            }
+            BlockSource::Segment(block) => block
+                .read(self)
+                .expect("epoch hash read failed")
+                .tx_hashes()
+                .to_vec(),
+            BlockSource::Hot(cache) => hot_block_txs_hashes(self, hash, cache),
         }
-
-        ret
     }
 
     /// Get proposal short id by block header hash
@@ -179,66 +222,56 @@ pub trait ChainStore: Send + Sync + Sized {
         &self,
         hash: &packed::Byte32,
     ) -> Option<packed::ProposalShortIdVec> {
-        if let Some(cache) = self.cache()
-            && let Some(data) = cache.block_proposals.lock().get(hash)
-        {
-            return Some(data.clone());
-        };
-
-        let ret = self
-            .get(COLUMN_BLOCK_PROPOSAL_IDS, hash.as_slice())
-            .map(|slice| {
-                packed::ProposalShortIdVecReader::from_slice_should_be_ok(slice.as_ref())
-                    .to_entity()
-            });
-
-        if let Some(cache) = self.cache() {
-            ret.inspect(|data| {
-                cache.block_proposals.lock().put(hash.clone(), data.clone());
-            })
-        } else {
-            ret
+        match block_source(self, hash) {
+            BlockSource::Archived { freezer, index } => Some(
+                read_archived_fields(freezer, index.record(), hash)
+                    .proposals()
+                    .expect("valid archived proposals"),
+            ),
+            BlockSource::Segment(block) => Some(
+                block
+                    .fields(self)
+                    .expect("epoch proposals read failed")
+                    .proposals(),
+            ),
+            BlockSource::Hot(cache) => hot_block_proposals(self, hash, cache),
         }
     }
 
     /// Get block uncles by block header hash
     fn get_block_uncles(&self, hash: &packed::Byte32) -> Option<UncleBlockVecView> {
-        if let Some(cache) = self.cache()
-            && let Some(data) = cache.block_uncles.lock().get(hash)
-        {
-            return Some(data.clone());
-        };
-
-        let ret = self.get(COLUMN_BLOCK_UNCLE, hash.as_slice()).map(|slice| {
-            let reader = packed::UncleBlockVecViewReader::from_slice_should_be_ok(slice.as_ref());
-            Into::<UncleBlockVecView>::into(reader)
-        });
-
-        if let Some(cache) = self.cache() {
-            ret.inspect(|uncles| {
-                cache.block_uncles.lock().put(hash.clone(), uncles.clone());
-            })
-        } else {
-            ret
+        match block_source(self, hash) {
+            BlockSource::Archived { freezer, index } => Some(
+                read_archived_fields(freezer, index.record(), hash)
+                    .uncles()
+                    .expect("valid archived uncles")
+                    .into(),
+            ),
+            BlockSource::Segment(block) => Some(
+                block
+                    .fields(self)
+                    .expect("epoch uncles read failed")
+                    .uncles()
+                    .into(),
+            ),
+            BlockSource::Hot(cache) => hot_block_uncles(self, hash, cache),
         }
     }
 
     /// Get block extension by block header hash
     fn get_block_extension(&self, hash: &packed::Byte32) -> Option<packed::Bytes> {
-        if let Some(cache) = self.cache()
-            && let Some(data) = cache.block_extensions.lock().get(hash)
-        {
-            return data.clone();
-        };
-
-        let ret = self
-            .get(COLUMN_BLOCK_EXTENSION, hash.as_slice())
-            .map(|slice| packed::BytesReader::from_slice_should_be_ok(slice.as_ref()).to_entity());
-
-        if let Some(cache) = self.cache() {
-            cache.block_extensions.lock().put(hash.clone(), ret.clone());
+        match block_source(self, hash) {
+            BlockSource::Archived { freezer, index } => {
+                read_archived_fields(freezer, index.record(), hash)
+                    .extension()
+                    .expect("archive extension read failed")
+            }
+            BlockSource::Segment(block) => block
+                .fields(self)
+                .expect("epoch extension read failed")
+                .extension(),
+            BlockSource::Hot(cache) => hot_block_extension(self, hash, cache),
         }
-        ret
     }
 
     /// Get block ext by block header hash
@@ -318,20 +351,24 @@ pub trait ChainStore: Send + Sync + Sized {
         hash: &packed::Byte32,
     ) -> Option<(TransactionView, TransactionInfo)> {
         let tx_info = self.get_transaction_info(hash)?;
-        if let Some(freezer) = self.freezer()
-            && tx_info.block_number > 0
-            && tx_info.block_number < freezer.number()
-        {
-            let raw_block = freezer
-                .retrieve(tx_info.block_number)
-                .expect("block frozen")?;
-            let raw_block_reader =
-                packed::BlockReader::from_compatible_slice(&raw_block).expect("checked data");
-            if raw_block_reader.calc_header_hash().as_slice() == tx_info.block_hash.as_slice()
-                && let Some(tx_reader) = raw_block_reader.transactions().get(tx_info.index)
-                && tx_reader.calc_tx_hash().as_slice() == hash.as_slice()
-            {
-                return Some((tx_reader.to_entity().into_view(), tx_info));
+        match block_source(self, &tx_info.block_hash) {
+            BlockSource::Segment(block) => {
+                let tx = block
+                    .transaction(self, tx_info.index)
+                    .expect("epoch transaction read failed")
+                    .expect("indexed transaction missing");
+                assert_eq!(tx.hash(), *hash, "segment transaction hash mismatch");
+                return Some((tx, tx_info));
+            }
+            BlockSource::Hot(_) => (),
+            BlockSource::Archived { freezer, index } => {
+                let fields = read_archived_fields(freezer, index.record(), &tx_info.block_hash);
+                let tx = index
+                    .transaction(&fields, tx_info.index)
+                    .expect("valid archived transaction")
+                    .expect("archive transaction index out of bounds");
+                assert_eq!(tx.hash(), *hash, "archive transaction hash mismatch");
+                return Some((tx, tx_info));
             }
         }
         self.get(COLUMN_BLOCK_BODY, tx_info.key().as_slice())
@@ -467,6 +504,21 @@ pub trait ChainStore: Send + Sync + Sized {
 
     /// Gets cellbase by block hash
     fn get_cellbase(&self, hash: &packed::Byte32) -> Option<TransactionView> {
+        match block_source(self, hash) {
+            BlockSource::Segment(block) => {
+                return block
+                    .transaction(self, 0)
+                    .expect("epoch cellbase read failed");
+            }
+            BlockSource::Hot(_) => (),
+            BlockSource::Archived { freezer, index } => {
+                let fields = read_archived_fields(freezer, index.record(), hash);
+                return index
+                    .transaction(&fields, 0)
+                    .expect("valid archived cellbase");
+            }
+        }
+
         let key = packed::TransactionKey::new_builder()
             .block_hash(hash.to_owned())
             .build();
@@ -496,6 +548,19 @@ pub trait ChainStore: Send + Sync + Sized {
 
     /// Gets block bytes by block hash
     fn get_packed_block(&self, hash: &packed::Byte32) -> Option<packed::Block> {
+        let cache = match block_source(self, hash) {
+            BlockSource::Archived { freezer, index } => {
+                let block =
+                    read_archived_block(freezer, &index, hash).expect("archive read failed");
+                self.get(COLUMN_BLOCK_HEADER, hash.as_slice())?;
+                return Some(block);
+            }
+            BlockSource::Segment(block) => {
+                return Some(block.read(self).expect("epoch block read failed").data());
+            }
+            BlockSource::Hot(cache) => cache,
+        };
+
         let header = self
             .get(COLUMN_BLOCK_HEADER, hash.as_slice())
             .map(|slice| {
@@ -504,11 +569,12 @@ pub trait ChainStore: Send + Sync + Sized {
             })?;
 
         let prefix = hash.as_slice();
-        let transactions: packed::TransactionVec = self
-            .get_iter(
-                COLUMN_BLOCK_BODY,
-                IteratorMode::From(prefix, Direction::Forward),
-            )
+        let mut iter = self.get_iter(
+            COLUMN_BLOCK_BODY,
+            IteratorMode::From(prefix, Direction::Forward),
+        );
+        let transactions: packed::TransactionVec = iter
+            .by_ref()
             .take_while(|(key, _)| key.starts_with(prefix))
             .map(|(_key, value)| {
                 let reader = packed::TransactionViewReader::from_slice_should_be_ok(value.as_ref());
@@ -516,10 +582,12 @@ pub trait ChainStore: Send + Sync + Sized {
             })
             .collect::<Vec<_>>()
             .into();
+        iter.status()
+            .expect("packed block transaction iteration failed");
 
-        let uncles = self.get_block_uncles(hash)?;
-        let proposals = self.get_block_proposal_txs_ids(hash)?;
-        let extension_opt = self.get_block_extension(hash);
+        let uncles = hot_block_uncles(self, hash, cache)?;
+        let proposals = hot_block_proposals(self, hash, cache)?;
+        let extension_opt = hot_block_extension(self, hash, cache);
 
         let block = if let Some(extension) = extension_opt {
             packed::BlockV1::new_builder()
@@ -590,4 +658,214 @@ fn build_cell_meta_from_reader(out_point: OutPoint, reader: packed::CellEntryRea
         mem_cell_data: None,
         mem_cell_data_hash: None,
     }
+}
+
+/// A hot override also disables immutable payload caches in this read view.
+enum BlockSource<'a> {
+    Archived {
+        freezer: &'a FreezerReader,
+        index: ArchiveIndex<'a>,
+    },
+    Segment(crate::segment_block::SegmentBlock),
+    Hot(Option<&'a StoreCache>),
+}
+
+fn block_source<'a>(store: &'a impl ChainStore, hash: &packed::Byte32) -> BlockSource<'a> {
+    try_block_source(store, hash).expect("valid archive mapping")
+}
+
+fn try_block_source<'a>(
+    store: &'a impl ChainStore,
+    hash: &packed::Byte32,
+) -> Result<BlockSource<'a>, ckb_error::Error> {
+    let Some(freezer) = store.archive_reader() else {
+        return Ok(BlockSource::Hot(store.cache()));
+    };
+    let Some(raw) = store.get(COLUMN_BLOCK_ARCHIVE, hash.as_slice()) else {
+        return Ok(BlockSource::Hot(store.cache()));
+    };
+    use crate::archive::PayloadRoute;
+    Ok(match PayloadRoute::decode(raw)? {
+        PayloadRoute::Fixed => BlockSource::Hot(None),
+        PayloadRoute::Segment(start) => BlockSource::Segment(crate::segment_block::SegmentBlock {
+            start,
+            hash: hash.clone(),
+        }),
+        PayloadRoute::Archive(index) => BlockSource::Archived { freezer, index },
+    })
+}
+
+fn read_archived_block(
+    freezer: &FreezerReader,
+    index: &ArchiveIndex<'_>,
+    hash: &packed::Byte32,
+) -> Result<packed::Block, ckb_error::Error> {
+    let bytes = freezer
+        .retrieve(index.record())
+        .map_err(|e| invalid(format!("archive read failed: {e}")))?
+        .ok_or_else(|| invalid("committed archive record is missing"))?;
+    let block = packed::BlockReader::from_compatible_slice(&bytes).map_err(invalid)?;
+    if block.count_extra_fields() > 1 {
+        return Err(invalid("unsupported archived block fields"));
+    }
+    if block.calc_header_hash() != *hash {
+        return Err(invalid("archive mapping hash mismatch"));
+    }
+    index.check_count(block.transactions().len())?;
+    Ok(packed::Block::new_unchecked(bytes.into()))
+}
+
+fn read_archived_fields<'a>(
+    freezer: &'a FreezerReader,
+    record: u64,
+    hash: &packed::Byte32,
+) -> ArchivedBlock<'a> {
+    freezer
+        .read_block(record, hash)
+        .expect("archive block layout read failed")
+        .expect("committed archive record is missing")
+}
+
+fn hot_block_txs_hashes(
+    store: &impl ChainStore,
+    hash: &packed::Byte32,
+    cache: Option<&StoreCache>,
+) -> Vec<packed::Byte32> {
+    if let Some(cache) = cache
+        && let Some(hashes) = cache.block_tx_hashes.lock().get(hash)
+    {
+        return hashes.clone();
+    };
+
+    let prefix = hash.as_slice();
+    let mut iter = store.get_iter(
+        COLUMN_BLOCK_BODY,
+        IteratorMode::From(prefix, Direction::Forward),
+    );
+    let ret: Vec<_> = iter
+        .by_ref()
+        .take_while(|(key, _)| key.starts_with(prefix))
+        .map(|(_key, value)| {
+            let reader = packed::TransactionViewReader::from_slice_should_be_ok(value.as_ref());
+            reader.hash().to_entity()
+        })
+        .collect();
+    iter.status()
+        .expect("block transaction hash iteration failed");
+
+    if let Some(cache) = cache {
+        cache.block_tx_hashes.lock().put(hash.clone(), ret.clone());
+    }
+
+    ret
+}
+
+fn hot_block_proposals(
+    store: &impl ChainStore,
+    hash: &packed::Byte32,
+    cache: Option<&StoreCache>,
+) -> Option<packed::ProposalShortIdVec> {
+    if let Some(cache) = cache
+        && let Some(data) = cache.block_proposals.lock().get(hash)
+    {
+        return Some(data.clone());
+    };
+
+    let ret = store
+        .get(COLUMN_BLOCK_PROPOSAL_IDS, hash.as_slice())
+        .map(|slice| {
+            packed::ProposalShortIdVecReader::from_slice_should_be_ok(slice.as_ref()).to_entity()
+        });
+
+    if let Some(cache) = cache {
+        ret.inspect(|data| {
+            cache.block_proposals.lock().put(hash.clone(), data.clone());
+        })
+    } else {
+        ret
+    }
+}
+
+fn hot_block_uncles(
+    store: &impl ChainStore,
+    hash: &packed::Byte32,
+    cache: Option<&StoreCache>,
+) -> Option<UncleBlockVecView> {
+    if let Some(cache) = cache
+        && let Some(data) = cache.block_uncles.lock().get(hash)
+    {
+        return Some(data.clone());
+    };
+
+    let ret = store.get(COLUMN_BLOCK_UNCLE, hash.as_slice()).map(|slice| {
+        let reader = packed::UncleBlockVecViewReader::from_slice_should_be_ok(slice.as_ref());
+        Into::<UncleBlockVecView>::into(reader)
+    });
+
+    if let Some(cache) = cache {
+        ret.inspect(|uncles| {
+            cache.block_uncles.lock().put(hash.clone(), uncles.clone());
+        })
+    } else {
+        ret
+    }
+}
+
+fn hot_block_extension(
+    store: &impl ChainStore,
+    hash: &packed::Byte32,
+    cache: Option<&StoreCache>,
+) -> Option<packed::Bytes> {
+    if let Some(cache) = cache
+        && let Some(data) = cache.block_extensions.lock().get(hash)
+    {
+        return data.clone();
+    };
+
+    let ret = store
+        .get(COLUMN_BLOCK_EXTENSION, hash.as_slice())
+        .map(|slice| packed::BytesReader::from_slice_should_be_ok(slice.as_ref()).to_entity());
+
+    if let Some(cache) = cache {
+        cache.block_extensions.lock().put(hash.clone(), ret.clone());
+    }
+    ret
+}
+
+fn fixed_body(store: &impl ChainStore, hash: &packed::Byte32) -> Vec<TransactionView> {
+    let prefix = hash.as_slice();
+    let mut iter = store.get_iter(
+        COLUMN_BLOCK_BODY,
+        IteratorMode::From(prefix, Direction::Forward),
+    );
+    let mut body = Vec::new();
+    for (key, value) in iter.by_ref() {
+        if !key.starts_with(prefix) {
+            break;
+        }
+        let reader = packed::TransactionViewReader::from_slice_should_be_ok(value.as_ref());
+        body.push(reader.into());
+    }
+    iter.status().expect("block body iteration failed");
+    body
+}
+
+fn read_hot_block(
+    store: &impl ChainStore,
+    hash: &packed::Byte32,
+    header: HeaderView,
+) -> Result<BlockView, ckb_error::Error> {
+    let body = fixed_body(store, hash);
+
+    let uncles = hot_block_uncles(store, hash, None)
+        .ok_or_else(|| invalid("block uncles must be stored"))?;
+    let proposals = hot_block_proposals(store, hash, None)
+        .ok_or_else(|| invalid("block proposal_ids must be stored"))?;
+    let extension_opt = hot_block_extension(store, hash, None);
+
+    Ok(if let Some(extension) = extension_opt {
+        BlockView::new_unchecked_with_extension(header, uncles, body, proposals, extension)
+    } else {
+        BlockView::new_unchecked(header, uncles, body, proposals)
+    })
 }

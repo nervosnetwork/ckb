@@ -20,8 +20,10 @@ ckb-traits.workspace = true
 ckb-systemtime.workspace = true
 ckb-resource.workspace = true
 ckb-db-schema.workspace = true
+ckb-freezer.workspace = true
 ckb-util.workspace = true
 tempfile.workspace = true
+tokio.workspace = true
 
 [dev-dependencies]
 ckb-systemtime = { workspace = true, features = ["enable_faketime"] }

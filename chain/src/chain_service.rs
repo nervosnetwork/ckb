@@ -167,7 +167,10 @@ impl ChainService {
     }
 
     fn insert_block(&self, lonely_block: &LonelyBlock) -> Result<(), ckb_error::Error> {
-        let db_txn = self.shared.store().begin_transaction();
+        let db_txn = self
+            .shared
+            .store()
+            .begin_block_transaction(lonely_block.block())?;
         db_txn.insert_block(lonely_block.block())?;
         db_txn.commit()?;
         Ok(())

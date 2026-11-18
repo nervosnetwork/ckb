@@ -14,6 +14,9 @@ pub struct Config {
     /// The capacity of RocksDB cache, which caches uncompressed data blocks, indexes and filters, default is 128MB
     #[serde(default)]
     pub cache_size: Option<usize>,
+    /// Width of a Freezer epoch column, either 8 or 16. Omit to use the
+    /// stored width on reopen or 16 on first activation.
+    pub freezer_epoch_width: Option<u64>,
     /// Provide RocksDB options.
     ///
     /// More details can be found in [the official tuning guide](https://github.com/facebook/rocksdb/wiki/RocksDB-Tuning-Guide).

@@ -16,6 +16,18 @@ pub struct StoreSnapshot {
 }
 
 impl ChainStore for StoreSnapshot {
+    fn segment_value(
+        &self,
+        start: u64,
+        key: &[u8],
+    ) -> Result<Option<DBPinnableSlice<'_>>, ckb_error::Error> {
+        self.inner.segment_get(start, key)
+    }
+
+    fn segment_rows(&self, start: u64, mode: IteratorMode) -> Result<DBIter<'_>, ckb_error::Error> {
+        self.inner.segment_iter(start, mode)
+    }
+
     fn cache(&self) -> Option<&StoreCache> {
         Some(&self.cache)
     }
