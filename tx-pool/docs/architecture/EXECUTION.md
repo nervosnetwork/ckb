@@ -576,7 +576,8 @@ once. A closure larger than the available slots contributes its dependency-first
 prefix, so low-fee roots and retained readers can advance before their consumers.
 Every output prefix has this property, including the later byte-budget truncation.
 Tentative uncles provide no proposal coverage: the assembler gives main proposals
-byte priority and then removes conflicting or unfitting uncles.
+byte priority, then selects compatible uncles in order up to the remaining byte
+budget. It needs a proposal lookup set only when an uncle can be included.
 
 For `N` owners and `P` complete prerequisite edges, this additional proposal walk
 visits at most `N` nodes and `P` edges, uses `O(N)` scratch and emits at most the

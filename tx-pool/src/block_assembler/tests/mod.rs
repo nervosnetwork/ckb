@@ -8,7 +8,7 @@ use ckb_snapshot::Snapshot;
 use ckb_store::attach_block_cell;
 use ckb_test_chain_utils::MockStore;
 use ckb_types::{U256, core::BlockExt, packed::Byte32};
-use std::{collections::HashSet, sync::Arc};
+use std::sync::Arc;
 
 pub(super) fn genesis_snapshot() -> Arc<Snapshot> {
     snapshot_with_consensus(Arc::new(ConsensusBuilder::default().build()))
@@ -273,18 +273,10 @@ fn pending_proposals_filter_conflicting_uncle_subtree() {
         .as_uncle();
     let uncles = vec![conflicting.clone(), independent.clone(), descendant.clone()];
 
-    let all = super::BlockAssembler::filter_uncles_conflicting_with_proposals(
-        &snapshot,
-        &uncles,
-        &HashSet::new(),
-    );
+    let all = super::BlockAssembler::fit_uncles(&snapshot, uncles.clone(), &[], usize::MAX);
     assert_eq!(all, uncles, "a conflict-free uncle chain must be preserved");
 
-    let filtered = super::BlockAssembler::filter_uncles_conflicting_with_proposals(
-        &snapshot,
-        &uncles,
-        &HashSet::from([pending_id]),
-    );
+    let filtered = super::BlockAssembler::fit_uncles(&snapshot, uncles, &[pending_id], usize::MAX);
     assert_eq!(filtered, vec![independent]);
     assert!(!filtered.contains(&conflicting));
     assert!(!filtered.contains(&descendant));
@@ -322,7 +314,7 @@ fn optional_content_uses_one_budget_and_filters_only_published_conflicts() {
     let fitted = super::BlockAssembler::fit_optional_content(
         &snapshot,
         vec![proposal.clone()],
-        &[conflicting, independent.clone()],
+        vec![conflicting, independent.clone()],
         base,
         max,
     )
@@ -369,7 +361,7 @@ fn optional_prefixes_follow_canonical_byte_boundaries() {
         .proposals((64..96).map(|byte| ProposalShortId::from_tx_hash(&Byte32::new([byte; 32]))))
         .build()
         .as_uncle();
-    let uncles = [parent, child];
+    let uncles = vec![parent, child];
     let base =
         super::BlockAssembler::basic_block_size(cellbase.clone(), &[], std::iter::empty(), None);
     let proposal_bytes = ProposalShortId::serialized_size();
@@ -390,7 +382,7 @@ fn optional_prefixes_follow_canonical_byte_boundaries() {
         let fitted = super::BlockAssembler::fit_optional_content(
             &snapshot,
             proposals.clone(),
-            &uncles,
+            uncles.clone(),
             base,
             base + available,
         )
@@ -406,8 +398,19 @@ fn optional_prefixes_follow_canonical_byte_boundaries() {
         assert_eq!(fitted.total_size, canonical);
         assert!(canonical <= base + available);
     }
+    let maximum = super::BlockAssembler::fit_optional_content(
+        &snapshot,
+        proposals.clone(),
+        uncles.clone(),
+        usize::MAX - proposal_bytes,
+        usize::MAX,
+    )
+    .unwrap();
+    assert_eq!(maximum.proposals, proposals[..1]);
+    assert!(maximum.uncles.is_empty());
+    assert_eq!(maximum.total_size, usize::MAX);
     assert!(
-        super::BlockAssembler::fit_optional_content(&snapshot, proposals, &uncles, base, base - 1,)
+        super::BlockAssembler::fit_optional_content(&snapshot, proposals, uncles, base, base - 1,)
             .is_none()
     );
 }

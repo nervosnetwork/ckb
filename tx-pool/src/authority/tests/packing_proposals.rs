@@ -175,7 +175,7 @@ fn proposal_byte_prefix_does_not_depend_on_an_uncle_that_may_be_filtered() {
         let fitted = BlockAssembler::fit_optional_content(
             &snapshot,
             block.proposal_short_ids(3),
-            std::slice::from_ref(&uncle),
+            vec![uncle.clone()],
             base,
             base + bytes,
         )

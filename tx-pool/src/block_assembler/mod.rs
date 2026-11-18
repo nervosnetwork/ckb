@@ -171,51 +171,32 @@ impl BlockAssembler {
     /// ordered compatible uncle prefix consumes the remainder. Returning
     /// `None` means the mandatory cellbase/extension/transaction base already
     /// exceeds the consensus byte limit.
+    #[expect(
+        clippy::arithmetic_side_effects,
+        reason = "Both fixed widths are positive, and each count is capped by the remaining byte budget before multiplication."
+    )]
     pub(crate) fn fit_optional_content(
         snapshot: &Snapshot,
         mut proposals: Vec<ProposalShortId>,
-        prepared_uncles: &[UncleBlockView],
+        prepared_uncles: Vec<UncleBlockView>,
         base_total_size: usize,
         max_block_bytes: usize,
     ) -> Option<FittedOptionalContent> {
-        let proposals_total = Self::fit_fixed_size_prefix(
-            &mut proposals,
-            ProposalShortId::serialized_size(),
-            base_total_size,
-            max_block_bytes,
-        )?;
-        let proposal_set = proposals.iter().cloned().collect::<HashSet<_>>();
-        let mut uncles = Self::filter_uncles_conflicting_with_proposals(
-            snapshot,
-            prepared_uncles,
-            &proposal_set,
-        );
-        // Canonical block size excludes uncle proposal payloads, so every
-        // uncle contributes the same fixed size regardless of its contents.
-        let total_size = Self::fit_fixed_size_prefix(
-            &mut uncles,
-            UncleBlockView::serialized_size_in_block(),
-            proposals_total,
-            max_block_bytes,
-        )?;
+        let available = max_block_bytes.checked_sub(base_total_size)?;
+        let proposal_bytes = ProposalShortId::serialized_size();
+        proposals.truncate(available / proposal_bytes);
+        let used = base_total_size + proposals.len() * proposal_bytes;
+
+        // Uncle proposal payloads do not count toward the canonical byte size.
+        let uncle_bytes = UncleBlockView::serialized_size_in_block();
+        let slots = (max_block_bytes - used) / uncle_bytes;
+        let uncles = Self::fit_uncles(snapshot, prepared_uncles, &proposals, slots);
+        let total_size = used + uncles.len() * uncle_bytes;
         Some(FittedOptionalContent {
             proposals,
             uncles,
             total_size,
         })
-    }
-
-    /// Retain the ordered prefix of fixed-size items that fits and return the
-    /// new total. Exact fits are valid; a base above the limit is rejected.
-    fn fit_fixed_size_prefix<T>(
-        items: &mut Vec<T>,
-        item_bytes: usize,
-        used_bytes: usize,
-        max_bytes: usize,
-    ) -> Option<usize> {
-        let available = max_bytes.checked_sub(used_bytes)?;
-        items.truncate(available.checked_div(item_bytes)?);
-        used_bytes.checked_add(items.len().checked_mul(item_bytes)?)
     }
 
     pub(crate) fn get_current(&self) -> Option<JsonBlockTemplate> {
@@ -333,35 +314,39 @@ impl BlockAssembler {
     /// uncles. Descendants of an omitted uncle are also omitted unless
     /// their parent is independently known on the main chain or as an already
     /// embedded uncle.
-    pub(crate) fn filter_uncles_conflicting_with_proposals(
+    fn fit_uncles(
         snapshot: &Snapshot,
-        uncles: &[UncleBlockView],
-        proposals: &HashSet<ProposalShortId>,
+        uncles: Vec<UncleBlockView>,
+        proposals: &[ProposalShortId],
+        slots: usize,
     ) -> Vec<UncleBlockView> {
-        let mut included_hashes = HashSet::with_capacity(uncles.len());
-        let mut compatible = Vec::with_capacity(uncles.len());
-
-        for uncle in uncles {
-            let conflicts = uncle
-                .data()
-                .proposals()
-                .into_iter()
-                .any(|id| proposals.contains(&id));
-            if conflicts {
-                continue;
-            }
-
-            let parent_hash = uncle.header().parent_hash();
-            if snapshot.is_main_chain(&parent_hash)
-                || snapshot.is_uncle(&parent_hash)
-                || included_hashes.contains(&parent_hash)
-            {
-                included_hashes.insert(uncle.hash());
-                compatible.push(uncle.clone());
-            }
+        if uncles.is_empty() || slots == 0 {
+            return Vec::new();
         }
-
-        compatible
+        let proposals: HashSet<_> = proposals.iter().collect();
+        let mut included = HashSet::with_capacity(uncles.len().min(slots));
+        uncles
+            .into_iter()
+            .filter(|uncle| {
+                if uncle
+                    .data()
+                    .proposals()
+                    .into_iter()
+                    .any(|id| proposals.contains(&id))
+                {
+                    return false;
+                }
+                let parent = uncle.header().parent_hash();
+                let connected = included.contains(&parent)
+                    || snapshot.is_main_chain(&parent)
+                    || snapshot.is_uncle(&parent);
+                if connected {
+                    included.insert(uncle.hash());
+                }
+                connected
+            })
+            .take(slots)
+            .collect()
     }
 
     pub(crate) fn basic_block_size<'a>(
