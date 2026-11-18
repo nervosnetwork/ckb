@@ -3,8 +3,8 @@
 use super::plan::LifecycleWrite;
 use super::{
     COMMITTED_HASH_CACHE_CAPACITY, CommitLocks, Edit, Guard, Peer, Plan, Relation, RelationMember,
-    Roles, SHARDS, Shard, ShardGuards, ShardIndex, Shards, Store, View, Wake, WakePage,
-    compact_dependency, compact_relation, proposal_key,
+    Roles, SHARDS, Shard, ShardGuards, ShardIndex, Store, View, Wake, WakePage, compact_dependency,
+    compact_relation, proposal_key,
 };
 use crate::authority::{
     budget::OwnerDelta,
@@ -518,6 +518,36 @@ impl Shard {
         }
     }
 
+    /// Move one accepted owner between the proposal bands. A promotion removes
+    /// a known priority. A demotion can need ancestors outside this shard.
+    #[expect(
+        clippy::arithmetic_side_effects,
+        reason = "Each changed owner is counted exactly once in its previous band."
+    )]
+    fn change_proposal(&mut self, id: &ProposalShortId, before: Status, after: Status) {
+        let Some(owner) = self.proposal(&id.unpack()) else {
+            return;
+        };
+        let Some(value) = owner.accepted() else {
+            return;
+        };
+        let before = value.status_with(|| before);
+        let after = value.status_with(|| after);
+        if before == after {
+            return;
+        }
+        let hash = owner.hash();
+        self.gap =
+            self.gap - usize::from(before == Status::Gap) + usize::from(after == Status::Gap);
+        self.proposed = self.proposed - usize::from(before == Status::Proposed)
+            + usize::from(after == Status::Proposed);
+        if before == Status::Proposed {
+            self.ranks.invalidate();
+        } else if after == Status::Proposed {
+            self.ranks.remove(&hash);
+        }
+    }
+
     #[expect(
         clippy::arithmetic_side_effects,
         reason = "Each count is bounded by this shard's accepted owner population."
@@ -538,7 +568,7 @@ impl LifecycleWrite {
     /// the view and its ordered committed-hash records as one lifecycle write.
     #[expect(
         clippy::arithmetic_side_effects,
-        reason = "Apply checks view revision overflow. Unique proposal changes move disjoint subsets of the validated final owner population between status counts."
+        reason = "Apply checks view revision overflow before installing the successor view."
     )]
     fn apply(
         &self,
@@ -552,35 +582,9 @@ impl LifecycleWrite {
         // it against the old view. Only changed canonical phases remain; the
         // final owner lookup also covers handoffs in this same cut.
         if let Some(changes) = &self.proposals {
-            let mut counts = Shards::new(|| {
-                (
-                    MemberChange::<usize>::default(),
-                    MemberChange::<usize>::default(),
-                )
-            });
             for (id, before, after) in changes {
-                let index = store.route(id);
-                let Some(value) = owners
-                    .get(index)
-                    .and_then(|shard| shard.proposal(&id.unpack()))
-                    .and_then(|entry| entry.accepted())
-                else {
-                    continue;
-                };
-                let before = value.status_with(|| *before);
-                let after = value.status_with(|| *after);
-                let (gap, proposed) = counts.at_mut(index);
-                gap.before += usize::from(before == Status::Gap);
-                gap.after += usize::from(after == Status::Gap);
-                proposed.before += usize::from(before == Status::Proposed);
-                proposed.after += usize::from(after == Status::Proposed);
-            }
-            for (index, shard) in owners.writes_mut() {
-                let (gap, proposed) = counts.at(index);
-                shard.gap = shard.gap - gap.before + gap.after;
-                shard.proposed = shard.proposed - proposed.before + proposed.after;
-                if proposed.before != 0 || proposed.after != 0 {
-                    shard.ranks.invalidate();
+                if let Some(shard) = owners.get_mut(store.route(id)) {
+                    shard.change_proposal(id, *before, *after);
                 }
             }
         } else {

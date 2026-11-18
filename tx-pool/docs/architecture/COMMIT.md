@@ -250,8 +250,11 @@ walks the target's live child rows to count distinct descendants. Runs store
 numeric keys independent of transaction bodies.
 
 An accepted rewrite or a removal with surviving children can reprice owners in
-other shards and invalidates all runs. Changes to proposed status invalidate
-the affected shards. A read with stale evidence, or a tighter ancestor limit,
+other shards and invalidates all runs. A promotion removes the known pending
+priority in its own shard. A demotion invalidates that shard because ancestors
+can contribute to its returning priority. When the proposal window is larger
+than the pool's lookup bound, the lifecycle write recomputes counts from owners
+and discards their old runs. A read with stale evidence, or a tighter ancestor limit,
 reconstructs ranks outside the owner guards from one accepted cut. It publishes
 each run only while the lifecycle, ancestry generation and source shard revision
 still match.

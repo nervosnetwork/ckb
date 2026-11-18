@@ -160,12 +160,17 @@ impl<T> Guard<'_, T> {
 pub(super) struct ShardGuards<'a, T>(Vec<(ShardIndex, Guard<'a, T>)>);
 
 impl<T> ShardGuards<'_, T> {
+    fn position(&self, index: ShardIndex) -> Option<usize> {
+        self.0.binary_search_by_key(&index, |(key, _)| *key).ok()
+    }
+
     pub(super) fn get(&self, index: ShardIndex) -> Option<&T> {
-        self.0
-            .binary_search_by_key(&index, |(index, _)| *index)
-            .ok()
-            .and_then(|position| self.0.get(position))
-            .map(|(_, guard)| guard.get())
+        Some(self.0.get(self.position(index)?)?.1.get())
+    }
+
+    pub(super) fn get_mut(&mut self, index: ShardIndex) -> Option<&mut T> {
+        let position = self.position(index)?;
+        self.0.get_mut(position)?.1.get_mut()
     }
 
     pub(super) fn iter(&self) -> impl ExactSizeIterator<Item = (ShardIndex, &T)> {

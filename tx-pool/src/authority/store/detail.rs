@@ -49,19 +49,9 @@ impl Ranks {
         }
         if let Some(value) = edit.before.as_deref().and_then(Entry::accepted)
             && value.status(snapshot) != Status::Proposed
+            && !self.remove(hash)
         {
-            let Some(position) = self
-                .pending
-                .iter()
-                .position(|p| p.hash.as_slice() == hash.as_slice())
-            else {
-                self.invalidate();
-                return;
-            };
-            self.pending.remove(position);
-            if self.pending.capacity() > 8 && self.pending.len() <= self.pending.capacity() / 4 {
-                self.pending.shrink_to_fit();
-            }
+            return;
         }
         if let Some(owner) = &edit.after
             && let Some(value) = owner.accepted()
@@ -87,6 +77,24 @@ impl Ranks {
                 self.pending.insert(position, priority);
             }
         }
+    }
+
+    /// Retire the priority for a departure or a promotion. A missing member
+    /// invalidates the run, so an owner replacement must stop updating it.
+    pub(super) fn remove(&mut self, hash: &Byte32) -> bool {
+        let Some(position) = self
+            .pending
+            .iter()
+            .position(|p| p.hash.as_slice() == hash.as_slice())
+        else {
+            self.invalidate();
+            return false;
+        };
+        self.pending.remove(position);
+        if self.pending.capacity() > 8 && self.pending.len() <= self.pending.capacity() / 4 {
+            self.pending.shrink_to_fit();
+        }
+        true
     }
 
     #[expect(

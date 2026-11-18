@@ -163,6 +163,25 @@ fn detail_ranks_follow_a_shared_ancestor_replacement_with_unchanged_children() {
     assert!(merged.score_sortkey.ancestors_fee.as_u64() > 1_000_000);
 }
 
+fn install_proposals(
+    store: &Store,
+    backing: &ckb_test_chain_utils::MockStore,
+    proposals: ckb_proposal_table::ProposalView,
+) {
+    let (view, base) = store.snapshot();
+    let next = Arc::new(Snapshot::new(
+        base.tip_header().clone(),
+        base.total_difficulty().clone(),
+        base.epoch_ext().clone(),
+        backing.store().get_snapshot(),
+        proposals,
+        base.cloned_consensus(),
+    ));
+    let mut plan = Plan::new(view, Class::Critical, Default::default());
+    plan.chain(store.snapshot_change(next), []).unwrap();
+    store.apply(plan).unwrap();
+}
+
 #[test]
 fn pending_ranks_follow_proposal_window_changes_without_owner_edits() {
     let store = store();
@@ -181,24 +200,53 @@ fn pending_ranks_follow_proposal_window_changes_without_owner_edits() {
         ),
         (ckb_proposal_table::ProposalView::default(), 2),
     ] {
-        let (view, base) = store.snapshot();
-        let next = Arc::new(Snapshot::new(
-            base.tip_header().clone(),
-            base.total_difficulty().clone(),
-            base.epoch_ext().clone(),
-            backing.store().get_snapshot(),
-            proposals,
-            base.cloned_consensus(),
-        ));
-        let mut plan = Plan::new(view, Class::Critical, Default::default());
-        plan.chain(store.snapshot_change(next), []).unwrap();
-        store.apply(plan).unwrap();
+        install_proposals(&store, &backing, proposals);
         assert!(Arc::ptr_eq(&store.point(&high).1.unwrap(), &owner));
         assert_eq!(
             detail(&store, &low, &config()).unwrap().rank_in_pending,
             rank
         );
     }
+}
+
+#[test]
+fn promotion_removal_and_forced_status_share_the_same_pending_rank() {
+    let store = store();
+    let backing = ckb_test_chain_utils::MockStore::default();
+    let canonical = accept(&store, tx(6570), 10_000, 1, Status::Pending);
+    let before = store.point(&canonical).1.unwrap();
+    let mut accepted = before.accepted().unwrap().clone();
+    accepted.forced_status = None;
+    let canonical = replace(&store, before, Phase::Accepted(accepted));
+    let forced = accept(&store, tx(6571), 10, 1, Status::Pending);
+    let forced_owner = store.point(&forced).1.unwrap();
+    let target = accept(&store, tx(6572), 1, 1, Status::Pending);
+    assert_eq!(
+        detail(&store, &target, &config()).unwrap().rank_in_pending,
+        3
+    );
+    install_proposals(
+        &store,
+        &backing,
+        ckb_proposal_table::ProposalView::new([], [canonical.proposal(), forced_owner.proposal()]),
+    );
+    // Remove the promoted owner and add a new pending competitor before the first read.
+    store.apply(delete(&store, canonical)).unwrap();
+    accept(&store, tx(6573), 100, 1, Status::Pending);
+    let observed = detail(&store, &target, &config()).unwrap();
+    assert_eq!(
+        (
+            observed.rank_in_pending,
+            observed.pending_count,
+            observed.proposed_count
+        ),
+        (3, 3, 0)
+    );
+    let forced = detail(&store, &forced, &config()).unwrap();
+    assert_eq!(
+        (forced.entry_status.as_str(), forced.rank_in_pending),
+        ("pending", 2)
+    );
 }
 
 #[test]
