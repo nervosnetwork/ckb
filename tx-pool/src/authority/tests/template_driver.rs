@@ -18,15 +18,41 @@ fn template_snapshot() -> Arc<Snapshot> {
 }
 
 fn fixture() -> Arc<Driver> {
+    fixture_with_miner(template_config(60_000))
+}
+
+fn fixture_with_miner(miner: ckb_app_config::BlockAssemblerConfig) -> Arc<Driver> {
     let snapshot = template_snapshot();
     let store = Store::new(Arc::clone(&snapshot), &config()).unwrap();
-    let assembler = BlockAssembler::new(template_config(60_000), snapshot).unwrap();
+    let assembler = BlockAssembler::new(miner, snapshot).unwrap();
     Driver::new(
         store,
         assembler,
         Arc::new(RwLock::new(ckb_verification::cache::init_cache())),
         config().max_ancestors_count,
     )
+}
+
+#[tokio::test]
+async fn only_configured_miner_notifications_start_a_delivery_task() {
+    for (http, script) in [(false, false), (true, false), (false, true), (true, true)] {
+        let mut miner = template_config(60_000);
+        if http {
+            miner.notify.push("http://127.0.0.1/".parse().unwrap());
+        }
+        if script {
+            miner.notify_scripts.push("example-notifier".to_owned());
+        }
+        let driver = fixture_with_miner(miner);
+        let mut tasks = JoinSet::new();
+        driver.start(&mut tasks);
+        assert_eq!(tasks.len(), if http || script { 2 } else { 1 });
+        // This current-thread runtime has not polled the tasks yet.
+        driver.store.stop();
+        while let Some(result) = tasks.join_next().await {
+            result.unwrap().unwrap();
+        }
+    }
 }
 
 async fn within<T>(future: impl std::future::Future<Output = T>) -> T {
@@ -857,7 +883,9 @@ async fn changes_during_publication_remain_visible_to_the_running_driver() {
     }
 
     for membership in [false, true] {
-        let driver = fixture();
+        let mut miner = template_config(60_000);
+        miner.notify.push("http://127.0.0.1/".parse().unwrap());
+        let driver = fixture_with_miner(miner);
         let change = Arc::new(PublicationChange {
             driver: Arc::downgrade(&driver),
             membership,

@@ -279,8 +279,7 @@ impl Pool {
         tasks.spawn(Arc::clone(self).maintain());
         tasks.spawn(Arc::clone(self).chain_loop(chain));
         if let Some(driver) = &self.template {
-            tasks.spawn(Arc::clone(driver).run());
-            tasks.spawn(Arc::clone(driver).notify());
+            driver.start(&mut tasks);
         }
         (tasks, publisher)
     }

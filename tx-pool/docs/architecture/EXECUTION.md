@@ -521,7 +521,9 @@ existing completion boundary.
 `BlockAssembler::new` validates an empty template and consumes its initial work
 ID before startup succeeds. It retains no current output until the driver first
 publishes. Every prepared or published `CurrentTemplate` carries its required
-source; readers wait for publication and miner notifications follow publication.
+source; readers wait for publication. Configured miner endpoints start one delivery
+worker. A successful publication wakes that worker and HTTP recipients share one
+encoded body. Script commands receive the same JSON as an argument.
 
 Each uncle cleanup plan carries its source receipt. Under the candidate lock,
 `CandidateUncles::try_prune` validates that receipt before applying cleanup;

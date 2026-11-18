@@ -29,7 +29,10 @@ use std::{
     },
     time::Duration,
 };
-use tokio::sync::{Notify, RwLock};
+use tokio::{
+    sync::{Notify, RwLock},
+    task::JoinSet,
+};
 
 /// Validity follows the lifecycle and selected transaction/proposal owners.
 /// Unrelated admissions may trigger a refresh without invalidating this template.
@@ -125,6 +128,13 @@ impl Driver {
             notification: Notify::new(),
             failed: AtomicBool::new(false),
         })
+    }
+
+    pub(super) fn start(self: &Arc<Self>, tasks: &mut JoinSet<Result<(), Error>>) {
+        tasks.spawn(Arc::clone(self).run());
+        if self.assembler.notifications_enabled() {
+            tasks.spawn(Arc::clone(self).notify());
+        }
     }
 
     pub(super) fn uncle(&self, uncle: crate::block_assembler::BoundedCandidateUncle) {
@@ -337,7 +347,9 @@ impl Driver {
         // selected-source guards have opened.
         let retired = retired.map_err(|_stale| Error::Stale)?;
         drop(retired);
-        self.notification.notify_one();
+        if self.assembler.notifications_enabled() {
+            self.notification.notify_one();
+        }
         Ok(())
     }
 
@@ -429,9 +441,11 @@ impl Driver {
         }
     }
 
-    pub(super) async fn notify(self: Arc<Self>) -> Result<(), Error> {
+    async fn notify(self: Arc<Self>) -> Result<(), Error> {
         loop {
-            let changed = self.store.template_changed.notified();
+            // Stop and fault wake state waiters. Only a published template
+            // needs to wake this task for ordinary membership changes.
+            let changed = self.store.changed.notified();
             let notification = self.notification.notified();
             tokio::pin!(changed, notification);
             notification.as_mut().enable();

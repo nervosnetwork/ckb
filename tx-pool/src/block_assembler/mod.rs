@@ -72,11 +72,7 @@ pub struct BlockAssembler {
     /// Shared per-tip memo of chain-cell liveness for `calc_dao`. Its short
     /// synchronous critical sections never cross `.await`.
     pub(crate) cell_liveness_memo: Arc<Mutex<CellLivenessMemo>>,
-    pub(crate) poster: Arc<Client<HttpConnector, Full<bytes::Bytes>>>,
-    /// Test-only observation point for the external miner-notification
-    /// boundary. Production builds pay no field or atomic-operation cost.
-    #[cfg(test)]
-    pub(crate) notify_count: Arc<AtomicU64>,
+    poster: Option<Arc<Client<HttpConnector, Full<bytes::Bytes>>>>,
 }
 
 impl BlockAssembler {
@@ -106,18 +102,19 @@ impl BlockAssembler {
                 &current_epoch,
                 &cell_liveness_memo,
             )?;
+            let poster = (!config.notify.is_empty()).then(|| {
+                Arc::new(
+                    Client::builder(hyper_util::rt::TokioExecutor::new())
+                        .build(HttpConnector::new()),
+                )
+            });
             Ok(Self {
                 config: Arc::new(config),
                 work_id: Arc::new(work_id),
                 candidate_uncles: Arc::new(Mutex::new(CandidateUncles::new())),
                 current: Arc::new(RwLock::new(None)),
                 cell_liveness_memo,
-                poster: Arc::new(
-                    Client::builder(hyper_util::rt::TokioExecutor::new())
-                        .build::<_, Full<bytes::Bytes>>(HttpConnector::new()),
-                ),
-                #[cfg(test)]
-                notify_count: Arc::new(AtomicU64::new(0)),
+                poster,
             })
         })
     }
