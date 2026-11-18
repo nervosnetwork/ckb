@@ -191,7 +191,7 @@ impl<'a> Selection<'a> {
                     candidate.status,
                     descendants,
                     candidate.arrival,
-                    candidate.hash.clone(),
+                    candidate.hash,
                 )
             })
             .collect())

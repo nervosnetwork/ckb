@@ -70,7 +70,7 @@ impl<'a> Graph<'a> {
         let candidate_rank = EvictionRank::new(&candidate.entry, own, snapshot)?;
         let mut work = MAX_POOL_MUTATION_CANDIDATES.saturating_sub(removed.len());
         while excess != Amount::default() {
-            let mut winner = candidate_rank.clone();
+            let mut winner = candidate_rank;
             let mut selected = None;
             for bound in EvictionRank::ordered_bounds(&bounds) {
                 if bound >= &winner {
@@ -79,18 +79,19 @@ impl<'a> Graph<'a> {
                 if work == 0 {
                     return Ok(None);
                 }
-                if removed.contains(&bound.hash) {
+                let hash = Byte32::from(&bound.hash);
+                if removed.contains(&hash) {
                     work = work.saturating_sub(1);
                     continue;
                 }
-                let family = match self.descendants([bound.hash.clone()], &removed, work) {
+                let family = match self.descendants([hash.clone()], &removed, work) {
                     Ok(family) => family,
                     Err(Error::Rejected(Reject::Full(_))) => return Ok(None),
                     Err(error) => return Err(error),
                 };
                 work = work.saturating_sub(family.len());
-                let root = self.require(&bound.hash)?;
-                let protected = candidate.ancestors.contains(&bound.hash);
+                let root = self.require(&hash)?;
+                let protected = candidate.ancestors.contains(&hash);
                 let mut total = aggregate(&self.observed, &family)?;
                 if protected {
                     total = total.add(own)?;

@@ -675,7 +675,7 @@ fn conditional_eviction_ranks_match_independent_descendant_sets() {
                                 rank.fee,
                                 rank.descendants,
                                 rank.arrival,
-                                rank.hash,
+                                Byte32::from(&rank.hash),
                             )
                         })
                         .collect::<Vec<_>>()),

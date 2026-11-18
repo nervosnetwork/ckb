@@ -18,6 +18,7 @@ use ckb_snapshot::Snapshot;
 use ckb_types::{
     core::{Capacity, FeeRate, error::OutPointError, tx_pool::get_transaction_weight},
     packed::{Byte32, OutPoint},
+    prelude::Unpack,
 };
 use ckb_verification::transaction_depends_on_time;
 use std::{
@@ -335,13 +336,13 @@ pub(super) type EvictionBounds = Arc<[EvictionRank]>;
 /// lower fee rate, fewer descendants, earlier arrival and smaller hash.
 /// Capacity trimming and cycle removal select the minimum; the bounded cycle
 /// fallback retains the maximum among eligible package roots.
-#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub(super) struct EvictionRank {
     pub(super) status: Status,
     pub(super) fee: FeeRate,
     pub(super) descendants: usize,
     pub(super) arrival: u64,
-    pub(super) hash: Byte32,
+    pub(super) hash: [u8; 32],
 }
 fn own_fee_rate(value: &Accepted) -> FeeRate {
     FeeRate::calculate(
@@ -362,7 +363,7 @@ impl EvictionRank {
                     fee: own_fee_rate(owner.accepted()?),
                     descendants: 1,
                     arrival: owner.arrival,
-                    hash: compact_packed(owner.transaction.hash_ref()),
+                    hash: owner.transaction.hash_ref().unpack(),
                 })
             })
             .collect();
@@ -399,7 +400,7 @@ impl EvictionRank {
             value.status(snapshot),
             descendants,
             entry.arrival,
-            entry.hash(),
+            entry.transaction.hash_ref(),
         ))
     }
 
@@ -408,7 +409,7 @@ impl EvictionRank {
         status: Status,
         descendants: Aggregate,
         arrival: u64,
-        hash: Byte32,
+        hash: &Byte32,
     ) -> Self {
         let descendants_rate = FeeRate::calculate(
             descendants.fee(),
@@ -419,7 +420,7 @@ impl EvictionRank {
             fee: own_fee_rate(value).max(descendants_rate),
             descendants: descendants.count,
             arrival,
-            hash,
+            hash: hash.unpack(),
         }
     }
 }
@@ -940,9 +941,10 @@ fn trim_virtual(
         // descendants move into `removed`, and the touched union never shrinks.
         let closure = loop {
             let root = ranks.pop_lowest().ok_or_else(component_limit)?;
+            let hash = Byte32::from(&root.hash);
             // Do not pass a protected ancestor's rank to evict a more valuable
             // independent owner; removing any ancestor would remove the candidate.
-            if candidate.ancestors.contains(&root.hash) {
+            if candidate.ancestors.contains(&hash) {
                 return Err(protected_eviction(candidate_rate));
             }
             // Previously removed descendants still appear in child_index;
@@ -950,11 +952,10 @@ fn trim_virtual(
             if root.descendants > MAX_POOL_MUTATION_CANDIDATES.saturating_sub(removed.len()) {
                 continue;
             }
-            let closure =
-                descendant_hashes(&child_index, [root.hash], MAX_POOL_MUTATION_CANDIDATES)?
-                    .into_iter()
-                    .filter(|hash| entries.contains_key(hash))
-                    .collect::<BTreeSet<_>>();
+            let closure = descendant_hashes(&child_index, [hash], MAX_POOL_MUTATION_CANDIDATES)?
+                .into_iter()
+                .filter(|hash| entries.contains_key(hash))
+                .collect::<BTreeSet<_>>();
             let touched = removed
                 .union(late)
                 .cloned()

@@ -3,6 +3,7 @@ use crate::authority::{
     notice::Class,
     tests::common::{self, accept, config, spend, store},
 };
+use ckb_types::prelude::Entity;
 
 fn charge(entries: &Members) -> Amount {
     entries.values().fold(Amount::default(), |total, entry| {
@@ -510,8 +511,8 @@ fn reducing_a_skipped_root_does_not_return_it_to_eviction_order() {
     let mut ranks = EvictionRanks::new(&entries, &snapshot, config().max_ancestors_count).unwrap();
     // A transition with room for one removal skips b's two-entry family,
     // then selects c. Reducing b's remaining fee cannot make it eligible again.
-    assert_eq!(ranks.pop_lowest().unwrap().hash, b);
-    assert_eq!(ranks.pop_lowest().unwrap().hash, c);
+    assert_eq!(ranks.pop_lowest().unwrap().hash.as_slice(), b.as_slice());
+    assert_eq!(ranks.pop_lowest().unwrap().hash.as_slice(), c.as_slice());
     let removed = entries.get(&c).unwrap();
     let reduction = Aggregate::one(accepted(removed).unwrap());
     for ancestor in [&a, &b] {
@@ -521,9 +522,9 @@ fn reducing_a_skipped_root_does_not_return_it_to_eviction_order() {
     }
     ranks.retire(removed).unwrap();
     // b's new rate is 1; it would incorrectly precede a if reinserted.
-    assert_eq!(ranks.pop_lowest().unwrap().hash, a);
+    assert_eq!(ranks.pop_lowest().unwrap().hash.as_slice(), a.as_slice());
     while let Some(rank) = ranks.pop_lowest() {
-        assert_ne!(rank.hash, b);
-        assert_ne!(rank.hash, c);
+        assert_ne!(rank.hash.as_slice(), b.as_slice());
+        assert_ne!(rank.hash.as_slice(), c.as_slice());
     }
 }

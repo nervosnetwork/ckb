@@ -159,7 +159,7 @@ fn cycle_round_boundary_uses_causal_leaves_then_roots_and_keeps_first_ties() {
     // Synthetic equal ranks exercise first-in-component selection independently
     // of the unique hash tie-breaker used by ordinary accepted candidates.
     let mut ranks = selection.eviction_ranks().unwrap();
-    let equal_rank = ranks[0].clone();
+    let equal_rank = ranks[0];
     ranks.fill(equal_rank);
     for round in [1, MAX_CONDITIONAL_CYCLE_ROUNDS] {
         assert_eq!(
