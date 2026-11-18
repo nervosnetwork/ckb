@@ -48,27 +48,27 @@ impl<'a> Graph<'a> {
         Ok(charge)
     }
 
-    /// Inserting a new leaf adds it once to each ancestor's descendant family.
-    /// Other families retain their original edges. A round visits only bounds
+    /// After removing complete replacement families, inserting a leaf adds it
+    /// once to each surviving ancestor. A round visits only bounds
     /// that can beat its best exact rank, excluding earlier victims.
     pub(super) fn certified_evictions(
         &mut self,
         candidate: &AdmissionCandidate,
+        replaced: &BTreeSet<Byte32>,
+        released: Amount,
         added: Amount,
         snapshot: &Snapshot,
     ) -> Result<Option<BTreeSet<Byte32>>, Error> {
-        let (bounds, usage) = self.store.eviction_bounds(self.plan)?;
-        let mut excess = usage
-            .checked_add(added)
-            .ok_or_else(overflow)?
-            .positive_difference(self.limits().accepted);
-        let mut removed = BTreeSet::new();
         if self.get(candidate.entry.transaction.hash_ref())?.is_some() {
             return Ok(None);
         }
+        let (bounds, usage) = self.store.eviction_bounds(self.plan)?;
+        let mut excess =
+            updated_usage(usage, released, added)?.positive_difference(self.limits().accepted);
+        let mut removed = replaced.clone();
         let own = Aggregate::one(accepted(&candidate.entry)?);
         let candidate_rank = EvictionRank::new(&candidate.entry, own, snapshot)?;
-        let mut work = MAX_POOL_MUTATION_CANDIDATES;
+        let mut work = MAX_POOL_MUTATION_CANDIDATES.saturating_sub(removed.len());
         while excess != Amount::default() {
             let mut winner = candidate_rank.clone();
             let mut selected = None;

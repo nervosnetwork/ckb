@@ -243,8 +243,9 @@ An eviction round excludes previously
 selected families before scoring the next root. A single mutation budget
 bounds all exploratory walks. One extra bound per shard distinguishes an
 unexamined suffix from an exhausted run. The plan retains the accepted
-revisions for the entire cut. Interacting graph edits or inconclusive searches
-use the complete virtual graph. Both paths count each shared descendant once.
+revisions for the entire cut. Complete replacement families release their exact
+charge and share the same mutation budget with further victims. New edges to
+existing children or inconclusive searches use the complete virtual graph. Both paths count each shared descendant once.
 
 Detail queries share admission's validated ancestor totals. Each owner shard
 keeps pending and gap priorities in score order, with the longest observed

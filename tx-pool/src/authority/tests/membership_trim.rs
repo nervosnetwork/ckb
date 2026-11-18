@@ -103,7 +103,13 @@ fn certified_evictions_select_a_shared_family_and_keep_the_accepted_cut() {
         ..Amount::default()
     };
     let family = Graph::new(&pool, &mut plan)
-        .certified_evictions(&admitted, request, &snapshot)
+        .certified_evictions(
+            &admitted,
+            &BTreeSet::new(),
+            Amount::default(),
+            request,
+            &snapshot,
+        )
         .unwrap();
     assert_eq!(
         family,
@@ -119,7 +125,13 @@ fn certified_evictions_select_a_shared_family_and_keep_the_accepted_cut() {
     common::replace(&pool, old, Phase::Accepted(accepted));
     let mut next = Plan::new(view, Class::Trusted, Default::default());
     let selected = Graph::new(&pool, &mut next)
-        .certified_evictions(&admitted, request, &snapshot)
+        .certified_evictions(
+            &admitted,
+            &BTreeSet::new(),
+            Amount::default(),
+            request,
+            &snapshot,
+        )
         .unwrap()
         .expect("pending descendants and another singleton can cover the pressure");
     let mut virtual_owners: Members = pool
@@ -164,9 +176,15 @@ fn certified_evictions_match_full_trimming_for_a_leaf_with_a_shared_ancestor() {
         );
         parents.push(OutPoint::new(hash, 0));
     }
-    for (nonce, fee) in [(10643, 1000), (10644, 2000)] {
-        accept(&pool, common::tx(nonce), fee, 1, Status::Pending);
-    }
+    let first = accept(&pool, common::tx(10643), 1000, 1, Status::Pending);
+    accept(&pool, common::tx(10644), 2000, 1, Status::Pending);
+    let sibling = accept(
+        &pool,
+        spend(10646, &[], &parents),
+        100_000,
+        1,
+        Status::Pending,
+    );
     let raw = common::entry(&pool, spend(10645, &[], &parents), Source::Local);
     let incumbents: Members = pool
         .capture_accepted()
@@ -196,43 +214,120 @@ fn certified_evictions_match_full_trimming_for_a_leaf_with_a_shared_ancestor() {
         assert_eq!(ancestors.len(), 4);
         assert!(ancestors.contains(&root));
         let candidate = AdmissionCandidate { entry, ancestors };
-        for count in [1, 2] {
-            let excess = Amount {
-                items: count,
-                ..Amount::default()
-            };
-            let added = Amount {
-                items: pool.budget.limits.accepted.items - incumbents.len() + count,
-                ..Amount::default()
-            };
-            let mut plan = Plan::new(view, Class::Trusted, Default::default());
-            let actual =
-                Graph::new(&pool, &mut plan).certified_evictions(&candidate, added, &snapshot);
-            let mut victims = BTreeSet::new();
-            let expected = trim_virtual(
-                &mut owners.clone(),
-                &snapshot,
-                &config(),
-                &mut victims,
-                &BTreeSet::new(),
-                &candidate,
-                excess,
-            );
-            match (actual, expected) {
-                (Ok(Some(selected)), Ok(())) => {
-                    assert_eq!(selected, victims, "fee={fee} count={count}");
-                    assert!(selected.is_disjoint(&candidate.ancestors));
-                    decisions.0 += 1;
+        // Both parents and their common root lose the old join's high fee.
+        for replaced in [
+            BTreeSet::new(),
+            BTreeSet::from([first.clone()]),
+            BTreeSet::from([sibling.clone()]),
+        ] {
+            let released = replaced.iter().fold(Amount::default(), |sum, hash| {
+                sum.checked_add(owner_amount(&incumbents[hash]).unwrap())
+                    .unwrap()
+            });
+            for count in [1, 2] {
+                let excess = Amount {
+                    items: count,
+                    ..Amount::default()
+                };
+                let added = Amount {
+                    items: pool.budget.limits.accepted.items - incumbents.len()
+                        + replaced.len()
+                        + count,
+                    ..Amount::default()
+                };
+                let mut plan = Plan::new(view, Class::Trusted, Default::default());
+                let actual = Graph::new(&pool, &mut plan)
+                    .certified_evictions(&candidate, &replaced, released, added, &snapshot);
+                let mut victims = replaced.clone();
+                let mut remaining = owners.clone();
+                remaining.retain(|hash, _| !replaced.contains(hash));
+                let expected = trim_virtual(
+                    &mut remaining,
+                    &snapshot,
+                    &config(),
+                    &mut victims,
+                    &BTreeSet::new(),
+                    &candidate,
+                    excess,
+                );
+                match (actual, expected) {
+                    (Ok(Some(selected)), Ok(())) => {
+                        assert_eq!(selected, victims, "fee={fee} count={count}");
+                        assert!(selected.is_disjoint(&candidate.ancestors));
+                        decisions.0 += 1;
+                    }
+                    (
+                        Err(Error::Rejected(Reject::Full(a))),
+                        Err(Error::Rejected(Reject::Full(b))),
+                    ) => {
+                        assert_eq!(a, b);
+                        decisions.1 += 1;
+                    }
+                    (actual, expected) => {
+                        panic!("fee={fee} count={count}: {actual:?}, {expected:?}")
+                    }
                 }
-                (Err(Error::Rejected(Reject::Full(a))), Err(Error::Rejected(Reject::Full(b)))) => {
-                    assert_eq!(a, b);
-                    decisions.1 += 1;
-                }
-                (actual, expected) => panic!("fee={fee} count={count}: {actual:?}, {expected:?}"),
             }
         }
     }
     assert!(decisions.0 > 0 && decisions.1 > 0, "{decisions:?}");
+}
+
+#[test]
+fn replacement_victims_share_the_capacity_mutation_limit() {
+    let pool = store();
+    let mut replaced = BTreeSet::new();
+    for nonce in 0..MAX_POOL_MUTATION_CANDIDATES - 1 {
+        replaced.insert(accept(
+            &pool,
+            common::tx(11_000 + u32::try_from(nonce).unwrap()),
+            10_000,
+            1,
+            Status::Pending,
+        ));
+    }
+    for (nonce, fee) in [(11_200, 1), (11_201, 2)] {
+        accept(&pool, common::tx(nonce), fee, 1, Status::Pending);
+    }
+    let entry = ranked_member(&store(), 11_202, 100_000, &[]);
+    let candidate = AdmissionCandidate {
+        ancestors: BTreeSet::from([entry.hash()]),
+        entry,
+    };
+    let (view, snapshot) = pool.snapshot();
+    let (mut remaining, originals): (Members, Members) = pool
+        .capture_accepted()
+        .owners
+        .into_iter()
+        .map(|owner| (owner.hash(), owner))
+        .partition(|(hash, _)| !replaced.contains(hash));
+    let mut plan = Plan::new(view, Class::Trusted, Default::default());
+    let added = Amount {
+        items: pool.budget.limits.accepted.items,
+        ..Amount::default()
+    };
+    assert!(
+        Graph::new(&pool, &mut plan)
+            .certified_evictions(&candidate, &replaced, charge(&originals), added, &snapshot)
+            .unwrap()
+            .is_none()
+    );
+    remaining.insert(candidate.entry.hash(), Arc::clone(&candidate.entry));
+    assert!(matches!(
+        trim_virtual(
+            &mut remaining,
+            &snapshot,
+            &config(),
+            &mut replaced,
+            &BTreeSet::new(),
+            &candidate,
+            Amount {
+                items: 2,
+                ..Amount::default()
+            },
+        ),
+        Err(Error::Rejected(Reject::Full(_)))
+    ));
 }
 
 fn ranked_member(store: &Store, nonce: u32, fee: u64, parents: &[Byte32]) -> Arc<Entry> {

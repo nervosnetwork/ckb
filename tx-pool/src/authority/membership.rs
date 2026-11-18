@@ -100,6 +100,14 @@ fn protected_eviction(candidate_rate: FeeRate) -> Error {
     .into()
 }
 
+fn updated_usage(usage: Amount, released: Amount, added: Amount) -> Result<Amount, Error> {
+    usage
+        .checked_sub(released)
+        .ok_or(Error::Stale)?
+        .checked_add(added)
+        .ok_or_else(overflow)
+}
+
 fn causal_cycle(hash: &Byte32) -> Error {
     Reject::Invalidated(format!(
         "candidate would create a causal cycle through {hash:?}"
@@ -732,16 +740,11 @@ fn prepare_admission(
         released = released.checked_add(old).ok_or_else(overflow)?;
         added = added.checked_add(new).ok_or_else(overflow)?;
     }
-    let optimistic = graph
-        .accepted_usage()
-        .checked_sub(released)
-        .and_then(|usage| usage.checked_add(added));
-    if optimistic.is_none_or(|usage| !usage.fits(graph.limits().accepted)) {
-        let certified = if removed.is_empty()
-            && late.is_empty()
-            && before.is_none_or(|owner| owner.accepted().is_none())
-        {
-            graph.certified_evictions(&admitted, added, snapshot)?
+    if !updated_usage(graph.accepted_usage(), released, added)
+        .is_ok_and(|usage| usage.fits(graph.limits().accepted))
+    {
+        let certified = if late.is_empty() {
+            graph.certified_evictions(&admitted, &removed, released, added, snapshot)?
         } else {
             None
         };
@@ -768,11 +771,7 @@ fn prepare_admission(
             // The full cut makes the account authoritative. Retain all original
             // observations: a removed predecessor can make this subtraction stale,
             // and any other concurrent change must still fail commit validation.
-            let charge = charge
-                .checked_sub(released)
-                .ok_or(Error::Stale)?
-                .checked_add(added)
-                .ok_or_else(overflow)?;
+            let charge = updated_usage(charge, released, added)?;
             trim_virtual(
                 &mut observed_successors,
                 snapshot,
