@@ -234,9 +234,12 @@ optional fee overflow must not poison unrelated admission or query paths.
 
 On capacity pressure, each shard can publish a bounded prefix of singleton
 ranks. A pending singleton is a lower bound because the eviction fee is the
-higher of own and descendant-package rates. Independent admissions merge
+higher of own and descendant-package rates. Admissions of a new leaf merge
 these prefixes in order and follow the existing child relations only for
-roots that can beat the current winner. An eviction round excludes previously
+roots that can beat the current winner. Each ancestor gains the new leaf once,
+including shared ancestors reached by several paths. If the lowest exact
+rank belongs to the candidate or an ancestor, the admission is rejected.
+An eviction round excludes previously
 selected families before scoring the next root. A single mutation budget
 bounds all exploratory walks. One extra bound per shard distinguishes an
 unexamined suffix from an exhausted run. The plan retains the accepted

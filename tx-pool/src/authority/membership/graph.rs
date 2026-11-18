@@ -48,12 +48,12 @@ impl<'a> Graph<'a> {
         Ok(charge)
     }
 
-    /// Incumbent parent edges survive an independent insertion. In each round
-    /// visit only roots whose lower bound can beat the best exact family so
-    /// far. A removed family is excluded from every following descendant sum.
-    pub(super) fn independent_evictions(
+    /// Inserting a new leaf adds it once to each ancestor's descendant family.
+    /// Other families retain their original edges. A round visits only bounds
+    /// that can beat its best exact rank, excluding earlier victims.
+    pub(super) fn certified_evictions(
         &mut self,
-        candidate: &Arc<Entry>,
+        candidate: &AdmissionCandidate,
         added: Amount,
         snapshot: &Snapshot,
     ) -> Result<Option<BTreeSet<Byte32>>, Error> {
@@ -63,11 +63,11 @@ impl<'a> Graph<'a> {
             .ok_or_else(overflow)?
             .positive_difference(self.limits().accepted);
         let mut removed = BTreeSet::new();
-        if self.get(candidate.transaction.hash_ref())?.is_some() {
+        if self.get(candidate.entry.transaction.hash_ref())?.is_some() {
             return Ok(None);
         }
-        let candidate_rank =
-            EvictionRank::new(candidate, Aggregate::one(accepted(candidate)?), snapshot)?;
+        let own = Aggregate::one(accepted(&candidate.entry)?);
+        let candidate_rank = EvictionRank::new(&candidate.entry, own, snapshot)?;
         let mut work = MAX_POOL_MUTATION_CANDIDATES;
         while excess != Amount::default() {
             let mut winner = candidate_rank.clone();
@@ -90,15 +90,18 @@ impl<'a> Graph<'a> {
                 };
                 work = work.saturating_sub(family.len());
                 let root = self.require(&bound.hash)?;
-                let rank = EvictionRank::new(&root, aggregate(&self.observed, &family)?, snapshot)?;
+                let protected = candidate.ancestors.contains(&bound.hash);
+                let mut total = aggregate(&self.observed, &family)?;
+                if protected {
+                    total = total.add(own)?;
+                }
+                let rank = EvictionRank::new(&root, total, snapshot)?;
                 if rank < winner {
                     winner = rank;
-                    selected = Some(family);
+                    selected = (!protected).then_some(family);
                 }
             }
-            let Some(family) = selected else {
-                return Ok(None);
-            };
+            let family = selected.ok_or_else(|| protected_eviction(candidate_rank.fee))?;
             for hash in &family {
                 excess = excess.positive_difference(owner_amount(self.require(hash)?.as_ref())?);
             }

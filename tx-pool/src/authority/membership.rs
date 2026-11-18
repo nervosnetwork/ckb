@@ -93,6 +93,13 @@ fn component_limit() -> Error {
     .into()
 }
 
+fn protected_eviction(candidate_rate: FeeRate) -> Error {
+    Reject::Full(format!(
+        "the fee_rate for this transaction is: {candidate_rate}"
+    ))
+    .into()
+}
+
 fn causal_cycle(hash: &Byte32) -> Error {
     Reject::Invalidated(format!(
         "candidate would create a causal cycle through {hash:?}"
@@ -730,12 +737,11 @@ fn prepare_admission(
         .checked_sub(released)
         .and_then(|usage| usage.checked_add(added));
     if optimistic.is_none_or(|usage| !usage.fits(graph.limits().accepted)) {
-        let independent = removed.is_empty()
+        let certified = if removed.is_empty()
             && late.is_empty()
-            && admitted.ancestors.len() == 1
-            && before.is_none_or(|owner| owner.accepted().is_none());
-        let certified = if independent {
-            graph.independent_evictions(&admitted.entry, added, snapshot)?
+            && before.is_none_or(|owner| owner.accepted().is_none())
+        {
+            graph.certified_evictions(&admitted, added, snapshot)?
         } else {
             None
         };
@@ -938,10 +944,7 @@ fn trim_virtual(
             // Do not pass a protected ancestor's rank to evict a more valuable
             // independent owner; removing any ancestor would remove the candidate.
             if candidate.ancestors.contains(&root.hash) {
-                return Err(Reject::Full(format!(
-                    "the fee_rate for this transaction is: {candidate_rate}"
-                ))
-                .into());
+                return Err(protected_eviction(candidate_rate));
             }
             // Previously removed descendants still appear in child_index;
             // this bound covers them without rebuilding the index.

@@ -389,10 +389,18 @@ fn capacity_self_eviction_does_not_evict_an_incumbent() {
     let old = accept(&store, incumbent, 1000, 1, Status::Pending);
     let candidate = entry(&store, tx(13), Source::Local);
     let (plan, reject) = admission(&store, &candidate, 1, 1, Status::Pending, &config).unwrap();
-    assert!(reject.is_some());
+    assert!(matches!(reject, Some(Reject::Full(_))));
     store.apply(plan).unwrap();
-    assert_eq!(hashes(&store), BTreeSet::from([old]));
+    assert_eq!(hashes(&store), BTreeSet::from([old.clone()]));
     assert_eq!(store.budget.accepted_usage().items, 1);
+
+    let (pending, reject) = admission(&store, &candidate, 1, 1, Status::Pending, &config).unwrap();
+    assert!(matches!(reject, Some(Reject::Full(_))));
+    let incumbent = store.point(&old).1.unwrap();
+    store.apply(delete(&store, incumbent)).unwrap();
+    assert!(matches!(store.apply(pending), Err(Error::Stale)));
+    let (_, fresh) = admission(&store, &candidate, 1, 1, Status::Pending, &config).unwrap();
+    assert!(fresh.is_none());
 }
 
 #[test]
