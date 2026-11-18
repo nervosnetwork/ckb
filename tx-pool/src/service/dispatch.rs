@@ -15,6 +15,18 @@ pub(crate) async fn process(pool: Arc<Pool>, message: Message) -> Result<(), Err
             responder,
             arguments: (point, data),
         }) => reply(responder, pool.live_cell(&point, data), "get_live_cell"),
+        Message::CurrentBlockTemplate(request, fallback) => {
+            match pool.current_block_template(request.arguments).transpose() {
+                Some(result) => {
+                    drop(fallback);
+                    reply(request.responder, result, "block_template")
+                }
+                None => {
+                    fallback.send(Message::BlockTemplate(request));
+                    Ok(())
+                }
+            }
+        }
         Message::BlockTemplate(Request {
             responder,
             arguments,

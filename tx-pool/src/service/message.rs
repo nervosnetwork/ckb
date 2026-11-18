@@ -422,6 +422,10 @@ impl RemoteTxSubmission {
 
 pub(crate) enum Message {
     BlockTemplate(SyncRequest<tokio::time::Instant, BlockTemplateResult>),
+    CurrentBlockTemplate(
+        SyncRequest<tokio::time::Instant, BlockTemplateResult>,
+        tokio::sync::mpsc::OwnedPermit<Message>,
+    ),
     SubmitLocalTx(AsyncRequest<BoundedTransaction, Result<SubmitTxResult, AnyError>>),
     SubmitLocalTestTx(SyncRequest<BoundedTransaction, Result<SubmitTxResult, AnyError>>),
     RemoveLocalTx(SyncRequest<Byte32, RemoveLocalTxResult>),
@@ -469,7 +473,8 @@ impl Message {
             Self::TestAcceptTx(_) | Self::BlockTemplate(_) => callback,
             #[cfg(feature = "internal")]
             Self::PackageTxs(_) => callback,
-            Self::FreshProposalsFilter(_)
+            Self::CurrentBlockTemplate(..)
+            | Self::FreshProposalsFilter(_)
             | Self::FetchTxs(_)
             | Self::FetchTxsWithCycles(_)
             | Self::GetTxPoolInfo(_)

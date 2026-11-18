@@ -668,6 +668,16 @@ impl Pool {
         Ok(query::accepted_with_cycles(&self.store, ids))
     }
 
+    pub(crate) fn current_block_template(
+        &self,
+        deadline: tokio::time::Instant,
+    ) -> Result<Option<ckb_jsonrpc_types::BlockTemplate>, Error> {
+        self.template
+            .as_ref()
+            .ok_or(Error::Full("block assembler disabled".into()))?
+            .current(deadline)
+    }
+
     pub(crate) async fn block_template(
         &self,
         deadline: tokio::time::Instant,

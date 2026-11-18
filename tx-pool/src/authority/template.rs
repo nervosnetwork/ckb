@@ -140,6 +140,40 @@ impl Driver {
         }
     }
 
+    /// Validate only the currently published work. A stale or absent source
+    /// leaves refresh scheduling to the waiting reader.
+    pub(super) fn current(
+        &self,
+        deadline: tokio::time::Instant,
+    ) -> Result<Option<JsonBlockTemplate>, Error> {
+        if self.store.is_faulted() {
+            return Err(Error::Fault("template generation"));
+        }
+        if self.store.is_stopped() {
+            return Err(Error::Closed);
+        }
+        // Queueing and previous stale attempts already used this request's
+        // time. An expired reader cannot start another refresh wait.
+        if tokio::time::Instant::now() >= deadline {
+            return Err(Error::Full("template refresh timeout".into()));
+        }
+        let Some(current) = self.assembler.current.read().clone() else {
+            return Ok(None);
+        };
+        let source = &current.source;
+        match self.store.read_selected(source.view, &source.reads, || ()) {
+            Ok(()) => {
+                let mut output: JsonBlockTemplate = (&current.template).into();
+                output.current_time = unix_time_as_millis()
+                    .max(current.template.current_time)
+                    .into();
+                Ok(Some(output))
+            }
+            Err(Error::Stale) => Ok(None),
+            Err(error) => Err(error),
+        }
+    }
+
     pub(super) async fn read(
         &self,
         deadline: tokio::time::Instant,
@@ -147,35 +181,9 @@ impl Driver {
         let mut attempted = false;
         loop {
             let updated = self.updated.notified();
-            if self.store.is_faulted() {
-                return Err(Error::Fault("template generation"));
+            if let Some(output) = self.current(deadline)? {
+                return Ok(output);
             }
-            if self.store.is_stopped() {
-                return Err(Error::Closed);
-            }
-            // Queueing and previous stale attempts already used this request's
-            // time. An expired reader cannot start another refresh wait.
-            if tokio::time::Instant::now() >= deadline {
-                return Err(Error::Full("template refresh timeout".into()));
-            }
-            let current = self.assembler.current.read().clone();
-            if let Some(current) = &current {
-                let source = &current.source;
-                match self.store.read_selected(source.view, &source.reads, || ()) {
-                    Ok(()) => {
-                        let mut output: JsonBlockTemplate = (&current.template).into();
-                        output.current_time = unix_time_as_millis()
-                            .max(current.template.current_time)
-                            .into();
-                        return Ok(output);
-                    }
-                    Err(Error::Stale) => {}
-                    Err(error) => return Err(error),
-                }
-            }
-            // Refresh waiters retain no obsolete template payload while the
-            // sole driver prepares its next publication.
-            drop(current);
             if attempted && self.failed.load(Ordering::SeqCst) {
                 return Err(Error::Full("template build".into()));
             }

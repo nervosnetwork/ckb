@@ -6,30 +6,12 @@ use crate::authority::{
     service::ComputePermit,
     tests::common::*,
 };
-use ckb_app_config::BlockAssemblerConfig;
 use ckb_chain_spec::consensus::ConsensusBuilder;
-use ckb_jsonrpc_types::ScriptHashType;
 use ckb_snapshot::Snapshot;
 use ckb_store::data_loader_wrapper::AsDataLoader;
-use ckb_types::{bytes::Bytes, h256, packed::OutPoint, prelude::*};
+use ckb_types::{bytes::Bytes, packed::OutPoint, prelude::*};
 use ckb_verification::{ContextualTransactionVerifier, cache::init_cache};
 use std::{collections::BTreeSet, sync::Arc, time::Duration};
-
-fn template_config() -> BlockAssemblerConfig {
-    BlockAssemblerConfig {
-        code_hash: h256!("0x0"),
-        args: Default::default(),
-        hash_type: ScriptHashType::Data,
-        message: Default::default(),
-        use_binary_version_as_message_prefix: true,
-        binary_version: "TEST".to_string(),
-        update_interval_millis: 60_000,
-        notify: vec![],
-        notify_scripts: vec![],
-        notify_timeout_millis: 800,
-        notify_auth_token: None,
-    }
-}
 
 fn template_snapshot() -> Arc<Snapshot> {
     template_snapshot_with_child(None)
@@ -38,7 +20,7 @@ fn template_snapshot() -> Arc<Snapshot> {
 fn fixture() -> Arc<Driver> {
     let snapshot = template_snapshot();
     let store = Store::new(Arc::clone(&snapshot), &config()).unwrap();
-    let assembler = BlockAssembler::new(template_config(), snapshot).unwrap();
+    let assembler = BlockAssembler::new(template_config(60_000), snapshot).unwrap();
     Driver::new(
         store,
         assembler,
@@ -124,7 +106,7 @@ fn canonical_fixture() -> Arc<Driver> {
     let snapshot = chain_snapshot();
     Driver::new(
         Store::new(Arc::clone(&snapshot), &config()).unwrap(),
-        BlockAssembler::new(template_config(), snapshot).unwrap(),
+        BlockAssembler::new(template_config(60_000), snapshot).unwrap(),
         Arc::new(RwLock::new(init_cache())),
         config().max_ancestors_count,
     )
@@ -429,7 +411,8 @@ fn mandatory_template_accepts_exact_byte_limit_and_rejects_one_byte_less() {
         )
     };
     let exact_snapshot = snapshot(required as u64);
-    let assembler = BlockAssembler::new(template_config(), Arc::clone(&exact_snapshot)).unwrap();
+    let assembler =
+        BlockAssembler::new(template_config(60_000), Arc::clone(&exact_snapshot)).unwrap();
     let exact = Driver::new(
         Store::new(exact_snapshot, &config()).unwrap(),
         assembler,
@@ -445,7 +428,7 @@ fn mandatory_template_accepts_exact_byte_limit_and_rejects_one_byte_less() {
     assert!(current.template.transactions.is_empty());
     assert!(current.template.proposals.is_empty());
     assert!(current.template.uncles.is_empty());
-    let error = BlockAssembler::new(template_config(), snapshot((required - 1) as u64))
+    let error = BlockAssembler::new(template_config(60_000), snapshot((required - 1) as u64))
         .err()
         .expect("mandatory content cannot exceed the consensus byte limit");
     assert!(matches!(
@@ -795,6 +778,7 @@ async fn same_view_selected_owner_reader_request_bypasses_coalescing() {
         .apply(membership::removal(&driver.store, &entry, &config(), None).unwrap())
         .unwrap();
     assert_eq!(driver.store.snapshot().0, original.source.view);
+    assert!(driver.current(deadline()).unwrap().is_none());
     let now = tokio::time::Instant::now();
     let reader = driver.read(deadline());
     tokio::pin!(reader);

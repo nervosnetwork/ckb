@@ -185,7 +185,7 @@ impl TxPoolController {
                 ckb_error::OtherError::new("block template deadline overflow".to_owned())
             })?;
         let (responder, response) = oneshot::channel();
-        self.enqueue(Message::BlockTemplate(Request::call(deadline, responder)))?;
+        self.enqueue_template(Request::call(deadline, responder))?;
         block_in_place(|| {
             response.recv_timeout(deadline.saturating_duration_since(tokio::time::Instant::now()))
         })
@@ -193,6 +193,38 @@ impl TxPoolController {
             ckb_error::OtherError::new(format!("block template response unavailable: {error}"))
                 .into()
         })
+    }
+
+    fn enqueue_template(
+        &self,
+        request: SyncRequest<tokio::time::Instant, BlockTemplateResult>,
+    ) -> Result<(), AnyError> {
+        if crate::callback::in_callback()
+            || self.sender.capacity() == self.sender.max_capacity()
+            || !self.service_started()
+        {
+            return self.enqueue(Message::BlockTemplate(request));
+        }
+        // Admit through the ordinary queue before checking current work. A miss
+        // sends the same request into this slot without another capacity check.
+        let ordinary = self
+            .sender
+            .clone()
+            .try_reserve_owned()
+            .map_err(handle_try_send_error)?;
+        // Only borrow spare read capacity. Dropping the second permit leaves
+        // room for a callback even if ordinary template requests accumulate.
+        let read = self
+            .query_sender
+            .try_reserve_many(2)
+            .ok()
+            .and_then(|mut slots| slots.next());
+        if let Some(read) = read {
+            read.send(Message::CurrentBlockTemplate(request, ordinary));
+        } else {
+            ordinary.send(Message::BlockTemplate(request));
+        }
+        Ok(())
     }
 
     /// Notify new uncle

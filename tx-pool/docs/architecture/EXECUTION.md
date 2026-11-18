@@ -503,7 +503,12 @@ additions need not invalidate output; selected-owner replacement and same-tip cl
 do. Mandatory base bytes are checked before optional fitting. Each template request
 carries one 30-second deadline from controller entry through queueing and refresh.
 The caller's wait ends at that deadline even before dispatch; the driver does not
-renew it. This does not interrupt synchronous work or stop the shared driver.
+renew it. After successful replay, an ordinary request queued behind other work
+can reserve its ordinary slot and check the published template on a read handler
+when the read queue has room for both the check and a callback.
+A current template releases the slot. A stale or absent one transfers the same
+request and deadline into that slot. Only the ordinary handler waits for refresh.
+A direct callback keeps its existing reserved route.
 
 The driver coalesces same-lifecycle membership changes for up to 100 ms. Explicit
 reader and uncle requests bypass that wait. Lifecycle changes, stop and fault

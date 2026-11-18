@@ -391,6 +391,29 @@ async fn block_template_deadline_includes_time_before_dispatch() {
     assert!(result.unwrap_err().to_string().contains("timed out"));
 }
 
+#[tokio::test]
+async fn closing_a_queued_template_read_releases_its_ordinary_slot_and_caller() {
+    let (sender, mut ordinary) = mpsc::channel(2);
+    let (query_sender, mut reads) = mpsc::channel(2);
+    let mut client = controller(sender);
+    client.query_sender = query_sender;
+    client.notify_txs(vec![]).unwrap();
+    let caller = client.clone();
+    let result = tokio::task::spawn_blocking(move || caller.get_block_template(None, None, None));
+    let read = tokio::time::timeout(Duration::from_secs(5), reads.recv())
+        .await
+        .unwrap()
+        .unwrap();
+    assert!(matches!(read, Message::CurrentBlockTemplate(..)));
+    assert_eq!(client.sender.capacity(), 0);
+    reads.close();
+    drop(read);
+    assert!(result.await.unwrap().is_err());
+    assert_eq!(client.sender.capacity(), 1);
+    assert!(matches!(ordinary.try_recv(), Ok(Message::NotifyTxs(_))));
+    assert!(ordinary.try_recv().is_err());
+}
+
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn ordinary_compute_and_template_waits_preserve_reserved_read_routes() {
     use ckb_types::core::{

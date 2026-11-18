@@ -2792,28 +2792,10 @@ async fn peer_pressure_refuses_rbf_without_losing_victim_and_same_peer_retry_suc
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn committed_chain_reconciliation_publishes_detached_uncle_candidates() {
-    use ckb_app_config::BlockAssemblerConfig;
-    use ckb_jsonrpc_types::ScriptHashType;
-    use ckb_types::{core::BlockBuilder, h256};
+    use ckb_types::core::BlockBuilder;
     let handle = Handle::new(tokio::runtime::Handle::current(), None);
     let snapshot = template_snapshot_with_child(Some(200));
-    let assembler = BlockAssembler::new(
-        BlockAssemblerConfig {
-            code_hash: h256!("0x0"),
-            args: Default::default(),
-            hash_type: ScriptHashType::Data,
-            message: Default::default(),
-            use_binary_version_as_message_prefix: true,
-            binary_version: "TEST".into(),
-            update_interval_millis: 800,
-            notify: vec![],
-            notify_scripts: vec![],
-            notify_timeout_millis: 800,
-            notify_auth_token: None,
-        },
-        Arc::clone(&snapshot),
-    )
-    .unwrap();
+    let assembler = BlockAssembler::new(template_config(800), Arc::clone(&snapshot)).unwrap();
     let store = store_with_pipeline_limit(Arc::clone(&snapshot), &config(), 64_000_000);
     let (pool, sink, _drain) = Pool::with_store(
         config(),
@@ -2861,6 +2843,108 @@ async fn committed_chain_reconciliation_publishes_detached_uncle_candidates() {
     .await;
     assert!(!pool.is_faulted());
     shutdown(&pool, tasks, publisher).await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn queued_templates_use_current_work_or_return_to_their_ordinary_slot() {
+    use crate::service::{Message, TxPoolServiceBuilder, process};
+
+    let handle = Handle::new(tokio::runtime::Handle::current(), None);
+    let (builder, mut client, _relay) = TxPoolServiceBuilder::new(
+        config(),
+        template_snapshot_with_child(None),
+        Some(template_config(60_000)),
+        Arc::new(RwLock::new(init_cache())),
+        &handle,
+        FeeEstimator::new_dummy(),
+    )
+    .unwrap();
+    let pool = builder.pool_for_test();
+    let (sender, mut ordinary) = mpsc::channel(2);
+    let (query_sender, mut reads) = mpsc::channel(2);
+    client.sender = sender;
+    client.query_sender = query_sender;
+    let request = || {
+        let client = client.clone();
+        tokio::task::spawn_blocking(move || client.get_block_template(None, None, None))
+    };
+
+    // Even a congested public request waits for persistence replay to finish.
+    client.notify_txs(vec![]).unwrap();
+    let startup = request();
+    within(async {
+        while client.sender.capacity() != 0 {
+            tokio::task::yield_now().await;
+        }
+    })
+    .await;
+    assert!(matches!(ordinary.try_recv(), Ok(Message::NotifyTxs(_))));
+    let msg = ordinary.try_recv().unwrap();
+    assert!(matches!(msg, Message::BlockTemplate(_)));
+    assert!(reads.try_recv().is_err());
+    drop(msg);
+    assert!(within(startup).await.unwrap().is_err());
+    client
+        .started
+        .store(true, std::sync::atomic::Ordering::SeqCst);
+
+    let driver = Arc::clone(pool.template.as_ref().unwrap()).run();
+    tokio::pin!(driver);
+    let mut first = None;
+    for available in [false, true] {
+        client.notify_txs(vec![]).unwrap();
+        let call = request();
+        let message = within(reads.recv()).await.unwrap();
+        let Message::CurrentBlockTemplate(ref read, _) = message else {
+            panic!("a congested template must first check the current work");
+        };
+        let deadline = read.arguments;
+        assert_eq!(client.sender.capacity(), 0);
+        assert!(
+            client
+                .get_block_template(None, None, None)
+                .unwrap_err()
+                .to_string()
+                .contains("no available capacity")
+        );
+        process(Arc::clone(&pool), message).await.unwrap();
+        assert!(matches!(ordinary.try_recv(), Ok(Message::NotifyTxs(_))));
+        if !available {
+            let waiting = ordinary.try_recv().unwrap();
+            assert!(matches!(&waiting, Message::BlockTemplate(r) if r.arguments == deadline));
+            assert!(futures_util::poll!(driver.as_mut()).is_pending());
+            process(Arc::clone(&pool), waiting).await.unwrap();
+        }
+        assert!(ordinary.try_recv().is_err());
+        assert_eq!(client.sender.capacity(), 2);
+        let template = within(call).await.unwrap().unwrap().unwrap();
+        if let Some(work) = first {
+            assert_eq!(template.work_id, work);
+        } else {
+            first = Some(template.work_id);
+        }
+    }
+    // An ordinary template leaves the last read slot for a callback.
+    let occupied = client.query_sender.try_reserve().unwrap();
+    client.notify_txs(vec![]).unwrap();
+    let queued = request();
+    within(async {
+        while client.sender.capacity() != 0 {
+            tokio::task::yield_now().await;
+        }
+    })
+    .await;
+    assert!(matches!(ordinary.try_recv(), Ok(Message::NotifyTxs(_))));
+    let waiting = ordinary.try_recv().unwrap();
+    assert!(matches!(waiting, Message::BlockTemplate(_)));
+    process(Arc::clone(&pool), waiting).await.unwrap();
+    assert_eq!(
+        within(queued).await.unwrap().unwrap().unwrap().work_id,
+        first.unwrap()
+    );
+    drop(occupied);
+    pool.stop();
+    within(driver).await.unwrap();
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]

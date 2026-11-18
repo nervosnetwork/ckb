@@ -11,8 +11,9 @@ use super::super::{
     store::{Plan, ReadSet, Store},
 };
 use crate::{TxEntry, error::Reject};
-use ckb_app_config::TxPoolConfig;
+use ckb_app_config::{BlockAssemblerConfig, TxPoolConfig};
 use ckb_chain_spec::consensus::{Consensus, ConsensusBuilder};
+use ckb_jsonrpc_types::ScriptHashType;
 use ckb_network::PeerIndex;
 use ckb_snapshot::Snapshot;
 use ckb_store::{ChainStore, attach_block_cell};
@@ -26,6 +27,7 @@ use ckb_types::{
         BlockBuilder, BlockExt, Capacity, FeeRate, TransactionBuilder, TransactionView,
         cell::{CellMeta, ResolvedTransaction},
     },
+    h256,
     packed::{Byte32, CellDep, CellInput, CellOutput, OutPoint},
     prelude::*,
     utilities::merkle_mountain_range::ChainRootMMR,
@@ -332,6 +334,22 @@ pub(in crate::authority) fn funded_parent(nonce: u32, capacity: u64) -> Transact
         )
         .output_data(Bytes::new().pack())
         .build()
+}
+
+pub(in crate::authority) fn template_config(update_interval_millis: u64) -> BlockAssemblerConfig {
+    BlockAssemblerConfig {
+        code_hash: h256!("0x0"),
+        args: Default::default(),
+        hash_type: ScriptHashType::Data,
+        message: Default::default(),
+        use_binary_version_as_message_prefix: true,
+        binary_version: "TEST".to_string(),
+        update_interval_millis,
+        notify: vec![],
+        notify_scripts: vec![],
+        notify_timeout_millis: 800,
+        notify_auth_token: None,
+    }
 }
 
 pub(in crate::authority) fn template_snapshot_with_child(
