@@ -1642,6 +1642,126 @@ async fn local_rejections_retry_original_owner_changes_before_publication() {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn suspended_direct_replan_releases_active_work_before_resume() {
+    let (pool, sink, _, _) = fixture_with_config(TxPoolConfig {
+        min_rbf_rate: ckb_types::core::FeeRate::from_u64(1000),
+        ..config()
+    });
+    let transaction = fund(&pool, 9031);
+    let victim = accept(&pool.store, transaction.clone(), 1000, 1, Status::Pending);
+    let replacement = funded_tx(transaction.input_pts_iter().next().unwrap(), 19_999_990_000);
+    let target = replacement.hash();
+    let applying = Arc::downgrade(&pool);
+    *pool.store.commit_observer.lock() = Some(Arc::new(move |plan, locked| {
+        if locked || !plan.edits().contains_key(&target) {
+            return;
+        }
+        let pool = applying.upgrade().unwrap();
+        pool.store.commit_observer.lock().take();
+        let owner = pool.store.point(&victim).1.unwrap();
+        let mut value = owner.accepted().unwrap().clone();
+        value.timestamp += 1;
+        replace(&pool.store, owner, Phase::Accepted(value));
+        pool.verification.suspend().unwrap();
+    }));
+    let publisher = tokio::spawn(
+        Arc::clone(&pool.store.outbox)
+            .run(endpoints(sink, Callbacks::new()), CancellationToken::new()),
+    );
+    let submitting = Arc::clone(&pool);
+    let hash = replacement.hash();
+    let task = tokio::spawn(async move { submitting.submit_local(bounded(replacement)).await });
+    within(async {
+        loop {
+            let changed = pool.store.budget.active_changed.notified();
+            if *pool.commands.borrow() == ChunkCommand::Suspend
+                && pool.store.budget.active_is_empty_for_test()
+            {
+                break;
+            }
+            changed.await;
+        }
+    })
+    .await;
+    assert!(pool.store.point(&hash).1.is_none());
+    pool.verification.resume().unwrap();
+    within(task).await.unwrap().unwrap().unwrap();
+    assert!(pool.store.point(&hash).1.unwrap().accepted().is_some());
+    shutdown(&pool, JoinSet::new(), publisher).await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn direct_admission_discards_verification_when_original_facts_change() {
+    #[derive(Clone, Copy)]
+    enum Change {
+        Predecessor,
+        Producer,
+        View,
+    }
+    for change in [Change::Predecessor, Change::Producer, Change::View] {
+        let (pool, sink, _, _) = fixture();
+        let transaction = fund(&pool, 9030);
+        let hash = transaction.hash();
+        let input = transaction.input_pts_iter().next().unwrap();
+        let successor = entry(&pool.store, transaction.clone(), Source::Recovery);
+        let next = Arc::clone(&successor);
+        let target = hash.clone();
+        let producer = input.tx_hash();
+        let applying = Arc::downgrade(&pool);
+        *pool.store.commit_observer.lock() = Some(Arc::new(move |plan, locked| {
+            if locked || !plan.edits().contains_key(&target) {
+                return;
+            }
+            let pool = applying.upgrade().unwrap();
+            pool.store.commit_observer.lock().take();
+            match change {
+                Change::Predecessor => insert(&pool.store, Arc::clone(&next)),
+                Change::Producer => {
+                    let owner = pool.store.point(&producer).1.unwrap();
+                    let removal =
+                        membership::removal(&pool.store, &owner, &pool.config, None).unwrap();
+                    pool.store.apply(removal).unwrap();
+                }
+                Change::View => {
+                    let (view, snapshot) = pool.store.snapshot();
+                    let mut lifecycle = Plan::new(view, Class::Critical, ReadSet::default());
+                    lifecycle
+                        .reset(pool.store.snapshot_change(snapshot))
+                        .unwrap();
+                    pool.store.apply(lifecycle).unwrap();
+                }
+            }
+        }));
+        let publisher = tokio::spawn(
+            Arc::clone(&pool.store.outbox)
+                .run(endpoints(sink, Callbacks::new()), CancellationToken::new()),
+        );
+        let before = pool.store.snapshot().0;
+        let result = within(pool.submit_local(bounded(transaction)))
+            .await
+            .unwrap();
+        assert!(pool.store.commit_observer.lock().is_none());
+        if matches!(change, Change::Producer) {
+            assert!(
+                matches!(result, Err(Reject::Resolve(OutPointError::Unknown(point))) if point == input)
+            );
+            assert!(pool.store.point(&hash).1.is_none());
+        } else {
+            result.unwrap();
+            let owner = pool.store.point(&hash).1.unwrap();
+            assert!(owner.accepted().is_some());
+            if matches!(change, Change::Predecessor) {
+                assert_eq!(owner.arrival, successor.arrival);
+            } else {
+                assert_eq!(pool.store.snapshot().0, before + 1);
+            }
+        }
+        assert!(pool.store.budget.active_is_empty_for_test());
+        shutdown(&pool, JoinSet::new(), publisher).await;
+    }
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn local_test_queue_retries_original_absence_before_duplicate() {
     use std::sync::atomic::{AtomicBool, Ordering};
 
@@ -3110,7 +3230,7 @@ async fn optional_history_pressure_preserves_local_and_owned_job_admission() {
             }
             if !locked {
                 let attempt = observed.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
-                if !local && !stop && (1..=3).contains(&attempt) {
+                if !stop && (1..=3).contains(&attempt) {
                     // History pressure has released the first cut. Change a
                     // membership premise before that retry and the next two
                     // plans. Verification still holds; admission must finish
@@ -3166,10 +3286,10 @@ async fn optional_history_pressure_preserves_local_and_owned_job_admission() {
                 .admission_attempts
                 .load(std::sync::atomic::Ordering::SeqCst)
                 - planned_before,
-            if !local && !stop { 4 } else { 1 },
+            if stop { 1 } else { 4 },
             "local={local}: only a changed membership premise requires replanning"
         );
-        if !local && !stop {
+        if !stop {
             assert_eq!(
                 attempts.load(std::sync::atomic::Ordering::SeqCst),
                 5,

@@ -250,8 +250,8 @@ impl Pool {
         }
     }
 
-    /// A stale attempt releases its work before retrying with the same arrival.
-    /// Active memory remains owned through admission and publication.
+    /// A change to the original observations releases this attempt. Membership
+    /// retries keep its verified result and active memory through publication.
     async fn attempt_local(
         &self,
         transaction: &Arc<TransactionView>,
@@ -299,18 +299,23 @@ impl Pool {
         let verified = match verified {
             Ok(verified) => verified,
             Err(Error::Rejected(reject)) => {
-                let mut reads = resolved.reads.clone();
-                reads.observe_owner(&transaction.hash(), before.as_ref())?;
+                let hash = transaction.hash_ref();
+                let reads = resolved.reads_with_predecessor(hash, before.as_ref())?;
                 let reject = self
-                    .reject_local(resolved.view, &transaction.hash(), reject, reads, action)
+                    .reject_local(resolved.view, hash, reject, reads, action)
                     .await?;
                 return Err(Error::Rejected(reject));
             }
             Err(error) => return Err(capacity_rejection(error)),
         };
-        Admission::new(self, &candidate, before.as_ref(), &verified, action)
-            .complete()
-            .await
+        Admission {
+            pool: self,
+            candidate: &candidate,
+            before: before.as_ref(),
+            verified: &verified,
+        }
+        .complete(action)
+        .await
     }
 
     /// Acknowledge resolved queue ownership; script verification finishes later.

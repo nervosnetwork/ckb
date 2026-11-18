@@ -1,6 +1,6 @@
 //! One verified candidate's admission attempts and optional history policy.
 
-use super::{Batch, Entry, EntryCompleted, Error, Pool, Reject, Verified, membership};
+use super::{Batch, Entry, EntryCompleted, Error, Plan, Pool, Reject, Verified, membership};
 use std::sync::Arc;
 
 /// Commit membership and effects, or validate the same decision without mutation.
@@ -19,52 +19,31 @@ pub(super) fn capacity_rejection(error: Error) -> Error {
     }
 }
 
-/// Replanning keeps the same candidate, predecessor and proof. Once optional
-/// history loses capacity, later attempts omit it. A direct request completes
-/// through `complete`; a worker applies the decision and leaves its committed
-/// notices with the outbox.
+/// The original facts for one verified candidate. Only its membership plan
+/// may change when another admission wins the commit.
 pub(super) struct Admission<'a> {
-    pool: &'a Pool,
-    candidate: &'a Arc<Entry>,
-    before: Option<&'a Arc<Entry>>,
-    verified: &'a Verified,
-    mode: AdmissionMode,
-    retain_history: bool,
+    pub(super) pool: &'a Pool,
+    pub(super) candidate: &'a Arc<Entry>,
+    pub(super) before: Option<&'a Arc<Entry>>,
+    pub(super) verified: &'a Verified,
 }
 
-impl<'a> Admission<'a> {
-    pub(super) fn new(
-        pool: &'a Pool,
-        candidate: &'a Arc<Entry>,
-        before: Option<&'a Arc<Entry>>,
-        verified: &'a Verified,
-        mode: AdmissionMode,
-    ) -> Self {
-        Self {
-            pool,
-            candidate,
-            before,
-            verified,
-            mode,
-            retain_history: matches!(mode, AdmissionMode::Commit),
-        }
-    }
-
+impl Admission<'_> {
     /// Complete a direct request, including its required publication. Preview
-    /// validates once without waiting for capacity or changing membership.
-    pub(super) async fn complete(mut self) -> Result<EntryCompleted, Error> {
+    /// validates the plan without waiting for capacity or changing membership.
+    pub(super) async fn complete(&self, mode: AdmissionMode) -> Result<EntryCompleted, Error> {
         let pool = self.pool;
-        let mode = self.mode;
-        let mut attempt = || {
-            pool.open()?;
-            self.apply()
+        let rejection = match mode {
+            AdmissionMode::Preview => self.preview().map_err(capacity_rejection)?,
+            AdmissionMode::Commit => {
+                let (batch, rejection) = self
+                    .commit_while(|| pool.computation_ready().is_ok())
+                    .await
+                    .map_err(capacity_rejection)?;
+                pool.published(batch).await?;
+                rejection
+            }
         };
-        let applied = match mode {
-            AdmissionMode::Preview => attempt(),
-            AdmissionMode::Commit => pool.commit_attempt(attempt).await,
-        };
-        let (batch, rejection) = applied.map_err(capacity_rejection)?;
-        pool.published(batch).await?;
         match rejection {
             Some(reject) => Err(Error::Rejected(reject)),
             None => Ok(EntryCompleted {
@@ -74,33 +53,52 @@ impl<'a> Admission<'a> {
         }
     }
 
-    /// A policy rejection is an applied decision too; its notice must complete
-    /// before a direct submitter receives that rejection.
-    pub(super) fn apply(&mut self) -> Result<(Option<Arc<Batch>>, Option<Reject>), Error> {
-        let (plan, rejection) = membership::admission(
+    /// A membership conflict can change the victims without changing the
+    /// verified transaction. Replan with the same proof and history decision
+    /// while its original view, inputs and candidate predecessor still hold.
+    pub(super) async fn commit_while(
+        &self,
+        can_replan: impl Fn() -> bool,
+    ) -> Result<(Option<Arc<Batch>>, Option<Reject>), Error> {
+        let pool = self.pool;
+        // Once optional history loses capacity, every remaining plan omits it.
+        let mut retain_history = true;
+        let mut attempt = || {
+            let (plan, rejection) = self.plan(retain_history)?;
+            let batch = pool.store.apply_admission(plan, &mut retain_history)?;
+            Ok((batch, rejection))
+        };
+        loop {
+            match pool.commit_attempt(&mut attempt).await {
+                Err(Error::Stale) => {}
+                result => return result,
+            }
+            tokio::task::yield_now().await;
+            if !can_replan() {
+                return Err(Error::Stale);
+            }
+            let resolved = self.verified.resolved();
+            let reads = resolved
+                .reads_with_predecessor(self.candidate.transaction.hash_ref(), self.before)?;
+            pool.store.read_selected(resolved.view, &reads, || ())?;
+        }
+    }
+
+    fn preview(&self) -> Result<Option<Reject>, Error> {
+        let (plan, rejection) = self.plan(false)?;
+        self.pool.store.apply(plan.dry_run())?;
+        Ok(rejection)
+    }
+
+    fn plan(&self, retain_history: bool) -> Result<(Plan, Option<Reject>), Error> {
+        self.pool.open()?;
+        membership::admission(
             &self.pool.store,
             self.candidate,
             self.before.cloned(),
             self.verified,
             &self.pool.config,
-            self.retain_history,
-        )?;
-        let batch = match self.mode {
-            AdmissionMode::Commit => self
-                .pool
-                .store
-                .apply_admission(plan, &mut self.retain_history),
-            AdmissionMode::Preview => self.pool.store.apply(plan.dry_run()),
-        }?;
-        Ok((batch, rejection))
-    }
-
-    /// Membership may become stale while the original verification premises
-    /// still hold. Only then may a worker reuse this proof for another attempt.
-    pub(super) fn check_verification(&self) -> Result<(), Error> {
-        let resolved = self.verified.resolved();
-        self.pool
-            .store
-            .read_selected(resolved.view, &resolved.reads, || ())
+            retain_history,
+        )
     }
 }

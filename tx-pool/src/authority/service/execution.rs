@@ -1,6 +1,6 @@
 //! Worker execution and complete job settlement for the single Pool.
 
-use super::admission::{Admission, AdmissionMode};
+use super::admission::Admission;
 use super::*;
 
 impl Pool {
@@ -87,33 +87,21 @@ impl Pool {
     }
 
     pub(super) async fn accept_job(&self, job: &Job, verified: &Verified) -> Result<(), Error> {
-        let mut admission = Admission::new(
-            self,
-            &job.entry,
-            Some(&job.entry),
+        if !job.current() {
+            return Ok(());
+        }
+        let admission = Admission {
+            pool: self,
+            candidate: &job.entry,
+            before: Some(&job.entry),
             verified,
-            AdmissionMode::Commit,
-        );
-        loop {
-            if !job.current() {
-                return Ok(());
-            }
-            if self.store.is_stopped() {
-                return self.requeue(job).await;
-            }
-            let result = self.commit_attempt(|| admission.apply()).await;
-            match result {
-                Ok(_) => return Ok(()),
-                Err(Error::Stale) => match admission.check_verification() {
-                    Ok(()) => tokio::task::yield_now().await,
-                    Err(Error::Stale) => return self.requeue(job).await,
-                    Err(error) => return Err(error),
-                },
-                Err(Error::Full(reason)) => {
-                    return self.reject_capacity(job, reason).await;
-                }
-                Err(error) => return Err(error),
-            }
+        };
+        match admission.commit_while(|| !self.store.is_stopped()).await {
+            Ok(_) => Ok(()),
+            Err(Error::Stale) => self.requeue(job).await,
+            Err(Error::Closed) if self.store.is_stopped() => self.requeue(job).await,
+            Err(Error::Full(reason)) => self.reject_capacity(job, reason).await,
+            Err(error) => Err(error),
         }
     }
 

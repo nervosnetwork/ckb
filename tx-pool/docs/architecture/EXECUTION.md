@@ -42,6 +42,14 @@ cell rejection. Admission observes the initial owner in its Plan; a verification
 rejection combines it with the resolved reads only when preparing the rejection.
 Queued local submission records the original absence when installing Verify.
 
+A competing membership decision can change eviction or replacement victims while
+the verified transaction remains valid. Direct submissions and selected workers
+replan admission with the same result while the original lifecycle revision,
+producer identities, spenders and candidate predecessor still match. Apply
+validates those observations again with the new membership plan. A changed
+premise releases a direct attempt or requeues the still-current worker owner.
+A suspended direct retry releases its active memory before waiting for CPU.
+
 | Phase | Retained fact |
 |---|---|
 | Resolve | Raw payload awaiting or undergoing canonical resolution |

@@ -224,6 +224,20 @@ pub(super) struct Resolved {
     pub(super) pool_cells: BTreeSet<OutPoint>,
 }
 
+impl Resolved {
+    /// A membership decision also depends on the submitting owner's original identity.
+    /// Keep that observation out of the facts passed to the canonical verifier.
+    pub(super) fn reads_with_predecessor(
+        &self,
+        hash: &Byte32,
+        before: Option<&Arc<Entry>>,
+    ) -> Result<ReadSet, Error> {
+        let mut reads = self.reads.clone();
+        reads.observe_owner(hash, before)?;
+        Ok(reads)
+    }
+}
+
 /// Retain the canonical script proof for the lifetime of an accepted owner.
 /// A bounded shared cache may evict it before the transaction reaches a block.
 #[derive(Clone, Copy, Debug)]

@@ -595,15 +595,13 @@ pub(super) fn admission(
     let _span = tracing::trace_span!(target: "ckb_tx_pool_profile", "tx_pool.membership.admission")
         .entered();
     let (view, snapshot) = store.snapshot();
-    if view != verified.resolved().view {
+    let resolved = verified.resolved();
+    if view != resolved.view {
         return Err(Error::Stale);
     }
-    let mut plan = Plan::new(
-        view,
-        ingress::class(candidate.source),
-        verified.resolved().reads.clone(),
-    );
-    plan.observe_owner(&candidate.hash(), before.as_ref())?;
+    let reads =
+        resolved.reads_with_predecessor(candidate.transaction.hash_ref(), before.as_ref())?;
+    let mut plan = Plan::new(view, ingress::class(candidate.source), reads);
     let mut graph = Graph::new(store, &mut plan);
     let outcome = prepare_admission(
         &mut graph,
