@@ -48,6 +48,65 @@ impl<'a> Graph<'a> {
         Ok(charge)
     }
 
+    /// Incumbent parent edges survive an independent insertion. In each round
+    /// visit only roots whose lower bound can beat the best exact family so
+    /// far. A removed family is excluded from every following descendant sum.
+    pub(super) fn independent_evictions(
+        &mut self,
+        candidate: &Arc<Entry>,
+        added: Amount,
+        snapshot: &Snapshot,
+    ) -> Result<Option<BTreeSet<Byte32>>, Error> {
+        let (bounds, usage) = self.store.eviction_bounds(self.plan)?;
+        let mut excess = usage
+            .checked_add(added)
+            .ok_or_else(overflow)?
+            .positive_difference(self.limits().accepted);
+        let mut removed = BTreeSet::new();
+        if self.get(candidate.transaction.hash_ref())?.is_some() {
+            return Ok(None);
+        }
+        let candidate_rank =
+            EvictionRank::new(candidate, Aggregate::one(accepted(candidate)?), snapshot)?;
+        let mut work = MAX_POOL_MUTATION_CANDIDATES;
+        while excess != Amount::default() {
+            let mut winner = candidate_rank.clone();
+            let mut selected = None;
+            for bound in EvictionRank::ordered_bounds(&bounds) {
+                if bound >= &winner {
+                    break;
+                }
+                if work == 0 {
+                    return Ok(None);
+                }
+                if removed.contains(&bound.hash) {
+                    work = work.saturating_sub(1);
+                    continue;
+                }
+                let family = match self.descendants([bound.hash.clone()], &removed, work) {
+                    Ok(family) => family,
+                    Err(Error::Rejected(Reject::Full(_))) => return Ok(None),
+                    Err(error) => return Err(error),
+                };
+                work = work.saturating_sub(family.len());
+                let root = self.require(&bound.hash)?;
+                let rank = EvictionRank::new(&root, aggregate(&self.observed, &family)?, snapshot)?;
+                if rank < winner {
+                    winner = rank;
+                    selected = Some(family);
+                }
+            }
+            let Some(family) = selected else {
+                return Ok(None);
+            };
+            for hash in &family {
+                excess = excess.positive_difference(owner_amount(self.require(hash)?.as_ref())?);
+            }
+            removed.extend(family);
+        }
+        Ok(Some(removed))
+    }
+
     pub(in crate::authority) fn get(&mut self, hash: &Byte32) -> Result<Option<Arc<Entry>>, Error> {
         if let Some(entry) = self.observed.get(hash) {
             return Ok(Some(Arc::clone(entry)));

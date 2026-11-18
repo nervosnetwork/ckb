@@ -63,6 +63,91 @@ fn capacity_capture_tracks_untouched_owners_by_revision() {
     assert!(matches!(store.apply(plan), Err(Error::Stale)));
 }
 
+#[test]
+fn independent_evictions_certify_a_shared_family_and_keep_the_accepted_cut() {
+    let pool = store();
+    let root = accept(&pool, common::output_tx(10630), 0, 1, Status::Pending);
+    let point = OutPoint::new(root.clone(), 0);
+    let left = accept(
+        &pool,
+        spend(10631, &[], std::slice::from_ref(&point)),
+        100,
+        1,
+        Status::Pending,
+    );
+    let right = accept(&pool, spend(10632, &[], &[point]), 100, 1, Status::Pending);
+    let join = accept(
+        &pool,
+        spend(
+            10633,
+            &[],
+            &[
+                OutPoint::new(left.clone(), 0),
+                OutPoint::new(right.clone(), 0),
+            ],
+        ),
+        100,
+        1,
+        Status::Pending,
+    );
+    let independent = accept(&pool, common::tx(10634), 10_000, 1, Status::Pending);
+    let candidate = ranked_member(&store(), 10635, 100_000, &[]);
+    let (view, snapshot) = pool.snapshot();
+    let mut plan = Plan::new(view, Class::Trusted, Default::default());
+    let request = Amount {
+        items: pool.budget.limits.accepted.items - 1,
+        ..Amount::default()
+    };
+    let family = Graph::new(&pool, &mut plan)
+        .independent_evictions(&candidate, request, &snapshot)
+        .unwrap();
+    assert_eq!(
+        family,
+        Some(BTreeSet::from([root.clone(), left, right, join]))
+    );
+    // An edit outside the certified family still participates in the premise.
+    let old = pool.point(&independent).1.unwrap();
+    common::replace(&pool, Arc::clone(&old), old.phase.clone());
+    assert!(matches!(pool.apply(plan), Err(Error::Stale)));
+    let old = pool.point(&root).1.unwrap();
+    let mut accepted = old.accepted().unwrap().clone();
+    accepted.forced_status = Some(Status::Proposed);
+    common::replace(&pool, old, Phase::Accepted(accepted));
+    let mut next = Plan::new(view, Class::Trusted, Default::default());
+    let selected = Graph::new(&pool, &mut next)
+        .independent_evictions(&candidate, request, &snapshot)
+        .unwrap()
+        .expect("pending descendants and another singleton can cover the pressure");
+    let mut virtual_owners: Members = pool
+        .capture_accepted()
+        .owners
+        .into_iter()
+        .map(|owner| (owner.hash(), owner))
+        .collect();
+    virtual_owners.insert(candidate.hash(), Arc::clone(&candidate));
+    let mut expected = BTreeSet::new();
+    let admitted = AdmissionCandidate {
+        entry: Arc::clone(&candidate),
+        ancestors: BTreeSet::from([candidate.hash()]),
+    };
+    trim_virtual(
+        &mut virtual_owners,
+        &snapshot,
+        &config(),
+        &mut expected,
+        &BTreeSet::new(),
+        &admitted,
+        Amount {
+            items: 4,
+            ..Amount::default()
+        },
+    )
+    .unwrap();
+    assert_eq!(selected, expected);
+    assert_eq!(selected.len(), 4);
+    assert!(!selected.contains(&root));
+}
+
 fn ranked_member(store: &Store, nonce: u32, fee: u64, parents: &[Byte32]) -> Arc<Entry> {
     let deps: Vec<_> = parents
         .iter()

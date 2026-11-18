@@ -322,11 +322,27 @@ impl<'a> OwnerChanges<'a> {
                 owners: Vec::with_capacity(plan.edits.len()),
                 ..Retired::default()
             };
-            store.apply_owner_changes(owners, &owner_edits, snapshot, &mut retired.owners);
+            store.apply_owner_changes(owners, &owner_edits, snapshot, plan, &mut retired.owners);
             retired
         };
         for (key, changes) in relation_change_groups(&relation_changes) {
             store.apply_relation(key, changes, &plan.edits, &plan.wake);
+        }
+        // An accepted rewrite can reprice descendants outside the edited shards.
+        // A removal has this effect only if an accepted child survives the cut.
+        if plan.edits.iter().any(|(hash, edit)| {
+            edit.before.as_deref().and_then(Entry::accepted).is_some()
+                && (edit.after.as_deref().and_then(Entry::accepted).is_some()
+                    || store
+                        .relation(&RelationKey::Children(hash.clone()))
+                        .is_some_and(|row| !row.lock().members.is_empty()))
+        }) {
+            store
+                .rank_generation
+                .fetch_update(Ordering::SeqCst, Ordering::SeqCst, |generation| {
+                    Some(generation.saturating_add(1))
+                })
+                .ok();
         }
         store.apply_peer_changes(peer_changes);
         retired
@@ -447,6 +463,8 @@ impl Shard {
             proposed,
             revision,
             accepted_revision,
+            eviction_bounds,
+            ranks: _,
         } = self;
         let before_deadline = edit.before.as_deref().and_then(deadline);
         let after_deadline = edit.after.as_deref().and_then(deadline);
@@ -496,6 +514,7 @@ impl Shard {
         *revision += 1;
         if edit.affects_accepted() {
             *accepted_revision += 1;
+            eviction_bounds.take();
         }
     }
 
@@ -560,12 +579,16 @@ impl LifecycleWrite {
                 let (gap, proposed) = counts.at(index);
                 shard.gap = shard.gap - gap.before + gap.after;
                 shard.proposed = shard.proposed - proposed.before + proposed.after;
+                if proposed.before != 0 || proposed.after != 0 {
+                    shard.ranks.invalidate();
+                }
             }
         } else {
             // Keep sparse-pool work bounded by its owners when canonical
             // history contains a much larger, unrelated proposal window.
             for (_, shard) in owners.writes_mut() {
                 shard.refresh_status_counts(&self.snapshot);
+                shard.ranks.invalidate();
             }
         }
         if let Some(view) = view.get_mut() {
@@ -898,10 +921,25 @@ impl Store {
         owners: &mut ShardGuards<'_, Shard>,
         edits: &[OwnerEdit<'_>],
         snapshot: &Snapshot,
+        plan: &Plan,
         retired: &mut Vec<Arc<Entry>>,
     ) {
+        let generation = self.rank_generation.load(Ordering::SeqCst);
         for (shard, edits) in owner_edit_groups(edits, owners.writes_mut()) {
             for (_, hash, edit) in edits.iter().copied() {
+                if edit.affects_accepted() {
+                    let ancestors = plan
+                        .admitted_ancestors
+                        .as_ref()
+                        .filter(|(tx, _)| tx == hash)
+                        .map(|(_, sum)| *sum);
+                    if shard.accepted_times.is_empty() {
+                        shard.ranks = super::detail::Ranks::empty(generation);
+                    }
+                    shard
+                        .ranks
+                        .update(generation, hash, edit, snapshot, ancestors);
+                }
                 shard.apply_edit(hash, edit, snapshot, &self.queues, retired);
             }
         }

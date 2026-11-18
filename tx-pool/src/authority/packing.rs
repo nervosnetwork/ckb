@@ -309,7 +309,7 @@ impl PackageAggregate {
     }
 }
 
-type PackageOrderKey<'a> = (TransactionPriority<'a>, Reverse<usize>);
+type PackageOrderKey<'a> = (TransactionPriority<&'a Byte32>, Reverse<usize>);
 
 fn package_order_key<'a>(
     index: usize,

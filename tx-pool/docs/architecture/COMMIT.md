@@ -232,10 +232,26 @@ plan. Self-eviction does not evict incumbents
 for a rejected candidate. Wide fee totals preserve exact descendant accounting;
 optional fee overflow must not poison unrelated admission or query paths.
 
-Membership calculation remains transient. Complete aggregate queries reuse
-ordinal marks and one traversal scratch area across roots, enforcing the same
-ancestor, cycle and arithmetic checks as a point walk. Removal notices calculate
-totals for their actual victims; capacity trimming combines each removed closure's
-contribution before updating surviving ranks. Shared descendants count once,
-and no subsequent victim is chosen before those rank updates finish. These
-calculations add bounded scratch, not persistent transitive membership.
+On capacity pressure, each shard can publish a bounded prefix of singleton
+ranks. A pending singleton is a lower bound because the eviction fee is the
+higher of own and descendant-package rates. Independent admissions merge
+these prefixes in order and follow the existing child relations only for
+roots that can beat the current winner. An eviction round excludes previously
+selected families before scoring the next root. A single mutation budget
+bounds all exploratory walks. One extra bound per shard distinguishes an
+unexamined suffix from an exhausted run. The plan retains the accepted
+revisions for the entire cut. Interacting graph edits or inconclusive searches
+use the complete virtual graph. Both paths count each shared descendant once.
+
+Detail queries share admission's validated ancestor totals. Each owner shard
+keeps pending and gap priorities in score order, with the longest observed
+ancestry as an upper bound. A query counts higher priorities in each run and
+walks the target's live child rows to count distinct descendants. Runs store
+numeric keys independent of transaction bodies.
+
+An accepted rewrite or a removal with surviving children can reprice owners in
+other shards and invalidates all runs. Changes to proposed status invalidate
+the affected shards. A read with stale evidence, or a tighter ancestor limit,
+reconstructs ranks outside the owner guards from one accepted cut. It publishes
+each run only while the lifecycle, ancestry generation and source shard revision
+still match.

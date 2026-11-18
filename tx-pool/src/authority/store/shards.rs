@@ -100,6 +100,15 @@ impl<T> Shards<T> {
     }
 }
 
+impl<T> IntoIterator for Shards<T> {
+    type Item = T;
+    type IntoIter = std::array::IntoIter<T, SHARDS>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        self.0.into_iter()
+    }
+}
+
 impl<T> Shards<RwLock<T>> {
     pub(super) fn read_all(&self) -> Shards<RwLockReadGuard<'_, T>> {
         self.map(RwLock::read)

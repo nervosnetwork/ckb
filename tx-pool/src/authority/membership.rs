@@ -105,9 +105,26 @@ pub(super) fn ancestor_hashes(
     hash: &Byte32,
     limit: usize,
 ) -> Result<BTreeSet<Byte32>, Error> {
-    let entry = members.get(hash).ok_or(Error::Stale)?;
+    walk_ancestors(
+        members.get(hash).ok_or(Error::Stale)?,
+        limit,
+        |parent| members.get(parent).map(Arc::as_ref),
+        |_| Ok(()),
+    )
+}
+
+/// Walk one complete ancestry against either a captured graph or locked owners.
+pub(super) fn walk_ancestors<'a>(
+    root: &'a Entry,
+    limit: usize,
+    lookup: impl Fn(&Byte32) -> Option<&'a Entry>,
+    mut visit: impl FnMut(&Accepted) -> Result<(), Error>,
+) -> Result<BTreeSet<Byte32>, Error> {
+    let hash = root.transaction.hash_ref();
     let mut seen = BTreeSet::from([hash.clone()]);
-    let mut stack: Vec<_> = accepted(entry)?.parents.iter().collect();
+    let root = accepted(root)?;
+    visit(root)?;
+    let mut stack: Vec<_> = root.parents.iter().collect();
     while let Some(parent) = stack.pop() {
         if parent == hash {
             return Err(causal_cycle(hash));
@@ -118,8 +135,9 @@ pub(super) fn ancestor_hashes(
         if seen.len() > limit {
             return Err(Reject::ExceededMaximumAncestorsCount.into());
         }
-        let entry = members.get(parent).ok_or(Error::Stale)?;
-        stack.extend(&accepted(entry)?.parents);
+        let value = accepted(lookup(parent).ok_or(Error::Stale)?)?;
+        visit(value)?;
+        stack.extend(&value.parents);
     }
     if seen.len() > limit {
         return Err(Reject::ExceededMaximumAncestorsCount.into());
@@ -175,44 +193,37 @@ pub(super) fn aggregate(members: &Members, hashes: &BTreeSet<Byte32>) -> Result<
     })
 }
 
-/// Recompute each member's bounded ancestor closure and descendant totals.
-/// Reuse ordinal marks and scratch across roots; no transitive sets or owner
-/// references survive this calculation. The returned map remains the only totals.
+/// Visit each owner with its distinct ancestors, including itself. Ordinals
+/// refer to the caller's immutable slice.
 #[expect(
     clippy::indexing_slicing,
-    reason = "Ordinals come from the same sorted Members keys as the entries, marks and mutable totals rows."
+    reason = "Positions, traversal marks and totals use ordinals from the same entry slice."
 )]
-pub(super) fn aggregates(
-    members: &Members,
+pub(super) fn visit_ancestors(
+    entries: &[&Entry],
     max_ancestors: usize,
-) -> Result<BTreeMap<Byte32, NeighborhoodTotals>, Error> {
-    let mut totals: BTreeMap<_, _> = members
-        .keys()
-        .map(|hash| (hash.clone(), NeighborhoodTotals::default()))
-        .collect();
-    let entries: Vec<_> = members.iter().collect();
-    let mut rows: Vec<_> = totals.values_mut().collect();
+    mut visit: impl FnMut(usize, &[usize], Aggregate) -> Result<(), Error>,
+) -> Result<(), Error> {
     let mut traversal = None;
     let mut ancestors = Vec::new();
     let mut stack = Vec::new();
-    for (root, &(hash, entry)) in entries.iter().enumerate() {
+    for (root, entry) in entries.iter().enumerate() {
+        let hash = entry.transaction.hash_ref();
         let own = accepted(entry)?;
         if own.parents.is_empty() {
             if max_ancestors == 0 {
                 return Err(Reject::ExceededMaximumAncestorsCount.into());
             }
-            let own = Aggregate::one(own);
-            rows[root].ancestors = own;
-            rows[root].descendants = rows[root].descendants.add(own)?;
+            visit(root, std::slice::from_ref(&root), Aggregate::one(own))?;
             continue;
         }
         // Independent owners need no graph index or traversal marks. Create
         // this scratch only when the captured population actually has edges.
         let (positions, seen) = traversal.get_or_insert_with(|| {
-            let positions: std::collections::HashMap<_, _> = members
-                .keys()
+            let positions: std::collections::HashMap<_, _> = entries
+                .iter()
                 .enumerate()
-                .map(|(index, hash)| (hash, index))
+                .map(|(index, entry)| (entry.transaction.hash_ref(), index))
                 .collect();
             (positions, vec![usize::MAX; entries.len()])
         });
@@ -236,22 +247,41 @@ pub(super) fn aggregates(
             let index = index.ok_or(Error::Stale)?;
             seen[index] = root;
             ancestors.push(index);
-            stack.extend(accepted(entries[index].1)?.parents.iter());
+            stack.extend(accepted(entries[index])?.parents.iter());
         }
         if ancestors.len() > max_ancestors {
             return Err(Reject::ExceededMaximumAncestorsCount.into());
         }
-        rows[root].ancestors = ancestors
+        let sum = ancestors
             .iter()
             .try_fold(Aggregate::default(), |sum, index| {
-                sum.add(Aggregate::one(accepted(entries[*index].1)?))
+                sum.add(Aggregate::one(accepted(entries[*index])?))
             })?;
-        let own = Aggregate::one(own);
-        for index in &ancestors {
-            rows[*index].descendants = rows[*index].descendants.add(own)?;
-        }
+        visit(root, &ancestors, sum)?;
     }
-    Ok(totals)
+    Ok(())
+}
+
+/// Both neighborhoods, keyed for callers that look up members after evaluation.
+#[expect(
+    clippy::indexing_slicing,
+    reason = "The visitor supplies ordinals from entries."
+)]
+pub(super) fn aggregates(
+    members: &Members,
+    max_ancestors: usize,
+) -> Result<BTreeMap<Byte32, NeighborhoodTotals>, Error> {
+    let entries: Vec<_> = members.values().map(Arc::as_ref).collect();
+    let mut totals = vec![NeighborhoodTotals::default(); entries.len()];
+    visit_ancestors(&entries, max_ancestors, |root, ancestors, sum| {
+        totals[root].ancestors = sum;
+        let own = Aggregate::one(accepted(entries[root])?);
+        for &index in ancestors {
+            totals[index].descendants = totals[index].descendants.add(own)?;
+        }
+        Ok(())
+    })?;
+    Ok(members.keys().cloned().zip(totals).collect())
 }
 
 pub(super) fn entry_snapshot(
@@ -283,6 +313,9 @@ pub(super) fn entry_snapshot(
     })
 }
 
+/// Immutable prefix of one owner shard's cheapest possible eviction ranks.
+pub(super) type EvictionBounds = Arc<[EvictionRank]>;
+
 /// Smaller ranks are evicted first: pending before gap before proposed, then
 /// lower fee rate, fewer descendants, earlier arrival and smaller hash.
 /// Capacity trimming and cycle removal select the minimum; the bounded cycle
@@ -295,7 +328,55 @@ pub(super) struct EvictionRank {
     pub(super) arrival: u64,
     pub(super) hash: Byte32,
 }
+fn own_fee_rate(value: &Accepted) -> FeeRate {
+    FeeRate::calculate(
+        value.fee,
+        get_transaction_weight(value.size, value.scripts.cycles()),
+    )
+}
+
 impl EvictionRank {
+    /// A pending singleton is an absolute lower bound: the actual package
+    /// rate is at least the owner's rate, and a closure includes its owner.
+    pub(super) fn lower_bounds(owners: &[Arc<Entry>]) -> EvictionBounds {
+        let mut ranks: Vec<_> = owners
+            .iter()
+            .filter_map(|owner| {
+                Some(Self {
+                    status: Status::Pending,
+                    fee: own_fee_rate(owner.accepted()?),
+                    descendants: 1,
+                    arrival: owner.arrival,
+                    hash: compact_packed(owner.transaction.hash_ref()),
+                })
+            })
+            .collect();
+        // One unexamined bound beyond the work limit certifies that a suffix
+        // was not exhausted. No pressure decision evaluates that extra owner.
+        let prefix = MAX_POOL_MUTATION_CANDIDATES + 1;
+        if ranks.len() > prefix {
+            ranks.select_nth_unstable(prefix);
+            ranks.truncate(prefix);
+        }
+        ranks.sort_unstable();
+        ranks.into()
+    }
+
+    pub(super) fn ordered_bounds(shards: &[EvictionBounds]) -> impl Iterator<Item = &Self> {
+        use std::{cmp::Reverse, collections::BinaryHeap};
+        let mut runs: BinaryHeap<_> = shards
+            .iter()
+            .filter_map(|ranks| ranks.split_first().map(Reverse))
+            .collect();
+        std::iter::from_fn(move || {
+            let Reverse((first, rest)) = runs.pop()?;
+            if let Some(next) = rest.split_first() {
+                runs.push(Reverse(next));
+            }
+            Some(first)
+        })
+    }
+
     fn new(entry: &Entry, descendants: Aggregate, snapshot: &Snapshot) -> Result<Self, Error> {
         let value = accepted(entry)?;
         Ok(Self::for_accepted(
@@ -314,17 +395,13 @@ impl EvictionRank {
         arrival: u64,
         hash: Byte32,
     ) -> Self {
-        let own_rate = FeeRate::calculate(
-            value.fee,
-            get_transaction_weight(value.size, value.scripts.cycles()),
-        );
         let descendants_rate = FeeRate::calculate(
             descendants.fee(),
             get_transaction_weight(descendants.bytes, descendants.cycles),
         );
         Self {
             status,
-            fee: own_rate.max(descendants_rate),
+            fee: own_fee_rate(value).max(descendants_rate),
             descendants: descendants.count,
             arrival,
             hash,
@@ -655,39 +732,53 @@ fn prepare_admission(
         .checked_sub(released)
         .and_then(|usage| usage.checked_add(added));
     if optimistic.is_none_or(|usage| !usage.fits(graph.limits().accepted)) {
-        // Original observations stay in the Plan across this full capture;
-        // changed ancestors cannot pass commit validation. Release this
-        // map before rebuilding it.
-        drop(observed_successors);
-        let mut charge = graph.capture_accepted()?;
-        observed_successors = apply_virtual(graph.observed(), &admitted.entry, &late, &removed)?;
-        // Virtual insertion replaces an existing same-hash accepted owner.
-        // Normal ingress excludes duplicates, but admission's captured graph
-        // must account for that replacement too, without releasing it twice.
-        if !removed.contains(&candidate_hash)
-            && let Some(previous) = graph.observed().get(&candidate_hash)
-        {
-            charge = charge
-                .checked_sub(owner_amount(previous)?)
-                .ok_or(Error::Stale)?;
+        let independent = removed.is_empty()
+            && late.is_empty()
+            && admitted.ancestors.len() == 1
+            && before.is_none_or(|owner| owner.accepted().is_none());
+        let certified = if independent {
+            graph.independent_evictions(&admitted.entry, added, snapshot)?
+        } else {
+            None
+        };
+        if let Some(victims) = certified {
+            removed = victims;
+        } else {
+            // Original observations stay in the Plan across this full capture;
+            // changed ancestors cannot pass commit validation. Release this
+            // map before rebuilding it.
+            drop(observed_successors);
+            let mut charge = graph.capture_accepted()?;
+            observed_successors =
+                apply_virtual(graph.observed(), &admitted.entry, &late, &removed)?;
+            // Virtual insertion replaces an existing same-hash accepted owner.
+            // Normal ingress excludes duplicates, but admission's captured graph
+            // must account for that replacement too, without releasing it twice.
+            if !removed.contains(&candidate_hash)
+                && let Some(previous) = graph.observed().get(&candidate_hash)
+            {
+                charge = charge
+                    .checked_sub(owner_amount(previous)?)
+                    .ok_or(Error::Stale)?;
+            }
+            // The full cut makes the account authoritative. Retain all original
+            // observations: a removed predecessor can make this subtraction stale,
+            // and any other concurrent change must still fail commit validation.
+            let charge = charge
+                .checked_sub(released)
+                .ok_or(Error::Stale)?
+                .checked_add(added)
+                .ok_or_else(overflow)?;
+            trim_virtual(
+                &mut observed_successors,
+                snapshot,
+                config,
+                &mut removed,
+                &late_descendants,
+                &admitted,
+                charge.positive_difference(graph.limits().accepted),
+            )?;
         }
-        // The full cut makes the account authoritative. Retain all original
-        // observations: a removed predecessor can make this subtraction stale,
-        // and any other concurrent change must still fail commit validation.
-        let charge = charge
-            .checked_sub(released)
-            .ok_or(Error::Stale)?
-            .checked_add(added)
-            .ok_or_else(overflow)?;
-        trim_virtual(
-            &mut observed_successors,
-            snapshot,
-            config,
-            &mut removed,
-            &late_descendants,
-            &admitted,
-            charge.positive_difference(graph.limits().accepted),
-        )?;
     }
     validate_backing(verified, &removed)?;
     // Validation scratch is no longer needed while removal snapshots are built.
@@ -744,13 +835,15 @@ fn prepare_admission(
         )?;
         aggregate(&observed_successors, &descendants)?
     };
+    let ancestors = aggregate(&observed_successors, &ancestors)?;
     let accepted_snapshot = entry_snapshot(
         &admitted,
         NeighborhoodTotals {
-            ancestors: aggregate(&observed_successors, &ancestors)?,
+            ancestors,
             descendants,
         },
     )?;
+    graph.plan.admitted_ancestors = Some((admitted.hash(), ancestors));
     let effect = Effect::accepted(
         accepted_snapshot,
         accepted(&admitted)?.status(snapshot),

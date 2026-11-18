@@ -109,6 +109,99 @@ fn input_snapshot_tracks_chain_changes_without_membership_changes() {
 }
 
 #[test]
+fn detail_ranks_follow_a_shared_ancestor_replacement_with_unchanged_children() {
+    let store = store();
+    let priced = |transaction: TransactionView, rate: u64| {
+        let fee = get_transaction_weight(transaction.data().serialized_size_in_block(), 1) * rate;
+        accept(&store, transaction, fee, 1, Status::Pending)
+    };
+    let root = priced(output_tx(6550), 0);
+    let point = OutPoint::new(root.clone(), 0);
+    let left = priced(spend(6551, &[], std::slice::from_ref(&point)), 11);
+    let right = priced(spend(6552, &[], &[point]), 11);
+    let join = priced(
+        spend(
+            6553,
+            &[],
+            &[OutPoint::new(left, 0), OutPoint::new(right, 0)],
+        ),
+        11,
+    );
+    let probe = priced(output_tx(6554), 10);
+    let before = detail(&store, &probe, &config()).unwrap();
+    assert!(
+        detail(
+            &store,
+            &probe,
+            &TxPoolConfig {
+                max_ancestors_count: 3,
+                ..config()
+            }
+        )
+        .is_err(),
+        "the shared join still exceeds a tighter query limit"
+    );
+    assert_eq!(before.rank_in_pending, 1);
+    assert_eq!(
+        detail(&store, &root, &config()).unwrap().descendants_count,
+        3
+    );
+    let old = store.point(&root).1.unwrap();
+    let weak = Arc::downgrade(&old);
+    let mut value = old.accepted().unwrap().clone();
+    value.fee = Capacity::shannons(1_000_000);
+    replace(&store, old, Phase::Accepted(value));
+    assert!(
+        weak.upgrade().is_none(),
+        "a rank projection must release old owners"
+    );
+    let after = detail(&store, &probe, &config()).unwrap();
+    assert_eq!(after.rank_in_pending, 5);
+    assert_eq!(after.pending_count, before.pending_count);
+    let merged = detail(&store, &join, &config()).unwrap();
+    assert_eq!((merged.ancestors_count, merged.descendants_count), (3, 0));
+    assert!(merged.score_sortkey.ancestors_fee.as_u64() > 1_000_000);
+}
+
+#[test]
+fn pending_ranks_follow_proposal_window_changes_without_owner_edits() {
+    let store = store();
+    let high = accept(&store, tx(6560), 1000, 1, Status::Pending);
+    let original = store.point(&high).1.unwrap();
+    let mut value = original.accepted().unwrap().clone();
+    value.forced_status = None;
+    let owner = replace(&store, original, Phase::Accepted(value));
+    let low = accept(&store, tx(6561), 1, 1, Status::Pending);
+    assert_eq!(detail(&store, &low, &config()).unwrap().rank_in_pending, 2);
+    let backing = ckb_test_chain_utils::MockStore::default();
+    for (proposals, rank) in [
+        (
+            ckb_proposal_table::ProposalView::new([], [owner.proposal()]),
+            1,
+        ),
+        (ckb_proposal_table::ProposalView::default(), 2),
+    ] {
+        let (view, base) = store.snapshot();
+        let next = Arc::new(Snapshot::new(
+            base.tip_header().clone(),
+            base.total_difficulty().clone(),
+            base.epoch_ext().clone(),
+            backing.store().get_snapshot(),
+            proposals,
+            base.cloned_consensus(),
+        ));
+        let mut plan = Plan::new(view, Class::Critical, Default::default());
+        plan.chain(store.snapshot_change(next), []).unwrap();
+        store.apply(plan).unwrap();
+        assert!(Arc::ptr_eq(&store.point(&high).1.unwrap(), &owner));
+        assert_eq!(
+            detail(&store, &low, &config()).unwrap().rank_in_pending,
+            rank
+        );
+    }
+}
+
+#[test]
 fn optional_replacement_fee_overflow_keeps_transaction_and_status_visible() {
     let store = store();
     let hash = accept(&store, tx(6000), u64::MAX, 7, Status::Pending);

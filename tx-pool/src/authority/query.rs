@@ -6,7 +6,7 @@ use super::{
     packing::Selection,
     store::{Captured, ReadSet, Store},
 };
-use crate::component::sort_key::{AncestorsScoreSortKey, TransactionPriority};
+use crate::component::sort_key::AncestorsScoreSortKey;
 use ckb_app_config::TxPoolConfig;
 use ckb_fee_estimator::FeeSample;
 use ckb_snapshot::Snapshot;
@@ -271,17 +271,11 @@ pub(super) fn entry_info(store: &Store, config: &TxPoolConfig) -> Result<TxPoolE
     Ok(result)
 }
 
-#[expect(
-    clippy::arithmetic_side_effects,
-    reason = "Counts and one-based rank cannot exceed the bounded captured membership length."
-)]
 pub(super) fn detail(
     store: &Store,
     hash: &Byte32,
     config: &TxPoolConfig,
 ) -> Result<PoolTxDetailInfo, Error> {
-    // A miss is complete at the point read. On a hit, rank and owner must
-    // both come from the later capture, including if the owner has left.
     if store
         .point(hash)
         .1
@@ -289,66 +283,10 @@ pub(super) fn detail(
     {
         return Ok(PoolTxDetailInfo::with_unknown());
     }
-    let Captured {
-        snapshot, owners, ..
-    } = store.capture_accepted();
-    let members: Members = owners
-        .into_iter()
-        .map(|entry| (entry.hash(), entry))
-        .collect();
-    let Some(entry) = members.get(hash) else {
-        return Ok(PoolTxDetailInfo::with_unknown());
-    };
-    let value = entry.accepted().ok_or(Error::Stale)?;
-    let totals = membership::aggregates(&members, config.max_ancestors_count)?;
-    let NeighborhoodTotals {
-        ancestors,
-        descendants,
-    } = totals.get(hash).ok_or(Error::Stale)?;
-    let target = TransactionPriority {
-        score: score(value, *ancestors)?,
-        arrival: entry.arrival,
-        hash,
-    };
-    let proposed = value.status(&snapshot) == Status::Proposed;
-    let mut pending_count = 0usize;
-    let mut proposed_count = 0usize;
-    let mut rank_in_pending = usize::from(!proposed);
-    for (candidate_hash, candidate) in &members {
-        let candidate_value = candidate.accepted().ok_or(Error::Stale)?;
-        if candidate_value.status(&snapshot) == Status::Proposed {
-            proposed_count += 1;
-            continue;
-        }
-        pending_count += 1;
-        let candidate_ancestors = totals.get(candidate_hash).ok_or(Error::Stale)?.ancestors;
-        let candidate = TransactionPriority {
-            score: score(candidate_value, candidate_ancestors)?,
-            arrival: candidate.arrival,
-            hash: candidate_hash,
-        };
-        if !proposed && candidate > target {
-            rank_in_pending += 1;
-        }
-    }
-    Ok(PoolTxDetailInfo {
-        timestamp: value.timestamp,
-        entry_status: match value.status(&snapshot) {
-            Status::Pending => "pending",
-            Status::Gap => "gap",
-            Status::Proposed => "proposed",
-        }
-        .to_owned(),
-        rank_in_pending,
-        pending_count,
-        proposed_count,
-        descendants_count: descendants.count.checked_sub(1).ok_or(Error::Stale)?,
-        ancestors_count: ancestors.count.checked_sub(1).ok_or(Error::Stale)?,
-        score_sortkey: target.score.into(),
-    })
+    store.ranked_detail(hash, config.max_ancestors_count)
 }
 
-fn score(
+pub(super) fn score(
     value: &super::model::Accepted,
     ancestors: membership::Aggregate,
 ) -> Result<AncestorsScoreSortKey, Error> {

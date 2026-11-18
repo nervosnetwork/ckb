@@ -2,6 +2,7 @@
 //! [Plan] owns a prepared decision; [apply] keeps its preflight, coupled mutation,
 //! guard release and retirement together.
 mod apply;
+mod detail;
 mod plan;
 mod shards;
 
@@ -14,6 +15,7 @@ use shards::{
 use super::{
     budget::{Amount, Budget, Limits},
     jobs::Job,
+    membership::{EvictionBounds, EvictionRank},
     model::{DependencyKey, Entry, Error, FullReason, RelationKey, Status},
     notice::Outbox,
     queue::{Queues, WorkSelection, WorkStage},
@@ -32,7 +34,7 @@ use std::{
     hash::Hash,
     ops::Bound::{Excluded, Unbounded},
     sync::{
-        Arc, Weak,
+        Arc, OnceLock, Weak,
         atomic::{AtomicBool, AtomicU64, Ordering},
     },
     time::Instant,
@@ -149,6 +151,8 @@ impl SnapshotChange {
         }
     }
 }
+type OwnerGuards<'a> = Shards<ckb_util::parking_lot::RwLockReadGuard<'a, Shard>>;
+
 #[derive(Default)]
 struct Shard {
     owners: BTreeMap<[u8; 32], Arc<Entry>>,
@@ -160,7 +164,10 @@ struct Shard {
     proposed: usize,
     revision: u64,
     accepted_revision: u64,
+    eviction_bounds: OnceLock<EvictionBounds>,
+    ranks: detail::Ranks,
 }
+
 impl Shard {
     fn proposal(&self, id: &[u8; ProposalShortId::TOTAL_SIZE]) -> Option<&Arc<Entry>> {
         // Owners route by this prefix. Their full-hash order also supplies the
@@ -302,6 +309,7 @@ impl WakePage {
 /// earlier layer while held. Queue selection releases its lane before owners.
 /// New acquisition paths must fit this order; no authority guard spans await.
 pub(super) struct Store {
+    rank_generation: AtomicU64,
     #[cfg(test)]
     pub(super) commit_observer: Mutex<Option<CommitObserver>>,
     #[cfg(test)]
@@ -447,6 +455,7 @@ impl Store {
         let faulted = Arc::new(AtomicBool::new(false));
         let outbox = Outbox::new(&limits, Arc::clone(&faulted))?;
         Ok(Arc::new(Self {
+            rank_generation: AtomicU64::new(0),
             #[cfg(test)]
             commit_observer: Mutex::new(None),
             #[cfg(test)]
@@ -841,6 +850,67 @@ impl Store {
         self.capture(true)
     }
 
+    /// Capture shard-local lower bounds and the settled charge together. Build
+    /// cold prefixes after the owner guards open; only matching revisions may
+    /// install them for another decision.
+    pub(super) fn eviction_bounds(
+        &self,
+        plan: &mut Plan,
+    ) -> Result<(Vec<EvictionBounds>, Amount), Error> {
+        let mut bounds = Vec::with_capacity(SHARDS);
+        let mut cold = Vec::new();
+        let charge = {
+            let view = self.view.read();
+            if plan.view != view.revision {
+                return Err(Error::Stale);
+            }
+            let guards = self.shards.read_all();
+            plan.reads.merge(&ReadSet {
+                accepted: Some(Box::new(guards.map(|shard| shard.accepted_revision))),
+                ..ReadSet::default()
+            })?;
+            for index in ShardIndex::all() {
+                let shard = guards.at(index);
+                if let Some(local) = shard.eviction_bounds.get() {
+                    bounds.push(Arc::clone(local));
+                } else {
+                    let owners: Vec<_> = shard
+                        .owners
+                        .values()
+                        .filter(|entry| entry.accepted().is_some())
+                        .cloned()
+                        .collect();
+                    cold.push((index, shard.accepted_revision, owners));
+                }
+            }
+            self.budget.accepted_usage()
+        };
+        for (index, revision, owners) in cold {
+            let local = EvictionRank::lower_bounds(&owners);
+            self.cache_eviction_bounds(plan.view, index, revision, &local);
+            bounds.push(local);
+        }
+        Ok((bounds, charge))
+    }
+
+    fn cache_eviction_bounds(
+        &self,
+        view: u64,
+        index: ShardIndex,
+        revision: u64,
+        bounds: &EvictionBounds,
+    ) {
+        // Clearing the pool replaces the shards and restarts their revisions.
+        // Hold the original lifecycle view through installation.
+        let current = self.view.read();
+        if current.revision == view {
+            let shard = self.shards.at(index).read();
+            if shard.accepted_revision == revision {
+                let _ = shard.eviction_bounds.set(Arc::clone(bounds));
+            }
+        }
+    }
+
     pub(super) fn snapshot_change(&self, next: Arc<Snapshot>) -> SnapshotChange {
         let (view, previous) = self.snapshot();
         // This is a work bound, not a membership premise. Capture and Apply
@@ -1070,10 +1140,6 @@ impl Store {
     /// Capture one accepted descendant closure at a coherent cut. Every child
     /// membership update holds an owner writer, so these read guards stabilize
     /// the existing relation rows too. Caller owns a bounded read/capture slot.
-    #[expect(
-        clippy::arithmetic_side_effects,
-        reason = "The cursor visits each captured owner once and cannot exceed the bounded Vec length."
-    )]
     pub(super) fn capture_descendants(
         &self,
         hash: &Byte32,
@@ -1081,13 +1147,25 @@ impl Store {
         let view = self.view.read();
         let guards = self.shards.read_all();
         let snapshot = Arc::clone(&view.snapshot);
+        Ok((snapshot, self.descendants_at(&guards, hash)?))
+    }
+
+    #[expect(
+        clippy::arithmetic_side_effects,
+        reason = "The cursor is bounded by the captured owners."
+    )]
+    fn descendants_at(
+        &self,
+        guards: &OwnerGuards<'_>,
+        hash: &Byte32,
+    ) -> Result<Vec<Arc<Entry>>, Error> {
         let Some(root) = guards
             .at(self.owner_shard(hash.as_slice()))
             .owners
             .get(hash.as_slice())
             .filter(|entry| entry.accepted().is_some())
         else {
-            return Ok((snapshot, Vec::new()));
+            return Ok(Vec::new());
         };
         let mut owners = vec![Arc::clone(root)];
         let mut seen = BTreeSet::from([hash.clone()]);
@@ -1109,7 +1187,7 @@ impl Store {
             }
             cursor += 1;
         }
-        Ok((snapshot, owners))
+        Ok(owners)
     }
 
     /// Owner reservations settle before their guards open, so the accepted

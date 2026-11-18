@@ -2407,3 +2407,34 @@ fn repeated_availability_advances_pass_without_duplicating_dirty_membership() {
     assert_eq!(store.dirty.lock().len(), 1);
     assert!(!store.is_faulted());
 }
+
+#[test]
+fn read_projections_cannot_cross_a_clear_that_reuses_the_shard_revision() {
+    use crate::authority::tests::common::{accept, store, tx};
+    let pool = store();
+    let transaction = tx(10639);
+    let hash = accept(&pool, transaction.clone(), 1, 1, Status::Pending);
+    let (view, owner) = (pool.snapshot().0, pool.point(&hash).1.unwrap());
+    let index = pool.owner_shard(hash.as_slice());
+    let revision = pool.shards.at(index).read().accepted_revision;
+    let old = EvictionRank::lower_bounds(&[owner]);
+    pool.ranked_detail(&hash, 25).unwrap();
+    pool.apply(crate::authority::chain::clear(&pool, None, ClearScope::All).unwrap())
+        .unwrap();
+    assert_eq!(pool.shards.at(index).read().accepted_revision, 0);
+    accept(&pool, transaction, 10_000, 1, Status::Pending);
+    assert_eq!(pool.shards.at(index).read().accepted_revision, revision);
+    let ranks = Shards::new(|| detail::Ranks::empty(0));
+    let revisions = Shards::new(|| revision);
+    pool.install_ranks(view, 0, &revisions, ranks);
+    pool.cache_eviction_bounds(view, index, revision, &old);
+    assert!(pool.shards.at(index).read().eviction_bounds.get().is_none());
+    let mut plan = Plan::new(pool.snapshot().0, Class::Trusted, Default::default());
+    let (fresh, _) = pool.eviction_bounds(&mut plan).unwrap();
+    assert!(EvictionRank::ordered_bounds(&fresh).next().unwrap().fee > old.first().unwrap().fee);
+    let competitor = accept(&pool, tx(10640), 10, 1, Status::Pending);
+    assert_eq!(
+        pool.ranked_detail(&competitor, 25).unwrap().rank_in_pending,
+        2
+    );
+}

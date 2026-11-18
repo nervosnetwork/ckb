@@ -251,6 +251,8 @@ pub(in crate::authority) struct Plan {
     pub(super) reads: ReadSet,
     pub(super) edits: BTreeMap<Byte32, Edit>,
     pub(super) effects: Vec<Effect>,
+    pub(in crate::authority) admitted_ancestors:
+        Option<(Byte32, crate::authority::membership::Aggregate)>,
     pub(super) class: Class,
     pub(super) lifecycle: Option<LifecycleWrite>,
     pub(super) dry_run: bool,
@@ -266,6 +268,7 @@ impl Plan {
             reads,
             edits: BTreeMap::new(),
             effects: Vec::new(),
+            admitted_ancestors: None,
             class,
             lifecycle: None,
             dry_run: false,

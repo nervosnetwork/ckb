@@ -2,7 +2,7 @@ use crate::util::fee_rate_cross_product;
 use ckb_types::core::{
     Capacity, FeeRate, tx_pool::AncestorsScoreSortKey as CoreAncestorsScoreSortKey,
 };
-use ckb_types::packed::{Byte32, ProposalShortId};
+use ckb_types::packed::ProposalShortId;
 use std::cmp::Ordering;
 
 /// A struct to use as a sorted key
@@ -77,22 +77,22 @@ impl std::fmt::Display for AncestorsScoreSortKey {
 
 /// Higher priority wins: ancestor score, then earlier arrival and smaller hash.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub(crate) struct TransactionPriority<'a> {
+pub(crate) struct TransactionPriority<H> {
     pub(crate) score: AncestorsScoreSortKey,
     pub(crate) arrival: u64,
-    pub(crate) hash: &'a Byte32,
+    pub(crate) hash: H,
 }
 
-impl Ord for TransactionPriority<'_> {
+impl<H: Ord> Ord for TransactionPriority<H> {
     fn cmp(&self, other: &Self) -> Ordering {
         self.score
             .cmp(&other.score)
             .then_with(|| other.arrival.cmp(&self.arrival))
-            .then_with(|| other.hash.cmp(self.hash))
+            .then_with(|| other.hash.cmp(&self.hash))
     }
 }
 
-impl PartialOrd for TransactionPriority<'_> {
+impl<H: Ord> PartialOrd for TransactionPriority<H> {
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
         Some(self.cmp(other))
     }
