@@ -286,7 +286,7 @@ fn committed_parent_leaves_child_backed_by_chain_and_updates_compact_lookup() {
             .is_empty()
     );
     let (_, _, committed) = store.compact_lookup(&[parent.proposal_short_id()]);
-    assert_eq!(committed, vec![(parent.proposal_short_id(), ph)]);
+    assert_eq!(committed, vec![(parent.proposal_short_id(), ph.unpack())]);
     assert_eq!(
         store.filter_fresh_proposals(vec![parent.proposal_short_id()]),
         vec![parent.proposal_short_id()],
@@ -442,19 +442,65 @@ fn producer_reattached_on_the_new_chain_keeps_its_pool_resolved_reader_accepted(
 #[test]
 fn chain_commit_preserves_supplied_order_for_colliding_compact_ids() {
     let store = store();
-    let id = ProposalShortId::new([9; 10]);
-    let first = Byte32::new([1; 32]);
-    let second = Byte32::new([2; 32]);
-    let command = command(&store, Vec::new());
-    let _pause = store.begin_chain().unwrap();
-    let mut plan = reconcile(&store, &command, &config()).unwrap();
-    // Inject a compact collision at the same checked boundary that receives
-    // ordered block transaction facts; constructing a hash collision is unnecessary.
-    assert!(plan.committed_for_test(vec![(id.clone(), first), (id.clone(), second.clone())]));
-    store.apply(plan).unwrap();
-    let (_, live, committed) = store.compact_lookup(std::slice::from_ref(&id));
+    let first = Byte32::new([9; 32]);
+    let mut bytes = [9; 32];
+    bytes[31] = 7;
+    let id = ProposalShortId::from_tx_hash(&first);
+    let command = command(
+        &store,
+        vec![
+            output_tx(1).fake_hash(first),
+            output_tx(2).fake_hash(Byte32::new(bytes)),
+        ],
+    );
+    apply(&store, &command);
+    let (_, live, committed) = store.compact_lookup(&[id.clone(), tx(0).proposal_short_id()]);
     assert!(live.is_empty());
-    assert_eq!(committed, vec![(id, second)]);
+    assert_eq!(committed, vec![(id, bytes)]);
+}
+
+#[test]
+fn compact_query_rejects_an_indexed_transaction_with_only_a_matching_prefix() {
+    use ckb_store::ChainStore;
+
+    let store = store();
+    let base = store.snapshot().1;
+    let transaction = output_tx(5601);
+    let hash = transaction.hash();
+    let id = transaction.proposal_short_id();
+    let mut collision: [u8; 32] = hash.unpack();
+    collision[31] ^= 1;
+    let attached = BlockBuilder::default()
+        .transaction(tx(0))
+        .transaction(transaction)
+        .build();
+    // Index the attached hash at a position that contains a different transaction.
+    let body = BlockBuilder::default()
+        .transaction(tx(0))
+        .transaction(output_tx(5602).fake_hash(Byte32::new(collision)))
+        .build()
+        .fake_hash(attached.hash());
+    let database = MockStore::default();
+    let write = database.store().begin_transaction();
+    write.insert_block(&body).unwrap();
+    write.attach_block(&attached).unwrap();
+    write.commit().unwrap();
+    let next = Arc::new(Snapshot::new(
+        attached.header(),
+        base.total_difficulty().clone(),
+        base.epoch_ext().clone(),
+        database.store().get_snapshot(),
+        Default::default(),
+        base.cloned_consensus(),
+    ));
+    let indexed = next.get_transaction(&hash).unwrap().0;
+    assert_eq!(indexed.proposal_short_id(), id);
+    assert_ne!(indexed.hash(), hash);
+    apply(
+        &store,
+        &ChainReorgArgs::for_test(VecDeque::new(), [attached].into(), next),
+    );
+    assert!(crate::authority::query::compact_transactions(&store, &[id]).is_empty());
 }
 
 #[test]
@@ -474,7 +520,7 @@ fn bounded_recovery_committed_lookup_survives_partial_clear_only() {
     drop(pause);
 
     let id = committed_tx.proposal_short_id();
-    let committed = vec![(id.clone(), committed_tx.hash())];
+    let committed = vec![(id.clone(), committed_tx.hash_ref().unpack())];
     assert_eq!(store.compact_lookup(std::slice::from_ref(&id)).2, committed);
     store
         .apply(clear(&store, None, ClearScope::Unaccepted).unwrap())

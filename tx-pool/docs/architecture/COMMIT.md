@@ -154,6 +154,10 @@ index key while still replacing the owner and advancing its read revisions.
 Clear replaces complete shards. A lifecycle
 write refreshes Gap and Proposed counts against its successor snapshot, installs the
 snapshot and applies its ordered committed-hash records under the same cut.
+Preparation copies the cached transaction hashes after each cellbase as fixed-size
+values. Apply keys the bounded cache by the ten-byte prefix, so a later collision
+wins. Compact lookup copies the matching hash under the lock. The subsequent
+chain read packs it and checks the full hash of the indexed transaction.
 
 Retired payloads and replaced collections drop outside the guarded cut. The
 outbox batch is appended with the mutation and becomes ready after guards open.

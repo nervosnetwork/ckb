@@ -54,6 +54,7 @@ type CommitObserver = Arc<dyn Fn(&Plan, bool) + Send + Sync>;
 
 const WAKE_PAGE: usize = 32;
 const COMMITTED_HASH_CACHE_CAPACITY: usize = 100_000;
+type CommittedHashes = lru::LruCache<[u8; ProposalShortId::TOTAL_SIZE], [u8; 32]>;
 
 /// One owner's roles toward a dependency or parent. The spender is exclusive;
 /// the other roles share the relation's member map.
@@ -321,7 +322,7 @@ pub(super) struct Store {
     peer_gates: Shards<RwLock<()>>,
     peers: Mutex<BTreeMap<PeerIndex, Arc<Mutex<Peer>>>>,
     bans: Mutex<BTreeMap<PeerIndex, Instant>>,
-    committed: Mutex<lru::LruCache<ProposalShortId, Byte32>>,
+    committed: Mutex<CommittedHashes>,
     dirty: Mutex<BTreeSet<DependencyKey>>,
     routing: Routing,
     arrival: AtomicU64,
@@ -470,7 +471,7 @@ impl Store {
             peer_gates: Shards::new(|| RwLock::new(())),
             peers: Mutex::new(BTreeMap::new()),
             bans: Mutex::new(BTreeMap::new()),
-            committed: Mutex::new(lru::LruCache::new(COMMITTED_HASH_CACHE_CAPACITY)),
+            committed: Mutex::new(CommittedHashes::new(COMMITTED_HASH_CACHE_CAPACITY)),
             dirty: Mutex::new(BTreeSet::new()),
             routing: Routing::default(),
             arrival: AtomicU64::new(0),
@@ -648,7 +649,7 @@ impl Store {
     ) -> (
         Arc<Snapshot>,
         Vec<(ProposalShortId, Arc<Entry>)>,
-        Vec<(ProposalShortId, Byte32)>,
+        Vec<(ProposalShortId, [u8; 32])>,
     ) {
         let mut footprint = LockFootprint::default();
         for id in ids {
@@ -660,11 +661,12 @@ impl Store {
         let mut committed = Vec::with_capacity(ids.len());
         let cache = self.committed.lock();
         for id in ids {
+            let key = id.unpack();
             let shard = owners.get(self.route(id));
-            if let Some(entry) = shard.and_then(|shard| shard.proposal(&id.unpack())) {
+            if let Some(entry) = shard.and_then(|shard| shard.proposal(&key)) {
                 live.push((id.clone(), Arc::clone(entry)));
-            } else if let Some(hash) = cache.peek(id) {
-                committed.push((id.clone(), hash.clone()));
+            } else if let Some(hash) = cache.peek(&key) {
+                committed.push((id.clone(), *hash));
             }
         }
         (Arc::clone(&view.snapshot), live, committed)

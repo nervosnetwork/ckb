@@ -327,9 +327,9 @@ pub(super) fn compact_transactions(
         .map(|(id, entry)| (id, entry.transaction.as_ref().clone()))
         .collect();
     for (id, hash) in committed {
+        let hash = Byte32::from(&hash);
         if let Some((transaction, _)) = snapshot.get_transaction(&hash)
-            && transaction.hash() == hash
-            && transaction.proposal_short_id() == id
+            && transaction.hash_ref() == &hash
         {
             result.insert(id, transaction);
         }

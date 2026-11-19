@@ -224,19 +224,20 @@ pub(super) struct LifecycleWrite {
     pub(super) snapshot: Arc<Snapshot>,
     pub(super) proposals: Option<Vec<(ProposalShortId, Status, Status)>>,
     pub(super) replace_generation: bool,
-    pub(super) committed: Vec<(ProposalShortId, Byte32)>,
+    pub(super) committed: Vec<[u8; 32]>,
 }
 
 impl LifecycleWrite {
     fn blocks(&mut self, blocks: impl IntoIterator<Item = Arc<BlockView>>) -> Option<Effect> {
         let blocks: Vec<_> = blocks.into_iter().collect();
         for block in &blocks {
-            for transaction in block.transactions().iter().skip(1) {
-                self.committed.push((
-                    compact_packed(&transaction.proposal_short_id()),
-                    compact_packed(&transaction.hash()),
-                ));
-            }
+            self.committed.extend(
+                block
+                    .tx_hashes()
+                    .iter()
+                    .skip(1)
+                    .map(Unpack::<[u8; 32]>::unpack),
+            );
         }
         (!blocks.is_empty()).then(|| Effect::blocks(blocks))
     }
@@ -403,18 +404,6 @@ impl Plan {
         self.notify(Effect::reset());
         self.effects.extend(effect);
         Ok(())
-    }
-
-    #[cfg(test)]
-    pub(in crate::authority) fn committed_for_test(
-        &mut self,
-        records: Vec<(ProposalShortId, Byte32)>,
-    ) -> bool {
-        let Some(lifecycle) = self.lifecycle.as_mut() else {
-            return false;
-        };
-        lifecycle.committed = records;
-        true
     }
 
     pub(in crate::authority) fn get(

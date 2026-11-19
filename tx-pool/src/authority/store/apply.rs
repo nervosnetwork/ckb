@@ -2,9 +2,9 @@
 //! lock release stay in one path; retired payloads outlive every authority guard.
 use super::plan::LifecycleWrite;
 use super::{
-    COMMITTED_HASH_CACHE_CAPACITY, CommitLocks, Edit, Guard, Peer, Plan, Relation, RelationMember,
-    Roles, SHARDS, Shard, ShardGuards, ShardIndex, Store, View, Wake, WakePage, compact_dependency,
-    compact_relation, proposal_key,
+    COMMITTED_HASH_CACHE_CAPACITY, CommitLocks, CommittedHashes, Edit, Guard, Peer, Plan, Relation,
+    RelationMember, Roles, SHARDS, Shard, ShardGuards, ShardIndex, Store, View, Wake, WakePage,
+    compact_dependency, compact_relation, proposal_key,
 };
 use crate::authority::{
     budget::OwnerDelta,
@@ -61,7 +61,7 @@ struct Retired {
     dirty: Option<BTreeSet<DependencyKey>>,
     queues: Option<Queues>,
     snapshot: Option<Arc<Snapshot>>,
-    _committed: Option<lru::LruCache<ProposalShortId, Byte32>>,
+    _committed: Option<CommittedHashes>,
 }
 
 /// A Plan and its reserved notices remain paired through the one possible
@@ -576,7 +576,6 @@ impl LifecycleWrite {
         view: &mut Guard<'_, View>,
         owners: &mut ShardGuards<'_, Shard>,
         retired: &mut Retired,
-        committed: Vec<(ProposalShortId, Byte32)>,
     ) {
         // Owner edits have already installed the final population and counted
         // it against the old view. Only changed canonical phases remain; the
@@ -602,10 +601,10 @@ impl LifecycleWrite {
             ));
             view.revision += 1;
         }
-        if !committed.is_empty() {
+        if !self.committed.is_empty() {
             let mut cache = store.committed.lock();
-            for (proposal, hash) in committed {
-                cache.put(proposal, hash);
+            for hash in &self.committed {
+                cache.put(*proposal_key(hash), *hash);
             }
         }
     }
@@ -724,13 +723,6 @@ impl<'a> Application<'a> {
         if plan.dry_run {
             return Ok(None);
         }
-        // These fresh packed values move into the cache. Cloning them here
-        // would allocate under the lifecycle and committed-cache locks.
-        let committed = plan
-            .lifecycle
-            .as_mut()
-            .map(|write| std::mem::take(&mut write.committed))
-            .unwrap_or_default();
         let mut batch = None;
         commit_infallibly(|| {
             // All recoverable checks precede the first mutation. Collection and
@@ -747,7 +739,7 @@ impl<'a> Application<'a> {
                 store.advance_wake(page);
             }
             if let Some(lifecycle) = &plan.lifecycle {
-                lifecycle.apply(store, &mut view, &mut owners, &mut retired, committed);
+                lifecycle.apply(store, &mut view, &mut owners, &mut retired);
             }
             batch = notice.take().map(notice::Reservation::append);
             let capacity_returned = budget.commit();
@@ -899,7 +891,7 @@ impl Store {
         let mut retired = Retired {
             _committed: Some(std::mem::replace(
                 &mut *self.committed.lock(),
-                lru::LruCache::new(COMMITTED_HASH_CACHE_CAPACITY),
+                CommittedHashes::new(COMMITTED_HASH_CACHE_CAPACITY),
             )),
             ..Retired::default()
         };
