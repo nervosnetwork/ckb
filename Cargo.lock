@@ -1189,7 +1189,7 @@ dependencies = [
 [[package]]
 name = "ckb-librocksdb-sys"
 version = "11.13.2"
-source = "git+https://github.com/nervosnetwork/ckb-rocksdb.git?rev=8bfe86d16c7e0fe812fd982e78374e36b13872eb#8bfe86d16c7e0fe812fd982e78374e36b13872eb"
+source = "git+https://github.com/nervosnetwork/ckb-rocksdb.git?rev=41cf45a475eebd86174543efd0853d1a995ca465#41cf45a475eebd86174543efd0853d1a995ca465"
 dependencies = [
  "bindgen",
  "cc",
@@ -1562,7 +1562,7 @@ dependencies = [
 [[package]]
 name = "ckb-rocksdb"
 version = "1.0.0"
-source = "git+https://github.com/nervosnetwork/ckb-rocksdb.git?rev=8bfe86d16c7e0fe812fd982e78374e36b13872eb#8bfe86d16c7e0fe812fd982e78374e36b13872eb"
+source = "git+https://github.com/nervosnetwork/ckb-rocksdb.git?rev=41cf45a475eebd86174543efd0853d1a995ca465#41cf45a475eebd86174543efd0853d1a995ca465"
 dependencies = [
  "ckb-librocksdb-sys",
  "libc",

@@ -39,7 +39,7 @@ fn snappy_options() -> Options {
 }
 
 #[test]
-fn main_database_uses_lz4_and_reopens_legacy_snappy_ssts() {
+fn main_database_uses_lz4_for_new_databases_and_preserves_legacy_snappy() {
     for legacy in [false, true] {
         let directory = tempfile::tempdir().unwrap();
         let value = vec![b'x'; 8192];
@@ -72,7 +72,14 @@ fn main_database_uses_lz4_and_reopens_legacy_snappy_ssts() {
         transaction.put("0", b"new", &value).unwrap();
         transaction.commit().unwrap();
         drop(db);
-        assert_compression(directory.path(), "kLZ4Compression");
+        let expected = if legacy {
+            "kSnappyCompression"
+        } else {
+            "kLZ4Compression"
+        };
+        assert_compression(directory.path(), expected);
+        drop(RocksDB::open_with_check(&config, COLUMNS).unwrap());
+        assert_compression(directory.path(), expected);
         let read_only = ReadOnlyDB::open_cf(directory.path(), ["0"])
             .unwrap()
             .unwrap();
@@ -112,7 +119,7 @@ fn main_database_preserves_explicit_compression_options() {
 }
 
 #[test]
-fn ttl_database_uses_lz4_and_reopens_legacy_snappy_ssts() {
+fn ttl_database_uses_lz4_for_new_databases_and_preserves_legacy_snappy() {
     for legacy in [false, true] {
         let directory = tempfile::tempdir().unwrap();
         let value = vec![b'x'; 8192];
@@ -150,7 +157,12 @@ fn ttl_database_uses_lz4_and_reopens_legacy_snappy_ssts() {
             None::<&[u8]>,
         );
         drop(db);
-        assert_compression(directory.path(), "kLZ4Compression");
+        let expected = if legacy {
+            "kSnappyCompression"
+        } else {
+            "kLZ4Compression"
+        };
+        assert_compression(directory.path(), expected);
         let db = DBWithTTL::open_cf(directory.path(), ["0", "1"], -1).unwrap();
         assert_eq!(db.get_pinned("1", b"new").unwrap().unwrap().as_ref(), value);
         if legacy {

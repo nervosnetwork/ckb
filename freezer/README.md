@@ -22,7 +22,9 @@ The default-CF key `freezer/epoch-segments/v1` stores the four bytes `ROW2`, a l
 
 The exact block hash determines the payload route. An absent mapping selects the existing fixed columns, eight zero bytes select a materialized fixed override, and `E` plus an eight-byte start selects a live epoch CF. An archive mapping stores the positive record number and the original witness hashes. Each transaction, snapshot and indexer reads with its own view. An edit to an immutable payload materializes the fixed copy and changes the route in the same transaction or batch.
 
-The archive lives under the configured `ancient` directory, normally `<data_dir>/ancient`. The supported file format is `CKBFZ006`. The file commit precedes publication of DB routes. Recovery checks the committed prefix and reconciles outstanding records before resuming archival. Checksums, block identity and transaction witnesses protect the corresponding read and retirement paths.
+The archive lives under the configured `ancient` directory, normally `<data_dir>/ancient`. Its `CKBFZ006` records use LZ4, including records archived from a Snappy database. The file commit precedes publication of DB routes. Recovery checks the committed prefix and reconciles outstanding records before resuming archival. Checksums, block identity and transaction witnesses protect the corresponding read and retirement paths.
+
+The hot RocksDB store uses LZ4 for a new database. On upgrade, the binding retains each existing column family's saved compression, so a Snappy store continues to write Snappy SSTs. New epoch column families inherit the default family's codec. An explicit `compression` in the node's RocksDB options file overrides this policy.
 
 ## Retirement
 
@@ -35,6 +37,8 @@ If a complete scan finds only the same blocked windows left, the worker can defe
 Both built-in indexer implementations can read the archive through a native RocksDB Secondary. The node's usual choice of `--indexer` or `--rich-indexer` applies. During layout changes each indexer catches up or reopens, validates its view of the manifest and archive cursor, and checks block identity before advancing.
 
 ## Recovery and upgrade
+
+Before the first start with RocksDB 11.13.2, take a stopped-node backup, including the database and its matching archive if present. Even with Freezer disabled, a normal flush can write format-version 7 SSTs that the previous RocksDB 8.5.4 node cannot open. To return to that node, restore its pre-upgrade files and resume from the backup tip. SST compression and SST format version are independent.
 
 Back up the stopped chain DB and its matching archive together. A published CF must exist. A future, unpublished CF must be empty before recovery removes it. After an interrupted retirement, the durable marker identifies the CFs to retain. An uncertain publication or a failed physical cleanup stops further layout writes until reopen. A missing paired archive, unknown marker or damaged published record needs investigation or restoration from a complete backup.
 

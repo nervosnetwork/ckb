@@ -282,7 +282,7 @@ rayon = "1.0"
 regex = "1.1.6"
 reqwest = { version = "0.12", features = ["blocking", "json"] }
 rhai = "1.16.0"
-rocksdb = { git = "https://github.com/nervosnetwork/ckb-rocksdb.git", rev = "8bfe86d16c7e0fe812fd982e78374e36b13872eb", version = "=1.0.0", package = "ckb-rocksdb", default-features = false, features = ["snappy", "lz4"] }
+rocksdb = { git = "https://github.com/nervosnetwork/ckb-rocksdb.git", rev = "41cf45a475eebd86174543efd0853d1a995ca465", version = "=1.0.0", package = "ckb-rocksdb", default-features = false, features = ["snappy", "lz4"] }
 rustc-hash = "1.1"
 rustix = "1"
 secio = { version = "0.6.8", package = "tentacle-secio" }
