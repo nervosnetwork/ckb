@@ -526,6 +526,7 @@ fn all_specs() -> Vec<Box<dyn Spec>> {
         #[cfg(not(target_os = "windows"))]
         Box::new(PoolPersisted),
         Box::new(TransactionRelayBasic),
+        Box::new(FreezerBlockExtensionRelay),
         Box::new(TransactionRelayLowFeeRate),
         Box::new(TooManyUnknownTransactions),
         // TODO failed on poor CI server

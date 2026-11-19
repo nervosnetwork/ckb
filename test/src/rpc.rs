@@ -6,10 +6,10 @@ mod error;
 use ckb_error::AnyError;
 use ckb_jsonrpc_types::{
     BannedAddr, Block, BlockEconomicState, BlockFilter, BlockNumber, BlockTemplate, BlockView,
-    Capacity, CellWithStatus, ChainInfo, EpochNumber, EpochView, EstimateCycles, HeaderView,
-    LocalNode, OutPoint, PoolTxDetailInfo, RawTxPool, RemoteNode, SyncState, Timestamp,
-    Transaction, TransactionAndWitnessProof, TransactionProof, TransactionWithStatusResponse,
-    TxPoolInfo, Uint32, Uint64, Version,
+    Capacity, CellWithStatus, ChainInfo, EpochNumber, EpochNumberWithFraction, EpochView,
+    EstimateCycles, HeaderView, LocalNode, OutPoint, PoolTxDetailInfo, RawTxPool, RemoteNode,
+    SyncState, Timestamp, Transaction, TransactionAndWitnessProof, TransactionProof,
+    TransactionWithStatusResponse, TxPoolInfo, Uint32, Uint64, Version,
 };
 use ckb_types::core::{
     BlockNumber as CoreBlockNumber, Capacity as CoreCapacity, EpochNumber as CoreEpochNumber,
@@ -381,6 +381,7 @@ jsonrpc!(
     pub fn process_block_without_verify(&self, _data: Block, broadcast: bool) -> Option<H256>;
     pub fn truncate(&self, target_tip_hash: H256) -> ();
     pub fn generate_block(&self) -> H256;
+    pub fn generate_epochs(&self, count: EpochNumberWithFraction) -> EpochNumberWithFraction;
     pub fn generate_block_with_template(&self, block_template: BlockTemplate) -> H256;
 
     pub fn calculate_dao_maximum_withdraw(&self, _out_point: OutPoint, _hash: H256) -> Capacity;

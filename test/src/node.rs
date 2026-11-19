@@ -915,7 +915,12 @@ impl Node {
             consensus.hardfork_switch().clone(),
         )
         .expect("open_or_create_db");
-        let chain_db = ChainDB::new(db, app_config.store);
+        let chain_db = if app_config.store.freezer_enable {
+            let freezer = ckb_store::Freezer::open(app_config.ancient).expect("open node archive");
+            ChainDB::new_with_freezer(db, freezer, app_config.store)
+        } else {
+            ChainDB::new(db, app_config.store)
+        };
         f(&chain_db);
 
         info!("accessed db done");
