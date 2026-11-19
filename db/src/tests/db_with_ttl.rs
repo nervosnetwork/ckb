@@ -10,6 +10,7 @@ fn test_open_db_with_ttl() {
     let db = DBWithTTL::open_cf(&tmp_dir, vec!["1"], 100);
     assert!(db.is_ok(), "{db:?}");
     let mut db = db.unwrap();
+    assert!(db.has_cf("1"));
 
     for i in 0..1000u64 {
         db.put("1", i.to_le_bytes(), [2]).unwrap();
@@ -26,12 +27,12 @@ fn test_open_db_with_ttl() {
     assert!(estimate_num_keys.is_some());
 
     db.drop_cf("1").unwrap();
-    let ret = db.get_pinned("1", &[1]);
-    assert!(ret.is_err());
-    let err_msg = format!("{:?}", ret.unwrap_err());
-    assert!(err_msg.contains("column 1 not found"), "{}", err_msg);
+    assert!(!db.has_cf("1"));
+    let error = db.get_pinned("1", &[1]).unwrap_err();
+    assert!(error.to_string().contains("column 1 not found"), "{error}");
 
     db.create_cf_with_ttl("1", 50).unwrap();
+    assert!(db.has_cf("1"));
     assert!(db.get_pinned("1", &[1]).unwrap().is_none());
     db.put("1", [1], [3]).unwrap();
     assert_eq!(db.get_pinned("1", &[1]).unwrap().unwrap().as_ref(), &[3]);

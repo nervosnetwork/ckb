@@ -471,7 +471,7 @@ where
 ///
 /// Provides cells from transactions within a single block.
 pub struct BlockCellProvider<'a> {
-    output_indices: HashMap<Byte32, usize>,
+    output_indices: HashMap<&'a [u8], usize>,
     block: &'a BlockView,
 }
 
@@ -480,26 +480,35 @@ pub struct BlockCellProvider<'a> {
 impl<'a> BlockCellProvider<'a> {
     /// Creates a new block cell provider from the given block.
     pub fn new(block: &'a BlockView) -> Result<Self, Error> {
-        let output_indices: HashMap<Byte32, usize> = block
-            .transactions()
+        let count = block.transactions_iter().len();
+        let output_indices: HashMap<_, _> = block
+            .tx_hashes()
             .iter()
+            .take(count)
             .enumerate()
-            .map(|(idx, tx)| (tx.hash(), idx))
+            .map(|(index, hash)| (hash.as_slice(), index))
             .collect();
 
-        for (idx, tx) in block.transactions().iter().enumerate() {
-            for dep in tx.cell_deps_iter() {
-                if let Some(output_idx) = output_indices.get(&dep.out_point().tx_hash())
-                    && *output_idx >= idx
+        for (index, tx) in block
+            .data()
+            .as_reader()
+            .transactions()
+            .iter()
+            .take(count)
+            .enumerate()
+        {
+            let raw = tx.raw();
+            let deps = raw.cell_deps();
+            let inputs = raw.inputs();
+            for point in deps
+                .iter()
+                .map(|dep| dep.out_point())
+                .chain(inputs.iter().map(|input| input.previous_output()))
+            {
+                if let Some(producer) = output_indices.get(point.tx_hash().as_slice())
+                    && *producer >= index
                 {
-                    return Err(OutPointError::OutOfOrder(dep.out_point()).into());
-                }
-            }
-            for out_point in tx.input_pts_iter() {
-                if let Some(output_idx) = output_indices.get(&out_point.tx_hash())
-                    && *output_idx >= idx
-                {
-                    return Err(OutPointError::OutOfOrder(out_point).into());
+                    return Err(OutPointError::OutOfOrder(point.to_entity()).into());
                 }
             }
         }
@@ -514,16 +523,11 @@ impl<'a> BlockCellProvider<'a> {
 impl<'a> CellProvider for BlockCellProvider<'a> {
     fn cell(&self, out_point: &OutPoint, _eager_load: bool) -> CellStatus {
         self.output_indices
-            .get(&out_point.tx_hash())
+            .get(out_point.as_reader().tx_hash().as_slice())
             .and_then(|i| {
                 let transaction = self.block.transaction(*i).should_be_ok();
                 let j: usize = out_point.index().into();
-                self.block.output(*i, j).map(|output| {
-                    let data = transaction
-                        .outputs_data()
-                        .get(j)
-                        .expect("must exists")
-                        .raw_data();
+                transaction.output_with_data(j).map(|(output, data)| {
                     let data_hash = CellOutput::calc_data_hash(&data);
                     let header = self.block.header();
                     CellStatus::live_cell(CellMeta {
@@ -642,21 +646,17 @@ pub fn get_related_dep_out_points<F: Fn(&OutPoint) -> Option<Bytes>>(
     )
 }
 
-fn parse_dep_group_data(slice: &[u8]) -> Result<OutPointVec, String> {
+/// Parse the canonical dep-group payload: a valid, nonempty `OutPointVec`.
+/// Resolution and pool missing-dependency discovery share this validity rule.
+pub fn parse_dep_group_data(slice: &[u8]) -> Result<OutPointVec, String> {
     if slice.is_empty() {
-        Err("data is empty".to_owned())
-    } else {
-        match OutPointVec::from_slice(slice) {
-            Ok(v) => {
-                if v.is_empty() {
-                    Err("dep group is empty".to_owned())
-                } else {
-                    Ok(v)
-                }
-            }
-            Err(err) => Err(err.to_string()),
-        }
+        return Err("data is empty".to_owned());
     }
+    let points = OutPointVec::from_slice(slice).map_err(|error| error.to_string())?;
+    if points.is_empty() {
+        return Err("dep group is empty".to_owned());
+    }
+    Ok(points)
 }
 
 fn resolve_dep_group<F: FnMut(&OutPoint, bool) -> Result<CellMeta, OutPointError>>(

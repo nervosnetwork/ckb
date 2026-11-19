@@ -11,6 +11,7 @@ rust-version = "1.95.0"
 
 [dependencies]
 ckb-logger.workspace = true
+ckb-metrics.workspace = true
 ckb-app-config.workspace = true
 ckb-types.workspace = true
 ckb-stop-handler.workspace = true
@@ -23,3 +24,4 @@ tokio = { version = "1", features = ["sync"] }
 tokio = { version = "1", features = ["sync", "process"] }
 
 [dev-dependencies]
+tokio = { version = "1", features = ["macros", "rt"] }

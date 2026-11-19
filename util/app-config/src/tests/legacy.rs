@@ -47,6 +47,38 @@ fn macro_deprecate_works_well() {
 }
 
 #[test]
+fn released_tx_pool_cache_fields_keep_deprecation_diagnostics() {
+    let resource = Resource::bundled_ckb_config();
+    let mut config: toml::Value =
+        toml::from_slice(&resource.get().expect("read bundled config")).unwrap();
+    let pool = config
+        .get_mut("tx_pool")
+        .and_then(toml::Value::as_table_mut)
+        .expect("tx_pool table");
+    for field in [
+        "max_verify_cache_size",
+        "max_conflict_cache_size",
+        "max_committed_txs_hash_cache_size",
+    ] {
+        pool.insert(field.into(), toml::Value::Integer(17));
+    }
+    let legacy: CKBAppConfig = toml::from_str(&toml::to_string(&config).unwrap()).unwrap();
+    let deprecated = legacy.deprecated_fields();
+    let fields: Vec<_> = deprecated
+        .iter()
+        .map(|field| (field.path, field.since))
+        .collect();
+    assert_eq!(
+        fields,
+        vec![
+            ("tx_pool.max_verify_cache_size", "0.100.0"),
+            ("tx_pool.max_conflict_cache_size", "0.100.0"),
+            ("tx_pool.max_committed_txs_hash_cache_size", "0.100.0"),
+        ]
+    );
+}
+
+#[test]
 fn no_deprecated_fields_in_bundled_ckb_app_config() {
     let root_dir = mkdir();
     for name in AVAILABLE_SPECS {

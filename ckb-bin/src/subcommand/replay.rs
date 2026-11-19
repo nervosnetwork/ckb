@@ -1,9 +1,9 @@
 use ckb_app_config::{ExitCode, ReplayArgs};
 use ckb_async_runtime::Handle;
-use ckb_chain::ChainController;
+use ckb_chain::{ChainController, ChainServiceScope};
 use ckb_chain_iter::ChainIterator;
 use ckb_instrument::{ProgressBar, ProgressStyle};
-use ckb_shared::{ChainServicesBuilder, Shared, SharedBuilder};
+use ckb_shared::{Shared, SharedBuilder};
 use ckb_store::ChainStore;
 use ckb_verification_traits::Switch;
 use std::sync::Arc;
@@ -46,9 +46,9 @@ pub fn replay(args: ReplayArgs, async_handle: Handle) -> Result<(), ExitCode> {
             async_handle,
             args.consensus,
         )?;
-        let (_tmp_shared, mut pack) = shared_builder.tx_pool_config(args.config.tx_pool).build()?;
-        let chain_service_builder: ChainServicesBuilder = pack.take_chain_services_builder();
-        let chain_controller = ckb_chain::start_chain_services(chain_service_builder);
+        let (_, pack) = shared_builder.tx_pool_config(args.config.tx_pool).build()?;
+        let chain_scope = ChainServiceScope::new(pack.into_chain_services_builder());
+        let chain_controller = chain_scope.chain_controller();
 
         if let Some((from, to)) = args.profile {
             profile(shared, chain_controller, from, to);
@@ -64,13 +64,13 @@ pub fn replay(args: ReplayArgs, async_handle: Handle) -> Result<(), ExitCode> {
     Ok(())
 }
 
-fn profile(shared: Shared, chain_controller: ChainController, from: Option<u64>, to: Option<u64>) {
+fn profile(shared: Shared, chain_controller: &ChainController, from: Option<u64>, to: Option<u64>) {
     let tip_number = shared.snapshot().tip_number();
     let from = from.map(|v| std::cmp::max(1, v)).unwrap_or(1);
     let to = to
         .map(|v| std::cmp::min(v, tip_number))
         .unwrap_or(tip_number);
-    process_range_block(&shared, chain_controller.clone(), 1..from);
+    process_range_block(&shared, chain_controller, 1..from);
     println!("Start profiling, re-process blocks {from}..{to}:");
     let now = std::time::Instant::now();
     let tx_count = process_range_block(&shared, chain_controller, from..=to);
@@ -100,7 +100,7 @@ fn profile(shared: Shared, chain_controller: ChainController, from: Option<u64>,
 
 fn process_range_block(
     shared: &Shared,
-    chain_controller: ChainController,
+    chain_controller: &ChainController,
     range: impl Iterator<Item = u64>,
 ) -> usize {
     let mut tx_count = 0;
@@ -118,7 +118,7 @@ fn process_range_block(
     tx_count
 }
 
-fn sanity_check(shared: Shared, chain_controller: ChainController, full_verification: bool) {
+fn sanity_check(shared: Shared, chain_controller: &ChainController, full_verification: bool) {
     let tip_header = shared.snapshot().tip_header().clone();
     let chain_iter = ChainIterator::new(shared.store());
     let pb = ProgressBar::new(chain_iter.len());

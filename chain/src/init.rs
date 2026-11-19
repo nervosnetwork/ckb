@@ -101,21 +101,16 @@ pub fn build_chain_services(
         Arc::clone(&is_verifying_unverified_blocks_on_startup),
     );
 
+    // Freeze recovery before the chain service accepts new requests. Fresh
+    // blocks without BlockExt belong to their original verification request.
+    let init_load_unverified = InitLoadUnverified::new(
+        &builder.shared,
+        chain_controller.clone(),
+        is_verifying_unverified_blocks_on_startup,
+    );
     let init_load_unverified_thread = thread::Builder::new()
         .name("init_load_unverified_blocks".into())
-        .spawn({
-            let chain_controller = chain_controller.clone();
-            let shared = builder.shared.clone();
-
-            move || {
-                let init_load_unverified: InitLoadUnverified = InitLoadUnverified::new(
-                    shared,
-                    chain_controller,
-                    is_verifying_unverified_blocks_on_startup,
-                );
-                init_load_unverified.start();
-            }
-        })
+        .spawn(move || init_load_unverified.start())
         .expect("start unverified_queue consumer thread should ok");
 
     let consume_orphan = OrphanBroker::new(
@@ -151,21 +146,18 @@ pub fn build_chain_services(
     (chain_controller, chain_service_thread)
 }
 
-/// This structure restricts the scope of chain service, and forces chain
-/// service threads to terminate before dropping the structure.
-/// The content of this struct will always be present, the reason we
-/// wrap them in an option, is that we will need to consume them in
-/// Drop trait impl of this struct.
+/// Owns the chain service and joins its threads on drop.
+/// Drop external controller clones first so the request channel can close.
 pub struct ChainServiceScope(Option<(ChainController, thread::JoinHandle<()>)>);
 
 impl ChainServiceScope {
-    /// Creates a new ChainServiceScope structure
+    /// Starts a scoped chain service.
     pub fn new(builder: ChainServicesBuilder) -> Self {
         let (controller, join_handle) = build_chain_services(builder);
         Self(Some((controller, join_handle)))
     }
 
-    /// Returns a reference to chain controller
+    /// Borrows this scope's chain controller.
     pub fn chain_controller(&self) -> &ChainController {
         &self.0.as_ref().unwrap().0
     }
