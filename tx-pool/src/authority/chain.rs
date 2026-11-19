@@ -69,15 +69,10 @@ pub(super) fn recover_bounded(store: &Store, command: &ChainReorgArgs) -> Result
         reads,
         ..
     } = store.capture_all();
-    let mut attached = BTreeSet::new();
-    for block in attached_blocks {
-        attached.extend(
-            block
-                .transactions()
-                .iter()
-                .map(|transaction| transaction.hash()),
-        );
-    }
+    let attached: HashSet<_> = attached_blocks
+        .iter()
+        .flat_map(BlockView::tx_hashes)
+        .collect();
     let mut candidates = BTreeMap::new();
     for entry in &owners {
         if attached.contains(&entry.hash()) {
@@ -101,13 +96,13 @@ pub(super) fn recover_bounded(store: &Store, command: &ChainReorgArgs) -> Result
         );
     }
     for block in detached_blocks {
-        for transaction in block.transactions().iter().skip(1) {
+        for transaction in block.transactions().into_iter().skip(1) {
             if attached.contains(&transaction.hash()) {
                 continue;
             }
             // Detached transactions are optional pool candidates, just as in
             // detailed reconciliation. Pool bounds cannot reject chain progress.
-            let Ok(transaction) = BoundedTransaction::try_new(transaction.clone()) else {
+            let Ok(transaction) = BoundedTransaction::try_new(transaction) else {
                 continue;
             };
             let transaction = transaction.into_transaction();
@@ -210,12 +205,12 @@ impl ChainFacts {
         let mut detached = Vec::new();
         let mut detached_transactions = HashSet::new();
         for block in detached_blocks {
-            for (index, tx) in block.transactions().iter().enumerate() {
+            for (index, tx) in block.transactions().into_iter().enumerate() {
                 if attached.contains(&tx.hash()) || !detached_transactions.insert(tx.hash()) {
                     continue;
                 }
                 if index != 0
-                    && let Ok(tx) = BoundedTransaction::try_new(tx.clone())
+                    && let Ok(tx) = BoundedTransaction::try_new(tx)
                 {
                     detached.push(tx.into_transaction());
                 }

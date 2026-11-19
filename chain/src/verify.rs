@@ -401,7 +401,7 @@ impl ConsumeUnverifiedBlockProcessor {
                 self.shared
                     .new_snapshot(tip_header, cannon_total_difficulty, epoch, new_proposals);
 
-            self.install_chain_tip_transition(&fork, new_snapshot);
+            self.install_chain_tip_transition(fork, new_snapshot);
 
             let tx_pool_controller = self.shared.tx_pool_controller();
             if tx_pool_controller.service_started()
@@ -465,15 +465,15 @@ impl ConsumeUnverifiedBlockProcessor {
     /// Persistence replay and this consumer may overlap, but both enter the
     /// same version-checked transaction-pool authority; no repair scan or
     /// second membership owner is required.
-    fn install_chain_tip_transition(&self, fork: &ForkChanges, new_snapshot: Arc<Snapshot>) {
+    fn install_chain_tip_transition(&self, fork: ForkChanges, new_snapshot: Arc<Snapshot>) {
         self.shared.store_snapshot(Arc::clone(&new_snapshot));
         let tx_pool_controller = self.shared.tx_pool_controller();
         if !tx_pool_controller.accepts_chain_updates() {
             return;
         }
         if let Err(error) = tx_pool_controller.update_tx_pool_for_reorg(
-            fork.detached_blocks().clone(),
-            fork.attached_blocks().clone(),
+            fork.detached_blocks,
+            fork.attached_blocks,
             new_snapshot,
         ) {
             error!("[verify block] publish chain-tip transition error {error}");
@@ -940,7 +940,7 @@ impl ConsumeUnverifiedBlockProcessor {
             new_proposals,
         );
 
-        self.install_chain_tip_transition(&fork, new_snapshot);
+        self.install_chain_tip_transition(fork, new_snapshot);
 
         Ok(())
     }
