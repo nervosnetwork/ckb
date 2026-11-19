@@ -331,6 +331,42 @@ fn resolve_transaction_should_reject_incorrect_order_txs() {
 }
 
 #[test]
+fn block_cell_provider_reports_the_first_forward_dep_before_an_input() {
+    let producer = TransactionBuilder::default().build();
+    let dep = OutPoint::new(producer.hash(), 7);
+    let consumer = TransactionBuilder::default()
+        .cell_dep(CellDep::new_builder().out_point(dep.clone()).build())
+        .input(CellInput::new(OutPoint::new(producer.hash(), 2), 0))
+        .build();
+    let block = generate_block(vec![consumer, producer]);
+    assert_error_eq!(
+        BlockCellProvider::new(&block).err().unwrap(),
+        OutPointError::OutOfOrder(dep),
+    );
+}
+
+#[test]
+fn block_cell_provider_only_indexes_transactions_with_both_cached_hashes() {
+    let producer = TransactionBuilder::default()
+        .output(CellOutput::default())
+        .output_data(Bytes::new())
+        .build();
+    let point = OutPoint::new(producer.hash(), 0);
+    let consumer = TransactionBuilder::default()
+        .input(CellInput::new(point.clone(), 0))
+        .build();
+    let block = generate_block(vec![consumer, producer]);
+    let short = packed::Block::block_into_view_internal(
+        block.data(),
+        block.tx_hashes().to_vec(),
+        block.tx_witness_hashes()[..1].to_vec(),
+    );
+    assert_eq!(short.transactions_iter().len(), 1);
+    let provider = BlockCellProvider::new(&short).unwrap();
+    assert!(matches!(provider.cell(&point, false), CellStatus::Unknown));
+}
+
+#[test]
 fn resolve_transaction_should_allow_dep_cell_in_current_tx_input() {
     let mut cell_provider = CellMemoryDb::default();
     let header_checker = BlockHeadersChecker::default();

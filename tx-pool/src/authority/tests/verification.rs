@@ -9,7 +9,7 @@ use ckb_types::{
     packed::{CellDep, CellOutput, OutPoint, OutPointVec},
     prelude::*,
 };
-use ckb_verification::cache::init_cache;
+use ckb_verification::cache::{ScriptVerificationRules, TxVerificationCacheKey, init_cache};
 
 fn fixture() -> (Arc<Store>, Arc<Entry>, Arc<Snapshot>) {
     let snapshot = chain_snapshot();
@@ -113,7 +113,7 @@ async fn dao_lock_size_is_checked_before_local_and_network_script_execution() {
             Arc::clone(&snapshot),
             Arc::clone(&rtx),
             Arc::clone(&env),
-            None,
+            &RwLock::new(init_cache()),
             0,
             &mut commands,
             cpu_time,
@@ -125,6 +125,34 @@ async fn dao_lock_size_is_checked_before_local_and_network_script_execution() {
         };
         ckb_error::assert_error_eq!(error, TransactionError::DaoLockSizeMismatch { index: 0 });
     }
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn accepted_timestamp_starts_after_waiting_for_cached_scripts() {
+    let (store, candidate, _) = fixture();
+    let config = config();
+    let resolved = resolved(&store, &candidate, &config);
+    let cache = RwLock::new(init_cache());
+    let held = cache.write().await;
+    let (_sender, mut commands) = watch::channel(ChunkCommand::Resume);
+    let permit = ComputePermit::for_test();
+    let clock = ckb_systemtime::faketime();
+    clock.set_faketime(1_000);
+    let verification = verify(
+        &store,
+        &candidate,
+        resolved,
+        &config,
+        &cache,
+        &mut commands,
+        &permit,
+    );
+    tokio::pin!(verification);
+    assert!(futures_util::poll!(verification.as_mut()).is_pending());
+
+    clock.set_faketime(2_000);
+    drop(held);
+    assert_eq!(verification.await.unwrap().timestamp(), 2_000);
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]

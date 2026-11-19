@@ -344,6 +344,48 @@ fn ranked_member(store: &Store, nonce: u32, fee: u64, parents: &[Byte32]) -> Arc
     owner.with_phase(Phase::Accepted(value))
 }
 
+#[test]
+fn eviction_bounds_follow_owner_edits_without_changing_older_cuts() {
+    let pool = store();
+    let low = ranked_member(&pool, 12_100, 10, &[]);
+    let high = ranked_member(&pool, 12_101, 100, &[]);
+    let cached = EvictionRank::lower_bounds(std::slice::from_ref(&high));
+    let mut current = OnceLock::from(cached);
+    EvictionRank::update_bounds(&mut current, None, Some(&low));
+    let original = EvictionRank::lower_bounds(&[Arc::clone(&low), Arc::clone(&high)]);
+    assert_eq!(current.get(), Some(&original));
+    let mut repriced = low.accepted().unwrap().clone();
+    repriced.fee = Capacity::shannons(200);
+    let repriced = low.with_phase(Phase::Accepted(repriced));
+    EvictionRank::update_bounds(&mut current, Some(&low), Some(&repriced));
+    let expected = EvictionRank::lower_bounds(&[Arc::clone(&high), Arc::clone(&repriced)]);
+    assert_eq!(current.get(), Some(&expected));
+
+    let held = Arc::clone(current.get().unwrap());
+    EvictionRank::update_bounds(&mut current, Some(&high), Some(&high));
+    assert!(Arc::ptr_eq(current.get().unwrap(), &held));
+    EvictionRank::update_bounds(&mut current, Some(&high), None);
+    assert!(current.get().is_none());
+    assert_eq!(held, expected);
+}
+
+#[test]
+fn removing_a_cheap_owner_from_a_full_prefix_exposes_its_successor() {
+    let pool = store();
+    let owners: Vec<_> = (0..=EvictionRank::PREFIX as u32)
+        .map(|i| ranked_member(&pool, 12_200 + i, u64::from(i), &[]))
+        .collect();
+    let mut cached = OnceLock::from(EvictionRank::lower_bounds(&owners));
+    assert_eq!(cached.get().unwrap().len(), EvictionRank::PREFIX);
+    EvictionRank::update_bounds(&mut cached, Some(&owners[0]), None);
+    assert!(cached.get().is_none());
+    let refreshed = EvictionRank::lower_bounds(&owners[1..]);
+    assert_eq!(
+        refreshed.last().copied(),
+        EvictionRank::lower_bound(owners.last().unwrap())
+    );
+}
+
 fn rank_fixture() -> (Arc<Store>, Members, [Byte32; 6]) {
     let store = store();
     let a = ranked_member(&store, 10600, 0, &[]);

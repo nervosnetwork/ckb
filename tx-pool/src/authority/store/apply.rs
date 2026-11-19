@@ -8,6 +8,7 @@ use super::{
 };
 use crate::authority::{
     budget::OwnerDelta,
+    membership::EvictionRank,
     model::{DependencyKey, Entry, Error, FullReason, Phase, RelationKey, Status},
     notice::{self, Batch},
     queue::{Queues, WorkStage},
@@ -514,7 +515,11 @@ impl Shard {
         *revision += 1;
         if edit.affects_accepted() {
             *accepted_revision += 1;
-            eviction_bounds.take();
+            EvictionRank::update_bounds(
+                eviction_bounds,
+                edit.before.as_deref(),
+                edit.after.as_deref(),
+            );
         }
     }
 
@@ -692,11 +697,7 @@ impl<'a> Application<'a> {
         let acquire_span =
             tracing::trace_span!(target: "ckb_tx_pool_profile", "tx_pool.authority.acquire")
                 .entered();
-        let mut view = if plan.lifecycle.is_some() {
-            Guard::Write(store.view.write())
-        } else {
-            Guard::Read(store.view.read())
-        };
+        let mut view = changes.locks.acquire_view(store);
         let peer_guards = store.peer_gates.acquire(&changes.locks.peers);
         let dependency_guards = store.dependency_gates.acquire(&changes.locks.dependencies);
         let mut owners = store.shards.acquire(&changes.locks.owners);
@@ -723,10 +724,20 @@ impl<'a> Application<'a> {
         if plan.dry_run {
             return Ok(None);
         }
+        if plan.edits.values().any(Edit::affects_accepted) {
+            // The affected owners are locked through settlement. A full capture
+            // holds every owner guard, so it cannot observe an unfinished edit.
+            store
+                .population_revision
+                .fetch_update(Ordering::SeqCst, Ordering::SeqCst, |revision| {
+                    revision.checked_add(1)
+                })
+                .map_err(|_| Error::Fault("accepted population counter"))?;
+        }
         let mut batch = None;
         commit_infallibly(|| {
-            // All recoverable checks precede the first mutation. Collection and
-            // marker allocation use Rust's abort-on-OOM platform contract.
+            // The population revision is reserved. Collection and marker
+            // allocation use Rust's abort-on-OOM platform contract.
             let mut retired = changes.apply(store, plan, &mut owners, &view.get().snapshot);
             if let Some((peer, deadline)) = plan.ban {
                 store.apply_ban(peer, deadline, now);

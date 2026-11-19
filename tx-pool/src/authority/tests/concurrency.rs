@@ -87,6 +87,52 @@ fn a_missing_child_in_a_coherent_descendant_capture_is_a_fault() {
 }
 
 #[test]
+fn a_full_accepted_read_fences_publication_and_survives_queued_only_edits() {
+    let store = store();
+    let hash = accept(&store, tx(9817), 1, 1, Status::Pending);
+    let cut = store.capture_accepted();
+    insert(&store, entry(&store, tx(9818), Source::Recovery));
+    let remove = delete(&store, store.point(&hash).1.unwrap());
+    let (attempt, attempting) = std::sync::mpsc::sync_channel(1);
+    *store.commit_observer.lock() = Some(Arc::new(move |_, locked| {
+        if !locked {
+            attempt.send(()).unwrap();
+        }
+    }));
+
+    std::thread::scope(|scope| {
+        let (start, started) = std::sync::mpsc::sync_channel(1);
+        let pool = &store;
+        let writer = scope.spawn(move || {
+            started.recv().unwrap();
+            pool.apply(remove).unwrap();
+        });
+        store
+            .read_selected(cut.view, &cut.reads, || {
+                start.send(()).unwrap();
+                attempting.recv_timeout(Duration::from_secs(5)).unwrap();
+                // The sparse writer has reached Apply. The population fence is
+                // held even though this read holds no individual owner guard.
+                assert!(store.view.try_read().is_none());
+                assert!(
+                    store
+                        .shards
+                        .at(store.owner_shard(hash.as_slice()))
+                        .try_write()
+                        .is_some()
+                );
+            })
+            .unwrap();
+        writer.join().unwrap();
+    });
+    assert!(matches!(
+        store.read_selected(cut.view, &cut.reads, || ()),
+        Err(Error::Stale)
+    ));
+    assert!(store.point(&hash).1.is_none());
+}
+
+#[test]
 fn a_leaf_query_progresses_while_an_unrelated_owner_shard_is_held() {
     let store = store();
     let hash = accept(&store, output_tx(9814), 1, 1, Status::Pending);
@@ -1155,6 +1201,7 @@ fn remaining_counter_exhaustion_rejects_before_any_owner_or_notice_change() {
         "view counter",
         "owner revision",
         "accepted revision",
+        "accepted population counter",
         "wake pass",
     ] {
         let store = store();
@@ -1166,6 +1213,9 @@ fn remaining_counter_exhaustion_rejects_before_any_owner_or_notice_change() {
         insert(&store, waiting);
         match counter {
             "view counter" => store.view.write().revision = u64::MAX,
+            "accepted population counter" => {
+                store.population_revision.store(u64::MAX, Ordering::SeqCst)
+            }
             "owner revision" => {
                 store
                     .shards

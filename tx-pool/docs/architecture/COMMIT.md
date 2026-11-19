@@ -36,9 +36,12 @@ set. The [membership graph](../../src/authority/membership/graph.rs) borrows the
 Plan and hides its Store and owner cache from membership policy. It preserves the
 first owner observation, including absence, and records complete input/dep reader
 and child relations even when they are empty. Capacity planning can extend the
-same decision with a full accepted capture. Its shard revisions cover every
-captured owner. The Plan checks earlier point observations against overlapping
-captured owners and keeps those original observations through Apply, including
+same decision with a full accepted capture. One population revision covers every
+accepted owner. Capture reads it while holding every owner shard. A commit
+that depends on it takes the view exclusively and checks that revision before
+changing only its own shards. Ordinary sparse commits share the view and
+advance the revision on an accepted edit. The Plan checks earlier point
+observations against overlapping captured owners and keeps them through Apply, including
 absences and owners that have since left. Ordinary reads stay sparse.
 
 `Plan::readers` and `Plan::children` select the key and role mask internally.
@@ -192,7 +195,7 @@ additions share it and update the short row under its mutex.
 
 ```mermaid
 flowchart TB
-    V["Paired view<br/>Shared for ordinary work, writer for chain/clear"] --> P["Peer gates · ascending index"]
+    V["Paired view<br/>Exclusive for chain, clear or a full accepted premise"] --> P["Peer gates · ascending index"]
     P --> D["Dependency gates · ascending index"]
     D --> O["Owner shards · ascending index"]
     O --> M["Short collection, row and queue operations"]
@@ -248,8 +251,11 @@ rank belongs to the candidate or an ancestor, the admission is rejected.
 An eviction round excludes previously
 selected families before scoring the next root. A single mutation budget
 bounds all exploratory walks. One extra bound per shard distinguishes an
-unexamined suffix from an exhausted run. The plan retains the accepted
-revisions for the entire cut. Complete replacement families release their exact
+unexamined suffix from an exhausted run. Owner edits update a complete,
+unshared prefix in place. When an edit changes a shared or saturated prefix,
+the next pressure decision rebuilds it. Existing readers retain their cut.
+The plan retains the population revision for the entire cut.
+Complete replacement families release their exact
 charge and share the same mutation budget with further victims. New edges to
 existing children or inconclusive searches use the complete virtual graph. Both paths count each shared descendant once.
 

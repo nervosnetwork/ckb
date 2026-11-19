@@ -23,7 +23,7 @@ use ckb_types::{
 use ckb_verification::transaction_depends_on_time;
 use std::{
     collections::{BTreeMap, BTreeSet},
-    sync::Arc,
+    sync::{Arc, OnceLock},
 };
 
 mod graph;
@@ -330,7 +330,7 @@ pub(super) fn entry_snapshot(
 }
 
 /// Immutable prefix of one owner shard's cheapest possible eviction ranks.
-pub(super) type EvictionBounds = Arc<[EvictionRank]>;
+pub(super) type EvictionBounds = Arc<Vec<EvictionRank>>;
 
 /// Smaller ranks are evicted first: pending before gap before proposed, then
 /// lower fee rate, fewer descendants, earlier arrival and smaller hash.
@@ -352,30 +352,68 @@ fn own_fee_rate(value: &Accepted) -> FeeRate {
 }
 
 impl EvictionRank {
-    /// A pending singleton is an absolute lower bound: the actual package
-    /// rate is at least the owner's rate, and a closure includes its owner.
+    const PREFIX: usize = MAX_POOL_MUTATION_CANDIDATES + 1;
+
+    /// The actual package rate is at least the owner's rate and its closure
+    /// includes the owner. Proposal changes cannot lower this singleton bound.
+    fn lower_bound(owner: &Entry) -> Option<Self> {
+        Some(Self {
+            status: Status::Pending,
+            fee: own_fee_rate(owner.accepted()?),
+            descendants: 1,
+            arrival: owner.arrival,
+            hash: owner.transaction.hash_ref().unpack(),
+        })
+    }
+
     pub(super) fn lower_bounds(owners: &[Arc<Entry>]) -> EvictionBounds {
         let mut ranks: Vec<_> = owners
             .iter()
-            .filter_map(|owner| {
-                Some(Self {
-                    status: Status::Pending,
-                    fee: own_fee_rate(owner.accepted()?),
-                    descendants: 1,
-                    arrival: owner.arrival,
-                    hash: owner.transaction.hash_ref().unpack(),
-                })
-            })
+            .filter_map(|owner| Self::lower_bound(owner))
             .collect();
         // One unexamined bound beyond the work limit certifies that a suffix
         // was not exhausted. No pressure decision evaluates that extra owner.
-        let prefix = MAX_POOL_MUTATION_CANDIDATES + 1;
-        if ranks.len() > prefix {
-            ranks.select_nth_unstable(prefix);
-            ranks.truncate(prefix);
+        if ranks.len() > Self::PREFIX {
+            ranks.select_nth_unstable(Self::PREFIX);
+            ranks.truncate(Self::PREFIX);
         }
         ranks.sort_unstable();
-        ranks.into()
+        ranks.shrink_to_fit();
+        Arc::new(ranks)
+    }
+
+    /// A prefix shorter than the limit contains every accepted owner in the
+    /// shard. A saturated prefix may hide its successor. Readers holding an
+    /// older cut must also retain their original ranks.
+    pub(super) fn update_bounds(
+        cached: &mut OnceLock<EvictionBounds>,
+        before: Option<&Entry>,
+        after: Option<&Entry>,
+    ) {
+        let Some(bounds) = cached.get_mut() else {
+            return;
+        };
+        let before = before.and_then(Self::lower_bound);
+        let after = after.and_then(Self::lower_bound);
+        if before == after {
+            return;
+        }
+        let Some(ranks) = Arc::get_mut(bounds).filter(|ranks| ranks.len() < Self::PREFIX) else {
+            cached.take();
+            return;
+        };
+        if let Some(rank) = before {
+            let Ok(index) = ranks.binary_search(&rank) else {
+                cached.take();
+                return;
+            };
+            ranks.remove(index);
+        }
+        if let Some(rank) = after {
+            let index = ranks.partition_point(|other| *other < rank);
+            ranks.reserve_exact(1);
+            ranks.insert(index, rank);
+        }
     }
 
     pub(super) fn ordered_bounds(shards: &[EvictionBounds]) -> impl Iterator<Item = &Self> {

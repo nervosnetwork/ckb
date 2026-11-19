@@ -159,6 +159,67 @@ fn attached_cells_preserve_metadata_across_blocks() {
 }
 
 #[test]
+fn detaching_a_spend_restores_the_original_cell_records() {
+    use ckb_db_schema::{COLUMN_CELL, COLUMN_CELL_DATA, COLUMN_CELL_DATA_HASH};
+    use ckb_types::{
+        bytes::Bytes,
+        core::{BlockBuilder, EpochNumberWithFraction, TransactionBuilder},
+    };
+
+    let dir = TempDir::new().unwrap();
+    let store = ChainDB::new(RocksDB::open_in(&dir, COLUMNS), Default::default());
+    let source = TransactionBuilder::default()
+        .output(packed::CellOutput::default())
+        .output_data(Bytes::new())
+        .output(packed::CellOutput::default())
+        .output_data(Bytes::from_static(b"live"))
+        .build();
+    let points = source.output_pts();
+    let origin = BlockBuilder::default()
+        .number(7u64)
+        .epoch(EpochNumberWithFraction::new(0, 7, 10))
+        .transaction(source)
+        .build();
+    let txn = store.begin_transaction();
+    txn.insert_block(&origin).unwrap();
+    txn.attach_block(&origin).unwrap();
+    crate::attach_block_cell(&txn, &origin).unwrap();
+    txn.commit().unwrap();
+
+    let spend = TransactionBuilder::default()
+        .inputs(
+            points
+                .iter()
+                .cloned()
+                .map(|point| packed::CellInput::new(point, 0)),
+        )
+        .build();
+    let block = BlockBuilder::default()
+        .transaction(
+            TransactionBuilder::default()
+                .input(packed::CellInput::new_cellbase_input(8))
+                .build(),
+        )
+        .transaction(spend)
+        .build();
+    let txn = store.begin_transaction();
+    crate::attach_block_cell(&txn, &block).unwrap();
+    for point in &points {
+        assert!(txn.get_cell(point).is_none());
+    }
+    crate::detach_block_cell(&txn, &block).unwrap();
+    for point in points {
+        for column in [COLUMN_CELL, COLUMN_CELL_DATA, COLUMN_CELL_DATA_HASH] {
+            let key = point.to_cell_key();
+            assert_eq!(
+                txn.get(column, &key).unwrap().as_ref(),
+                store.get(column, &key).unwrap().as_ref()
+            );
+        }
+    }
+}
+
+#[test]
 fn attached_cell_order_preserves_indices_overwrites_and_cellbase() {
     use ckb_db_schema::{COLUMN_CELL, COLUMN_CELL_DATA, COLUMN_CELL_DATA_HASH};
     use ckb_types::{

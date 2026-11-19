@@ -177,6 +177,11 @@ where
         CapacityVerifier::new(Arc::clone(&self.rtx), self.consensus.dao_type_hash()).verify()
     }
 
+    /// Identity of the scripts and visible cell origins for this invocation.
+    pub fn cache_key(&self) -> &TxVerificationCacheKey {
+        &self.cache_key
+    }
+
     fn script_verifier(&self) -> ScriptVerifier<DL> {
         ScriptVerifier::new(
             Arc::clone(&self.rtx),

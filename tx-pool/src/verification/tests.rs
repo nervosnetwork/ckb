@@ -30,7 +30,7 @@ async fn stopped_verification_is_retryable_without_a_persistent_rejection() {
         snapshot,
         rtx,
         env,
-        None,
+        &RwLock::new(ckb_verification::cache::init_cache()),
         u64::MAX,
         &mut command_rx,
         Some(Duration::from_secs(1)),
@@ -191,7 +191,7 @@ async fn local_and_budgeted_verification_preserve_vm_versions_cycles_and_errors(
                 Arc::clone(&snapshot),
                 Arc::clone(&rtx),
                 Arc::clone(&env),
-                None,
+                &RwLock::new(ckb_verification::cache::init_cache()),
                 u64::MAX,
                 &mut commands,
                 None,
@@ -204,7 +204,8 @@ async fn local_and_budgeted_verification_preserve_vm_versions_cycles_and_errors(
             let actual = verifier.verify_with_runner(u64::MAX, &mut runner).await;
             match expected {
                 Ok(cycles) => {
-                    assert_eq!(local.unwrap().cycles(), cycles);
+                    let (outcome, _) = local.unwrap();
+                    assert_eq!(outcome.cycles(), cycles);
                     assert_eq!(actual.unwrap(), Some(cycles));
                     ckb_error::assert_error_eq!(
                         verifier

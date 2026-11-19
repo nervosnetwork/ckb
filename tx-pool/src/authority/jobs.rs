@@ -13,13 +13,7 @@ use ckb_script::ChunkCommand;
 use ckb_snapshot::Snapshot;
 #[cfg(any(test, feature = "internal"))]
 use ckb_types::{core::TransactionView, packed::OutPoint};
-use ckb_verification::{
-    TxVerifyEnv,
-    cache::{
-        ScriptVerificationOutcome, ScriptVerificationRules, TxVerificationCache,
-        TxVerificationCacheKey,
-    },
-};
+use ckb_verification::{TxVerifyEnv, cache::TxVerificationCache};
 use std::{collections::BTreeSet, sync::Arc};
 use tokio::sync::{RwLock, watch};
 
@@ -165,19 +159,15 @@ pub(super) async fn verify(
     }
     store.read_selected(view, &resolved.reads, || ())?;
     let environment = Arc::new(environment(status(&snapshot, &entry.proposal()), &snapshot));
-    let rules = ScriptVerificationRules::from_env(snapshot.consensus(), &environment);
-    let key = TxVerificationCacheKey::from_resolved(&resolved.transaction, rules);
-    let cached = cache.read().await.lookup(&key);
     let max_cycles = entry
         .source
         .declared_cycles()
         .unwrap_or_else(|| snapshot.consensus().max_block_cycles());
-    let timestamp = ckb_systemtime::unix_time_as_millis();
-    let outcome = verify_rtx(
+    let (outcome, timestamp) = verify_rtx(
         snapshot,
         Arc::clone(&resolved.transaction),
         environment,
-        cached,
+        cache,
         max_cycles,
         commands,
         entry.source.verification_time_limit(config),
@@ -191,14 +181,9 @@ pub(super) async fn verify(
     if let Some(proof) = outcome.executed_proof() {
         cache.write().await.insert(proof);
     }
-    let proof = match outcome {
-        ScriptVerificationOutcome::Executed(proof) | ScriptVerificationOutcome::Reused(proof) => {
-            proof
-        }
-    };
     Ok(Verified {
         resolved,
-        scripts: VerifiedScripts::Vm(proof),
+        scripts: VerifiedScripts::Vm(outcome.proof()),
         timestamp,
         #[cfg(any(test, feature = "internal"))]
         fixture: None,

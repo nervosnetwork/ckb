@@ -23,8 +23,7 @@ use ckb_types::{
     utilities::merkle_mountain_range::ChainRootMMR,
 };
 use ckb_verification::cache::{
-    Completed, ScriptVerificationProof, ScriptVerificationRules, TxVerificationCache,
-    TxVerificationCacheKey,
+    Completed, ScriptVerificationOutcome, ScriptVerificationProof, TxVerificationCache,
 };
 use ckb_verification::{
     BlockErrorKind, CellbaseError, CommitError, ContextualTransactionVerifier,
@@ -33,7 +32,7 @@ use ckb_verification::{
 use ckb_verification::{BlockTransactionsError, EpochError, TxVerifyEnv};
 use ckb_verification_traits::Switch;
 use rayon::iter::{IndexedParallelIterator, IntoParallelRefIterator, ParallelIterator};
-use std::collections::{HashMap, HashSet};
+use std::collections::HashSet;
 use std::sync::Arc;
 use tokio::sync::RwLock;
 
@@ -346,24 +345,38 @@ impl<'a, 'b, CS: ChainStore + VersionbitsIndexer + 'static> BlockTxsVerifier<'a,
         }
     }
 
-    fn fetched_cache(
+    /// The proof lookup uses the verifier's own key. Release the short cache
+    /// read before contextual checks, database access or VM execution.
+    fn verify_transaction(
         &self,
-        rtxs: &'a [Arc<ResolvedTransaction>],
-        rules: ScriptVerificationRules,
-    ) -> HashMap<usize, ScriptVerificationProof> {
-        let keys: Vec<TxVerificationCacheKey> = rtxs
-            .iter()
-            .skip(1)
-            .map(|rtx| TxVerificationCacheKey::from_resolved(rtx, rules))
-            .collect();
-        self.handle.block_on(async {
-            let guard = self.txs_verify_cache.read().await;
-            // The non-cellbase keys keep their original block indices.
-            (1..)
-                .zip(keys)
-                .filter_map(|(index, key)| guard.lookup(&key).map(|proof| (index, proof)))
-                .collect()
-        })
+        tx: &Arc<ResolvedTransaction>,
+        tx_env: &Arc<TxVerifyEnv>,
+        skip_scripts: bool,
+    ) -> Result<(Completed, Option<ScriptVerificationOutcome>), Error> {
+        let verifier = ContextualTransactionVerifier::new(
+            Arc::clone(tx),
+            Arc::clone(&self.context.consensus),
+            self.context.store.as_data_loader(),
+            Arc::clone(tx_env),
+        );
+        if skip_scripts {
+            let fee = verifier.verify_block_assume_valid()?;
+            return Ok((Completed { fee, cycles: 0 }, None));
+        }
+        let proof = self
+            .txs_verify_cache
+            .try_read()
+            .unwrap_or_else(|_| self.handle.block_on(self.txs_verify_cache.read()))
+            .lookup(verifier.cache_key());
+        let (outcome, fee) =
+            verifier.verify_block(self.context.consensus.max_block_cycles(), proof)?;
+        Ok((
+            Completed {
+                cycles: outcome.cycles(),
+                fee,
+            },
+            Some(outcome),
+        ))
     }
 
     fn update_cache(&self, proofs: Vec<ScriptVerificationProof>) {
@@ -382,51 +395,19 @@ impl<'a, 'b, CS: ChainStore + VersionbitsIndexer + 'static> BlockTxsVerifier<'a,
         skip_script_verify: bool,
     ) -> Result<(Cycle, Vec<Completed>), Error> {
         let tx_env = Arc::new(TxVerifyEnv::new_commit(&self.header));
-        let rules = ScriptVerificationRules::from_env(&self.context.consensus, &tx_env);
-        // Assume-valid transactions provide no script proof; cellbase proofs
-        // cannot be reused by a later block or pool invocation.
-        let fetched_cache = if !skip_script_verify && resolved.len() > 1 {
-            self.fetched_cache(resolved, rules)
-        } else {
-            HashMap::new()
-        };
-
         let verified_transactions = resolved
             .par_iter()
             .enumerate()
+            .skip(1)
             .map(|(index, tx)| {
-                let verifier = ContextualTransactionVerifier::new(
-                    Arc::clone(tx),
-                    Arc::clone(&self.context.consensus),
-                    self.context.store.as_data_loader(),
-                    Arc::clone(&tx_env),
-                );
-                let verified = if skip_script_verify {
-                    verifier
-                        .verify_block_assume_valid()
-                        .map(|fee| (Completed { fee, cycles: 0 }, None))
-                } else {
-                    verifier
-                        .verify_block(
-                            self.context.consensus.max_block_cycles(),
-                            fetched_cache.get(&index).copied(),
-                        )
-                        .map(|(outcome, fee)| {
-                            (
-                                Completed {
-                                    fee,
-                                    cycles: outcome.cycles(),
-                                },
-                                outcome.executed_proof(),
-                            )
+                let (completed, outcome) = self
+                    .verify_transaction(tx, &tx_env, skip_script_verify)
+                    .map_err(|error| {
+                        Error::from(BlockTransactionsError {
+                            index: index as u32,
+                            error,
                         })
-                };
-                let result = verified.map_err(|error| {
-                    Error::from(BlockTransactionsError {
-                        index: index as u32,
-                        error,
-                    })
-                })?;
+                    })?;
                 if self
                     .context
                     .consensus
@@ -439,9 +420,11 @@ impl<'a, 'b, CS: ChainStore + VersionbitsIndexer + 'static> BlockTxsVerifier<'a,
                     )
                     .verify()?;
                 }
-                Ok(result)
+                Ok((
+                    completed,
+                    outcome.and_then(ScriptVerificationOutcome::executed_proof),
+                ))
             })
-            .skip(1) // skip cellbase tx
             .collect::<Result<Vec<(Completed, Option<ScriptVerificationProof>)>, Error>>()?;
 
         let sum: Cycle = verified_transactions
@@ -716,7 +699,6 @@ mod cache_tests {
             )
             .build();
         let tx_env = Arc::new(TxVerifyEnv::new_commit(&header));
-        let rules = ScriptVerificationRules::from_env(&context.consensus, &tx_env);
         let (code_cell, code, script) = always_success_cell();
         let code_out_point = OutPoint::new(Byte32::new([255; 32]), 0);
         let transaction = |marker: u8, output_capacity: Capacity| {
@@ -806,9 +788,24 @@ mod cache_tests {
             BlockTxsVerifier::new(context, header, shared.async_handle(), &cache, &parent);
         // Duplicate transactions can reach the contextual API when callers
         // bypass non-contextual checks; each occurrence still needs its proof.
+        let outcomes: Vec<_> = resolved
+            .iter()
+            .skip(1)
+            .map(|tx| {
+                verifier
+                    .verify_transaction(tx, &tx_env, false)
+                    .unwrap()
+                    .1
+                    .unwrap()
+            })
+            .collect();
         assert_eq!(
-            verifier.fetched_cache(&resolved, rules),
-            HashMap::from([(1, verified[1].0), (3, verified[1].0)])
+            outcomes,
+            [
+                ScriptVerificationOutcome::Reused(verified[1].0),
+                ScriptVerificationOutcome::Executed(verified[2].0),
+                ScriptVerificationOutcome::Reused(verified[1].0),
+            ]
         );
         let expected = vec![verified[1].1, verified[2].1, verified[1].1];
         assert_eq!(
@@ -836,7 +833,6 @@ mod cache_tests {
                 .into(),
             }
         );
-        assert!(verifier.fetched_cache(&resolved[..1], rules).is_empty());
         assert_eq!(verifier.verify(&resolved[..1], false).unwrap(), (0, vec![]));
     }
 }

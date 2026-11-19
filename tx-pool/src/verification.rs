@@ -21,10 +21,10 @@ use ckb_types::core::{
 use ckb_verification::{
     ContextualTransactionVerifier, DaoScriptSizeVerifier, NonContextualTransactionVerifier,
     TxVerifyEnv,
-    cache::{ScriptVerificationOutcome, ScriptVerificationProof},
+    cache::{ScriptVerificationOutcome, TxVerificationCache},
 };
 use std::sync::Arc;
-use tokio::sync::watch;
+use tokio::sync::{RwLock, watch};
 
 pub(crate) fn check_tx_fee_with_min_fee_rate(
     snapshot: &Snapshot,
@@ -79,29 +79,31 @@ pub(crate) fn non_contextual_verify(
     Ok(())
 }
 
+/// Pool expiry and RPC metadata use the time verification starts, after waiting
+/// for the proof cache and before contextual checks or VM execution.
 pub(crate) async fn verify_rtx(
     snapshot: Arc<Snapshot>,
     rtx: Arc<ResolvedTransaction>,
     tx_env: Arc<TxVerifyEnv>,
-    cache_entry: Option<ScriptVerificationProof>,
+    cache: &RwLock<TxVerificationCache>,
     max_cycles: Cycle,
     command_rx: &mut watch::Receiver<ChunkCommand>,
     cpu_time: Option<std::time::Duration>,
-) -> Result<ScriptVerificationOutcome, Reject> {
+) -> Result<(ScriptVerificationOutcome, u64), Reject> {
     block_offload_future(async move {
         let consensus = snapshot.cloned_consensus();
-        let data_loader = snapshot.as_data_loader();
-
-        DaoScriptSizeVerifier::new(
+        let verifier = ContextualTransactionVerifier::new(
             Arc::clone(&rtx),
             Arc::clone(&consensus),
-            snapshot.borrow_as_data_loader(),
-        )
-        .verify()
-        .map_err(Reject::Verification)?;
-        let verifier =
-            ContextualTransactionVerifier::new(rtx, consensus, data_loader, Arc::clone(&tx_env));
-        match cpu_time {
+            snapshot.as_data_loader(),
+            tx_env,
+        );
+        let cache_entry = cache.read().await.lookup(verifier.cache_key());
+        let timestamp = ckb_systemtime::unix_time_as_millis();
+        DaoScriptSizeVerifier::new(rtx, consensus, snapshot.borrow_as_data_loader())
+            .verify()
+            .map_err(Reject::Verification)?;
+        let outcome = match cpu_time {
             None => verifier
                 .verify_scripts(max_cycles, cache_entry)
                 .map_err(Reject::Verification),
@@ -117,7 +119,8 @@ pub(crate) async fn verify_rtx(
                 .await
                 .map_err(Reject::Verification)?
                 .ok_or(Reject::ExcessiveVerifyTime),
-        }
+        }?;
+        Ok((outcome, timestamp))
     })
     .await
 }

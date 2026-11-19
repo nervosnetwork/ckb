@@ -38,9 +38,10 @@ pub(in crate::authority) struct ReadSet {
     pub(super) spenders: BTreeMap<OutPoint, Option<Byte32>>,
     pub(super) relations: BTreeMap<RelationKey, Option<Weak<()>>>,
     pub(super) peers: BTreeMap<PeerIndex, Option<Weak<()>>>,
-    // Keep full-capture vectors out of ordinary sparse transaction read sets.
+    // Full owner captures retain their per-shard revisions. An accepted-only
+    // capture needs a single version, fenced by the view guard at commit.
     pub(super) all: Option<Box<Shards<u64>>>,
-    pub(super) accepted: Option<Box<Shards<u64>>>,
+    pub(super) accepted: Option<u64>,
 }
 
 fn same_weak<T>(a: &Option<Weak<T>>, b: &Option<Weak<T>>) -> bool {
@@ -165,12 +166,15 @@ impl ReadSet {
         merge_observations(&mut self.spenders, spenders, PartialEq::eq)?;
         merge_observations(&mut self.relations, relations, same_weak)?;
         merge_observations(&mut self.peers, peers, same_weak)?;
-        for (own, incoming) in [(&mut self.all, all), (&mut self.accepted, accepted)] {
-            if let Some(incoming) = incoming
-                && first_observation(own.as_ref(), incoming, PartialEq::eq)?
-            {
-                *own = Some(incoming.clone());
-            }
+        if let Some(incoming) = all
+            && first_observation(self.all.as_ref(), incoming, PartialEq::eq)?
+        {
+            self.all = Some(incoming.clone());
+        }
+        if let Some(incoming) = accepted
+            && first_observation(self.accepted.as_ref(), incoming, PartialEq::eq)?
+        {
+            self.accepted = Some(*incoming);
         }
         Ok(())
     }
@@ -501,7 +505,7 @@ impl Plan {
             return Err(Error::Stale);
         }
         self.reads.merge(&reads)?;
-        // The shard revisions cover every captured owner. Point reads made
+        // The accepted revision covers every captured owner. Point reads made
         // before the capture must still agree wherever the two overlap.
         let members = entries
             .into_iter()

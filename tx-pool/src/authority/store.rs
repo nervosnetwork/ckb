@@ -310,6 +310,7 @@ impl WakePage {
 /// earlier layer while held. Queue selection releases its lane before owners.
 /// New acquisition paths must fit this order; no authority guard spans await.
 pub(super) struct Store {
+    population_revision: AtomicU64,
     rank_generation: AtomicU64,
     #[cfg(test)]
     pub(super) commit_observer: Mutex<Option<CommitObserver>>,
@@ -355,11 +356,20 @@ impl Drop for ChainPause<'_> {
 /// in shard order.
 #[derive(Default)]
 struct CommitLocks {
+    exclusive_view: bool,
     owners: LockFootprint,
     dependencies: LockFootprint,
     peers: LockFootprint,
 }
 impl CommitLocks {
+    fn acquire_view<'a>(&self, store: &'a Store) -> Guard<'a, View> {
+        if self.exclusive_view {
+            Guard::Write(store.view.write())
+        } else {
+            Guard::Read(store.view.read())
+        }
+    }
+
     fn for_reads(store: &Store, reads: &ReadSet) -> Self {
         let mut locks = Self::default();
         locks.add_reads(store, reads);
@@ -376,7 +386,10 @@ impl CommitLocks {
             all,
             accepted,
         } = reads;
-        if all.is_some() || accepted.is_some() {
+        // Every accepted writer holds the shared view or the exclusive view.
+        // An entire-population premise stays current until the guards open.
+        self.exclusive_view |= accepted.is_some();
+        if all.is_some() {
             for index in ShardIndex::all() {
                 self.owners.insert(index, false);
             }
@@ -402,6 +415,7 @@ impl CommitLocks {
 
     fn complete_for_plan(&mut self, store: &Store, plan: &Plan) {
         if plan.lifecycle.is_some() {
+            self.exclusive_view = true;
             // The lifecycle writer already excludes ordinary commits. Refresh
             // proposal counts for unchanged owners in the same snapshot cut.
             for index in ShardIndex::all() {
@@ -456,6 +470,7 @@ impl Store {
         let faulted = Arc::new(AtomicBool::new(false));
         let outbox = Outbox::new(&limits, Arc::clone(&faulted))?;
         Ok(Arc::new(Self {
+            population_revision: AtomicU64::new(0),
             rank_generation: AtomicU64::new(0),
             #[cfg(test)]
             commit_observer: Mutex::new(None),
@@ -868,7 +883,7 @@ impl Store {
             }
             let guards = self.shards.read_all();
             plan.reads.merge(&ReadSet {
-                accepted: Some(Box::new(guards.map(|shard| shard.accepted_revision))),
+                accepted: Some(self.population_revision.load(Ordering::SeqCst)),
                 ..ReadSet::default()
             })?;
             for index in ShardIndex::all() {
@@ -1073,13 +1088,6 @@ impl Store {
                 .entered();
         let view = self.view.read();
         let guards = self.shards.read_all();
-        let versions = guards.map(|shard| {
-            if accepted_only {
-                shard.accepted_revision
-            } else {
-                shard.revision
-            }
-        });
         let entries = guards
             .iter()
             .flat_map(|shard| shard.owners.values())
@@ -1088,12 +1096,12 @@ impl Store {
             .collect();
         let reads = if accepted_only {
             ReadSet {
-                accepted: Some(Box::new(versions)),
+                accepted: Some(self.population_revision.load(Ordering::SeqCst)),
                 ..ReadSet::default()
             }
         } else {
             ReadSet {
-                all: Some(Box::new(versions)),
+                all: Some(Box::new(guards.map(|shard| shard.revision))),
                 ..ReadSet::default()
             }
         };
@@ -1263,13 +1271,13 @@ impl Store {
             return Err(Error::Fault("non-point selected read"));
         }
         let locks = CommitLocks::for_reads(self, reads);
-        let current = self.view.read();
+        let current = locks.acquire_view(self);
         let _dependencies = self.dependency_gates.acquire(&locks.dependencies);
         let owners = self.shards.acquire(&locks.owners);
         if self.is_faulted() {
             return Err(Error::Fault("closed generation"));
         }
-        if current.revision != view {
+        if current.get().revision != view {
             return Err(Error::Stale);
         }
         self.validate_reads(reads, &owners)?;
@@ -1393,16 +1401,15 @@ impl Store {
                 return Err(Error::Stale);
             }
         }
-        for (index, shard) in guards.iter() {
-            if all
-                .as_ref()
-                .is_some_and(|versions| *versions.at(index) != shard.revision)
-                || accepted
-                    .as_ref()
-                    .is_some_and(|versions| *versions.at(index) != shard.accepted_revision)
-            {
-                return Err(Error::Stale);
-            }
+        if accepted
+            .is_some_and(|version| version != self.population_revision.load(Ordering::SeqCst))
+            || all.as_ref().is_some_and(|versions| {
+                guards
+                    .iter()
+                    .any(|(i, shard)| *versions.at(i) != shard.revision)
+            })
+        {
+            return Err(Error::Stale);
         }
         for (point, expected) in spenders {
             let row = self.relation(&RelationKey::Dependency(DependencyKey::Cell(point.clone())));

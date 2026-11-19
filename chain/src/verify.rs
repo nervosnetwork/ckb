@@ -785,8 +785,7 @@ impl ConsumeUnverifiedBlockProcessor {
         let block_cp = BlockCellProvider::new(block)?;
         let cell_provider = OverlayCellProvider::new(&block_cp, txn);
         block
-            .transactions()
-            .into_iter()
+            .transactions_iter()
             .map(|tx| {
                 resolve_transaction(tx, &mut seen_inputs, &cell_provider, verify_context)
                     .map(Arc::new)

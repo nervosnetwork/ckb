@@ -744,17 +744,19 @@ impl BlockView {
 
     /// Gets `transactions`.
     pub fn transactions(&self) -> Vec<TransactionView> {
-        self.data
-            .transactions()
-            .into_iter()
-            .zip(self.tx_hashes().iter())
-            .zip(self.tx_witness_hashes().iter())
-            .map(|((data, hash), witness_hash)| TransactionView {
-                data,
+        self.transactions_iter().collect()
+    }
+
+    /// Iterate over transaction views in block order, using their cached hashes.
+    pub fn transactions_iter(&self) -> impl ExactSizeIterator<Item = TransactionView> + '_ {
+        let transactions = self.data.transactions();
+        (0..transactions.len())
+            .zip(self.tx_hashes().iter().zip(self.tx_witness_hashes()))
+            .map(move |(index, (hash, witness_hash))| TransactionView {
+                data: transactions.get_unchecked(index),
                 hash: hash.to_owned(),
                 witness_hash: witness_hash.to_owned(),
             })
-            .collect()
     }
 
     /// Creates an iterator from `proposals` of the block and `proposals` of `uncles`.

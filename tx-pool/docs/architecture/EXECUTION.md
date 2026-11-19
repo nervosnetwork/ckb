@@ -474,8 +474,8 @@ receive a best-effort event stream.
 
 The optional indexer pool overlay is rebuilt from an authoritative input snapshot
 after block synchronization, including startup and the existing poll interval
-(2 seconds by default). It does not depend on transaction notifications. Unchanged
-accepted revisions reuse the compact snapshot. Replacement requires matching pool
+(2 seconds by default). The cache reuses its compact snapshot while the lifecycle
+view and accepted population revision match. Replacement requires matching pool
 and indexer tips; while the indexer is behind, the previous inputs continue to hide
 their cells until its database has indexed the spends. This is an eventually
 consistent view, not a synchronous read of pool membership. When no next block is

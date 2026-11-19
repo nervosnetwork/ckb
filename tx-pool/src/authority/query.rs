@@ -27,7 +27,7 @@ use std::{
     sync::Arc,
 };
 
-/// Cache only the compact public projection. Original accepted revisions and
+/// Cache only the compact public projection. The accepted population revision and
 /// the paired lifecycle view decide reuse; queued work cannot invalidate it.
 #[derive(Default)]
 pub(super) struct InputSnapshotCache(ckb_util::Mutex<Option<CachedInputs>>);

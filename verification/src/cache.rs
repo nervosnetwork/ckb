@@ -149,11 +149,16 @@ pub struct Completed {
 }
 
 impl ScriptVerificationOutcome {
+    /// The sealed proof retained by both successful execution modes.
+    pub const fn proof(&self) -> ScriptVerificationProof {
+        match self {
+            Self::Reused(proof) | Self::Executed(proof) => *proof,
+        }
+    }
+
     /// Return the verified cycle count independent of execution mode.
     pub const fn cycles(&self) -> Cycle {
-        match self {
-            Self::Reused(proof) | Self::Executed(proof) => proof.cycles(),
-        }
+        self.proof().cycles()
     }
 
     /// Return a cache update only for fresh VM success.
