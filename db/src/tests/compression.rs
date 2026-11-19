@@ -71,6 +71,7 @@ fn main_database_uses_lz4_for_new_databases_and_preserves_legacy_snappy() {
         let transaction = db.transaction();
         transaction.put("0", b"new", &value).unwrap();
         transaction.commit().unwrap();
+        drop(transaction);
         drop(db);
         let expected = if legacy {
             "kSnappyCompression"
