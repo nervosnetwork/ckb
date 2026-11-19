@@ -347,76 +347,47 @@ fn affected_owners(
     }
 }
 
-/// Produce the next owner population; only detached transactions acquire a new
-/// arrival, and their block witness wins over an existing body of the same hash.
-fn successor_population(
-    store: &Store,
-    old: &BTreeMap<Byte32, Arc<Entry>>,
-    facts: &mut ChainFacts,
+/// A surviving accepted owner keeps its proof, except where a new chain
+/// fact requires recovery. Committed parents stop being pool edges.
+fn successor(
+    entry: &Arc<Entry>,
+    facts: &ChainFacts,
     affected: &Affected,
-    previous: &Snapshot,
-    snapshot: &Snapshot,
-) -> Result<BTreeMap<Byte32, Arc<Entry>>, Error> {
-    let mut after: BTreeMap<_, _> = old
-        .iter()
-        .filter_map(|(hash, entry)| {
-            if facts.attached.contains(hash) || affected.conflicts.contains_key(hash) {
-                return None;
-            }
-            let next = if let Some(value) = entry.accepted() {
-                if affected.recovery.contains(hash) {
-                    Arc::new(Entry {
-                        transaction: Arc::clone(&entry.transaction),
-                        arrival: entry.arrival,
-                        source: Source::Recovery,
-                        phase: Phase::Resolve,
-                    })
-                } else if value
-                    .parents
-                    .iter()
-                    .any(|parent| facts.attached.contains(parent))
-                {
-                    let mut value = value.clone();
-                    value
-                        .parents
-                        .retain(|parent| !facts.attached.contains(parent));
-                    entry.with_phase(Phase::Accepted(value))
-                } else {
-                    Arc::clone(entry)
-                }
-            } else {
-                let source = current_source(entry, previous, snapshot)?;
-                if source != entry.source || matches!(entry.phase, Phase::Verify(_)) {
-                    Arc::new(Entry {
-                        transaction: Arc::clone(&entry.transaction),
-                        arrival: entry.arrival,
-                        source,
-                        phase: Phase::Resolve,
-                    })
-                } else {
-                    Arc::clone(entry)
-                }
-            };
-            Some((hash.clone(), next))
-        })
-        .collect();
-    for transaction in facts.detached.drain(..) {
-        let hash = compact_packed(&transaction.hash());
-        let arrival = match old.get(&hash) {
-            Some(old) => old.arrival,
-            None => store.next_arrival()?,
-        };
-        after.insert(
-            hash,
-            Arc::new(Entry {
-                transaction,
-                arrival,
-                source: Source::Recovery,
-                phase: Phase::Resolve,
-            }),
-        );
+    change: &SnapshotChange,
+) -> Option<Arc<Entry>> {
+    let hash = entry.transaction.hash_ref();
+    if facts.attached.contains(hash) || affected.conflicts.contains_key(hash) {
+        return None;
     }
-    Ok(after)
+    let source = if let Some(value) = entry.accepted() {
+        if !affected.recovery.contains(hash) {
+            if value
+                .parents
+                .iter()
+                .any(|parent| facts.attached.contains(parent))
+            {
+                let mut value = value.clone();
+                value
+                    .parents
+                    .retain(|parent| !facts.attached.contains(parent));
+                return Some(entry.with_phase(Phase::Accepted(value)));
+            }
+            return Some(Arc::clone(entry));
+        }
+        Source::Recovery
+    } else {
+        let source = current_source(entry, change.previous(), change.next())?;
+        if source == entry.source && !matches!(entry.phase, Phase::Verify(_)) {
+            return Some(Arc::clone(entry));
+        }
+        source
+    };
+    Some(Arc::new(Entry {
+        transaction: Arc::clone(&entry.transaction),
+        arrival: entry.arrival,
+        source,
+        phase: Phase::Resolve,
+    }))
 }
 
 /// Append public phase callbacks in owner order. Both lookup strategies share
@@ -424,24 +395,31 @@ fn successor_population(
 fn append_proposal_callbacks(
     plan: &mut Plan,
     old: &Members,
-    accepted: &Members,
     change: &SnapshotChange,
     max_ancestors: usize,
 ) -> Result<(), Error> {
     let mut totals = None;
-    let mut append = |hash: &Byte32, entry: &Entry, before, after| -> Result<(), Error> {
-        let Some(previous) = old.get(hash).and_then(|entry| entry.accepted()) else {
+    let mut append = |hash: &Byte32, original: &Arc<Entry>, before, after| -> Result<(), Error> {
+        let Some(entry) = plan.successor(original) else {
             return Ok(());
         };
-        let value = entry.accepted().ok_or(Error::Stale)?;
+        let Some(value) = entry.accepted() else {
+            return Ok(());
+        };
+        // A chain change can prune parents or requeue an accepted owner. A
+        // survivor retains its admission and any explicit status override.
+        let before = value.status_with(|| before);
         let after = value.status_with(|| after);
-        let before = previous.status_with(|| before);
         // Pending and Gap share the public pending callback. Moving between
         // them is not a new admission or another fee-estimator sample.
         if (before == Status::Proposed) == (after == Status::Proposed) {
             return Ok(());
         }
         if totals.is_none() {
+            let accepted = old
+                .values()
+                .filter_map(|owner| plan.successor(owner))
+                .filter(|owner| owner.accepted().is_some());
             totals = Some(membership::aggregates(accepted, max_ancestors)?);
         }
         let totals = totals
@@ -457,7 +435,7 @@ fn append_proposal_callbacks(
     if let Some(changes) = change.proposals() {
         // Full hashes and their proposal prefixes have the same byte ordering.
         // Merge only changed phases without querying both views for each owner.
-        let mut remaining = accepted.iter().peekable();
+        let mut remaining = old.iter().peekable();
         for (id, before, after) in changes {
             if (*before == Status::Proposed) == (*after == Status::Proposed) {
                 continue;
@@ -477,8 +455,10 @@ fn append_proposal_callbacks(
     } else {
         // Keep sparse-pool work proportional to its owners, even if canonical
         // history contains many unrelated proposal ids.
-        let before = change.previous().proposals().status_lookup(accepted.len());
-        let after = change.next().proposals().status_lookup(accepted.len());
+        let accepted = old.iter().filter(|(_, owner)| owner.accepted().is_some());
+        let count = accepted.clone().count();
+        let before = change.previous().proposals().status_lookup(count);
+        let after = change.next().proposals().status_lookup(count);
         for (hash, entry) in accepted {
             let id = entry.transaction.proposal_short_id_reader();
             append(hash, entry, before(id), after(id))?;
@@ -525,7 +505,6 @@ pub(super) fn reconcile(
         || facts.spent.len() > store.budget.accepted_usage().items;
     let Captured {
         view,
-        snapshot: old_snapshot,
         owners,
         reads,
         ..
@@ -542,16 +521,30 @@ pub(super) fn reconcile(
         .collect();
     let mut plan = Plan::new(view, Class::Critical, reads);
     let affected = affected_owners(&old, &facts, rules_changed);
-    let after = successor_population(store, &old, &mut facts, &affected, &old_snapshot, snapshot)?;
+    // A detached block supplies the recovery witness even when the same raw
+    // hash already has an owner. Assign new arrivals in dependency order.
+    let mut detached = Members::new();
+    for transaction in std::mem::take(&mut facts.detached) {
+        let hash = transaction.hash();
+        let arrival = match old.get(&hash) {
+            Some(owner) => owner.arrival,
+            None => store.next_arrival()?,
+        };
+        detached.insert(
+            hash,
+            Arc::new(Entry {
+                transaction,
+                arrival,
+                source: Source::Recovery,
+                phase: Phase::Resolve,
+            }),
+        );
+    }
     let mut old_totals = None;
-    // Compare ordered populations once. Record newly detached owners below,
-    // after every old-owner edit and its effects.
-    let mut successors = after.iter().peekable();
     for (hash, entry) in &old {
-        while successors.next_if(|(next, _)| *next < hash).is_some() {}
-        let next = successors
-            .next_if(|(next, _)| *next == hash)
-            .map(|(_, entry)| entry);
+        let next = detached
+            .remove(hash)
+            .or_else(|| successor(entry, &facts, &affected, &change));
         let effect = if facts.attached.contains(hash) {
             entry.preaccepted_peer().map(|peer| {
                 Effect::relay(TxVerificationResult::Ok {
@@ -562,13 +555,9 @@ pub(super) fn reconcile(
         } else if let Some(point) = affected.conflicts.get(hash) {
             let callback = if entry.accepted().is_some() {
                 if old_totals.is_none() {
-                    let accepted: Members = old
-                        .iter()
-                        .filter(|(_, entry)| entry.accepted().is_some())
-                        .map(|(hash, entry)| (hash.clone(), Arc::clone(entry)))
-                        .collect();
+                    let accepted = old.values().filter(|owner| owner.accepted().is_some());
                     old_totals = Some(membership::aggregates(
-                        &accepted,
+                        accepted,
                         config.max_ancestors_count,
                     )?);
                 }
@@ -588,32 +577,17 @@ pub(super) fn reconcile(
         } else {
             None
         };
-        if !next.is_some_and(|next| Arc::ptr_eq(next, entry)) {
-            plan.edit(Some(Arc::clone(entry)), next.cloned(), effect)?;
-        } else if let Some(effect) = effect {
-            plan.notify(effect);
+        if effect.is_some() || !next.as_ref().is_some_and(|next| Arc::ptr_eq(next, entry)) {
+            plan.edit(Some(Arc::clone(entry)), next, effect)?;
         }
     }
     // Rejection effects own their projections; release the old graph scratch
     // before deriving any successor aggregates for status callbacks.
     drop(old_totals);
-    // Only detached bodies can introduce hashes absent from the old population.
-    if !facts.detached_transactions.is_empty() {
-        for (hash, entry) in &after {
-            if !old.contains_key(hash) {
-                plan.edit(None, Some(Arc::clone(entry)), None)?;
-            }
-        }
+    for entry in detached.into_values() {
+        plan.edit(None, Some(entry), None)?;
     }
-    let mut final_accepted = after;
-    final_accepted.retain(|_, entry| entry.accepted().is_some());
-    append_proposal_callbacks(
-        &mut plan,
-        &old,
-        &final_accepted,
-        &change,
-        config.max_ancestors_count,
-    )?;
+    append_proposal_callbacks(&mut plan, &old, &change, config.max_ancestors_count)?;
     for block in attached_blocks.iter().chain(detached_blocks) {
         for tx in block.transactions() {
             // Removing an attached accepted owner already contributes these

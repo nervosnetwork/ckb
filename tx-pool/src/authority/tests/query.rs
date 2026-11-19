@@ -787,11 +787,11 @@ fn detail_rank_preserves_ordering_equivalence_arrival_hash_and_status() {
         store.apply(plan).unwrap();
     }
     let owners = store.capture_accepted().owners;
-    let members: Members = owners
+    let members: membership::Members = owners
         .into_iter()
         .map(|entry| (entry.hash(), entry))
         .collect();
-    let totals = membership::aggregates(&members, config().max_ancestors_count).unwrap();
+    let totals = membership::aggregates(members.values(), config().max_ancestors_count).unwrap();
     let keys: Vec<_> = children
         .iter()
         .map(|hash| score(members[hash].accepted().unwrap(), totals[hash].ancestors).unwrap())

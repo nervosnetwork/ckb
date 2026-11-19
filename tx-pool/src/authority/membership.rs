@@ -283,11 +283,11 @@ pub(super) fn visit_ancestors(
     clippy::indexing_slicing,
     reason = "The visitor supplies ordinals from entries."
 )]
-pub(super) fn aggregates(
-    members: &Members,
+pub(super) fn aggregates<'a>(
+    members: impl Iterator<Item = &'a Arc<Entry>>,
     max_ancestors: usize,
 ) -> Result<BTreeMap<Byte32, NeighborhoodTotals>, Error> {
-    let entries: Vec<_> = members.values().map(Arc::as_ref).collect();
+    let entries: Vec<_> = members.map(Arc::as_ref).collect();
     let mut totals = vec![NeighborhoodTotals::default(); entries.len()];
     visit_ancestors(&entries, max_ancestors, |root, ancestors, sum| {
         totals[root].ancestors = sum;
@@ -297,7 +297,7 @@ pub(super) fn aggregates(
         }
         Ok(())
     })?;
-    Ok(members.keys().cloned().zip(totals).collect())
+    Ok(entries.into_iter().map(Entry::hash).zip(totals).collect())
 }
 
 pub(super) fn entry_snapshot(
@@ -868,7 +868,7 @@ struct EvictionRanks<'a> {
 
 impl<'a> EvictionRanks<'a> {
     fn new(entries: &Members, snapshot: &'a Snapshot, max_ancestors: usize) -> Result<Self, Error> {
-        let descendants: BTreeMap<_, _> = aggregates(entries, max_ancestors)?
+        let descendants: BTreeMap<_, _> = aggregates(entries.values(), max_ancestors)?
             .into_iter()
             .map(|(hash, totals)| (hash, totals.descendants))
             .collect();

@@ -404,12 +404,12 @@ fn trim_batch_updates_shared_ancestor_before_the_next_round() {
         entries.keys().cloned().collect::<BTreeSet<_>>(),
         BTreeSet::from([a.clone(), d, candidate])
     );
-    let old_totals = aggregates(&original, config().max_ancestors_count).unwrap();
+    let old_totals = aggregates(original.values(), config().max_ancestors_count).unwrap();
     let old_snapshot =
         entry_snapshot(original.get(&a).unwrap(), *old_totals.get(&a).unwrap()).unwrap();
     assert_eq!(old_snapshot.descendants_count, 4);
     assert_eq!(old_snapshot.descendants_fee.as_u64(), 110);
-    let totals = aggregates(&entries, config().max_ancestors_count).unwrap();
+    let totals = aggregates(entries.values(), config().max_ancestors_count).unwrap();
     assert_eq!(totals.get(&a).unwrap().descendants.count, 2);
     assert_eq!(totals.get(&a).unwrap().descendants.fee, 100);
 }
@@ -450,7 +450,7 @@ fn trim_late_protected_rejection_keeps_the_original_notification_graph() {
         entry: Arc::clone(entries.get(&candidate).unwrap()),
         ancestors: BTreeSet::from([candidate.clone()]),
     };
-    let before = aggregates(&original, config().max_ancestors_count).unwrap();
+    let before = aggregates(original.values(), config().max_ancestors_count).unwrap();
     let charge = charge(&entries);
     let result = trim_virtual(
         &mut entries,
@@ -465,7 +465,7 @@ fn trim_late_protected_rejection_keeps_the_original_notification_graph() {
     assert_eq!(removed, BTreeSet::from([a, b, c, d, e]));
     assert_eq!(entries.keys().cloned().collect::<Vec<_>>(), vec![candidate]);
     assert_eq!(
-        aggregates(&original, config().max_ancestors_count).unwrap(),
+        aggregates(original.values(), config().max_ancestors_count).unwrap(),
         before
     );
     assert_eq!(store.capture_accepted().owners.len(), 6);

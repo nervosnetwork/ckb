@@ -787,6 +787,44 @@ fn detached_witness_wins_raw_hash_and_recovers_parent_before_child() {
 }
 
 #[test]
+fn reorg_publishes_proposals_only_for_owners_that_stay_accepted() {
+    let store = store();
+    let detached_tx = output_tx(5020);
+    let survivor = output_tx(5021);
+    for transaction in [&detached_tx, &survivor] {
+        let hash = accept(&store, transaction.clone(), 20, 1, Status::Pending);
+        let old = store.point(&hash).1.unwrap();
+        let mut value = old.accepted().unwrap().clone();
+        value.forced_status = None;
+        replace(&store, old, Phase::Accepted(value));
+    }
+    let detached = BlockBuilder::default()
+        .transaction(tx(0))
+        .transaction(detached_tx.clone())
+        .build();
+    let attached = BlockBuilder::default().transaction(tx(0)).build();
+    let next = snapshot(
+        &store.snapshot().1,
+        &attached,
+        HashSet::new(),
+        HashSet::from([
+            detached_tx.proposal_short_id(),
+            survivor.proposal_short_id(),
+        ]),
+    );
+    let command = ChainReorgArgs::for_test([detached].into(), [attached].into(), next);
+    let plan = reconcile(&store, &command, &config()).unwrap();
+    let callbacks: Vec<_> = plan.effects().iter().filter_map(Effect::callback).collect();
+    assert!(
+        matches!(callbacks.as_slice(), [CallbackEvent::Proposed(entry)] if entry.transaction.hash() == survivor.hash())
+    );
+    store.apply(plan).unwrap();
+    let recovered = store.point(&detached_tx.hash()).1.unwrap();
+    assert!(matches!(recovered.phase, Phase::Resolve));
+    assert_eq!(store.capture_summary().proposed, 1);
+}
+
+#[test]
 fn reorg_moves_context_sensitive_accepted_closure_to_recovery() {
     let store = store();
     let time_locked = output_tx(5017)
@@ -1670,20 +1708,14 @@ fn chain_capture_closes_callback_neighborhoods_without_crossing_unrelated_branch
         );
         assert!(!hashes.contains(&sibling));
         assert!(!hashes.contains(&grandchild));
-        let selected: Members = captured
+        let selected = captured
             .owners
-            .into_iter()
-            .filter(|entry| entry.accepted().is_some())
-            .map(|entry| (entry.hash(), entry))
-            .collect();
-        let complete: Members = store
-            .capture_accepted()
-            .owners
-            .into_iter()
-            .map(|entry| (entry.hash(), entry))
-            .collect();
-        let actual = membership::aggregates(&selected, config().max_ancestors_count).unwrap();
-        let expected = membership::aggregates(&complete, config().max_ancestors_count).unwrap();
+            .iter()
+            .filter(|owner| owner.accepted().is_some());
+        let complete = store.capture_accepted();
+        let actual = membership::aggregates(selected, config().max_ancestors_count).unwrap();
+        let expected =
+            membership::aggregates(complete.owners.iter(), config().max_ancestors_count).unwrap();
         assert_eq!(actual[&callback_hash], expected[&callback_hash]);
     }
 }

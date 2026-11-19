@@ -1,7 +1,7 @@
 //! Public values derived from coherent immutable owners. Full projections are
 //! called only while a service read slot owns their bounded scratch lifetime.
 use super::{
-    membership::{self, Aggregate, Members, NeighborhoodTotals},
+    membership::{self, Aggregate, NeighborhoodTotals},
     model::{Entry, Error, Phase, Status},
     packing::Selection,
     store::{Captured, ReadSet, Store},
@@ -235,17 +235,16 @@ pub(super) fn entry_info(store: &Store, config: &TxPoolConfig) -> Result<TxPoolE
         proposed: HashMap::new(),
         conflicted: Vec::new(),
     };
-    let mut members = Members::new();
+    let accepted = owners.iter().filter(|owner| owner.accepted().is_some());
+    let totals = membership::aggregates(accepted, config.max_ancestors_count)?;
     for entry in owners {
-        if entry.accepted().is_some() {
-            members.insert(entry.hash(), entry);
-        } else if matches!(entry.phase, Phase::Replaced(_)) {
-            result.conflicted.push(entry.hash());
-        }
-    }
-    let totals = membership::aggregates(&members, config.max_ancestors_count)?;
-    for (hash, entry) in members {
-        let value = entry.accepted().ok_or(Error::Stale)?;
+        let Some(value) = entry.accepted() else {
+            if matches!(entry.phase, Phase::Replaced(_)) {
+                result.conflicted.push(entry.hash());
+            }
+            continue;
+        };
+        let hash = entry.hash();
         let NeighborhoodTotals {
             ancestors,
             descendants,

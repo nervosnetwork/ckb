@@ -314,6 +314,17 @@ impl Plan {
         Ok(())
     }
 
+    /// Project a captured owner through this plan without reading the live Store.
+    pub(in crate::authority) fn successor<'a>(
+        &'a self,
+        original: &'a Arc<Entry>,
+    ) -> Option<&'a Arc<Entry>> {
+        match self.edits.get(original.transaction.hash_ref()) {
+            Some(edit) => edit.after.as_ref(),
+            None => Some(original),
+        }
+    }
+
     /// Notice-only outcomes have no owner edit, but still validate this Plan.
     pub(in crate::authority) fn notify(&mut self, effect: Effect) {
         self.effects.push(effect);

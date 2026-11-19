@@ -342,9 +342,11 @@ Detachment, script-rule changes and spend sets larger than the accepted populati
 use the bounded full capture. Both captures retain original shard revisions, so
 even an omitted owner's later change invalidates the Plan.
 
-After capture, classification, graph changes and callback projections use the
-captured data outside Store guards. Preaccepted owners check their full
-declared dependencies, including inputs absent from Waiting's triggers. Conflict
+After capture, reconciliation classifies each original owner and records its
+transition directly in the Plan. A detached transaction supplies the recovery
+witness at the same raw hash. Classification and graph projections run outside
+Store guards. Preaccepted owners check their full declared dependencies,
+including inputs absent from Waiting's triggers. Conflict
 reports follow input order before expanded cell dependencies. Conflict removal
 takes precedence when its descendant closure intersects recovery, and neither
 closure crosses a newly committed producer.
@@ -357,10 +359,11 @@ publication.
 
 Graph totals are built only for callbacks. The selected graph contains every
 required callback ancestor and descendant, although unrelated branches of other
-captured ancestors may be absent. Rejections use the original graph; proposal
-callbacks use its successor after committed producers and invalidated owners are
-removed. Pending and Gap share the public pending callback, so moving between
-them emits no second new-transaction notification or fee-estimator sample.
+captured ancestors may be absent. Rejections read the captured graph. Proposal
+callbacks project the surviving owners through the edits already in the Plan,
+so committing a parent changes its child's callback totals. This projection runs
+only for a public callback. Pending and Gap share the public pending callback,
+so moving between them emits no second notification or fee-estimator sample.
 Entering or leaving Proposed still publishes its corresponding callback.
 Ordinary attachment skips detached-backing checks, while VM activation is compared
 once between the previous and next snapshots regardless of proposal phase.

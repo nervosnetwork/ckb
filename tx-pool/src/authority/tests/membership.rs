@@ -274,14 +274,9 @@ fn replacement_checks_late_descendant_limits_after_removing_overlapping_victims(
             assert_eq!(hashes(&store), expected);
             assert!(store.outbox.pending_reject(&victim).is_some());
             assert!(store.outbox.pending_reject(&descendant).is_some());
-            let members = store
-                .capture_accepted()
-                .owners
-                .into_iter()
-                .map(|owner| (owner.hash(), owner))
-                .collect();
+            let owners = store.capture_accepted().owners;
             let totals =
-                membership::aggregates(&members, configuration.max_ancestors_count).unwrap();
+                membership::aggregates(owners.iter(), configuration.max_ancestors_count).unwrap();
             assert_eq!(totals[&candidate.hash()].ancestors.count, 3);
             assert_eq!(totals[&child].ancestors.count, 4);
         } else {

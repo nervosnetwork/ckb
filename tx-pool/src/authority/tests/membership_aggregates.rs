@@ -95,7 +95,7 @@ fn complete_totals_match_every_five_node_dag_and_a_full_ancestor_chain() {
             .collect();
         let members = fixture(&parents);
         assert_eq!(
-            membership::aggregates(&members, 5).unwrap(),
+            membership::aggregates(members.values(), 5).unwrap(),
             reference(&members, 5)
         );
     }
@@ -105,15 +105,15 @@ fn complete_totals_match_every_five_node_dag_and_a_full_ancestor_chain() {
             .collect::<Vec<_>>(),
     );
     assert_eq!(
-        membership::aggregates(&members, 64).unwrap(),
+        membership::aggregates(members.values(), 64).unwrap(),
         reference(&members, 64)
     );
     assert!(matches!(
-        membership::aggregates(&members, 63),
+        membership::aggregates(members.values(), 63),
         Err(Error::Rejected(Reject::ExceededMaximumAncestorsCount))
     ));
     assert!(
-        membership::aggregates(&Members::new(), 0)
+        membership::aggregates(Members::new().values(), 0)
             .unwrap()
             .is_empty()
     );
@@ -124,35 +124,35 @@ fn complete_totals_preserve_zero_limit_missing_parent_phase_and_cycle_rejections
     let mut members = fixture(&[vec![]]);
     let hash = members.keys().next().unwrap().clone();
     assert!(matches!(
-        membership::aggregates(&members, 0),
+        membership::aggregates(members.values(), 0),
         Err(Error::Rejected(Reject::ExceededMaximumAncestorsCount))
     ));
     change(&mut members, &hash, |value| {
         value.parents.insert(Byte32::new([0xff; 32]));
     });
     assert!(matches!(
-        membership::aggregates(&members, 1),
+        membership::aggregates(members.values(), 1),
         Err(Error::Rejected(Reject::ExceededMaximumAncestorsCount))
     ));
     assert!(matches!(
-        membership::aggregates(&members, 2),
+        membership::aggregates(members.values(), 2),
         Err(Error::Stale)
     ));
     change(&mut members, &hash, |value| {
         value.parents = BTreeSet::from([hash.clone()])
     });
     assert!(matches!(
-        membership::aggregates(&members, 0),
+        membership::aggregates(members.values(), 0),
         Err(Error::Rejected(Reject::Invalidated(_)))
     ));
     assert!(matches!(
-        membership::aggregates(&members, 2),
+        membership::aggregates(members.values(), 2),
         Err(Error::Rejected(Reject::Invalidated(_)))
     ));
     let owner = members.get(&hash).unwrap().with_phase(Phase::Resolve);
     members.insert(hash, owner);
     assert!(matches!(
-        membership::aggregates(&members, 2),
+        membership::aggregates(members.values(), 2),
         Err(Error::Stale)
     ));
 }
@@ -172,7 +172,7 @@ fn complete_totals_keep_wide_fees_and_reject_byte_or_cycle_overflow() {
             value.fee = Capacity::shannons(u64::MAX)
         });
     }
-    let totals = membership::aggregates(&fees, 2).unwrap();
+    let totals = membership::aggregates(fees.values(), 2).unwrap();
     assert_eq!(totals, reference(&fees, 2));
     assert_eq!(totals[&parent].descendants.fee, u128::from(u64::MAX) * 2);
     assert_eq!(
@@ -182,7 +182,7 @@ fn complete_totals_keep_wide_fees_and_reject_byte_or_cycle_overflow() {
     let mut bytes = members.clone();
     change(&mut bytes, &parent, |value| value.size = usize::MAX);
     assert!(matches!(
-        membership::aggregates(&bytes, 2),
+        membership::aggregates(bytes.values(), 2),
         Err(Error::Rejected(Reject::Full(_)))
     ));
     let mut cycles = members;
@@ -190,7 +190,7 @@ fn complete_totals_keep_wide_fees_and_reject_byte_or_cycle_overflow() {
         value.scripts = VerifiedScripts::Fixture(u64::MAX)
     });
     assert!(matches!(
-        membership::aggregates(&cycles, 2),
+        membership::aggregates(cycles.values(), 2),
         Err(Error::Rejected(Reject::Full(_)))
     ));
 }
