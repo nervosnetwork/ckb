@@ -1,0 +1,92 @@
+name: Multica review
+
+# Active only after this file is on the default branch.
+# issue_comment workflows run from the default branch, not from the PR head.
+on:
+  issue_comment:
+    types: [created]
+  pull_request_review_comment:
+    types: [created]
+
+jobs:
+  dispatch:
+    if: >-
+      github.actor != 'github-actions[bot]' &&
+      (github.event.comment.author_association == 'OWNER' ||
+       github.event.comment.author_association == 'MEMBER' ||
+       github.event.comment.author_association == 'COLLABORATOR')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      issues: write
+      pull-requests: write
+    steps:
+      - name: Route /review to Multica
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          WEBHOOK_URL: ${{ secrets.MULTICA_REVIEW_WEBHOOK_URL }}
+          REPO: ${{ github.repository }}
+          EVENT_NAME: ${{ github.event_name }}
+          COMMENT_ID: ${{ github.event.comment.id }}
+          COMMENT_BODY: ${{ github.event.comment.body }}
+          COMMENT_URL: ${{ github.event.comment.html_url }}
+          SENDER: ${{ github.event.comment.user.login }}
+          ISSUE_NUMBER: ${{ github.event.issue.number || github.event.pull_request.number }}
+          IS_PULL_REQUEST: ${{ github.event_name == 'pull_request_review_comment' || github.event.issue.pull_request != null }}
+        run: |
+          python3 << 'PY'
+          import json, os, re, sys, urllib.request
+          import subprocess
+
+          def gh(*args):
+              subprocess.run(["gh", "api", *args], check=True)
+
+          body = os.environ["COMMENT_BODY"] or ""
+          if re.match(r"^\s*/review\b", body) is None:
+              print("Comment does not start with /review. Skipping.")
+              sys.exit(0)
+
+          repo = os.environ["REPO"]
+          number = os.environ["ISSUE_NUMBER"]
+          is_pr = os.environ["IS_PULL_REQUEST"].lower() == "true"
+          payload = {
+              "event": "start",
+              "repository": repo,
+              "number": int(number),
+              "is_pull_request": is_pr,
+              "comment_id": int(os.environ["COMMENT_ID"]),
+              "comment_url": os.environ["COMMENT_URL"],
+              "comment_body": body,
+              "sender": os.environ["SENDER"],
+              "instruction": (
+                  "Start one Multica review for this pull request. "
+                  "Later comments are not follow-ups."
+              ),
+          }
+
+          webhook = os.environ.get("WEBHOOK_URL", "").strip()
+          if not webhook:
+              gh(
+                  f"repos/{repo}/issues/{number}/comments",
+                  "-f",
+                  "body=Multica review was not sent. Add repository secret MULTICA_REVIEW_WEBHOOK_URL, then comment /review again.\n",
+              )
+              print("MULTICA_REVIEW_WEBHOOK_URL is not set.")
+              sys.exit(1)
+
+          request = urllib.request.Request(
+              webhook,
+              data=json.dumps(payload).encode(),
+              headers={"Content-Type": "application/json"},
+              method="POST",
+          )
+          with urllib.request.urlopen(request, timeout=30) as response:
+              print(f"Webhook status {response.status}")
+
+          comment_id = os.environ["COMMENT_ID"]
+          if os.environ["EVENT_NAME"] == "pull_request_review_comment":
+              reaction_path = f"repos/{repo}/pulls/comments/{comment_id}/reactions"
+          else:
+              reaction_path = f"repos/{repo}/issues/comments/{comment_id}/reactions"
+          gh(reaction_path, "-f", "content=eyes", "-H", "Accept: application/vnd.github+json")
+          PY
