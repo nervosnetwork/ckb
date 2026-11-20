@@ -105,12 +105,11 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           REPO: ${{ github.repository }}
-          EVENT_PATH: ${{ github.event_path }}
         run: |
           python3 << 'PY'
           import json, os, subprocess, sys
 
-          event = json.load(open(os.environ["EVENT_PATH"]))
+          event = json.load(open(os.environ["GITHUB_EVENT_PATH"]))
           payload = event.get("client_payload") or {}
           number = payload.get("number")
           body = (payload.get("body") or "").strip()
