@@ -939,7 +939,7 @@ name = "ckb-crypto"
 version = "1.1.1"
 dependencies = [
  "ckb-fixed-hash",
- "faster-hex 1.0.0",
+ "faster-hex 2.0.0",
  "rand 0.8.6",
  "secp256k1",
  "thiserror 1.0.69",
@@ -1034,7 +1034,7 @@ dependencies = [
 name = "ckb-fixed-hash-core"
 version = "1.1.2"
 dependencies = [
- "faster-hex 1.0.0",
+ "faster-hex 2.0.0",
  "schemars",
  "serde",
  "serde_json",
@@ -1102,7 +1102,7 @@ dependencies = [
  "ckb-notify",
  "ckb-rocksdb",
  "ckb-types",
- "faster-hex 1.0.0",
+ "faster-hex 2.0.0",
  "memchr",
  "rand 0.8.6",
  "tempfile",
@@ -1151,7 +1151,7 @@ name = "ckb-jsonrpc-types"
 version = "1.2.1"
 dependencies = [
  "ckb-types",
- "faster-hex 1.0.0",
+ "faster-hex 2.0.0",
  "proptest",
  "regex",
  "schemars",
@@ -1395,7 +1395,7 @@ dependencies = [
  "ckb-types",
  "ckb-util",
  "criterion",
- "faster-hex 1.0.0",
+ "faster-hex 2.0.0",
  "futures",
  "governor",
  "hickory-resolver",
@@ -1659,7 +1659,7 @@ dependencies = [
  "ckb-types",
  "ckb-vm",
  "daggy",
- "faster-hex 1.0.0",
+ "faster-hex 2.0.0",
  "molecule",
  "proptest",
  "rand 0.8.6",
@@ -2827,9 +2827,9 @@ checksum = "51e2ce894d53b295cf97b05685aa077950ff3e8541af83217fc720a6437169f8"
 
 [[package]]
 name = "faster-hex"
-version = "1.0.0"
+version = "2.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6d8d873f78e1d3e1998ed2084da9147e3cd2bb34b67814cd49a3902b970eb124"
+checksum = "e4ede54fe330383a5de28c0a1f06668ff9dbf06c8094e1c5150c39488a5e911d"
 dependencies = [
  "defmt 0.3.100",
  "serde",

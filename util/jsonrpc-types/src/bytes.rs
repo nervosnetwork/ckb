@@ -1,5 +1,5 @@
 use ckb_types::{bytes::Bytes, packed};
-use faster_hex::{hex_decode, hex_encode};
+use faster_hex::hex_decode;
 use schemars::JsonSchema;
 use std::fmt;
 
@@ -119,12 +119,7 @@ impl serde::Serialize for JsonBytes {
     where
         S: serde::Serializer,
     {
-        let mut buffer = vec![0u8; self.len() * 2 + 2];
-        buffer[0] = b'0';
-        buffer[1] = b'x';
-        hex_encode(self.as_bytes(), &mut buffer[2..])
-            .map_err(|e| serde::ser::Error::custom(format!("{e}")))?;
-        serializer.serialize_str(unsafe { ::std::str::from_utf8_unchecked(&buffer) })
+        faster_hex::serialize(self.as_bytes(), serializer)
     }
 }
 
