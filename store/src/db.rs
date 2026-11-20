@@ -140,19 +140,24 @@ impl ChainDB {
     pub fn new_write_batch(&self) -> StoreWriteBatch {
         StoreWriteBatch {
             inner: self.db.new_write_batch(),
+            deleted_block_hashes: Vec::new(),
         }
     }
 
     /// Write batch into chain db.
     pub fn write(&self, write_batch: &StoreWriteBatch) -> Result<(), Error> {
-        self.db.write(&write_batch.inner)
+        self.db.write(&write_batch.inner)?;
+        self.invalidate_write_batch_cache(write_batch);
+        Ok(())
     }
 
     /// write options set_sync = true
     ///
     /// see [`RocksDB::write_sync`](ckb_db::RocksDB::write_sync).
     pub fn write_sync(&self, write_batch: &StoreWriteBatch) -> Result<(), Error> {
-        self.db.write_sync(&write_batch.inner)
+        self.db.write_sync(&write_batch.inner)?;
+        self.invalidate_write_batch_cache(write_batch);
+        Ok(())
     }
 
     /// Force the data to go through the compaction in order to consolidate it
@@ -165,6 +170,12 @@ impl ChainDB {
         end: Option<&[u8]>,
     ) -> Result<(), Error> {
         self.db.compact_range(col, start, end)
+    }
+
+    fn invalidate_write_batch_cache(&self, write_batch: &StoreWriteBatch) {
+        for hash in write_batch.deleted_block_hashes() {
+            self.cache.invalidate_block(hash);
+        }
     }
 
     /// Initializes the database with the genesis block and epoch.
@@ -187,10 +198,14 @@ impl ChainDB {
         let last_block_hash_in_previous_epoch = epoch.last_block_hash_in_previous_epoch();
 
         db_txn.insert_block(genesis)?;
-        db_txn.insert_block_ext(&genesis_hash, &ext)?;
+        db_txn.insert_block_ext(genesis.number(), &genesis_hash, &ext)?;
         db_txn.insert_tip_header(&genesis.header())?;
         db_txn.insert_current_epoch_ext(epoch)?;
-        db_txn.insert_block_epoch_index(&genesis_hash, &last_block_hash_in_previous_epoch)?;
+        db_txn.insert_block_epoch_index(
+            genesis.number(),
+            &genesis_hash,
+            &last_block_hash_in_previous_epoch,
+        )?;
         db_txn.insert_epoch_ext(&last_block_hash_in_previous_epoch, epoch)?;
         db_txn.attach_block(genesis)?;
 

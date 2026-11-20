@@ -20,5 +20,4 @@ ckb-chain-spec.workspace = true
 [dev-dependencies]
 ckb-db.workspace = true
 ckb-occupied-capacity.workspace = true
-ckb-db-schema.workspace = true
 tempfile.workspace = true
