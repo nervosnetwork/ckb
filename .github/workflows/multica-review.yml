@@ -7,6 +7,8 @@ on:
     types: [created]
   pull_request_review_comment:
     types: [created]
+  repository_dispatch:
+    types: [multica-review-result]
 
 jobs:
   dispatch:
@@ -89,4 +91,91 @@ jobs:
           else:
               reaction_path = f"repos/{repo}/issues/comments/{comment_id}/reactions"
           gh(reaction_path, "-f", "content=eyes", "-H", "Accept: application/vnd.github+json")
+          PY
+
+  reply:
+    if: github.event_name == 'repository_dispatch'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      issues: write
+      pull-requests: write
+    steps:
+      - name: Post review as github-actions
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+          EVENT_PATH: ${{ github.event_path }}
+        run: |
+          python3 << 'PY'
+          import json, os, subprocess, sys
+
+          event = json.load(open(os.environ["EVENT_PATH"]))
+          payload = event.get("client_payload") or {}
+          number = payload.get("number")
+          body = (payload.get("body") or "").strip()
+          commit_id = str(payload.get("commit_id") or "").strip()
+          comments = payload.get("comments") or []
+          if not number or not body:
+              print("Missing number or body.")
+              sys.exit(1)
+
+          marker = "<!-- multica-review-result -->"
+          if marker not in body:
+              body = body.rstrip() + "\n\n" + marker + "\n"
+
+          repo = os.environ["REPO"]
+
+          def gh(path, data):
+              return subprocess.run(
+                  ["gh", "api", "--method", "POST", f"repos/{repo}/{path}", "--input", "-"],
+                  input=json.dumps(data),
+                  text=True,
+                  capture_output=True,
+              )
+
+          clean = []
+          for item in comments:
+              if not isinstance(item, dict):
+                  continue
+              path = item.get("path")
+              line = item.get("line")
+              text = (item.get("body") or "").strip()
+              if path and isinstance(line, int) and text:
+                  clean.append({
+                      "path": path,
+                      "line": line,
+                      "side": item.get("side") or "RIGHT",
+                      "body": text,
+                  })
+
+          if commit_id:
+              review = {"commit_id": commit_id, "body": body, "event": "COMMENT"}
+              if clean:
+                  review["comments"] = clean
+              posted = gh(f"pulls/{number}/reviews", review)
+              if posted.returncode == 0:
+                  print(posted.stdout)
+                  sys.exit(0)
+              print(posted.stderr)
+              if clean:
+                  folded = "\n\n".join(
+                      f"**{item['path']}:{item['line']}**\n\n{item['body']}" for item in clean
+                  )
+                  review = {
+                      "commit_id": commit_id,
+                      "event": "COMMENT",
+                      "body": body.rstrip() + "\n\n" + folded + "\n",
+                  }
+                  posted = gh(f"pulls/{number}/reviews", review)
+                  if posted.returncode == 0:
+                      print("Posted review without inline comments.")
+                      sys.exit(0)
+                  print(posted.stderr)
+
+          posted = gh(f"issues/{number}/comments", {"body": body})
+          if posted.returncode != 0:
+              print(posted.stderr)
+              sys.exit(posted.returncode)
+          print(posted.stdout)
           PY
