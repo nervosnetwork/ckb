@@ -13,7 +13,7 @@ rust-version = "1.95.0"
 ckb-types.workspace = true
 serde = { workspace = true, features = ["derive"] }
 serde_json.workspace = true
-faster-hex.workspace = true
+faster-hex = { workspace = true, features = ["serde"] }
 schemars.workspace = true
 seq-macro.workspace = true
 

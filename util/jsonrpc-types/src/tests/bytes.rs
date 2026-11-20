@@ -4,6 +4,16 @@ use serde::{Deserialize, Serialize};
 use crate::bytes::JsonBytes;
 
 #[test]
+fn json_bytes_serialize_as_prefixed_lowercase_hex() {
+    for len in [0, 1, 32, 65, 66, 256] {
+        let value = JsonBytes::from_vec(vec![0xab; len]);
+        let json = format!(r#""0x{}""#, "ab".repeat(len));
+        assert_eq!(serde_json::to_string(&value).unwrap(), json);
+        assert_eq!(serde_json::from_str::<JsonBytes>(&json).unwrap(), value);
+    }
+}
+
+#[test]
 fn test_de_error() {
     #[derive(Deserialize, Serialize, Debug)]
     struct Test {
