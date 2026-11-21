@@ -32,7 +32,13 @@ use ckb_types::{
 };
 use ckb_verification_traits::Switch;
 use std::collections::HashSet;
-use std::{cell::RefCell, future::Future, pin::Pin, sync::Arc, time::Duration};
+use std::{
+    cell::{Cell, RefCell},
+    future::Future,
+    pin::Pin,
+    sync::Arc,
+    time::Duration,
+};
 
 pub(crate) fn new_index_transaction(index: usize) -> IndexTransaction {
     let transaction = TransactionBuilder::default()
@@ -300,6 +306,8 @@ pub(crate) fn gen_block(
 pub(crate) struct MockProtocolContext {
     protocol: SupportProtocols,
     sent_messages: RefCell<Vec<(ProtocolId, PeerIndex, P2pBytes)>>,
+    send_attempts: Cell<usize>,
+    fail_sends_after: Option<usize>,
 }
 
 // test mock context with single thread
@@ -312,7 +320,38 @@ impl MockProtocolContext {
         Self {
             protocol,
             sent_messages: Default::default(),
+            send_attempts: Cell::new(0),
+            fail_sends_after: None,
         }
+    }
+
+    pub(crate) fn with_send_failure(protocol: SupportProtocols, successful_sends: usize) -> Self {
+        Self {
+            protocol,
+            sent_messages: Default::default(),
+            send_attempts: Cell::new(0),
+            fail_sends_after: Some(successful_sends),
+        }
+    }
+
+    fn record_send(
+        &self,
+        protocol_id: ProtocolId,
+        peer_index: PeerIndex,
+        data: P2pBytes,
+    ) -> Result<(), Error> {
+        let send_attempt = self.send_attempts.get();
+        self.send_attempts.set(send_attempt + 1);
+        if self
+            .fail_sends_after
+            .is_some_and(|successful_sends| send_attempt >= successful_sends)
+        {
+            return Err(std::io::Error::other("mock send failure").into());
+        }
+        self.sent_messages
+            .borrow_mut()
+            .push((protocol_id, peer_index, data));
+        Ok(())
     }
 
     pub(crate) fn has_sent(
@@ -328,6 +367,10 @@ impl MockProtocolContext {
 
     pub(crate) fn sent_messages_len(&self) -> usize {
         self.sent_messages.borrow().len()
+    }
+
+    pub(crate) fn send_attempts(&self) -> usize {
+        self.send_attempts.get()
     }
 }
 
@@ -374,10 +417,7 @@ impl CKBProtocolContext for MockProtocolContext {
         peer_index: PeerIndex,
         data: P2pBytes,
     ) -> Result<(), Error> {
-        self.sent_messages
-            .borrow_mut()
-            .push((proto_id, peer_index, data));
-        Ok(())
+        self.record_send(proto_id, peer_index, data)
     }
     async fn async_send_message_to(
         &self,
@@ -464,10 +504,7 @@ impl CKBProtocolContext for MockProtocolContext {
         peer_index: PeerIndex,
         data: P2pBytes,
     ) -> Result<(), Error> {
-        self.sent_messages
-            .borrow_mut()
-            .push((proto_id, peer_index, data));
-        Ok(())
+        self.record_send(proto_id, peer_index, data)
     }
     fn send_message_to(&self, peer_index: PeerIndex, data: P2pBytes) -> Result<(), Error> {
         let protocol_id = self.protocol_id();
