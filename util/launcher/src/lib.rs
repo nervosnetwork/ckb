@@ -493,7 +493,15 @@ impl Launcher {
             required_protocol_ids,
             (
                 shared.consensus().identify_name(),
-                self.version.to_string(),
+                // The p2p identify client version, kept in the historical
+                // `x.y.z[(...)]` form with the build target appended as
+                // `[os/arch]` so peers can tell apart OS/architecture of nodes.
+                format!(
+                    "{} [{}/{}]",
+                    self.version,
+                    std::env::consts::OS,
+                    std::env::consts::ARCH
+                ),
                 flags,
             ),
             TransportType::Tcp,
