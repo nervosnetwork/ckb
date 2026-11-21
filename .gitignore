@@ -67,3 +67,4 @@ cobertura.xml
 *.profraw
 lcov-unit-test.info
 lcov-integration-test.info
+.android-libgcc-stub/

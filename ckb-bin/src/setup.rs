@@ -1,4 +1,4 @@
-#[cfg(not(target_os = "windows"))]
+#[cfg(all(not(target_os = "windows"), not(target_os = "android")))]
 use ckb_app_config::DaemonArgs;
 use ckb_app_config::{
     AppConfig, CustomizeSpec, ExitCode, ExportArgs, ExportTarget, ImportArgs, ImportSource,
@@ -123,7 +123,7 @@ H256::from_str(&target[2..]).expect("default assume_valid_target for testnet mus
             chain_spec_hash,
             indexer: matches.get_flag(cli::ARG_INDEXER),
             rich_indexer: matches.get_flag(cli::ARG_RICH_INDEXER),
-            #[cfg(not(target_os = "windows"))]
+            #[cfg(all(not(target_os = "windows"), not(target_os = "android")))]
             daemon: matches.get_flag(cli::ARG_DAEMON),
         })
     }
@@ -311,7 +311,7 @@ H256::from_str(&target[2..]).expect("default assume_valid_target for testnet mus
     }
 
     /// Executes `ckb daemon`.
-    #[cfg(not(target_os = "windows"))]
+    #[cfg(all(not(target_os = "windows"), not(target_os = "android")))]
     pub fn daemon(self, matches: &ArgMatches) -> Result<DaemonArgs, ExitCode> {
         let check = matches.get_flag(cli::ARG_DAEMON_CHECK);
         let stop = matches.get_flag(cli::ARG_DAEMON_STOP);
@@ -470,7 +470,7 @@ H256::from_str(&target[2..]).expect("default assume_valid_target for testnet mus
     }
 
     /// Resolves the pid file path for ckb from the command line arguments.
-    #[cfg(not(target_os = "windows"))]
+    #[cfg(all(not(target_os = "windows"), not(target_os = "android")))]
     pub fn daemon_pid_file_path(matches: &ArgMatches) -> Result<PathBuf, ExitCode> {
         let root_dir = Self::root_dir_from_matches(matches)?;
         Ok(root_dir.join("data/daemon/ckb-run.pid"))
