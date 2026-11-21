@@ -354,7 +354,17 @@ pub struct Synchronizer {
     /// Sync shared state
     pub shared: Arc<SyncShared>,
     fetch_channel: Option<channel::Sender<FetchCMD>>,
+    pending_response_bytes: Arc<tokio::sync::Semaphore>,
+    pending_response_tasks: Arc<tokio::sync::Semaphore>,
+    max_pending_response_bytes: usize,
+    max_pending_response_tasks: usize,
 }
+
+// This is large enough for a full 32-block GetBlocks response at the default
+// consensus block-size limit, while bounding detached responses independently
+// of the network's message-count based channels.
+const MAX_PENDING_RESPONSE_BYTES: usize = 24 * 1024 * 1024;
+const MAX_PENDING_RESPONSE_TASKS: usize = 1_024;
 
 impl Synchronizer {
     /// Init sync protocol handle
@@ -365,7 +375,75 @@ impl Synchronizer {
             chain,
             shared,
             fetch_channel: None,
+            pending_response_bytes: Arc::new(tokio::sync::Semaphore::new(
+                MAX_PENDING_RESPONSE_BYTES,
+            )),
+            pending_response_tasks: Arc::new(tokio::sync::Semaphore::new(
+                MAX_PENDING_RESPONSE_TASKS,
+            )),
+            max_pending_response_bytes: MAX_PENDING_RESPONSE_BYTES,
+            max_pending_response_tasks: MAX_PENDING_RESPONSE_TASKS,
         }
+    }
+
+    #[cfg(test)]
+    pub(crate) fn new_with_pending_response_limits(
+        chain: ChainController,
+        shared: Arc<SyncShared>,
+        max_pending_response_bytes: usize,
+        max_pending_response_tasks: usize,
+    ) -> Self {
+        Self {
+            chain,
+            shared,
+            fetch_channel: None,
+            pending_response_bytes: Arc::new(tokio::sync::Semaphore::new(
+                max_pending_response_bytes,
+            )),
+            pending_response_tasks: Arc::new(tokio::sync::Semaphore::new(
+                max_pending_response_tasks,
+            )),
+            max_pending_response_bytes,
+            max_pending_response_tasks,
+        }
+    }
+
+    pub(crate) fn send_sync_response(
+        &self,
+        nc: Arc<dyn CKBProtocolContext + Sync>,
+        peer: PeerIndex,
+        message: packed::SyncMessage,
+    ) -> Status {
+        let response_bytes = message.as_bytes().len();
+        let Ok(response_bytes) = u32::try_from(response_bytes) else {
+            return StatusCode::TooManyRequests.with_context("sync response is too large");
+        };
+        let task_permit = match Arc::clone(&self.pending_response_tasks).try_acquire_owned() {
+            Ok(permit) => permit,
+            Err(_) => {
+                return StatusCode::TooManyRequests.with_context(format!(
+                    "pending sync responses exceed {} tasks",
+                    self.max_pending_response_tasks
+                ));
+            }
+        };
+        let permit =
+            match Arc::clone(&self.pending_response_bytes).try_acquire_many_owned(response_bytes) {
+                Ok(permit) => permit,
+                Err(_) => {
+                    return StatusCode::TooManyRequests.with_context(format!(
+                        "pending sync responses exceed {} bytes",
+                        self.max_pending_response_bytes
+                    ));
+                }
+            };
+
+        self.shared.shared().async_handle().spawn(async move {
+            let _task_permit = task_permit;
+            let _permit = permit;
+            async_send_message_to(&nc, peer, &message).await
+        });
+        Status::ok()
     }
 
     /// Get shared state

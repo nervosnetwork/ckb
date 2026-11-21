@@ -1,5 +1,4 @@
 use crate::synchronizer::Synchronizer;
-use crate::utils::async_send_message_to;
 use crate::{Status, StatusCode};
 use ckb_constant::sync::{INIT_BLOCKS_IN_TRANSIT_PER_PEER, MAX_HEADERS_LEN};
 use ckb_logger::debug;
@@ -75,12 +74,12 @@ impl<'a> GetBlocksProcess<'a> {
                 let content = packed::SendBlock::new_builder().block(block.data()).build();
                 let message = packed::SyncMessage::new_builder().set(content).build();
 
-                let nc = Arc::clone(self.nc);
-                self.synchronizer
-                    .shared()
-                    .shared()
-                    .async_handle()
-                    .spawn(async move { async_send_message_to(&nc, self.peer, &message).await });
+                let status =
+                    self.synchronizer
+                        .send_sync_response(Arc::clone(self.nc), self.peer, message);
+                if !status.is_ok() {
+                    return status;
+                }
             } else {
                 // TODO response not found
                 // TODO add timeout check in synchronizer
