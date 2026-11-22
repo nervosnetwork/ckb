@@ -3,6 +3,7 @@ mod compress;
 mod peer_registry;
 mod peer_store;
 mod peer_store_db;
+mod yamux_stream_limit;
 
 fn random_addr() -> crate::multiaddr::Multiaddr {
     format!(

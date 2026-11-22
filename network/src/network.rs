@@ -69,6 +69,27 @@ const P2P_SEND_TIMEOUT: Duration = Duration::from_secs(6);
 const P2P_TRY_SEND_INTERVAL: Duration = Duration::from_millis(100);
 // After 5 minutes we consider this dial hang
 const DIAL_HANG_TIMEOUT: Duration = Duration::from_secs(300);
+// Extra streams allowed on top of the largest known support protocol list.
+// Peers may run a protocol set we no longer know about (for example the legacy
+// `Alert` protocol), and each of those still costs one negotiation stream.
+// See #5341.
+const YAMUX_STREAM_HEADROOM: usize = 4;
+
+/// Stream limit to advertise for a connection with `local_protocol_count`
+/// support protocols registered.
+///
+/// A peer opens one stream per protocol it has registered (except `Feeler` on
+/// ordinary connections), so the limit has to cover the peer's protocol set and
+/// not only ours. Tying it to our own count meant the last inbound streams were
+/// rejected before protocol selection, leaving common protocols unopened once
+/// our list became shorter than the peer's (#5341). The result stays bounded:
+/// it is derived from the known support protocol set instead of yamux's large
+/// default, so an unsupported peer cannot hold the connection open with
+/// unlimited substreams.
+pub(crate) fn yamux_max_stream_count(local_protocol_count: usize) -> usize {
+    max(local_protocol_count, default_support_all_protocols().len())
+        .saturating_add(YAMUX_STREAM_HEADROOM)
+}
 
 /// The global shared state of the network module
 pub struct NetworkState {
@@ -955,7 +976,7 @@ impl NetworkService {
 
         let mut service_builder = ServiceBuilder::default();
         let yamux_config = YamuxConfig {
-            max_stream_count: protocol_metas.len(),
+            max_stream_count: yamux_max_stream_count(protocol_metas.len()),
             max_stream_window_size: 1024 * 1024,
             ..Default::default()
         };
