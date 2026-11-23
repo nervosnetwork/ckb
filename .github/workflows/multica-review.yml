@@ -111,12 +111,16 @@ jobs:
 
           event = json.load(open(os.environ["GITHUB_EVENT_PATH"]))
           payload = event.get("client_payload") or {}
-          number = payload.get("number")
+          try:
+              number = int(payload.get("number"))
+          except (TypeError, ValueError):
+              print("Invalid issue/PR number.")
+              sys.exit(1)
           body = (payload.get("body") or "").strip()
           commit_id = str(payload.get("commit_id") or "").strip()
           comments = payload.get("comments") or []
-          if not number or not body:
-              print("Missing number or body.")
+          if not body:
+              print("Missing body.")
               sys.exit(1)
 
           marker = "<!-- multica-review-result -->"
