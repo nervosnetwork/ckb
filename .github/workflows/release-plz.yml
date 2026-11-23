@@ -25,25 +25,25 @@ jobs:
           sudo docker image prune --all --force
       - &checkout
         name: Checkout repository
-        uses: actions/checkout@v6
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
           fetch-depth: 0
-          persist-credentials: true
+          persist-credentials: false
       - &install-rust
         name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@master
+        uses: dtolnay/rust-toolchain@df2a88e9fe4098bad09cb42c3dec7187f15861fc # master
         with:
           toolchain: 1.95.0
           components: rustfmt
       - &generate-token
         name: Generate GitHub token
-        uses: actions/create-github-app-token@v3
+        uses: actions/create-github-app-token@f418cff399f7aef4c2f0ad47e25ca7a6abbdd6fc # v3
         id: generate-token
         with:
           client-id: ${{ secrets.RELEASE_PLZ_APP_ID }}
           private-key: ${{ secrets.RELEASE_PLZ_APP_PRIVATE_KEY }}
       - name: Run release-plz
-        uses: release-plz/action@v0.5
+        uses: release-plz/action@66b324fd6c72d05d2a08568492ecdd62bfb8a62b # v0.5
         with:
           command: release
         env:
@@ -65,7 +65,7 @@ jobs:
       - *install-rust
       - *generate-token
       - name: Run release-plz
-        uses: release-plz/action@v0.5
+        uses: release-plz/action@66b324fd6c72d05d2a08568492ecdd62bfb8a62b # v0.5
         with:
           command: release-pr
         env:
