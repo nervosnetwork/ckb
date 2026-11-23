@@ -128,14 +128,14 @@ jobs:
     outputs:
       upload_url: ${{ steps.create-release.outputs.upload_url }}
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
       - name: Set tag
         run: |
           export GIT_TAG_NAME=` echo ${{ github.ref }} | awk -F '/' '{print $4}' `
           echo "GIT_TAG_NAME=$GIT_TAG_NAME" >> $GITHUB_ENV
       - name: Create release
         id: create-release
-        uses: actions/create-release@v1
+        uses: actions/create-release@0cb9c9b65d5d1901c1f53e5e66eaf4afd303e70e # v1
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
@@ -165,7 +165,7 @@ jobs:
           - rel_pkg: "x86_64-unknown-linux-gnu-portable.tar.gz"
             build_target: "prod_portable"
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
       - name: Build CKB and Package CKB
         run: |
           docker run --rm -i -w /ckb -v $(pwd):/ckb $BUILDER_IMAGE make ${{ matrix.build_target }}
@@ -182,13 +182,13 @@ jobs:
           gpg --batch --yes --pinentry-mode loopback --passphrase="$CKB_RELEASE_GPG_KEY_PASSPHRASE" --import devtools/ci/signer.asc
           gpg --batch --yes --pinentry-mode loopback --passphrase="$CKB_RELEASE_GPG_KEY_PASSPHRASE" -u "$CKB_RELEASE_GPG_SIGNER" -ab ckb_${{env.GIT_TAG_NAME }}_${{env.REL_PKG }}
       - name: upload-zip-file
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
         with:
           name: ckb_${{env.GIT_TAG_NAME }}_${{env.REL_PKG }}
           path: ckb_${{env.GIT_TAG_NAME }}_${{env.REL_PKG }}
       - name: upload-asc-file
         if: github.event_name == 'push'
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
         with:
           name: ckb_${{env.GIT_TAG_NAME }}_${{env.REL_PKG }}.asc
           path: ckb_${{env.GIT_TAG_NAME }}_${{env.REL_PKG }}.asc
@@ -212,7 +212,7 @@ jobs:
         contains(fromJSON('["OWNER","MEMBER","COLLABORATOR"]'), github.event.pull_request.author_association)
       )
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
       - name: Add rust target
         run: rustup target add aarch64-unknown-linux-gnu
       - name: Install dependencies
@@ -234,13 +234,13 @@ jobs:
           gpg --batch --yes --pinentry-mode loopback --passphrase="$CKB_RELEASE_GPG_KEY_PASSPHRASE" --import devtools/ci/signer.asc
           gpg --batch --yes --pinentry-mode loopback --passphrase="$CKB_RELEASE_GPG_KEY_PASSPHRASE" -u "$CKB_RELEASE_GPG_SIGNER" -ab ckb_${{env.GIT_TAG_NAME }}_${{env.REL_PKG }}
       - name: upload-zip-file
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
         with:
           name: ckb_${{env.GIT_TAG_NAME }}_${{env.REL_PKG }}
           path: ckb_${{env.GIT_TAG_NAME }}_${{env.REL_PKG }}
       - name: upload-asc-file
         if: github.event_name == 'push'
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
         with:
           name: ckb_${{env.GIT_TAG_NAME }}_${{env.REL_PKG }}.asc
           path: ckb_${{env.GIT_TAG_NAME }}_${{env.REL_PKG }}.asc
@@ -270,7 +270,7 @@ jobs:
           - rel_pkg: "x86_64-unknown-centos-gnu-portable.tar.gz"
             build_target: "prod_portable"
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
       - name: Build CKB and Package CKB
         run: |
           docker run --rm -i -w /ckb -v $(pwd):/ckb $BUILDER_IMAGE make ${{ matrix.build_target }}
@@ -287,13 +287,13 @@ jobs:
           gpg --batch --yes --pinentry-mode loopback --passphrase="$CKB_RELEASE_GPG_KEY_PASSPHRASE" --import devtools/ci/signer.asc
           gpg --batch --yes --pinentry-mode loopback --passphrase="$CKB_RELEASE_GPG_KEY_PASSPHRASE" -u "$CKB_RELEASE_GPG_SIGNER" -ab ckb_${{env.GIT_TAG_NAME }}_${{env.REL_PKG }}
       - name: upload-zip-file
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
         with:
           name: ckb_${{env.GIT_TAG_NAME }}_${{env.REL_PKG }}
           path: ckb_${{env.GIT_TAG_NAME }}_${{env.REL_PKG }}
       - name: upload-asc-file
         if: github.event_name == 'push'
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
         with:
           name: ckb_${{env.GIT_TAG_NAME }}_${{env.REL_PKG }}.asc
           path: ckb_${{env.GIT_TAG_NAME }}_${{env.REL_PKG }}.asc
@@ -324,7 +324,7 @@ jobs:
           - rel_pkg: "x86_64-apple-darwin-portable.zip"
             build_target: "prod_portable"
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
       - name: Build CKB and Package CKB
         run: |
           make ${{ matrix.build_target }}
@@ -342,13 +342,13 @@ jobs:
           gpg --batch --yes --pinentry-mode loopback --passphrase="$CKB_RELEASE_GPG_KEY_PASSPHRASE" --import devtools/ci/signer.asc
           gpg --batch --yes --pinentry-mode loopback --passphrase="$CKB_RELEASE_GPG_KEY_PASSPHRASE" -u "$CKB_RELEASE_GPG_SIGNER" -ab ckb_${{env.GIT_TAG_NAME }}_${{env.REL_PKG }}
       - name: upload-zip-file
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
         with:
           name: ckb_${{env.GIT_TAG_NAME }}_${{env.REL_PKG }}
           path: ckb_${{env.GIT_TAG_NAME }}_${{env.REL_PKG }}
       - name: upload-asc-file
         if: github.event_name == 'push'
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
         with:
           name: ckb_${{env.GIT_TAG_NAME }}_${{env.REL_PKG }}.asc
           path: ckb_${{env.GIT_TAG_NAME }}_${{env.REL_PKG }}.asc
@@ -383,7 +383,7 @@ jobs:
           echo /opt/homebrew/bin >> $GITHUB_PATH
           echo /opt/homebrew/sbin >> $GITHUB_PATH
           echo "$HOME/.cargo/bin" >> $GITHUB_PATH
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
       - name: Install Depedencies
         run: |
           if ! type -f gpg &> /dev/null; then
@@ -409,13 +409,13 @@ jobs:
           gpg --batch --yes --pinentry-mode loopback --passphrase="$CKB_RELEASE_GPG_KEY_PASSPHRASE" --import devtools/ci/signer.asc
           gpg --batch --yes --pinentry-mode loopback --passphrase="$CKB_RELEASE_GPG_KEY_PASSPHRASE" -u "$CKB_RELEASE_GPG_SIGNER" -ab ckb_${{env.GIT_TAG_NAME }}_${{env.REL_PKG }}
       - name: upload-zip-file
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
         with:
           name: ckb_${{env.GIT_TAG_NAME }}_${{env.REL_PKG }}
           path: ckb_${{env.GIT_TAG_NAME }}_${{env.REL_PKG }}
       - name: upload-asc-file
         if: github.event_name == 'push'
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
         with:
           name: ckb_${{env.GIT_TAG_NAME }}_${{env.REL_PKG }}.asc
           path: ckb_${{env.GIT_TAG_NAME }}_${{env.REL_PKG }}.asc
@@ -447,7 +447,7 @@ jobs:
           echo "$env:USERPROFILE\scoop\shims" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
           echo "C:\msys64\mingw64\bin" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
           echo "LIBCLANG_PATH=$env:USERPROFILE\scoop\apps\llvm\current\bin" >> $env:GITHUB_ENV
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
       - name: Build
         env:
           RUSTFLAGS: -C target-feature=+crt-static
@@ -489,13 +489,13 @@ jobs:
           gpg --batch --yes --pinentry-mode loopback --passphrase="$env:CKB_RELEASE_GPG_KEY_PASSPHRASE" --import "$CYGPWD/devtools/ci/signer.asc"
           gpg --batch --yes --pinentry-mode loopback --passphrase="$env:CKB_RELEASE_GPG_KEY_PASSPHRASE" -u "$env:CKB_RELEASE_GPG_SIGNER" -ab "$CYGPWD/ckb_$($env:GIT_TAG_NAME)_$($env:REL_PKG)"
       - name: upload-artifact
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
         with:
           name: ckb_${{env.GIT_TAG_NAME }}_${{env.REL_PKG }}
           path: ckb_${{env.GIT_TAG_NAME }}_${{env.REL_PKG }}
       - name: upload-artifact
         if: github.event_name == 'push'
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
         with:
           name: ckb_${{env.GIT_TAG_NAME }}_${{env.REL_PKG }}.asc
           path: ckb_${{env.GIT_TAG_NAME }}_${{env.REL_PKG }}.asc
@@ -526,7 +526,7 @@ jobs:
       pull-requests: write
     steps:
       - name: Comment artifact links
-        uses: actions/github-script@v7
+        uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b # v7
         env:
           GIT_TAG_NAME: ${{ needs.detect-release-tests.outputs.package-tag }}
           LINUX_X64_RESULT: ${{ needs.package-for-linux.result }}
@@ -636,21 +636,21 @@ jobs:
       - package-for-windows
       - package-for-centos
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
       - name: Set tag
         run: |
           export GIT_TAG_NAME=` echo ${{ github.ref }} | awk -F '/' '{print $4}' `
           echo "GIT_TAG_NAME=$GIT_TAG_NAME" >> $GITHUB_ENV
       - name: Prepare - Download tar
-        uses: actions/download-artifact@v7
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7
         with:
           name: ckb_${{env.GIT_TAG_NAME}}_${{ matrix.REL_PKG }}
       - name: Prepare - Download asc
-        uses: actions/download-artifact@v7
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7
         with:
           name: ckb_${{env.GIT_TAG_NAME}}_${{ matrix.REL_PKG }}.asc
       - name: Upload tar assets
-        uses: actions/upload-release-asset@v1
+        uses: actions/upload-release-asset@e8f9f06c4b078e705bd2ea027f0926603fc9b4d5 # v1
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
@@ -659,7 +659,7 @@ jobs:
           asset_path: ${{ github.workspace }}/ckb_${{env.GIT_TAG_NAME }}_${{ matrix.REL_PKG }}
           asset_content_type: application/octet-stream
       - name: Upload asc assets
-        uses: actions/upload-release-asset@v1
+        uses: actions/upload-release-asset@e8f9f06c4b078e705bd2ea027f0926603fc9b4d5 # v1
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:

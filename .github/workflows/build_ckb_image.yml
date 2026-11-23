@@ -17,7 +17,7 @@ jobs:
       version: ${{ steps.validate.outputs.version }}
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v6
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
           fetch-depth: 0
 
@@ -49,7 +49,7 @@ jobs:
       packages: write
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v6
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
           fetch-depth: 0
       - name: Checkout specific tag
@@ -61,7 +61,7 @@ jobs:
         run: |
           docker version
       - name: Log in to Docker Hub
-        uses: docker/login-action@v3
+        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
@@ -82,7 +82,7 @@ jobs:
       packages: write
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v6
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
           fetch-depth: 0
       - name: Checkout specific tag
@@ -94,7 +94,7 @@ jobs:
         run: |
           docker version
       - name: Log in to Docker Hub
-        uses: docker/login-action@v3
+        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
@@ -118,7 +118,7 @@ jobs:
       packages: write
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v6
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
           fetch-depth: 0
       - name: Validate version (for output)
@@ -128,7 +128,7 @@ jobs:
         run: |
           printf 'version=%s\n' "$VERSION" >> "$GITHUB_OUTPUT"
       - name: Log in to Docker Hub
-        uses: docker/login-action@v3
+        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
@@ -158,7 +158,7 @@ jobs:
       - name: Notify Discord on success
         if: needs.create-manifest.result == 'success'
         continue-on-error: true
-        uses: sarisia/actions-status-discord@v1
+        uses: sarisia/actions-status-discord@74e2ad0c4e57ca8b9ba6aee75d5a7841497bbb87 # v1
         with:
           webhook: ${{ secrets.DISCORD_WEBHOOK }}
           title: "CKB Docker Build Succeeded"
@@ -167,7 +167,7 @@ jobs:
       - name: Notify Discord on failure
         if: needs.create-manifest.result != 'success'
         continue-on-error: true
-        uses: sarisia/actions-status-discord@v1
+        uses: sarisia/actions-status-discord@74e2ad0c4e57ca8b9ba6aee75d5a7841497bbb87 # v1
         with:
           webhook: ${{ secrets.DISCORD_WEBHOOK }}
           title: "CKB Docker Build Failed"
