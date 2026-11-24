@@ -538,6 +538,8 @@ fn all_specs() -> Vec<Box<dyn Spec>> {
         Box::new(Discovery),
         Box::new(Disconnect),
         Box::new(MalformedMessage),
+        Box::new(SupportProtocolNegotiationWithDefaultLists),
+        Box::new(SupportProtocolNegotiationWithShorterReceiver),
         Box::new(DepentTxInSameBlock),
         // TODO enable these after proposed/pending pool tip verify logic changing
         // Box::new(CellbaseMaturity),
