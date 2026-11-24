@@ -7,7 +7,7 @@ use ckb_chain_spec::{
 use ckb_dao::DaoCalculator;
 use ckb_dao_utils::DaoError;
 use ckb_error::{Error, InternalErrorKind};
-use ckb_logger::error_target;
+use ckb_logger::{error_target, info_target};
 use ckb_merkle_mountain_range::MMRStore;
 use ckb_reward_calculator::RewardCalculator;
 use ckb_store::{ChainStore, data_loader_wrapper::AsDataLoader};
@@ -34,7 +34,7 @@ use ckb_verification::{BlockTransactionsError, EpochError, TxVerifyEnv};
 use ckb_verification_traits::Switch;
 use rayon::iter::{IndexedParallelIterator, IntoParallelRefIterator, ParallelIterator};
 use std::collections::HashSet;
-use std::sync::Arc;
+use std::sync::{Arc, OnceLock};
 use tokio::sync::{RwLock, oneshot};
 
 /// Context for context-dependent block verification
@@ -321,6 +321,43 @@ impl<'a, 'b, 'c, CS: ChainStore + VersionbitsIndexer> DaoHeaderVerifier<'a, 'b, 
     }
 }
 
+/// Environment variable setting the number of threads used to verify the
+/// transactions of one block.
+///
+/// The contextual verifier always runs its per-block transaction parallelism
+/// on a dedicated rayon pool, isolated from the process-wide global pool.
+/// When this variable is unset, empty, zero or invalid, the pool uses all
+/// available CPU cores (`std::thread::available_parallelism`).
+const VERIFY_THREADS_ENV: &str = "CKB_CONTEXTUAL_VERIFY_THREADS";
+
+/// Returns the dedicated pool for contextual transaction verification, built
+/// lazily on first use.
+fn verify_thread_pool() -> &'static rayon::ThreadPool {
+    static POOL: OnceLock<rayon::ThreadPool> = OnceLock::new();
+    POOL.get_or_init(|| {
+        let num_threads = std::env::var(VERIFY_THREADS_ENV)
+            .ok()
+            .and_then(|value| value.trim().parse::<usize>().ok())
+            .filter(|num_threads| *num_threads > 0)
+            .unwrap_or_else(|| {
+                std::thread::available_parallelism()
+                    .map(std::num::NonZeroUsize::get)
+                    .unwrap_or(1)
+            });
+        let pool = rayon::ThreadPoolBuilder::new()
+            .num_threads(num_threads)
+            .thread_name(|i| format!("ContextualVerify-{i}"))
+            .build()
+            .expect("build contextual verification thread pool failed");
+        info_target!(
+            crate::LOG_TARGET,
+            "contextual verification uses {} threads",
+            num_threads
+        );
+        pool
+    })
+}
+
 struct BlockTxsVerifier<'a, 'b, CS> {
     context: VerifyContext<CS>,
     header: HeaderView,
@@ -401,47 +438,50 @@ impl<'a, 'b, CS: ChainStore + VersionbitsIndexer + 'static> BlockTxsVerifier<'a,
         let tx_env = Arc::new(TxVerifyEnv::new_commit(&self.header));
 
         // make verifiers orthogonal
-        let ret = resolved
-            .par_iter()
-            .enumerate()
-            .map(|(index, tx)| {
-                let key = VerifyCacheKey::from(&tx.transaction);
-                let cached_script_cycles = fetched_cache
-                    .get_by_wtx_hash(&key)
-                    .map(|entry| entry.cycles);
+        let verify = || {
+            resolved
+                .par_iter()
+                .enumerate()
+                .map(|(index, tx)| {
+                    let key = VerifyCacheKey::from(&tx.transaction);
+                    let cached_script_cycles = fetched_cache
+                        .get_by_wtx_hash(&key)
+                        .map(|entry| entry.cycles);
 
-                ContextualTransactionVerifier::new_with_cached_script_cycles(
-                    Arc::clone(tx),
-                    Arc::clone(&self.context.consensus),
-                    self.context.store.as_data_loader(),
-                    Arc::clone(&tx_env),
-                    cached_script_cycles,
-                )
-                .verify(
-                    self.context.consensus.max_block_cycles(),
-                    skip_script_verify,
-                )
-                .map_err(|error| {
-                    BlockTransactionsError {
-                        index: index as u32,
-                        error,
-                    }
-                    .into()
+                    ContextualTransactionVerifier::new_with_cached_script_cycles(
+                        Arc::clone(tx),
+                        Arc::clone(&self.context.consensus),
+                        self.context.store.as_data_loader(),
+                        Arc::clone(&tx_env),
+                        cached_script_cycles,
+                    )
+                    .verify(
+                        self.context.consensus.max_block_cycles(),
+                        skip_script_verify,
+                    )
+                    .map_err(|error| {
+                        BlockTransactionsError {
+                            index: index as u32,
+                            error,
+                        }
+                        .into()
+                    })
+                    .map(|completed| (key, completed))
+                    .and_then(|result| {
+                        if self.context.consensus.rfc0044_active(self.parent.epoch().number()) {
+                            DaoScriptSizeVerifier::new(
+                                Arc::clone(tx),
+                                Arc::clone(&self.context.consensus),
+                                self.context.store.as_data_loader(),
+                            ).verify()?;
+                        }
+                        Ok(result)
+                    })
                 })
-                .map(|completed| (key, completed))
-                .and_then(|result| {
-                    if self.context.consensus.rfc0044_active(self.parent.epoch().number()) {
-                        DaoScriptSizeVerifier::new(
-                            Arc::clone(tx),
-                            Arc::clone(&self.context.consensus),
-                            self.context.store.as_data_loader(),
-                        ).verify()?;
-                    }
-                    Ok(result)
-                })
-            })
-            .skip(1) // skip cellbase tx
-            .collect::<Result<Vec<(VerifyCacheKey, Completed)>, Error>>()?;
+                .skip(1) // skip cellbase tx
+                .collect::<Result<Vec<(VerifyCacheKey, Completed)>, Error>>()
+        };
+        let ret = verify_thread_pool().install(verify)?;
 
         let sum: Cycle = ret.iter().map(|(_, cache_entry)| cache_entry.cycles).sum();
         let cache_entires = ret
