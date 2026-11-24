@@ -9,17 +9,13 @@ jobs:
   audit:
     runs-on: ubuntu-22.04
     if: github.repository == 'nervosnetwork/ckb'
+    permissions:
+      contents: read
+      issues: write
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v6
-      - name: Generate GitHub token
-        uses: actions/create-github-app-token@v3
-        id: generate-token
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      - name: Run cargo audit
+        uses: actions-rust-lang/audit@72c09e02f132669d52284a3323acdb503cfc1a24 # v1.2.7
         with:
-          client-id: ${{ secrets.RELEASE_PLZ_APP_ID }}
-          private-key: ${{ secrets.RELEASE_PLZ_APP_PRIVATE_KEY }}
-          permission-issues: write
-          permission-checks: write
-      - uses: yangby-cryptape/cargo-audit-check-action@customized-for-ckb
-        with:
-          token: ${{ steps.generate-token.outputs.token }}
+          createIssues: true
