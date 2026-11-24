@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.2.5](https://github.com/nervosnetwork/ckb/compare/ckb-network-v1.2.4...ckb-network-v1.2.5) - 2026-11-24
+
+### Fixed
+
+- *(deps)* resolve recent RustSec advisories (RUSTSEC-2026-0487 through -0531) (#5378) (by @eval-exec)
+
+### Contributors
+
+- @eval-exec
+
 ## [1.2.4](https://github.com/nervosnetwork/ckb/compare/ckb-network-v1.2.3...ckb-network-v1.2.4) - 2026-09-28
 
 ### Changed
