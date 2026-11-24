@@ -117,6 +117,7 @@ pub const ARG_OVERWRITE_CHAIN_SPEC: &str = "overwrite-spec";
 pub const ARG_ASSUME_VALID_TARGET: &str = "assume-valid-target";
 /// Command line argument `--check`.
 pub const ARG_MIGRATE_CHECK: &str = "check";
+pub const ARG_SST_REBUILD: &str = "sst-rebuild";
 /// Command line argument `daemon --check`
 pub const ARG_DAEMON_CHECK: &str = "check";
 /// Command line argument `daemon --stop`
@@ -472,6 +473,13 @@ fn migrate() -> Command {
                 .long(ARG_INCLUDE_BACKGROUND)
                 .action(clap::ArgAction::SetTrue)
                 .help("Whether include background migrations"),
+        )
+        .arg(
+            Arg::new(ARG_SST_REBUILD)
+                .long(ARG_SST_REBUILD)
+                .action(clap::ArgAction::SetTrue)
+                .conflicts_with(ARG_MIGRATE_CHECK)
+                .help("Rebuild the database offline using RocksDB external SST ingestion"),
         )
 }
 

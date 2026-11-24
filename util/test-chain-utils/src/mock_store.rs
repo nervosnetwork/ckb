@@ -1,5 +1,5 @@
-use ckb_db::RocksDB;
-use ckb_db_schema::COLUMNS;
+use ckb_db::{RocksDB, Schema};
+use ckb_db_schema::{BlockHashIndexValue, BlockIndexFlag, COLUMN_HASH_INDEX};
 use ckb_store::{ChainDB, ChainStore};
 use ckb_systemtime::unix_time_as_millis;
 use ckb_types::core::error::OutPointError;
@@ -9,6 +9,7 @@ use ckb_types::{
         cell::{CellMetaBuilder, CellProvider, CellStatus, HeaderChecker},
     },
     packed::{Byte32, OutPoint},
+    prelude::Entity,
 };
 use std::sync::Arc;
 use tempfile::TempDir;
@@ -28,7 +29,7 @@ pub struct MockStore {
 impl Default for MockStore {
     fn default() -> Self {
         let tmp_dir = TempDir::new().unwrap();
-        let db = RocksDB::open_in(&tmp_dir, COLUMNS);
+        let db = RocksDB::open_in(&tmp_dir, Schema::V1);
         MockStore {
             inner: Arc::new(ChainDB::new(db, Default::default())),
             _tmp_dir: Arc::new(tmp_dir),
@@ -57,8 +58,18 @@ impl MockStore {
         let store = Self::default();
         {
             let db_txn = store.store().begin_transaction();
+            let parent_hash = block.parent_hash();
+            let parent_number = block.number().saturating_sub(1);
+            let parent_index = BlockHashIndexValue {
+                number: parent_number,
+                flag: BlockIndexFlag::Fork,
+            }
+            .encode();
             db_txn
-                .insert_block_ext(&block.parent_hash(), &parent_block_ext)
+                .insert_raw(COLUMN_HASH_INDEX, parent_hash.as_slice(), &parent_index)
+                .unwrap();
+            db_txn
+                .insert_block_ext(parent_number, &parent_hash, &parent_block_ext)
                 .unwrap();
             db_txn.commit().unwrap();
         }
@@ -80,7 +91,11 @@ impl MockStore {
         db_txn.insert_block(block).unwrap();
         db_txn.attach_block(block).unwrap();
         db_txn
-            .insert_block_epoch_index(&block.hash(), &last_block_hash_in_previous_epoch)
+            .insert_block_epoch_index(
+                block.number(),
+                &block.hash(),
+                &last_block_hash_in_previous_epoch,
+            )
             .unwrap();
         db_txn
             .insert_epoch_ext(&last_block_hash_in_previous_epoch, epoch_ext)
@@ -98,7 +113,9 @@ impl MockStore {
                 cycles: None,
                 txs_sizes: None,
             };
-            db_txn.insert_block_ext(&block.hash(), &block_ext).unwrap();
+            db_txn
+                .insert_block_ext(block.number(), &block.hash(), &block_ext)
+                .unwrap();
         }
         db_txn.commit().unwrap();
     }

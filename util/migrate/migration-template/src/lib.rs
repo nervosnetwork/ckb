@@ -15,7 +15,7 @@ pub fn multi_thread_migration(input: TokenStream) -> TokenStream {
         const MIN_THREAD: u64 = 2;
         const BATCH: usize = 1_000;
 
-        let chain_db = ChainDB::new(db, StoreConfig::default());
+        let chain_db = crate::legacy_store::LegacyChainDB::new(db);
         let tip = chain_db.get_tip_header().expect("db tip header index");
         let tip_number = tip.number();
 

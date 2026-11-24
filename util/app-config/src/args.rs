@@ -235,6 +235,8 @@ pub struct MigrateArgs {
     pub force: bool,
     /// Whether include background migrations
     pub include_background: bool,
+    /// Whether to rebuild the DB with RocksDB external SST ingestion.
+    pub sst_rebuild: bool,
 }
 
 impl CustomizeSpec {
