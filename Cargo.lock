@@ -723,7 +723,7 @@ dependencies = [
 
 [[package]]
 name = "ckb-app-config"
-version = "1.3.1"
+version = "1.3.2"
 dependencies = [
  "ckb-build-info",
  "ckb-chain-spec",
@@ -936,7 +936,7 @@ dependencies = [
 
 [[package]]
 name = "ckb-crypto"
-version = "1.1.1"
+version = "1.1.2"
 dependencies = [
  "ckb-fixed-hash",
  "faster-hex 2.0.0",
@@ -1032,7 +1032,7 @@ dependencies = [
 
 [[package]]
 name = "ckb-fixed-hash-core"
-version = "1.1.2"
+version = "1.1.3"
 dependencies = [
  "faster-hex 2.0.0",
  "schemars",
@@ -1053,7 +1053,7 @@ dependencies = [
 
 [[package]]
 name = "ckb-freezer"
-version = "1.1.1"
+version = "1.1.2"
 dependencies = [
  "ckb-error",
  "ckb-logger",
@@ -1092,7 +1092,7 @@ dependencies = [
 
 [[package]]
 name = "ckb-indexer"
-version = "1.2.1"
+version = "1.2.2"
 dependencies = [
  "ckb-app-config",
  "ckb-async-runtime",
@@ -1110,7 +1110,7 @@ dependencies = [
 
 [[package]]
 name = "ckb-indexer-sync"
-version = "1.1.1"
+version = "1.1.2"
 dependencies = [
  "ckb-app-config",
  "ckb-async-runtime",
@@ -1148,7 +1148,7 @@ dependencies = [
 
 [[package]]
 name = "ckb-jsonrpc-types"
-version = "1.2.1"
+version = "1.2.2"
 dependencies = [
  "ckb-types",
  "faster-hex 2.0.0",
@@ -1202,7 +1202,7 @@ dependencies = [
 
 [[package]]
 name = "ckb-light-client-protocol-server"
-version = "1.3.0"
+version = "1.3.1"
 dependencies = [
  "ckb-app-config",
  "ckb-chain",
@@ -1380,7 +1380,7 @@ dependencies = [
 
 [[package]]
 name = "ckb-network"
-version = "1.2.4"
+version = "1.2.5"
 dependencies = [
  "bitflags 2.11.1",
  "bloom-filters",
@@ -1507,7 +1507,7 @@ dependencies = [
 
 [[package]]
 name = "ckb-resource"
-version = "1.2.1"
+version = "1.2.2"
 dependencies = [
  "ckb-system-scripts",
  "ckb-types",
@@ -1643,7 +1643,7 @@ dependencies = [
 
 [[package]]
 name = "ckb-script"
-version = "1.2.1"
+version = "1.2.2"
 dependencies = [
  "byteorder",
  "ckb-chain-spec",
