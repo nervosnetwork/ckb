@@ -18,6 +18,9 @@ env:
   CARGO_TERM_COLOR: always
   RUST_BACKTRACE: full
   RUSTFLAGS: -D warnings
+permissions:
+  contents: read
+
 jobs:
   ci_quick_checks_windows:
     name: ci_quick_checks_windows
@@ -29,17 +32,17 @@ jobs:
           Remove-Item -Path "C:\Program Files\dotnet" -Recurse -Force -ErrorAction SilentlyContinue
           Remove-Item -Path "C:\Program Files (x86)\Android" -Recurse -Force -ErrorAction SilentlyContinue
           Remove-Item -Path "$env:PROGRAMDATA\chocolatey" -Recurse -Force -ErrorAction SilentlyContinue
-      - uses: dtolnay/rust-toolchain@master
+      - uses: dtolnay/rust-toolchain@df2a88e9fe4098bad09cb42c3dec7187f15861fc # master
         with:
           toolchain: 1.95.0
           components: rustfmt
-      - uses: actions/setup-python@v6
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
         with:
           python-version: "3.x"
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
       - name: Cache cargo target
         if: github.event_name == 'pull_request'
-        uses: actions/cache@v5
+        uses: actions/cache@caa296126883cff596d87d8935842f9db880ef25 # v5
         with:
           path: target
           key: ci-${{ runner.os }}-cargo-quick-${{ hashFiles('**/Cargo.lock') }}

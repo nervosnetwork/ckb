@@ -9,6 +9,9 @@ on:
   # Manurally trigger
   workflow_dispatch:
 
+permissions:
+  contents: read
+
 jobs:
   benchmark:
     name: Benchmark
@@ -16,7 +19,8 @@ jobs:
     if: |
       (
         github.event_name == 'pull_request_review' &&
-        contains(github.event.review.body, '#benchmark')
+        contains(github.event.review.body, '#benchmark') &&
+        contains(fromJSON('["OWNER","MEMBER","COLLABORATOR"]'), github.event.review.author_association)
       ) || (
         github.event_name == 'schedule' &&
         github.repository_owner == 'nervosnetwork'
@@ -32,12 +36,13 @@ jobs:
       GITHUB_REPO: ${{ github.repository }}
       GITHUB_EVENT_NAME: ${{ github.event_name }}
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
           repository: nervosnetwork/ckb-integration-test
+          ref: e6b6832752ffb10e064d96f5bf6bfbbe6fb03290
       - name: Get branch name when event is pr review comments
         if: github.event_name == 'pull_request_review' && contains(github.event.review.body, '#benchmark')
-        uses: xt0rted/pull-request-comment-branch@v1
+        uses: xt0rted/pull-request-comment-branch@653a7d5ca8bd91d3c5cb83286063314d0b063b8e # v1
         id: comment-branch
       - name: Get Current Date & Set ENV
         id: date
@@ -49,8 +54,12 @@ jobs:
       - name: Start
         env:
           JOB_ID: "benchmark-${{ github.repository_owner }}-${{ github.ref_name }}-${{ steps.date.outputs.date }}-in-10h"
+          HEAD_REF: ${{ steps.comment-branch.outputs.head_ref }}
         run: |
-          export GITHUB_BRANCH=${{ steps.comment-branch.outputs.head_ref }}
+          if [ -n "$HEAD_REF" ]; then
+            git check-ref-format --branch "$HEAD_REF"
+          fi
+          export GITHUB_BRANCH="$HEAD_REF"
           ./ckb-bench/devtools/ci/script/benchmark.sh run
       - name: Set test state when benchmark success.
         if: ${{ success() }}

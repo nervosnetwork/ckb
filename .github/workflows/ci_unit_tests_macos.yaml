@@ -16,6 +16,9 @@ env:
   CARGO_TERM_COLOR: always
   RUST_BACKTRACE: full
   RUSTFLAGS: -D warnings
+permissions:
+  contents: read
+
 jobs:
   ci_unit_tests_macos:
     name: ci_unit_tests_macos
@@ -28,11 +31,13 @@ jobs:
           sudo rm -rf /usr/local/lib/android
           brew cleanup
       - name: Install nextest
-        uses: taiki-e/install-action@nextest
-      - uses: actions/checkout@v6
+        uses: taiki-e/install-action@fe3acb53a98b62c772db35de75ce0e4595e7ca8c # v2.90.8
+        with:
+          tool: nextest
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
       - name: Cache cargo target
         if: github.event_name == 'pull_request' || (github.event_name == 'push' && github.ref != 'refs/heads/develop' && github.ref != 'refs/heads/master' && !startsWith(github.ref, 'refs/heads/rc/') && !startsWith(github.ref, 'refs/heads/pkg/'))
-        uses: actions/cache@v5
+        uses: actions/cache@caa296126883cff596d87d8935842f9db880ef25 # v5
         with:
           path: target
           key: ci-${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
