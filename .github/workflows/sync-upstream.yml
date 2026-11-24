@@ -12,7 +12,7 @@ on:
   workflow_dispatch: {}
 
 permissions:
-  contents: write
+  contents: read
   issues: write
 
 concurrency:
@@ -25,19 +25,12 @@ jobs:
     if: github.repository == 'nervosnetwork/ckb-private'
     runs-on: ubuntu-22.04
     steps:
-      - name: Generate GitHub token
-        uses: actions/create-github-app-token@v3
-        id: app-token
-        with:
-          client-id: ${{ secrets.RELEASE_PLZ_APP_ID }}
-          private-key: ${{ secrets.RELEASE_PLZ_APP_PRIVATE_KEY }}
-
       - name: Checkout private develop
         uses: actions/checkout@v6
         with:
           ref: develop
           fetch-depth: 0
-          token: ${{ steps.app-token.outputs.token }}
+          ssh-key: ${{ secrets.SYNC_DEPLOY_KEY }}
 
       - name: Fetch upstream
         run: |
@@ -87,7 +80,7 @@ jobs:
       - name: Close stale divergence issue
         if: steps.rebase.outputs.status == 'rebased'
         env:
-          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          GH_TOKEN: ${{ github.token }}
         run: |
           for NUMBER in $(gh issue list --state open --search 'Upstream sync needs manual rebase in:title' --json number --jq '.[].number'); do
             gh issue close "$NUMBER" --comment 'develop was rebased onto upstream/develop automatically; closing.'
@@ -97,7 +90,7 @@ jobs:
       - name: Open divergence issue
         if: steps.rebase.outputs.status == 'conflict'
         env:
-          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          GH_TOKEN: ${{ github.token }}
         run: |
           echo "::warning::develop cannot be rebased onto upstream/develop (behind ${{ steps.compare.outputs.behind }}, ahead ${{ steps.compare.outputs.ahead }}); manual resolution needed."
           if [ -z "$(gh issue list --state open --search 'Upstream sync needs manual rebase in:title' --json number --jq '.[].number')" ]; then
