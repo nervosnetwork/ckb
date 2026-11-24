@@ -199,7 +199,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Features
 
-- #4477: (experimental) optional fee estimator with different algorithms (@yangby-cryptape)
+- #4477: (experimental) optional fee estimator with different algorithms (@chaoticlonghair)
 - #4683: Small WASM support (@driftluo)
 - #4729: Default listen on ws port (@driftluo)
 - #4741: Let old config node open ws listen by default (@driftluo)
@@ -395,14 +395,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Bug Fixes
 
-- #4192: Incorrect and inadequate checks of sync message (@yangby-cryptape)
+- #4192: Incorrect and inadequate checks of sync message (@chaoticlonghair)
 - #4199: Fix orphan pool for long pending tx issues (@chenyukang)
 - #4221: Fix typos (@xiaolou86)
 - #4218: Fix VM version select (@driftluo)
 
     This is a breaking change: b:consensus
 
-- #4255: No chain_root in 1st block of the MMR activated epoch (@yangby-cryptape)
+- #4255: No chain_root in 1st block of the MMR activated epoch (@chaoticlonghair)
 - #4258: Fix concurrency issue for RBF (@chenyukang)
 - #4270: Resolve empty filter related message bug (@quake)
 
@@ -433,7 +433,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Bug Fixes
 
 - #4172: Fix `ckb-hash` depends `blake2b-ref` multiple times (@eval-exec)
-- #4171 **light-client:** Could not check MMR for fork chains (@yangby-cryptape)
+- #4171 **light-client:** Could not check MMR for fork chains (@chaoticlonghair)
 - #4182: Should only return main chain data (@quake)
 - #4208: Fix orphan pool issue for long pending tx (@chenyukang)
 
@@ -456,7 +456,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - #3980 **rpc: (BREAKING)** Set `jsonrpc::Ratio` as the type of `threshold` field for `DeploymentsInfo` and `Deployment` (@eval-exec)
 - #3988: Update ckb-vm to v0.24.0 (@mohanson)
 - #3996: Suspend support in spawn syscalls (@xxuejie)
-- #4002: Let crate `ckb-hash` support `no-std` (@yangby-cryptape)
+- #4002: Let crate `ckb-hash` support `no-std` (@chaoticlonghair)
 - #4097 **consensus: (BREAKING)** `epoch_duration_target` now affects epoch length in `Dummy` mode (@eval-exec)
 - #4126: Notify dummy miner for new work (@quake)
 
@@ -544,7 +544,7 @@ BREAKING: Light Client Protocol Softfork Activation in Mainnet
 - #3860: Improve `ScriptError::InvalidCodeHash` when code_hash can't be resolved (@eval-exec)
 - #3869: Replace opentelemetry by tikv/rust-prometheus (@eval-exec)
 - #3893: Fix CKB command line usage test case by bats-core/bats (@eval-exec)
-- #3890 **light-client:** Let the function that builds filter data to be standalone (@yangby-cryptape)
+- #3890 **light-client:** Let the function that builds filter data to be standalone (@chaoticlonghair)
 
 ## [v0.108.1](https://github.com/nervosnetwork/ckb/compare/v0.108.0...v0.108.1) (2023-04-04)
 
@@ -589,7 +589,7 @@ BREAKING: Light Client Protocol Softfork Activation in Mainnet
 - #3746: Get_fee_rate_statics compatibility (@zhangsoledad)
 - #3750: Notify message blocking (@zhangsoledad)
 - #3757: Fee_rate statistics target limit (@zhangsoledad)
-- #3763 **rpc:** Return the cycles of the first non-cellbase transaction as cellbase's cycles (@yangby-cryptape)
+- #3763 **rpc:** Return the cycles of the first non-cellbase transaction as cellbase's cycles (@chaoticlonghair)
 - #3769: Disable ckb-miner notify mode by default (@zhangsoledad)
 - #3773: Fix comment typos (@StrayLittlePunk)
 - #3794: Fix missing information in ckb version (@doitian)
@@ -610,8 +610,8 @@ BREAKING: Light Client Protocol Softfork Activation in Mainnet
 
 ### Bug Fixes
 
-- #3675 **light-client:** Subtract overflow when try to get chain root for genesis block (@yangby-cryptape)
-- #3697 **light-client:** Do not skip the genesis block for last state proofs (@yangby-cryptape)
+- #3675 **light-client:** Subtract overflow when try to get chain root for genesis block (@chaoticlonghair)
+- #3697 **light-client:** Do not skip the genesis block for last state proofs (@chaoticlonghair)
 - #3698 **tx-pool:** Potential leaks when MaximumAncestors occurs (@zhangsoledad)
 - #3706 **tx-pool:** Fix tx-pool potential inconsistent after reorg occurs (@zhangsoledad)
 - #3705 **indexer:** Indexer CPU usage (@zhangsoledad)
@@ -630,7 +630,7 @@ BREAKING: Light Client Protocol Softfork Activation in Mainnet
 
 - #3672: Add rpc `estimate_cycles` (@zhangsoledad)
 - #3650: Bump ckb-vm to v0.22.0 (@mohanson)
-- #3664: Decrease max memory and increase speed, during chain root mmr migration (@yangby-cryptape)
+- #3664: Decrease max memory and increase speed, during chain root mmr migration (@chaoticlonghair)
 - #3665: Remove `block_filter_enable` option (@quake)
 
     Two configuration options (`block_filter_enable` and `support_protocols`) are conflicting.
@@ -718,7 +718,7 @@ BREAKING: Light Client Protocol Softfork Activation in Mainnet
 
 - #3231: Check listen port occupancy (@driftluo)
 - #3261: Tuning the locator algorithm (@driftluo)
-- #3254: Port to aarch64, and provide official binary when release (@yangby-cryptape)
+- #3254: Port to aarch64, and provide official binary when release (@chaoticlonghair)
 - #3134: Ckb2021 on rust2021 (@zhangsoledad)
 
 ### Bug Fixes
@@ -740,13 +740,13 @@ BREAKING: Light Client Protocol Softfork Activation in Mainnet
 ### Features
 
 - #3229: Script group consistent execution order (@zhangsoledad)
-- #3170 **rpc:** Add a method to remove a transaction from tx-pool (@yangby-cryptape)
+- #3170 **rpc:** Add a method to remove a transaction from tx-pool (@chaoticlonghair)
 
 ## [v0.101.2](https://github.com/nervosnetwork/ckb/compare/v0.101.1...v0.101.2) (2021-12-02)
 
 ### Features
 
-- #3185: Add a syscall to pause the script execution (only enabled in tests) (@yangby-cryptape)
+- #3185: Add a syscall to pause the script execution (only enabled in tests) (@chaoticlonghair)
 - #3174: Delay txs during hardfork (@zhangsoledad)
 - #3175: Retain candidate uncle until next epoch (@zhangsoledad)
 - #3194: Resumable rpc tx submit (@zhangsoledad)
@@ -766,7 +766,7 @@ BREAKING: Light Client Protocol Softfork Activation in Mainnet
 
 ### Bug Fixes
 
-- #3129 **hardfork:** Tx-pool clear statistical data before re-run all transactions (@yangby-cryptape)
+- #3129 **hardfork:** Tx-pool clear statistical data before re-run all transactions (@chaoticlonghair)
 - #3115: Remove tx hash from Relayer#tx_filter when it was rejected (@quake)
 - #3143: Limit proposal respond size (@driftluo)
 
@@ -792,10 +792,10 @@ BREAKING: Light Client Protocol Softfork Activation in Mainnet
 - #3058: Ignore proposal window on vm version selection (@driftluo)
 - #3068: Block-template test (@zhangsoledad)
 - #3059: Graceful shutdown (@zhangsoledad)
-- #3079: Don't use cache if tx-pool does re-org process during hardfork (@yangby-cryptape)
+- #3079: Don't use cache if tx-pool does re-org process during hardfork (@chaoticlonghair)
 - #3077: Fix declared cycles check (@zhangsoledad)
 - #3055: Resolve rpc `calculate_dao_maximum_withdraw` issue (@quake)
-- #3090: Tx-pool refreshes caches with the incorrect VM version after hardfork (@yangby-cryptape)
+- #3090: Tx-pool refreshes caches with the incorrect VM version after hardfork (@chaoticlonghair)
 - #3094: Fix inflight block potential memory bloat issues (@driftluo)
 - #3093: Resolve inflight proposals memory bloat issue (@quake)
 - #3110: Fix pending compact block memory bloat on abnormal flow (@driftluo)
@@ -814,15 +814,15 @@ This version contains the [fork features in ckb2021](https://github.com/nervosne
 
 ### Features
 
-- #2715 **hardfork:** ckb2021 hardfork features (@yangby-cryptape)
+- #2715 **hardfork:** ckb2021 hardfork features (@chaoticlonghair)
 
     See <https://github.com/nervosnetwork/rfcs/pull/242>
 
-- #2756 **hardfork:** Ckb2021 hardfork features (vm related part) (@yangby-cryptape)
+- #2756 **hardfork:** Ckb2021 hardfork features (vm related part) (@chaoticlonghair)
 
     See <https://github.com/nervosnetwork/rfcs/pull/242>
 
-  - #2818 **hardfork:** Change field "hash_type" to an enumerated type (@yangby-cryptape)
+  - #2818 **hardfork:** Change field "hash_type" to an enumerated type (@chaoticlonghair)
 
         **BREAKING CHANGES**: Revert breaking changes which were introduced in #2756.
 
@@ -830,29 +830,29 @@ This version contains the [fork features in ckb2021](https://github.com/nervosne
 
     See <https://github.com/nervosnetwork/rfcs/pull/234>
 
-- #2797 **hardfork:** Reject vm1 lock script before hardfork started to keep compatible with old clients (@yangby-cryptape)
+- #2797 **hardfork:** Reject vm1 lock script before hardfork started to keep compatible with old clients (@chaoticlonghair)
 
-- #2798 **hardfork:** Remove the header deps immature rule (@yangby-cryptape)
+- #2798 **hardfork:** Remove the header deps immature rule (@chaoticlonghair)
 
         See [CKB-RFCs PR 240: RFC: Remove header deps immature rule](https://github.com/nervosnetwork/rfcs/pull/240)
 
 - #2819: Only send notifications when service is stated (@zhangsoledad)
 - #2817: Prepend the binary version to BlockAssemblerConfig message (@quake)
 - #2821: Change default `OutputsValidator` to `well_known_scripts_only` (@quake)
-- #2792 **hardfork:** Verify the epoch in since more strictly (@yangby-cryptape)
+- #2792 **hardfork:** Verify the epoch in since more strictly (@chaoticlonghair)
 
   - A transaction with since absolute (or relative) epoch is valid only if `epoch_index` is less than `epoch_length` or both `epoch_index` and `epoch_length` are zero.
   - Using rational number operations for both since absolute epoch and since relative epoch.
 
     See more in <https://github.com/nervosnetwork/rfcs/pull/223>
 
-- #2776 **hardfork:** Rename JSON RPC field "uncles_hash" to "extra_hash" (@yangby-cryptape)
+- #2776 **hardfork:** Rename JSON RPC field "uncles_hash" to "extra_hash" (@chaoticlonghair)
 - #2799: Resumeble verification, which removes the cycles limit to relay tx (@zhangsoledad)
 - #2846: Dial bootnode randomly (@driftluo)
-- #2854: Better tips for "migrate" subcomamnd (@yangby-cryptape)
+- #2854: Better tips for "migrate" subcomamnd (@chaoticlonghair)
 - #2849: Remove old version peer from peer store on fork (@driftluo)
 - #2641: Add network protocol config (@quake)
-- #2879 **hardfork:** Add a new field "hardfork_features" to the return of RPC method "get_consensus" (@yangby-cryptape)
+- #2879 **hardfork:** Add a new field "hardfork_features" to the return of RPC method "get_consensus" (@chaoticlonghair)
 - #2913: Upgrade hyper, and ckb-vm (@driftluo)
 - #2656: Persistent tx-pool data into a file when it has been shutdown (@quake)
 - #2921: Reduce cellbase maturity on staging spec (@keroro520)
@@ -877,21 +877,21 @@ This version contains the [fork features in ckb2021](https://github.com/nervosne
     Originally, only the data in the largest group was considered, but now it is changed to traverse at least half of the groups
 
 - #3012: Fix dummy miner solve (@driftluo)
-- #3011: Shouldn't override the `log.file` after touch it (@yangby-cryptape)
+- #3011: Shouldn't override the `log.file` after touch it (@chaoticlonghair)
 - #2787: Put migration version (@zhangsoledad)
 - #2829: Fix peer store evict (@driftluo)
-- #2833: Display full path for deprecated fields in warning messages (@yangby-cryptape)
+- #2833: Display full path for deprecated fields in warning messages (@chaoticlonghair)
 - #2856: Touch `last_txs_updated_at` in tx pool (@zhangsoledad)
 - #2857: Fix the status marking problem of header sync (@driftluo)
-- #2877: Don't panic when the database is created by a higher version executable binary (@yangby-cryptape)
+- #2877: Don't panic when the database is created by a higher version executable binary (@chaoticlonghair)
 - #2894: There may be competition between header sync and eviction (@driftluo)
-- #2897 **metrics:** There is no reactor running (@yangby-cryptape)
+- #2897 **metrics:** There is no reactor running (@chaoticlonghair)
 - #2906: Try traverse all unknown parent hash (@driftluo)
 - #2923: Callback potentially incorrect trigger on concurrent context (@zhangsoledad)
 - #2924 **test:** Make sure testnode graceful shutdown basic sync (@zhangsoledad)
 - #2934: Fix stream body read (@driftluo)
 - #2932: Persisted test wait tx-pool ready (@zhangsoledad)
-- #2950 **reset-data:** The argument `--network-peer-store` couldn't work (@yangby-cryptape)
+- #2950 **reset-data:** The argument `--network-peer-store` couldn't work (@chaoticlonghair)
 - #2971: Snapshot cycles calculation (@zhangsoledad)
 
 ### Improvements
@@ -904,11 +904,11 @@ This version contains the [fork features in ckb2021](https://github.com/nervosne
 
 - #2707: Use KeyedPriorityQueue to replace BTreeMap/HashSet (@quake)
 
-- #2791: Verify the epoch in block headers explicitly (@yangby-cryptape)
+- #2791: Verify the epoch in block headers explicitly (@chaoticlonghair)
 
     The data of epoch in bytes is not same as the `EpochNumberWithFraction`, which causes a few unintended consequences.
 
-- #2822: Compatibility policy for configuration files (@yangby-cryptape)
+- #2822: Compatibility policy for configuration files (@chaoticlonghair)
 
   - Deny unknown configuration items.
 
@@ -926,7 +926,7 @@ This version contains the [fork features in ckb2021](https://github.com/nervosne
 
 - #2770: Use community contributed site for script error codes (@doitian)
 
-- #2779: Give an unique id to each global runtime thread (@yangby-cryptape)
+- #2779: Give an unique id to each global runtime thread (@chaoticlonghair)
 
 - #3006 **rpc:** Change struct from "TxPoolVerbosity" to "TxPoolEntries… (@chanhsu001)
 
@@ -934,7 +934,7 @@ This version contains the [fork features in ckb2021](https://github.com/nervosne
 
 - #2841: Remove redudant `as_ref` (@doitian)
 - #2863: Avoid duplicate cell check (@zhangsoledad)
-- #2870: Replace metrics-rs with opentelemetry-rust (@yangby-cryptape)
+- #2870: Replace metrics-rs with opentelemetry-rust (@chaoticlonghair)
 - #2925: Enum tuple struct (@zhangsoledad)
 - #2948: Remove dependency on tempfile in ckb-resource (@chanhsu001)
 - #2982: Regex new is expensive (@driftluo)
@@ -946,8 +946,8 @@ This version contains the [fork features in ckb2021](https://github.com/nervosne
 
 - #2847: Dial bootnode randomly (@driftluo)
 - #2871: Fix the status marking problem of header sync to 0.43 (@driftluo)
-- #2893: Don't panic when the database is created by a higher version executable binary (@yangby-cryptape)
-- #2897 **metrics:** There is no reactor running (@yangby-cryptape)
+- #2893: Don't panic when the database is created by a higher version executable binary (@chaoticlonghair)
+- #2897 **metrics:** There is no reactor running (@chaoticlonghair)
 - #2895: There may be competition between header sync and eviction (@driftluo)
 - #2917: Try traverse all unknown parent hash (@driftluo)
 
@@ -996,7 +996,7 @@ This version contains the [fork features in ckb2021](https://github.com/nervosne
 
 ### Bug Fixes
 
-- #2620: The arc of timestamp in tx-pool controller become incorrect after clean (@yangby-cryptape)
+- #2620: The arc of timestamp in tx-pool controller become incorrect after clean (@chaoticlonghair)
 
 - #2629: Readonly for migrate check (@zhangsoledad)
 
@@ -1023,7 +1023,7 @@ This version contains the [fork features in ckb2021](https://github.com/nervosne
 
 ### Features
 
-- #2503: Customize chain spec for dev chains and update few preset params (@yangby-cryptape)
+- #2503: Customize chain spec for dev chains and update few preset params (@chaoticlonghair)
 
   - Set `permanent_difficulty_in_dummy` to `true` as default for dev chains.
   - Allow users to create different dev chains by customizing genesis message.
@@ -1032,7 +1032,7 @@ This version contains the [fork features in ckb2021](https://github.com/nervosne
         If no timestamp is provided, use current timestamp.
   - Display genesis hash after CKB direcotry created.
 
-- #2571: Request the approval for database migrations (@yangby-cryptape)
+- #2571: Request the approval for database migrations (@chaoticlonghair)
 - #2604: Allow miner http basic authorization (@driftluo)
 - #2569: Add rpc `generate_block_with_template` to IntegrationTest rpc module (@quake)
 
@@ -1051,7 +1051,7 @@ This version contains the [fork features in ckb2021](https://github.com/nervosne
   - **Workaround**: Manually call `CompactRange()` for the range to delete, this approach can solve the problem.
 
 - #2595: Set `prepare_for_bulk_load` option for migration (@zhangsoledad)
-- #2611: Smaller block status map during IBD (@yangby-cryptape)
+- #2611: Smaller block status map during IBD (@chaoticlonghair)
 
 ## [v0.40.0](https://github.com/nervosnetwork/ckb/compare/v0.39.0...v0.40.0) (2021-02-23)
 
@@ -1076,19 +1076,19 @@ This version contains the [fork features in ckb2021](https://github.com/nervosne
 
 ### Bug Fixes
 
-- #2455: Relay and sync should be order independent (@yangby-cryptape)
+- #2455: Relay and sync should be order independent (@chaoticlonghair)
 
     Fix #2450.
 
-- #2484: Don't do sync before sync connected (@yangby-cryptape)
+- #2484: Don't do sync before sync connected (@chaoticlonghair)
 
     This issue was introduced since #2455.
 
-- #2458: Fix potential failure in integration test TransactionRelayLowFeeRate (@yangby-cryptape)
-- #2454: Fix the log output of integration tests and output more logs (@yangby-cryptape)
-- #2502: Skip RUSTSEC-2020-0095 temporarily (@yangby-cryptape)
+- #2458: Fix potential failure in integration test TransactionRelayLowFeeRate (@chaoticlonghair)
+- #2454: Fix the log output of integration tests and output more logs (@chaoticlonghair)
+- #2502: Skip RUSTSEC-2020-0095 temporarily (@chaoticlonghair)
 - #2521: Fix wasm build by locking tempfile (@doitian)
-- #2523: Network should work without enabling the module in RPC (@yangby-cryptape)
+- #2523: Network should work without enabling the module in RPC (@chaoticlonghair)
 - #2537: Allow dail self (@driftluo)
 
 ### Improvements
@@ -1117,15 +1117,15 @@ This version contains the [fork features in ckb2021](https://github.com/nervosne
 
     Add command `ckb migrate --check`. If migration is in need 0 will be return，otherwise 64.
 
-- #2379: Let the consensus params `orphan_rate_target` to be configurable (@yangby-cryptape)
+- #2379: Let the consensus params `orphan_rate_target` to be configurable (@chaoticlonghair)
 
 ### Bug Fixes
 
-- #2394: Some crates invalidly assumes the memory layout of `std::net::SocketAddr` (@yangby-cryptape)
+- #2394: Some crates invalidly assumes the memory layout of `std::net::SocketAddr` (@chaoticlonghair)
 - #2389: Upgrade CKB VM to fix memmap security warning (@xxuejie)
-- #2387: Skip RUSTSEC-2020-0077 temporarily (@yangby-cryptape)
-- #2392: Skip RUSTSEC-2020-0082 temporarily since not affected (@yangby-cryptape)
-- #2350: The description for the low fee rate error (@yangby-cryptape)
+- #2387: Skip RUSTSEC-2020-0077 temporarily (@chaoticlonghair)
+- #2392: Skip RUSTSEC-2020-0082 temporarily since not affected (@chaoticlonghair)
+- #2350: The description for the low fee rate error (@chaoticlonghair)
 
     The first parameter is the minimum transaction fee, not the fee rate.
 
@@ -1134,7 +1134,7 @@ This version contains the [fork features in ckb2021](https://github.com/nervosne
 
 ### Improvements
 
-- #2386: Replace `failure` by `thiserror` and `anyhow` (@yangby-cryptape)
+- #2386: Replace `failure` by `thiserror` and `anyhow` (@chaoticlonghair)
 
     [RUSTSEC-2020-0036: `failure`: `failure` is officially deprecated/unmaintained](https://rustsec.org/advisories/RUSTSEC-2020-0036.html)
 
@@ -1166,14 +1166,14 @@ This version contains the [fork features in ckb2021](https://github.com/nervosne
 
 ### Improvements
 
-- #2312: Use cargo-deny to replace cargo-audit (@yangby-cryptape)
+- #2312: Use cargo-deny to replace cargo-audit (@chaoticlonghair)
 
 ## [v0.37.0](https://github.com/nervosnetwork/ckb/compare/v0.36.0...v0.37.0) (2020-10-20)
 
 ### Features
 
 - #2270 **rpc:** Rework rpc doc (@doitian)
-- #2299: Add a default RocksDB options file (@yangby-cryptape)
+- #2299: Add a default RocksDB options file (@chaoticlonghair)
 
     The default options file limits the maximum memory usage.
 
@@ -1202,7 +1202,7 @@ This version contains the [fork features in ckb2021](https://github.com/nervosne
 
 - #2285: Fix the problem of disconnection caused by uncertainty (@driftluo)
 - #2283: Resolve network background service cleanup issue when rpc tcp server is on (@quake)
-- #2298: Skip RUSTSEC-2020-0043 temporarily (@yangby-cryptape)
+- #2298: Skip RUSTSEC-2020-0043 temporarily (@chaoticlonghair)
 
 ### Improvements
 
@@ -1227,12 +1227,12 @@ This version contains the [fork features in ckb2021](https://github.com/nervosne
 ### Features
 
 - #2276: Improve database migration progress display (@zhangsoledad)
-- #2199: Add metrics service (@yangby-cryptape)
+- #2199: Add metrics service (@chaoticlonghair)
 
     [How to enable the metrics service](https://github.com/nervosnetwork/ckb/blob/0db57dafaad73efbfcf5330ec289efba94fd6975/util/metrics-config/src/lib.rs#L5-L22)
 
 - #2243: Refactor identify network protocol by removing `Both` (@driftluo)
-- #2239: Support to control memory usage for header map (@yangby-cryptape)
+- #2239: Support to control memory usage for header map (@chaoticlonghair)
 - #2248: Add verbosity param to chain related rpc (@quake)
 
     This PR adds an optional `verbosity` param to chain related rpc, returns data in hex format without calculated hash values, it will improve performance in some scenarios.
@@ -1240,7 +1240,7 @@ This version contains the [fork features in ckb2021](https://github.com/nervosne
 ### Bug Fixes
 
 - #2283: Resolve network background service cleanup issue when rpc tcp server is on. (@quake)
-- #2266: Use forked metrics and forked sentry to fix RUSTSEC-2020-0041 temporarily (@yangby-cryptape)
+- #2266: Use forked metrics and forked sentry to fix RUSTSEC-2020-0041 temporarily (@chaoticlonghair)
 - #2212: Advance last_common_header even the peer is worse than us (@keroro520)
 - #2238: Tx-pool block_on async oneshot (@zhangsoledad)
 
@@ -1252,7 +1252,7 @@ This version contains the [fork features in ckb2021](https://github.com/nervosne
 
 ### Improvements
 
-- #2220: Split logger config and service (@yangby-cryptape)
+- #2220: Split logger config and service (@chaoticlonghair)
 - #2213: Reduce useless field and reduce get time call (@driftluo)
 - #2245 **logger:** Replace lazy_static with once_cell (@zhangsoledad)
 - #2229: Rewrite the ping network protocol (@driftluo)
@@ -1307,20 +1307,20 @@ This version contains the [fork features in ckb2021](https://github.com/nervosne
 
     Added `active`, `connections` and `protocols` fields to `local_node_info`.
 
-- #2159: Load db options from a file; support configuring column families (@yangby-cryptape)
-- #2175: Support multiple file loggers in `ckb.toml` (@yangby-cryptape)
-- #2182: Take full control of main logger filter via RPC (@yangby-cryptape)
+- #2159: Load db options from a file; support configuring column families (@chaoticlonghair)
+- #2175: Support multiple file loggers in `ckb.toml` (@chaoticlonghair)
+- #2182: Take full control of main logger filter via RPC (@chaoticlonghair)
 
 ### Bug Fixes
 
-- #2158: Panic if db options is empty (@yangby-cryptape)
-- #2157: The option of db path doesn't work (@yangby-cryptape)
-- #2177: Fix the lenient logger filter parser (@yangby-cryptape)
+- #2158: Panic if db options is empty (@chaoticlonghair)
+- #2157: The option of db path doesn't work (@chaoticlonghair)
+- #2177: Fix the lenient logger filter parser (@chaoticlonghair)
 - #2134: Update proposal table after chain reorg (@zhangsoledad)
 
     Previously, proposal-table update not considered in chain rollback, it's almost impossible to happen in hashrate-based chain. But can be triggered by `truncate` RPC.
 
-- #2197: Should exit with error code when setup failed (@yangby-cryptape)
+- #2197: Should exit with error code when setup failed (@chaoticlonghair)
 
     Issue: if the config was malformed and an error was thrown in `setup_app`, the process wouldn't exit.
 
@@ -1332,9 +1332,9 @@ This version contains the [fork features in ckb2021](https://github.com/nervosne
 
     Storage structs `HeaderView`, `EpochExt` and `TransactionInfo` are fixed size, we should use molecule `struct` instead of `table`, it reduces storage size and improves the performance a little bit.
 
-- #2150: Don't query store twice in method chaining (@yangby-cryptape)
-- #2151: Reduce times of querying header map (@yangby-cryptape)
-- #2147: Don't cache all data of header map in memory during IBD (@yangby-cryptape)
+- #2150: Don't query store twice in method chaining (@chaoticlonghair)
+- #2151: Reduce times of querying header map (@chaoticlonghair)
+- #2147: Don't cache all data of header map in memory during IBD (@chaoticlonghair)
 - #2154: Split chain iter (@zhangsoledad)
 - #2153: Decoupling migration from db (@zhangsoledad)
 
@@ -1342,7 +1342,7 @@ This version contains the [fork features in ckb2021](https://github.com/nervosne
     This PR proposal split migration.
 
 - #2163: Add HeaderProvider trait and split DataLoader to smaller trait (@quake)
-- #1988: Use a new method to detect headers sync timeout (@yangby-cryptape)
+- #1988: Use a new method to detect headers sync timeout (@chaoticlonghair)
 
     To avoid possible performance issues on headers synchronization.
 
@@ -1381,7 +1381,7 @@ This version contains the [fork features in ckb2021](https://github.com/nervosne
 
     This PR implements an adaptive scheduler based on past data, removing most of the redundant calculations.
 
-- #2145: Don't cache all block status in memory (@yangby-cryptape)
+- #2145: Don't cache all block status in memory (@chaoticlonghair)
 
     When a node is start from number 0, it will sync all headers at first, then the `block_status_map` will be full quickly.
     Then, along with the block sync, all data in `block_status_map` will be removed.
@@ -1389,8 +1389,8 @@ This version contains the [fork features in ckb2021](https://github.com/nervosne
 
     But when another new-started node try to sync data from this node, this node will fetch all block statuses from database and insert them into `block_status_map` without deletions. And full block status will store in memory until the node is shutdown.
 
-- #2113: Change logger filter dynamically via RPC (@yangby-cryptape)
-- #2036: Monitor rocksdb memory usages in logs (optional; default: disable) (@yangby-cryptape)
+- #2113: Change logger filter dynamically via RPC (@chaoticlonghair)
+- #2036: Monitor rocksdb memory usages in logs (optional; default: disable) (@chaoticlonghair)
 - #2114: Add command to generate peer id (@driftluo)
 
     ```
@@ -1467,7 +1467,7 @@ This version contains the [fork features in ckb2021](https://github.com/nervosne
 
     To eliminate large dependences of `ckb-app-config`, this PR moved all config related structs to this crate and reversed dependencies of other crates
 
-- #2091: Logger filter parse crate name leniently (@yangby-cryptape)
+- #2091: Logger filter parse crate name leniently (@chaoticlonghair)
 
 ## [v0.32.2](https://github.com/nervosnetwork/ckb/compare/v0.32.1...v0.32.2) (2020-06-15)
 
@@ -1493,9 +1493,9 @@ This version contains the [fork features in ckb2021](https://github.com/nervosne
 ### Bug Fixes
 
 - nervosnetwork/tentacle#218: Fix FutureTask signals memory leak (@TheWaWaR)
-- #2039: Use wrong function to get a slice to decode ping messages (@yangby-cryptape)
-- #2035: Remove unsupport configurations in Cargo.toml (@yangby-cryptape)
-- #2054: Fix a typo of a thread name (@yangby-cryptape)
+- #2039: Use wrong function to get a slice to decode ping messages (@chaoticlonghair)
+- #2035: Remove unsupport configurations in Cargo.toml (@chaoticlonghair)
+- #2054: Fix a typo of a thread name (@chaoticlonghair)
 - #2074: Orphan block pool deadlock (@quake)
 - #2075: Fix collaboration issues between two protocol (@driftluo)
 - #2063: Should use an empty peer store when failed to load data from file (@quake)
@@ -1509,7 +1509,7 @@ This version contains the [fork features in ckb2021](https://github.com/nervosne
 
 ### Bug Fixes
 
-- [GHSA-q669-2vfg-cxcg](https://github.com/nervosnetwork/ckb/security/advisories/GHSA-q669-2vfg-cxcg): Fix undefined behavior that dereference an unaligned pointer. (@yangby-cryptape)
+- [GHSA-q669-2vfg-cxcg](https://github.com/nervosnetwork/ckb/security/advisories/GHSA-q669-2vfg-cxcg): Fix undefined behavior that dereference an unaligned pointer. (@chaoticlonghair)
 
 ## [v0.31.0](https://github.com/nervosnetwork/ckb/compare/v0.30.2...v0.31.0) (2020-04-02)
 
@@ -1529,13 +1529,13 @@ This version contains the [fork features in ckb2021](https://github.com/nervosne
 - #1955: Bump CKB VM to fix a performance regression (@xxuejie)
 - #1948: Use module disable error instead of method not found (@driftluo)
 - #1956: Replace rocksdb wrapper (@zhangsoledad)
-- #1946: Use same allocator for all (@yangby-cryptape)
-- #1940: Add a feature to enable jemalloc profiling (@yangby-cryptape)
+- #1946: Use same allocator for all (@chaoticlonghair)
+- #1940: Add a feature to enable jemalloc profiling (@chaoticlonghair)
 - #1881: Remove memory cellset (@zhangsoledad)
 - #1923: Network upgrade to async (@driftluo)
 - #1978: Built-in miner should support https RPC URL (@quake)
 - #1958: Log more sync and relay metrics (@keroro520)
-- #1992: Add an option to control how many blocks the miner has to mine (@yangby-cryptape)
+- #1992: Add an option to control how many blocks the miner has to mine (@chaoticlonghair)
 
     ```bash
     ckb miner -C . --limit 10 # Exit after 10 nonces found
@@ -1575,7 +1575,7 @@ Reset Aggron the testnet genesis hash to
 
 ### Features
 
-- #1848: Add a new json rpc method `get_block_economic_state` (@yangby-cryptape)
+- #1848: Add a new json rpc method `get_block_economic_state` (@chaoticlonghair)
 
     Replace the JSON-RPC method [`get_cellbase_output_capacity_details`].
 
@@ -1606,7 +1606,7 @@ Reset Aggron the testnet genesis hash to
 - #1916: Transaction should be relayed when node connects peers (@quake)
 - #1921: Estimate_fee RPC error msg (@jjyr)
 - #1922: `CKBProtocolContext#connected_peers` should filter peers by protocol id (@quake)
-- #1950: Fix incorrect error messages for JSON uints (@yangby-cryptape)
+- #1950: Fix incorrect error messages for JSON uints (@chaoticlonghair)
 
 ## [v0.29.0](https://github.com/nervosnetwork/ckb/compare/v0.28.0...v0.29.0) (2020-02-26)
 
@@ -1722,7 +1722,7 @@ Reset Aggron the testnet genesis hash to
     Move the main chain shortcut from `get_locator` to `get_ancestor`, there are bunch functions other than `get_locator` call `get_ancestor` directly, this change saves many DB queries when the base block on main chain.
 
 - #1853: Update error message and prompt of ckb init subcommand (@ashchan)
-- #1849: No debug symbols as default and add a command to build with debug symbols (@yangby-cryptape)
+- #1849: No debug symbols as default and add a command to build with debug symbols (@chaoticlonghair)
 
 ## [v0.25.2](https://github.com/nervosnetwork/ckb/compare/v0.25.1...v0.25.2) (2019-11-17)
 
@@ -1790,7 +1790,7 @@ Embed lina chain spec
 - #1770: Skip cellbase short-id collision validation (@quake)
 - #1791: Error message on calculate dao max withdraw (@driftluo)
 - #1792: Add missing type script in RPC (@driftluo)
-- #1804: Retrieve few burned ckb in genesis block (@yangby-cryptape)
+- #1804: Retrieve few burned ckb in genesis block (@chaoticlonghair)
 - #1805: Proposal table bound (@zhangsoledad)
 - #1801: Calculate interest with older withdraw header (@keroro520)
 
@@ -1965,7 +1965,7 @@ Embed lina chain spec
 
 - #1641: Script cycle adjustments (@xxuejie)
 
-- #1646: Use epoch as the basic maturity unit (@yangby-cryptape)
+- #1646: Use epoch as the basic maturity unit (@chaoticlonghair)
 
     Cellbase outputs can be used after 4 epochs.
 
@@ -2027,7 +2027,7 @@ Embed lina chain spec
 
     Reference: <https://github.com/ethereum/wiki/wiki/JSON-RPC#hex-value-encoding>
 
-- #1559: Block serialized size should not include uncles proposals serialized size (@yangby-cryptape)
+- #1559: Block serialized size should not include uncles proposals serialized size (@chaoticlonghair)
 - #1592: RPC returns errors on unknown request fields. (@TheWaWaR)
 
 ### Features
@@ -2079,7 +2079,7 @@ Embed lina chain spec
 - #1519: Indexer store should lock the state when syncing data (@quake)
 - #1548: Consensus constructor should init epoch reward from parameter. (@doitian)
 - #1555: Fix orphan block race storage (@keroro520)
-- #1562: Block serialized size should not include uncles proposals serialized size (@yangby-cryptape)
+- #1562: Block serialized size should not include uncles proposals serialized size (@chaoticlonghair)
 - #1590: Fix genesis DAO satoshi gift incorrect calculation (@jjyr)
 - #1588: Fix potential inconsistency (@zhangsoledad)
 
@@ -2089,7 +2089,7 @@ Embed lina chain spec
 ### Improvements
 
 - #1352: Conduct GCD before rational ops (@u2)
-- #1486: Use Byte32 to replace the majority of H256 (@yangby-cryptape)
+- #1486: Use Byte32 to replace the majority of H256 (@chaoticlonghair)
 - #1520: Resolve indexer store performance issue (@quake)
 - #1485: Compact Block only includes uncle blocks hash (@u2)
 
@@ -2165,7 +2165,7 @@ Embed lina chain spec
 - #1415: Ignore genesis cellbase maturity rule (@TheWaWaR)
 - #1427: Upgrade system cells with dep group support (@TheWaWaR)
 - #1356: Refactor transaction structure, split deps into cell deps and header deps. (@TheWaWaR)
-- #1249: New serialization (@yangby-cryptape)
+- #1249: New serialization (@chaoticlonghair)
 - #1317: Fill get peers RPC version field (@driftluo)
 
     BREAKING CHANGE: identify message adds a new field
@@ -2195,7 +2195,7 @@ Embed lina chain spec
 ### Bug Fixes
 
 - #1267: Header verifier uses the wrong header resolver (@u2)
-- #1282: Byte index is not a char boundary for non-ASCII char (@yangby-cryptape)
+- #1282: Byte index is not a char boundary for non-ASCII char (@chaoticlonghair)
 - #1268: Node should not reject the compact block which is in a worse fork (@u2)
 - #1306: Network should not retry dialing on failed address (@jjyr)
 - #1310: Compact block median time is wrong (@u2)
@@ -2288,7 +2288,7 @@ Embed lina chain spec
 - #1203: Add bootnode mode (@driftluo)
 - #1213: Remove `block_number` from API `BlockMedianTimeContext::block_median_time` (@keroro520)
 - #1215: Alert notify script (@jjyr)
-- #1212: Partition nonce for miners who use multi-threads (@yangby-cryptape)
+- #1212: Partition nonce for miners who use multi-threads (@chaoticlonghair)
 - #1225: Log found block as info when stderr is not tty (@doitian)
 - #1230: Use `tokio_threadpool::blocking` to handle heavy future task (@TheWaWaR)
 - #1232: IBD with whitelist (@driftluo)
@@ -2307,7 +2307,7 @@ Embed lina chain spec
 
     This is a breaking change: b:consensus
 
-- #1032 **storage:** Use flatbuffer instead of bincode in storage (@yangby-cryptape)
+- #1032 **storage:** Use flatbuffer instead of bincode in storage (@chaoticlonghair)
 - #1301: Add RPC `get_cellbase_output_capacity_details` (@u2)
 
 ### Bug Fixes
@@ -2352,7 +2352,7 @@ Embed lina chain spec
 
 - #1238: Build.rs failed without git dir (@doitian)
 - #1247: Skiplist test use `gen_range` the wrong way (@TheWaWaR)
-- #1251: There is an incorrect deserialization in indexer (@yangby-cryptape)
+- #1251: There is an incorrect deserialization in indexer (@chaoticlonghair)
 - #1272: Clean status of new inserted block (@keroro520)
 
     fix: Clear the newly inserted block from block_status_map.
@@ -2428,7 +2428,7 @@ Embed lina chain spec
 ### Features
 
 - #937: Initial windows support (@xxuejie)
-- #931: Add a function to select all tx-hashes from storage for a block (@yangby-cryptape)
+- #931: Add a function to select all tx-hashes from storage for a block (@chaoticlonghair)
 - #910: Implement the alert system in CKB for urgent situation (@jjyr)
 
     This is a breaking change: b:p2p, b:rpc
@@ -2509,7 +2509,7 @@ This version is not compatible with v0.13.0, please init a new CKB directory.
 
 - #908: Peers handle disconnect (@keroro520)
 - #891: Secp256k1 multisig (@jjyr)
-- #845: Limit TXO set memory usage (@yangby-cryptape)
+- #845: Limit TXO set memory usage (@chaoticlonghair)
 
     This is a breaking change: b:database
 
@@ -2526,13 +2526,13 @@ This version is not compatible with v0.13.0, please init a new CKB directory.
 
     tweak `block_cycles_limit` and `min_block_interval`
 
-- #897: Wrap the log macros to fix ill formed macros (@yangby-cryptape)
+- #897: Wrap the log macros to fix ill formed macros (@chaoticlonghair)
 
     And, we have to update the log filters, add prefix `ckb-` for all our crates.
 
 - #919: Synchronizer and relayer share BlocksInflight (@keroro520)
-- #924: Add a transaction error `InsufficientCellCapacity` (@yangby-cryptape)
-- #926: Make a better error message for miner when method not found (@yangby-cryptape)
+- #924: Add a transaction error `InsufficientCellCapacity` (@chaoticlonghair)
+- #926: Make a better error message for miner when method not found (@chaoticlonghair)
 - #961: Display miner worker status (@quake)
 
     BREAKCHANGE: config file `ckb-miner.toml` changed
@@ -2695,10 +2695,10 @@ This version is not compatible with v0.13.0, please init a new CKB directory.
 
     This is a breaking change: b:consensus
 
-    This is a bug reported by @yangby-cryptape. Right now we didn't assign proper cycles for EBREAK, which might lead to potential bugs.
+    This is a bug reported by @chaoticlonghair. Right now we didn't assign proper cycles for EBREAK, which might lead to potential bugs.
 
 - #886: Integration test cycle calc (@zhangsoledad)
-- fix: Cuckoo cycle verification bug (@yangby-cryptape)
+- fix: Cuckoo cycle verification bug (@chaoticlonghair)
 - #825: Filter out p2p field in address (@TheWaWaR)
 - #826: Ban peer deadlock (@TheWaWaR)
 - #829 **docker:** Fix docker problems found in rylai (@doitian)
@@ -2752,7 +2752,7 @@ This version is not compatible with v0.13.0, please init a new CKB directory.
 - #690: Use script to generate rpc doc (@keroro520)
 - #701: Remove always success code hash (@xxuejie)
 - #703: Stringify numbers in rpc (@keroro520)
-- #709: Database save positions of CellOutputs in Transaction (@yangby-cryptape)
+- #709: Database save positions of CellOutputs in Transaction (@chaoticlonghair)
 - #720: Move DryRuResult into jsonrpc-types (@keroro520)
 
   - Move `DryRunResult` into jsonrpc-types
@@ -2768,7 +2768,7 @@ This version is not compatible with v0.13.0, please init a new CKB directory.
     Transactions have to appear after any transactions upon which they depend
 
 - #731: Use `future_task` to avoid blocking (@jjyr)
-- #735: Panic if it's likely to reach a deadlock (@yangby-cryptape)
+- #735: Panic if it's likely to reach a deadlock (@chaoticlonghair)
 - #742: Verify uncle max proposals limit (@zhangsoledad)
 - #736: Transaction since field support epoch-based verification rule (@jjyr)
 - #745: Genesis block customization (@doitian)
@@ -2782,7 +2782,7 @@ This version is not compatible with v0.13.0, please init a new CKB directory.
 
 ### Bug Fixes
 
-- #643: A bug caused by merging a stale branch (@yangby-cryptape)
+- #643: A bug caused by merging a stale branch (@chaoticlonghair)
 - #641: Spec consensus params (@zhangsoledad)
 - #652: epoch init (@zhangsoledad)
 - #655: Use the String alias type EpochNumber (@ashchan)
@@ -2826,13 +2826,13 @@ This version is not compatible with v0.13.0, please init a new CKB directory.
 ### Improvements
 
 - #729: stop processing all relay messages on IBD mod and avoiding compact block message flood (@quake)
-- #640: calculate some hashes when constructing (@yangby-cryptape)
+- #640: calculate some hashes when constructing (@chaoticlonghair)
 - #734: refactor block verification (@zhangsoledad)
 - #634: avoiding unnecessary store lookup and trait bound tweak (@quake)
-- #591: specify different structs for JSON-RPC requests and responses (@yangby-cryptape)
+- #591: specify different structs for JSON-RPC requests and responses (@chaoticlonghair)
 - #659: move VM config from chain spec to CKB config file (@xxuejie)
-- #657: remove ProposalShortId hash and Proposals root (@yangby-cryptape)
-- #668: store transaction hashes into database to avoid computing them again (@yangby-cryptape)
+- #657: remove ProposalShortId hash and Proposals root (@chaoticlonghair)
+- #668: store transaction hashes into database to avoid computing them again (@chaoticlonghair)
 - #706: improve core type fmt debug (@zhangsoledad)
 - #715: rename staging to proposed and remove trace RPC (@zhangsoledad)
 - #724: don't repeat resolve tx when calculate tx fee (@zhangsoledad)
@@ -2856,7 +2856,7 @@ This version is not compatible with v0.13.0, please init a new CKB directory.
 
 ### Features
 
-- #631: add a new rpc: `get_block_by_number` (@yangby-cryptape)
+- #631: add a new rpc: `get_block_by_number` (@chaoticlonghair)
 - #628: inspect and test well-known hashes (@doitian)
 - #623: add syscall for loading transaction hash (@xxuejie)
 - #599: Use DNS txt records for peer address seeding (optional) (@TheWaWaR)
@@ -2864,12 +2864,12 @@ This version is not compatible with v0.13.0, please init a new CKB directory.
 - #598: add RPC `tx_pool_info` to get transaction pool information (@TheWaWaR)
 - #586: Relay transaction by hash (@TheWaWaR)
 - #582: Verify genesis on startup (@keroro520)
-- #570: check if the data in database is compatible with the program (@yangby-cryptape)
-- #569: check if genesis hash in config file was same as 0th block hash in db (@yangby-cryptape)
+- #570: check if the data in database is compatible with the program (@chaoticlonghair)
+- #569: check if genesis hash in config file was same as 0th block hash in db (@chaoticlonghair)
 - #559: add panic logger hook (@keroro520)
 - #554: support ckb prof command (@jjyr)
 - #551: FeeCalculator get transaction from cache priori (@keroro520)
-- #528: capacity uses unit shannon which is `10e-8` CKBytes (@yangby-cryptape)
+- #528: capacity uses unit shannon which is `10e-8` CKBytes (@chaoticlonghair)
 
 ### Bug Fixes
 
@@ -2924,7 +2924,7 @@ This version is not compatible with v0.13.0, please init a new CKB directory.
 ### Bug Fixes
 
 - #510: fix VM hang bug for certain invalid programs (@xxuejie)
-- #509: fix incorrect occupied capacity computation for `Script` (@yangby-cryptape)
+- #509: fix incorrect occupied capacity computation for `Script` (@chaoticlonghair)
 - #480: fix Transaction interface behavior inconsistency (@driftluo)
 - #497: correct `send_transaction` rpc error message for unknown input or dep (@quake)
 - #477: fix mining dependent txs in one block (@jjyr)
@@ -2934,12 +2934,12 @@ This version is not compatible with v0.13.0, please init a new CKB directory.
 - #455: fix Sqlite can not start (@TheWaWaR)
 - #439: fix mining bug caused by type changes in RPC (@xxuejie)
 - #437: RPC `local_node_info` returns duplicated addr (@rink1969)
-- #418: try to repair a corrupted rocksdb automatically (@yangby-cryptape)
+- #418: try to repair a corrupted rocksdb automatically (@chaoticlonghair)
 - #414: clear tx verify cache when chain reorg (@zhangsoledad)
 
 ### Features
 
-- #501: add parameters to control the block generation rate in dummy mode (@yangby-cryptape)
+- #501: add parameters to control the block generation rate in dummy mode (@chaoticlonghair)
 - #503: rpc resolve tx from pending and staging (@driftluo)
 - #481: configurable cellbase maturity (@zhangsoledad)
 - #473: cellbase maturity verification (@u2)
@@ -2953,7 +2953,7 @@ This version is not compatible with v0.13.0, please init a new CKB directory.
 ### Improvements
 
 - #504: refactor: check peers is_banned without query db (@jjyr)
-- #476: modify jsonrpc types (@yangby-cryptape)
+- #476: modify jsonrpc types (@chaoticlonghair)
 
   - chore: let all jsonrpc types be public (for client)
   - feat: change all u64 fields in RPC to String and hide internal Script struct
