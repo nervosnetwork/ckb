@@ -156,6 +156,7 @@ impl BlockFilter {
         let db_transaction = db.begin_transaction();
         db_transaction
             .insert_block_filter(
+                header.number(),
                 &header.hash(),
                 &(filter_data.clone().into()),
                 &parent_block_filter_hash,
