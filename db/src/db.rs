@@ -7,15 +7,17 @@ use ckb_app_config::DBConfig;
 use ckb_db_schema::{Col, legacy, v1};
 use ckb_logger::info;
 use rocksdb::ops::{
-    CompactRangeCF, CreateCF, DropCF, GetColumnFamilys, GetPinned, GetPinnedCF, GetPropertyCF,
-    IngestExternalFileCF, IterateCF, OpenCF, Put, SetOptions, WriteOps,
+    CompactRangeCF, CreateCF, DropCF, Flush, GetColumnFamilys, GetPinned, GetPinnedCF,
+    GetPropertyCF, IngestExternalFileCF, IterateCF, Open, OpenCF, Put, SetOptions, WriteOps,
 };
 use rocksdb::{
-    BlockBasedIndexType, BlockBasedOptions, Cache, ColumnFamily, ColumnFamilyDescriptor,
-    DBPinnableSlice, FullOptions, IngestExternalFileOptions, IteratorMode, OptimisticTransactionDB,
-    OptimisticTransactionOptions, Options, SliceTransform, WriteBatch, WriteOptions, ffi,
+    BlockBasedIndexType, BlockBasedOptions, Cache, ColumnFamily, ColumnFamilyDescriptor, DB,
+    DBPinnableSlice, Env, FlushOptions, FullOptions, IngestExternalFileOptions, IteratorMode,
+    OptimisticTransactionDB, OptimisticTransactionOptions, Options, ReadOnlyDB as RawReadOnlyDB,
+    SliceTransform, WriteBatch, WriteOptions, ffi,
 };
-use std::path::Path;
+use std::fs;
+use std::path::{Component, Path, PathBuf};
 use std::sync::Arc;
 
 const PROPERTY_NUM_KEYS: &str = "rocksdb.estimate-num-keys";
@@ -48,6 +50,8 @@ pub struct RocksDB {
 
 const DEFAULT_CACHE_SIZE: usize = 256 << 20;
 const DEFAULT_CACHE_ENTRY_CHARGE_SIZE: usize = 4096;
+const DEFAULT_NUM_LEVELS: i32 = 7;
+const MIGRATION_MAX_OPEN_FILES: i32 = 256;
 
 const LEGACY_COLUMN_FAMILY_OPTION_MAPPINGS: &[(Col, Option<Col>, &str)] = &[
     (legacy::COLUMN_INDEX, Some(v1::COLUMN_INDEX), "rename"),
@@ -167,8 +171,449 @@ fn legacy_column_family_options_hint(unknown_cf_names: &[&str]) -> Option<String
     }
 }
 
+/// Apply the canonical BlockBasedTable and prefix-extractor options for offline SST creation
+/// and validation, with the per-CF block cache disabled.
+pub fn apply_sst_table_options(col: &str, opts: &mut Options) {
+    let mut block_opts = build_block_based_options(col, opts);
+    block_opts.disable_cache();
+    opts.set_block_based_table_factory(&block_opts);
+}
+
+fn disable_block_cache(opts: &mut Options) {
+    let mut block_opts = BlockBasedOptions::default();
+    block_opts.disable_cache();
+    opts.set_block_based_table_factory(&block_opts);
+}
+
+fn build_block_based_options(col: &str, opts: &mut Options) -> BlockBasedOptions {
+    let mut block_opts = BlockBasedOptions::default();
+    block_opts.set_ribbon_filter(10.0);
+    block_opts.set_index_type(BlockBasedIndexType::TwoLevelIndexSearch);
+    block_opts.set_partition_filters(true);
+    block_opts.set_metadata_block_size(4096);
+    block_opts.set_pin_top_level_index_and_filter(true);
+
+    if col == v1::COLUMN_BLOCK_BODY {
+        // V1 block-body key: block_number (8) + block_hash (32) + tx_index (4).
+        // Prefix is block_key (40 bytes) to group transactions by block.
+        block_opts.set_whole_key_filtering(false);
+        opts.set_prefix_extractor(SliceTransform::create_fixed_prefix(40));
+    } else if col == legacy::COLUMN_BLOCK_BODY {
+        // Legacy block-body key: block_hash (32) + tx_index (4).
+        block_opts.set_whole_key_filtering(false);
+        opts.set_prefix_extractor(SliceTransform::create_fixed_prefix(32));
+    }
+
+    block_opts
+}
+
+fn load_options_file(
+    file: &Path,
+    cache: Option<Cache>,
+    cf_names: &[String],
+) -> Result<(Options, Vec<ColumnFamilyDescriptor>)> {
+    let mut full_opts = FullOptions::load_from_file_with_cache(file, cache, false)
+        .map_err(|err| internal_error(format!("failed to load the options file: {err}")))?;
+    let cf_names_str: Vec<&str> = cf_names.iter().map(|s| s.as_str()).collect();
+    let loaded_cf_names: Vec<_> = full_opts
+        .cf_descriptors
+        .iter()
+        .map(|cf| cf.name().to_string())
+        .collect();
+    let unknown_cf_names: Vec<_> = loaded_cf_names
+        .iter()
+        .map(String::as_str)
+        .filter(|name| {
+            *name != "default" && !cf_names.iter().any(|cf_name| cf_name.as_str() == *name)
+        })
+        .collect();
+    full_opts
+        .complete_column_families(&cf_names_str, false)
+        .map_err(|err| {
+            let unknown_cf_hint = if unknown_cf_names.is_empty() {
+                "no unknown column family was detected before validation".to_string()
+            } else {
+                format!("unknown column families: {unknown_cf_names:?}")
+            };
+            let legacy_cf_hint = legacy_column_family_options_hint(&unknown_cf_names)
+                .unwrap_or_else(|| {
+                    "Check that every [CFOptions \"...\"] section uses a current column-family name"
+                        .to_string()
+                });
+            internal_error(format!(
+                "RocksDB options file {} is incompatible with the current CKB DB schema.\n\n\
+Problem:\n  {unknown_cf_hint}\n\n\
+Likely cause:\n  The options file was generated by an older CKB version with numeric column-family names, such as [CFOptions \"1\"].\n\n\
+How to update column-family options:\n{legacy_cf_hint}\n\n\
+How to fix:\n  Update the column-family names in the RocksDB options file, for example default.db-options, or remove legacy numeric [CFOptions \"...\"] sections you do not need.\n\n\
+RocksDB error:\n  {err}",
+                file.display(),
+            ))
+        })?;
+    let FullOptions {
+        db_opts,
+        cf_descriptors,
+    } = full_opts;
+    Ok((db_opts, cf_descriptors))
+}
+
+#[derive(Default)]
+struct ParsedOptionsFile {
+    wal_dir: Option<PathBuf>,
+    default_num_levels: Option<i32>,
+    cf_num_levels: Vec<(String, i32)>,
+}
+
+enum OptionsSection {
+    DBOptions,
+    CFOptions(String),
+    Other,
+}
+
+fn is_rocksdb_space(byte: u8) -> bool {
+    // Match C-locale `isspace` used by RocksDB's `TrimAndRemoveComment` (never strip non-ASCII
+    // Unicode whitespace such as U+00A0).
+    matches!(byte, b' ' | b'\t' | b'\n' | b'\r' | 0x0b | 0x0c)
+}
+
+fn trim_rocksdb_space(mut slice: &[u8]) -> &[u8] {
+    while let Some(&first) = slice.first() {
+        if is_rocksdb_space(first) {
+            slice = &slice[1..];
+        } else {
+            break;
+        }
+    }
+    while let Some(&last) = slice.last() {
+        if is_rocksdb_space(last) {
+            slice = &slice[..slice.len() - 1];
+        } else {
+            break;
+        }
+    }
+    slice
+}
+
+fn trim_and_remove_comment_bytes(line: &[u8]) -> &[u8] {
+    for (i, &byte) in line.iter().enumerate() {
+        if byte == b'#' && (i == 0 || line[i - 1] != b'\\') {
+            return trim_rocksdb_space(&line[..i]);
+        }
+    }
+    trim_rocksdb_space(line)
+}
+
+fn unescape_option_bytes(raw: &[u8]) -> Vec<u8> {
+    let mut out = Vec::with_capacity(raw.len());
+    let mut escaped = false;
+    for &byte in raw {
+        if escaped {
+            out.push(match byte {
+                b'r' => b'\r',
+                b'n' => b'\n',
+                other => other,
+            });
+            escaped = false;
+        } else if byte == b'\\' {
+            escaped = true;
+        } else {
+            out.push(byte);
+        }
+    }
+    out
+}
+
+fn path_from_option_bytes(bytes: Vec<u8>) -> PathBuf {
+    #[cfg(unix)]
+    {
+        use std::ffi::OsString;
+        use std::os::unix::ffi::OsStringExt;
+        PathBuf::from(OsString::from_vec(bytes))
+    }
+    #[cfg(not(unix))]
+    {
+        PathBuf::from(String::from_utf8_lossy(&bytes).into_owned())
+    }
+}
+
+fn parse_options_file(file: &Path) -> Result<ParsedOptionsFile> {
+    let content = fs::read(file).map_err(|err| {
+        internal_error(format!(
+            "failed to read options file {}: {err}",
+            file.display()
+        ))
+    })?;
+    let mut parsed = ParsedOptionsFile::default();
+    let mut section: Option<OptionsSection> = None;
+
+    for raw_line in content.split(|&b| b == b'\n') {
+        let line = trim_and_remove_comment_bytes(raw_line);
+        if line.is_empty() {
+            continue;
+        }
+        if line.starts_with(b"[") && line.ends_with(b"]") && line.len() >= 2 {
+            let inner = &line[1..line.len() - 1];
+            let first_quote = inner.iter().position(|&b| b == b'"');
+            let last_quote = inner.iter().rposition(|&b| b == b'"');
+            let (title, arg) = match (first_quote, last_quote) {
+                (Some(start), Some(end)) if start < end => (
+                    trim_rocksdb_space(&inner[..start]),
+                    String::from_utf8_lossy(&unescape_option_bytes(&inner[start + 1..end]))
+                        .into_owned(),
+                ),
+                _ => (trim_rocksdb_space(inner), String::new()),
+            };
+            section = Some(match title {
+                b"DBOptions" => OptionsSection::DBOptions,
+                b"CFOptions" => OptionsSection::CFOptions(arg),
+                _ => OptionsSection::Other,
+            });
+            continue;
+        }
+
+        let Some(eq_pos) = line.iter().position(|&b| b == b'=') else {
+            continue;
+        };
+        let key = trim_rocksdb_space(&line[..eq_pos]);
+        let value = trim_and_remove_comment_bytes(&line[eq_pos + 1..]);
+        // Match RocksDB's RocksDBOptionsParser (`opt_map.insert({name, value})`):
+        // within a section, the first occurrence of a key wins and duplicates are ignored.
+        match section.as_ref() {
+            Some(OptionsSection::DBOptions) if key == b"wal_dir" && parsed.wal_dir.is_none() => {
+                parsed.wal_dir = Some(path_from_option_bytes(unescape_option_bytes(value)));
+            }
+            Some(OptionsSection::CFOptions(cf_name)) if key == b"num_levels" => {
+                if let Ok(value_str) = std::str::from_utf8(value)
+                    && let Ok(levels) = value_str.parse::<i32>()
+                {
+                    if cf_name == "default" {
+                        if parsed.default_num_levels.is_none() {
+                            parsed.default_num_levels = Some(levels);
+                        }
+                    } else if !parsed.cf_num_levels.iter().any(|(name, _)| name == cf_name) {
+                        parsed.cf_num_levels.push((cf_name.clone(), levels));
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+
+    Ok(parsed)
+}
+
+fn rocksdb_wal_dir_matches(db_opts: &Options, expected_wal_dir: Option<&Path>) -> Result<bool> {
+    const PROBE_DB_PATH: &str = "/__ckb_wal_dir_probe__";
+    const PROBE_KEY: &[u8] = b"__ckb_wal_dir_probe_key__";
+    const PROBE_VAL: &[u8] = b"1";
+
+    let env = Env::mem_env()
+        .map_err(|err| internal_error(format!("failed to create RocksDB mem env: {err}")))?;
+
+    let mut writer_opts = Options::default();
+    writer_opts.set_env(&env);
+    writer_opts.create_if_missing(true);
+    if let Some(wal_dir) = expected_wal_dir {
+        writer_opts.set_wal_dir(wal_dir);
+    }
+    let writer = DB::open(&writer_opts, PROBE_DB_PATH).map_err(|err| {
+        internal_error(format!("failed to create WAL probe DB in mem env: {err}"))
+    })?;
+    writer
+        .put(PROBE_KEY, PROBE_VAL)
+        .map_err(|err| internal_error(format!("failed to write WAL probe key: {err}")))?;
+
+    // Probe RocksDB's own parsed `db_opts.wal_dir` inside an isolated in-memory Env without
+    // touching the real filesystem. Because `PROBE_KEY` has not been flushed to an SST,
+    // `RawReadOnlyDB` only reads it when RocksDB's parsed `wal_dir` resolves to the exact
+    // directory holding the probe WAL.
+    let mut probe_opts = db_opts.clone();
+    probe_opts.set_env(&env);
+    probe_opts.set_db_log_dir(PROBE_DB_PATH);
+    probe_opts.create_if_missing(false);
+    probe_opts.set_use_direct_reads(false);
+    probe_opts.set_use_direct_io_for_flush_and_compaction(false);
+
+    let matched = match RawReadOnlyDB::open(&probe_opts, PROBE_DB_PATH) {
+        Ok(ro) => ro.get_pinned(PROBE_KEY).map_err(internal_error)?.as_deref() == Some(PROBE_VAL),
+        Err(_) => false,
+    };
+    drop(writer);
+    Ok(matched)
+}
+
+fn normalize_path_for_comparison(path: &Path) -> PathBuf {
+    if let Ok(canonical) = fs::canonicalize(path) {
+        return canonical;
+    }
+    let abs = if path.is_absolute() {
+        path.to_path_buf()
+    } else if let Ok(cwd) = std::env::current_dir() {
+        cwd.join(path)
+    } else {
+        path.to_path_buf()
+    };
+    let mut normalized = PathBuf::new();
+    for component in abs.components() {
+        match component {
+            Component::CurDir => {}
+            Component::ParentDir => match normalized.components().next_back() {
+                Some(Component::Normal(_)) => {
+                    normalized.pop();
+                }
+                Some(Component::RootDir | Component::Prefix(_)) => {}
+                _ => normalized.push(component.as_os_str()),
+            },
+            other => normalized.push(other.as_os_str()),
+        }
+    }
+    normalized
+}
+
+fn reject_separate_wal_dir(
+    db_path: &Path,
+    options_file: &Path,
+    db_opts: &Options,
+    parsed: &ParsedOptionsFile,
+) -> Result<()> {
+    // 1. Ask RocksDB itself (in-memory) whether `db_opts.wal_dir` is empty.
+    if rocksdb_wal_dir_matches(db_opts, None)? {
+        return Ok(());
+    }
+
+    // 2. RocksDB resolved a non-empty `wal_dir`. Require it to equal `db_path` AND confirm
+    //    byte-for-byte with RocksDB itself so any parsing discrepancy fails closed.
+    let Some(wal_dir) = parsed
+        .wal_dir
+        .as_deref()
+        .filter(|dir| !dir.as_os_str().is_empty())
+    else {
+        return Err(internal_error(format!(
+            "RocksDB options file {} configures a separate wal_dir outside database path {}; \
+             offline migration does not support a separate WAL directory. \
+             Flush and close the database and consolidate WAL files into the database directory before migrating.",
+            options_file.display(),
+            db_path.display(),
+        )));
+    };
+    if normalize_path_for_comparison(wal_dir) != normalize_path_for_comparison(db_path)
+        || !rocksdb_wal_dir_matches(db_opts, Some(wal_dir))?
+    {
+        return Err(internal_error(format!(
+            "RocksDB options file {} configures a separate wal_dir ({}) outside database path {}; \
+             offline migration does not support a separate WAL directory. \
+             Flush and close the database and consolidate WAL files into the database directory before migrating.",
+            options_file.display(),
+            wal_dir.display(),
+            db_path.display(),
+        )));
+    }
+    Ok(())
+}
+
 impl RocksDB {
-    pub(crate) fn open_with_check(config: &DBConfig, schema: Schema) -> Result<Self> {
+    /// Inspect the column families recorded in a RocksDB directory's MANIFEST without opening or
+    /// modifying the database. Returns `Ok(None)` if no RocksDB database exists at `path`.
+    pub fn detect_schema<P: AsRef<Path>>(path: P) -> Result<Option<Schema>> {
+        let path = path.as_ref();
+        if !path.join("CURRENT").is_file() {
+            return Ok(None);
+        }
+
+        let opts = Options::default();
+        let cf_names = match DB::list_cf(&opts, path) {
+            Ok(names) => names,
+            Err(err) => {
+                let err_str = err.as_ref();
+                if err_str.starts_with("IO error: No such file or directory") {
+                    return Ok(None);
+                } else if err_str.starts_with("Corruption:") {
+                    info!("DB corrupted: {err_str}.");
+                    return Err(internal_error("DB corrupted"));
+                } else {
+                    return Err(internal_error(format!(
+                        "failed to inspect database column families: {err}"
+                    )));
+                }
+            }
+        };
+
+        let has_v1 = cf_names
+            .iter()
+            .any(|name| v1::COLUMN_FAMILIES.contains(&name.as_str()));
+        let has_legacy = cf_names
+            .iter()
+            .any(|name| legacy::COLUMN_FAMILIES.contains(&name.as_str()));
+
+        match (has_v1, has_legacy) {
+            (true, false) => Ok(Some(Schema::V1)),
+            (false, true) => Ok(Some(Schema::Legacy)),
+            (true, true) => Err(internal_error(format!(
+                "database {} mixes legacy and V1 column families: {cf_names:?}",
+                path.display()
+            ))),
+            (false, false) => Err(internal_error(format!(
+                "database {} has unrecognized column families: {cf_names:?}",
+                path.display()
+            ))),
+        }
+    }
+
+    /// Validate that a RocksDB options file is compatible with `schema`.
+    pub fn validate_options_file(file: &Path, schema: Schema) -> Result<()> {
+        let cf_names = schema_column_family_names(schema);
+        load_options_file(file, None, &cf_names).map(|_| ())
+    }
+
+    /// Validate that `options_file` parses cleanly and does not configure a separate `wal_dir`
+    /// outside `db_path`.
+    pub fn check_options_file_wal_dir(db_path: &Path, options_file: &Path) -> Result<()> {
+        let full_opts = FullOptions::load_from_file_with_cache(options_file, None, false)
+            .map_err(|err| internal_error(format!("failed to load the options file: {err}")))?;
+        let parsed = parse_options_file(options_file)?;
+        reject_separate_wal_dir(db_path, options_file, &full_opts.db_opts, &parsed)
+    }
+
+    /// Validate that `options_file` is compatible with running `--sst-rebuild` on `db_path`.
+    ///
+    /// Rejects malformed options files, separate `wal_dir` configurations outside `db_path`,
+    /// and V1-compatible options files whose effective `num_levels` is smaller than the
+    /// 7-level L6 database produced by SST rebuild.
+    pub fn check_options_file_for_sst_rebuild(db_path: &Path, options_file: &Path) -> Result<()> {
+        let full_opts = FullOptions::load_from_file_with_cache(options_file, None, false)
+            .map_err(|err| internal_error(format!("failed to load the options file: {err}")))?;
+        let parsed = parse_options_file(options_file)?;
+        reject_separate_wal_dir(db_path, options_file, &full_opts.db_opts, &parsed)?;
+
+        let v1_cf_names = schema_column_family_names(Schema::V1);
+        if load_options_file(options_file, None, &v1_cf_names).is_ok() {
+            let effective_num_levels = |cf_name: &str| -> i32 {
+                parsed
+                    .cf_num_levels
+                    .iter()
+                    .find(|(name, _)| name == cf_name)
+                    .map(|(_, levels)| *levels)
+                    .or(parsed.default_num_levels)
+                    .unwrap_or(DEFAULT_NUM_LEVELS)
+            };
+            for cf_name in std::iter::once("default").chain(v1::COLUMN_FAMILIES.iter().copied()) {
+                let num_levels = effective_num_levels(cf_name);
+                if num_levels < DEFAULT_NUM_LEVELS {
+                    return Err(internal_error(format!(
+                        "RocksDB options file {} configures num_levels={num_levels} for column family \"{cf_name}\", \
+                         which is incompatible with the {DEFAULT_NUM_LEVELS}-level L6 database built by --sst-rebuild; \
+                         set num_levels >= {DEFAULT_NUM_LEVELS} before migrating.",
+                        options_file.display(),
+                    )));
+                }
+            }
+        }
+
+        Ok(())
+    }
+
+    /// Open a database with the given configuration and schema, returning an error on failure.
+    pub fn open_with_check(config: &DBConfig, schema: Schema) -> Result<Self> {
         Self::open_with_column_family_names(config, schema_column_family_names(schema))
     }
 
@@ -192,51 +637,7 @@ impl RocksDB {
                 )),
             };
 
-            let mut full_opts = FullOptions::load_from_file_with_cache(file, cache.clone(), false)
-                .map_err(|err| internal_error(format!("failed to load the options file: {err}")))?;
-            let cf_names_str: Vec<&str> = cf_names.iter().map(|s| s.as_str()).collect();
-            let loaded_cf_names: Vec<_> = full_opts
-                .cf_descriptors
-                .iter()
-                .map(|cf| cf.name().to_string())
-                .collect();
-            let unknown_cf_names: Vec<_> = loaded_cf_names
-                .iter()
-                .map(String::as_str)
-                .filter(|name| {
-                    *name != "default" && !cf_names.iter().any(|cf_name| cf_name.as_str() == *name)
-                })
-                .collect();
-            full_opts
-                .complete_column_families(&cf_names_str, false)
-                .map_err(|err| {
-                    let unknown_cf_hint = if unknown_cf_names.is_empty() {
-                        "no unknown column family was detected before validation".to_string()
-                    } else {
-                        format!("unknown column families: {unknown_cf_names:?}")
-                    };
-                    let legacy_cf_hint =
-                        legacy_column_family_options_hint(&unknown_cf_names).unwrap_or_else(
-                            || {
-                                "Check that every [CFOptions \"...\"] section uses a current column-family name"
-                                    .to_string()
-                            },
-                        );
-                    internal_error(format!(
-                        "RocksDB options file {} is incompatible with the current CKB DB schema.\n\n\
-Problem:\n  {unknown_cf_hint}\n\n\
-Likely cause:\n  The options file was generated by an older CKB version with numeric column-family names, such as [CFOptions \"1\"].\n\n\
-How to update column-family options:\n{legacy_cf_hint}\n\n\
-How to fix:\n  Update the column-family names in the RocksDB options file, for example default.db-options, or remove legacy numeric [CFOptions \"...\"] sections you do not need.\n\n\
-RocksDB error:\n  {err}",
-                        file.display(),
-                    ))
-                })?;
-            let FullOptions {
-                db_opts,
-                cf_descriptors,
-            } = full_opts;
-            (db_opts, cf_descriptors)
+            load_options_file(file, cache.clone(), &cf_names)?
         } else {
             let opts = Options::default();
             let cf_descriptors: Vec<_> = cf_names
@@ -247,12 +648,8 @@ RocksDB error:\n  {err}",
         };
 
         for cf in cf_descriptors.iter_mut() {
-            let mut block_opts = BlockBasedOptions::default();
-            block_opts.set_ribbon_filter(10.0);
-            block_opts.set_index_type(BlockBasedIndexType::TwoLevelIndexSearch);
-            block_opts.set_partition_filters(true);
-            block_opts.set_metadata_block_size(4096);
-            block_opts.set_pin_top_level_index_and_filter(true);
+            let cf_name = cf.name().to_string();
+            let mut block_opts = build_block_based_options(&cf_name, &mut cf.options);
             match cache {
                 Some(ref cache) => {
                     block_opts.set_block_cache(cache);
@@ -260,18 +657,6 @@ RocksDB error:\n  {err}",
                     block_opts.set_pin_l0_filter_and_index_blocks_in_cache(true);
                 }
                 None => block_opts.disable_cache(),
-            }
-            if cf.name() == v1::COLUMN_BLOCK_BODY {
-                // V1 block-body key: block_number (8) + block_hash (32) + tx_index (4).
-                // Prefix is block_key (40 bytes) to group transactions by block.
-                block_opts.set_whole_key_filtering(false);
-                cf.options
-                    .set_prefix_extractor(SliceTransform::create_fixed_prefix(40));
-            } else if cf.name() == legacy::COLUMN_BLOCK_BODY {
-                // Legacy block-body key: block_hash (32) + tx_index (4).
-                block_opts.set_whole_key_filtering(false);
-                cf.options
-                    .set_prefix_extractor(SliceTransform::create_fixed_prefix(32));
             }
             cf.options.set_block_based_table_factory(&block_opts);
         }
@@ -322,6 +707,23 @@ RocksDB error:\n  {err}",
         path: P,
         schema: Schema,
     ) -> Result<Option<Self>> {
+        Self::prepare_for_bulk_load_open_with_options(path, schema, None)
+    }
+
+    /// Set appropriate parameters for bulk loading, rejecting separate `wal_dir` configurations
+    /// in `options_file` before any writable open.
+    pub fn prepare_for_bulk_load_open_with_options<P: AsRef<Path>>(
+        path: P,
+        schema: Schema,
+        options_file: Option<&Path>,
+    ) -> Result<Option<Self>> {
+        let path = path.as_ref();
+        if !path.join("CURRENT").is_file() {
+            return Ok(None);
+        }
+        if let Some(file) = options_file {
+            Self::check_options_file_wal_dir(path, file)?;
+        }
         Self::bulk_load_open(path, schema, false)
     }
 
@@ -336,26 +738,175 @@ RocksDB error:\n  {err}",
         })
     }
 
+    /// Open an existing database exclusively for offline migration without creating missing
+    /// files or column families and with background compactions disabled.
+    pub fn open_existing_for_migration<P: AsRef<Path>>(
+        path: P,
+        schema: Schema,
+    ) -> Result<Option<Self>> {
+        Self::open_existing_for_migration_with_options(path, schema, None)
+    }
+
+    /// Open an existing database exclusively for offline migration using DB/CF options from
+    /// `options_file` when provided, rejecting separate `wal_dir` configurations before opening.
+    pub fn open_existing_for_migration_with_options<P: AsRef<Path>>(
+        path: P,
+        schema: Schema,
+        options_file: Option<&Path>,
+    ) -> Result<Option<Self>> {
+        let path = path.as_ref();
+        if !path.join("CURRENT").is_file() {
+            return Ok(None);
+        }
+
+        let (mut opts, cf_descriptors) = if let Some(file) = options_file {
+            let full_opts = FullOptions::load_from_file_with_cache(file, None, false)
+                .map_err(|err| internal_error(format!("failed to load the options file: {err}")))?;
+            let parsed = parse_options_file(file)?;
+            reject_separate_wal_dir(path, file, &full_opts.db_opts, &parsed)?;
+
+            let default_cf_opts = full_opts
+                .cf_descriptors
+                .iter()
+                .find(|cf| cf.name() == "default")
+                .map(|cf| cf.options.clone())
+                .unwrap_or_default();
+            let build_cf = |name: String, mut cf_opts: Options| {
+                cf_opts.set_disable_auto_compactions(true);
+                disable_block_cache(&mut cf_opts);
+                ColumnFamilyDescriptor::new(name, cf_opts)
+            };
+            let mut cf_descriptors = Vec::with_capacity(schema.column_families().len() + 1);
+            cf_descriptors.push(build_cf("default".to_string(), default_cf_opts.clone()));
+            for name in schema_column_family_names(schema) {
+                let cf_opts = full_opts
+                    .cf_descriptors
+                    .iter()
+                    .find(|cf| cf.name() == name)
+                    .map(|cf| cf.options.clone())
+                    .unwrap_or_else(|| default_cf_opts.clone());
+                cf_descriptors.push(build_cf(name, cf_opts));
+            }
+            (full_opts.db_opts, cf_descriptors)
+        } else {
+            let cf_descriptors = schema_column_family_names(schema)
+                .into_iter()
+                .map(|name| {
+                    let mut cf_opts = Options::default();
+                    cf_opts.set_disable_auto_compactions(true);
+                    disable_block_cache(&mut cf_opts);
+                    ColumnFamilyDescriptor::new(name, cf_opts)
+                })
+                .collect();
+            (Options::default(), cf_descriptors)
+        };
+
+        opts.create_if_missing(false);
+        opts.create_missing_column_families(false);
+        opts.set_disable_auto_compactions(true);
+        opts.set_max_open_files(MIGRATION_MAX_OPEN_FILES);
+        disable_block_cache(&mut opts);
+
+        Self::open_cf_descriptors_opt(&opts, path, cf_descriptors)
+    }
+
+    /// Open an existing database with production table options (filters, two-level index,
+    /// prefix extractor) for offline validation, with bounded open files and no background
+    /// compactions or per-CF block caches.
+    pub fn open_existing_for_validation<P: AsRef<Path>>(path: P, schema: Schema) -> Result<Self> {
+        Self::open_existing_for_validation_with_options(path, schema, None)
+    }
+
+    /// Open an existing database for offline validation, optionally using the effective V1
+    /// column-family options from `options_file` so option incompatibilities (such as
+    /// `num_levels < 7`) fail before cutover.
+    pub fn open_existing_for_validation_with_options<P: AsRef<Path>>(
+        path: P,
+        schema: Schema,
+        options_file: Option<&Path>,
+    ) -> Result<Self> {
+        let path = path.as_ref();
+        if !path.join("CURRENT").is_file() {
+            return Err(internal_error(format!(
+                "database path {} does not exist",
+                path.display()
+            )));
+        }
+
+        let cf_names = schema_column_family_names(schema);
+        let (mut opts, mut cf_descriptors) = if let Some(file) = options_file {
+            let (mut db_opts, cf_descriptors) = load_options_file(file, None, &cf_names)?;
+            // Never inherit a WAL path pointing at another directory when validating a staged DB.
+            db_opts.set_wal_dir("");
+            (db_opts, cf_descriptors)
+        } else {
+            let cf_descriptors = cf_names
+                .into_iter()
+                .map(|name| ColumnFamilyDescriptor::new(name, Options::default()))
+                .collect();
+            (Options::default(), cf_descriptors)
+        };
+
+        opts.create_if_missing(false);
+        opts.create_missing_column_families(false);
+        opts.set_disable_auto_compactions(true);
+        opts.set_max_open_files(MIGRATION_MAX_OPEN_FILES);
+        disable_block_cache(&mut opts);
+
+        for cf in &mut cf_descriptors {
+            let cf_name = cf.name().to_string();
+            cf.options.set_disable_auto_compactions(true);
+            apply_sst_table_options(&cf_name, &mut cf.options);
+        }
+
+        Self::open_cf_descriptors_opt(&opts, path, cf_descriptors)?.ok_or_else(|| {
+            internal_error(format!("database path {} does not exist", path.display()))
+        })
+    }
+
     fn bulk_load_open<P: AsRef<Path>>(
         path: P,
         schema: Schema,
         create_if_missing: bool,
     ) -> Result<Option<Self>> {
         let path = path.as_ref();
-        if !create_if_missing && !path.exists() {
+        if !create_if_missing && !path.join("CURRENT").is_file() {
             return Ok(None);
         }
 
-        let mut opts = Options::default();
+        let configure = |o: &mut Options| {
+            o.set_prepare_for_bulk_load();
+            // Restore standard 7 levels + dynamic level bytes after PrepareForBulkLoad (which
+            // forces num_levels=2): existing L0..L6 DBs open cleanly and ingested SSTs land at L6.
+            o.set_num_levels(DEFAULT_NUM_LEVELS);
+            o.set_level_compaction_dynamic_level_bytes(true);
+            disable_block_cache(o);
+        };
 
+        let mut opts = Options::default();
         opts.create_if_missing(create_if_missing);
         opts.create_missing_column_families(true);
-        opts.set_prepare_for_bulk_load();
+        configure(&mut opts);
+        opts.set_max_open_files(MIGRATION_MAX_OPEN_FILES);
 
-        let cfnames = schema_column_family_names(schema);
-        let cf_options: Vec<&str> = cfnames.iter().map(|n| n as &str).collect();
+        let cf_descriptors = schema_column_family_names(schema)
+            .into_iter()
+            .map(|name| {
+                let mut cf_opts = Options::default();
+                configure(&mut cf_opts);
+                ColumnFamilyDescriptor::new(name, cf_opts)
+            })
+            .collect();
 
-        OptimisticTransactionDB::open_cf(&opts, path, cf_options).map_or_else(
+        Self::open_cf_descriptors_opt(&opts, path, cf_descriptors)
+    }
+
+    fn open_cf_descriptors_opt(
+        opts: &Options,
+        path: &Path,
+        cf_descriptors: Vec<ColumnFamilyDescriptor>,
+    ) -> Result<Option<Self>> {
+        OptimisticTransactionDB::open_cf_descriptors(opts, path, cf_descriptors).map_or_else(
             |err| {
                 let err_str = err.as_ref();
                 if err_str.starts_with("Invalid argument:")
@@ -399,6 +950,24 @@ RocksDB error:\n  {err}",
         V: AsRef<[u8]>,
     {
         self.inner.put(key, value).map_err(internal_error)
+    }
+
+    /// Insert a value into the default column family with `WriteOptions::set_sync(true)`.
+    pub fn put_default_sync<K, V>(&self, key: K, value: V) -> Result<()>
+    where
+        K: AsRef<[u8]>,
+        V: AsRef<[u8]>,
+    {
+        let mut wo = WriteOptions::new();
+        wo.set_sync(true);
+        self.inner.put_opt(key, value, &wo).map_err(internal_error)
+    }
+
+    /// Flush the default column family memtable to disk and wait for completion.
+    pub fn flush_default(&self) -> Result<()> {
+        let mut flush_opts = FlushOptions::default();
+        flush_opts.set_wait(true);
+        self.inner.flush_opt(&flush_opts).map_err(internal_error)
     }
 
     /// Traverse database column with the given callback function.

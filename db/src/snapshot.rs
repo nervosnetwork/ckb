@@ -40,6 +40,13 @@ impl RocksDBSnapshot {
         self.get_pinned_cf_full(Some(cf), key, None)
             .map_err(internal_error)
     }
+
+    /// Return the value associated with a key using RocksDB's PinnableSlice from the default column
+    /// so as to avoid unnecessary memory copy.
+    pub fn get_pinned_default(&self, key: &[u8]) -> Result<Option<DBPinnableSlice<'_>>> {
+        self.get_pinned_cf_full(None, key, None)
+            .map_err(internal_error)
+    }
 }
 
 impl Read for RocksDBSnapshot {}

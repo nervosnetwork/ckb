@@ -124,6 +124,7 @@ impl ChainDB {
             inner: self.db.transaction(),
             freezer: self.freezer.clone(),
             cache: Arc::clone(&self.cache),
+            deleted_block_hashes: ckb_util::Mutex::new(Vec::new()),
         }
     }
 

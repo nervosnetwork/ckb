@@ -26,6 +26,7 @@ use ckb_types::{
     prelude::*,
     utilities::calc_filter_hash,
 };
+use ckb_util::Mutex;
 use std::sync::Arc;
 
 /// A Transaction DB
@@ -33,6 +34,7 @@ pub struct StoreTransaction {
     pub(crate) inner: RocksDBTransaction,
     pub(crate) freezer: Option<Freezer>,
     pub(crate) cache: Arc<StoreCache>,
+    pub(crate) deleted_block_hashes: Mutex<Vec<Byte32>>,
 }
 
 impl ChainStore for StoreTransaction {
@@ -141,7 +143,12 @@ impl StoreTransaction {
 
     /// Commits the transaction, writing all changes to the database.
     pub fn commit(&self) -> Result<(), Error> {
-        self.inner.commit()
+        self.inner.commit()?;
+        let deleted_hashes: Vec<_> = self.deleted_block_hashes.lock().drain(..).collect();
+        for hash in &deleted_hashes {
+            self.cache.invalidate_block(hash);
+        }
+        Ok(())
     }
 
     /// Returns a snapshot of the transaction's current state.
@@ -211,9 +218,6 @@ impl StoreTransaction {
         let index_value = BlockHashIndexValue { number, flag }.encode();
         self.insert_raw(COLUMN_HASH_INDEX, hash.as_slice(), &index_value)?;
 
-        // Populate block_numbers cache to avoid subsequent COLUMN_HASH_INDEX lookups
-        self.cache.block_numbers.lock().put(hash, number);
-
         Ok(())
     }
 
@@ -267,6 +271,7 @@ impl StoreTransaction {
             self.delete(COLUMN_INDEX, &number_key)?;
         }
 
+        self.deleted_block_hashes.lock().push(hash.clone());
         self.cache.invalidate_block(&hash);
 
         Ok(())

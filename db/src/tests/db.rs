@@ -89,6 +89,103 @@ fn bulk_load_open_does_not_create_missing_db() {
 }
 
 #[test]
+fn detect_schema_and_exclusive_migration_open() {
+    let tmp_dir = tempfile::Builder::new()
+        .prefix("detect_schema_and_exclusive_migration_open")
+        .tempdir()
+        .unwrap();
+
+    // Missing directory returns None.
+    let missing = tmp_dir.as_ref().join("missing");
+    assert_eq!(RocksDB::detect_schema(&missing).unwrap(), None);
+
+    // Empty directory (as created by app config mkdir) returns None without mutating it.
+    let empty = tmp_dir.as_ref().join("empty");
+    std::fs::create_dir_all(&empty).unwrap();
+    assert_eq!(RocksDB::detect_schema(&empty).unwrap(), None);
+    assert!(
+        RocksDB::prepare_for_bulk_load_open(&empty, Schema::V1)
+            .unwrap()
+            .is_none()
+    );
+    assert!(std::fs::read_dir(&empty).unwrap().next().is_none());
+
+    // V1 and Legacy schemas are detected cleanly from MANIFEST.
+    let v1_path = tmp_dir.as_ref().join("v1");
+    drop(RocksDB::open_in(&v1_path, Schema::V1));
+    assert_eq!(RocksDB::detect_schema(&v1_path).unwrap(), Some(Schema::V1));
+
+    let legacy_path = tmp_dir.as_ref().join("legacy");
+    let live_legacy = RocksDB::open_in(&legacy_path, Schema::Legacy);
+    assert_eq!(
+        RocksDB::detect_schema(&legacy_path).unwrap(),
+        Some(Schema::Legacy)
+    );
+
+    // Exclusive migration open must fail while another primary RocksDB holds LOCK.
+    assert!(RocksDB::open_existing_for_migration(&legacy_path, Schema::Legacy).is_err());
+    drop(live_legacy);
+
+    // Once released, exclusive migration open succeeds.
+    let locked = RocksDB::open_existing_for_migration(&legacy_path, Schema::Legacy)
+        .unwrap()
+        .unwrap();
+    assert!(RocksDB::open_existing_for_migration(&legacy_path, Schema::Legacy).is_err());
+    drop(locked);
+}
+
+#[test]
+fn bulk_load_open_supports_l6_sst_files() {
+    use rocksdb::ops::{GetColumnFamilys, GetPropertyCF};
+
+    let tmp_dir = tempfile::Builder::new()
+        .prefix("bulk_load_open_supports_l6_sst_files")
+        .tempdir()
+        .unwrap();
+    let db_path = tmp_dir.as_ref().join("legacy");
+    {
+        let db = RocksDB::open_in(&db_path, Schema::Legacy);
+        let txn = db.transaction();
+        for i in 0u32..64 {
+            txn.put(
+                ckb_db_schema::legacy::COLUMN_BLOCK_HEADER,
+                &i.to_be_bytes(),
+                &[0xAAu8; 128],
+            )
+            .unwrap();
+        }
+        txn.commit().unwrap();
+        drop(txn);
+        db.compact_range(ckb_db_schema::legacy::COLUMN_BLOCK_HEADER, None, None)
+            .unwrap();
+        let inner = db.inner();
+        let cf = inner
+            .cf_handle(ckb_db_schema::legacy::COLUMN_BLOCK_HEADER)
+            .unwrap();
+        let l6_files = inner
+            .property_int_value_cf(cf, "rocksdb.num-files-at-level6")
+            .unwrap()
+            .unwrap_or(0);
+        assert!(l6_files > 0, "expected compacted SSTs at L6");
+    }
+
+    // Must reopen cleanly with num_levels=7 instead of failing with
+    // "db has more levels than options.num_levels".
+    let bulk_db = RocksDB::prepare_for_bulk_load_open(&db_path, Schema::Legacy)
+        .unwrap()
+        .unwrap();
+    assert!(
+        bulk_db
+            .get_pinned(
+                ckb_db_schema::legacy::COLUMN_BLOCK_HEADER,
+                &0u32.to_be_bytes()
+            )
+            .unwrap()
+            .is_some()
+    );
+}
+
+#[test]
 fn write_and_read() {
     let db = setup_db("write_and_read", 2);
 

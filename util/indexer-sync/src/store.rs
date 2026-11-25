@@ -1,10 +1,11 @@
 use crate::error::Error;
 
-use ckb_db_schema::Col;
+use ckb_db_schema::{COLUMN_BLOCK_BODY, Col};
 use ckb_store::{ChainStore, Freezer, StoreCache};
 use rocksdb::{
     ColumnFamilyDescriptor, DBIterator, DBPinnableSlice, IteratorMode,
-    SecondaryDB as SecondaryRocksDB, SecondaryOpenDescriptor, ops::OpenCF, prelude::*,
+    SecondaryDB as SecondaryRocksDB, SecondaryOpenDescriptor, SliceTransform, ops::OpenCF,
+    prelude::*,
 };
 use std::path::Path;
 use std::sync::Arc;
@@ -50,7 +51,14 @@ impl SecondaryDB {
     {
         let cf_descriptors: Vec<_> = cf_names
             .into_iter()
-            .map(|name| ColumnFamilyDescriptor::new(name, Options::default()))
+            .map(|name| {
+                let name = name.into();
+                let mut cf_opts = Options::default();
+                if name == COLUMN_BLOCK_BODY {
+                    cf_opts.set_prefix_extractor(SliceTransform::create_fixed_prefix(40));
+                }
+                ColumnFamilyDescriptor::new(name, cf_opts)
+            })
             .collect();
 
         let descriptor = SecondaryOpenDescriptor::new(secondary_path);
