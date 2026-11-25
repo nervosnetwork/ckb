@@ -54,6 +54,7 @@ pub(crate) struct RequestGate {
     ordinary: Arc<Semaphore>,
     reads: Arc<Semaphore>,
     callback_reads: Arc<Semaphore>,
+    callback_read_capacity: usize,
     inflight: AtomicUsize,
     drained: Notify,
 }
@@ -80,6 +81,9 @@ impl Drop for RequestPermit {
         if remaining == 0 && self.gate.is_closed() {
             self.gate.drained.notify_waiters();
         }
+        if ckb_metrics::handle().is_some() {
+            crate::metrics::record_direct_gate_usage(remaining, self.gate.callback_read_inflight());
+        }
     }
 }
 
@@ -99,6 +103,7 @@ impl RequestGate {
             ordinary: Arc::new(Semaphore::new(ordinary_capacity)),
             reads: Arc::new(Semaphore::new(read_capacity)),
             callback_reads: Arc::new(Semaphore::new(read_capacity)),
+            callback_read_capacity: read_capacity,
             inflight: AtomicUsize::new(0),
             drained: Notify::new(),
         })
@@ -160,7 +165,10 @@ impl RequestGate {
             Err(TryAcquireError::Closed) => return Err(closed_gate_error()),
             Err(TryAcquireError::NoPermits) => return Err(full_gate_error()),
         };
-        self.inflight.fetch_add(1, Ordering::SeqCst);
+        let inflight = self
+            .inflight
+            .fetch_add(1, Ordering::SeqCst)
+            .saturating_add(1);
         let guard = RequestPermit {
             gate: Arc::clone(self),
             permit: Some(permit),
@@ -168,6 +176,9 @@ impl RequestGate {
         if self.is_closed() {
             drop(guard);
             return Err(closed_gate_error());
+        }
+        if ckb_metrics::handle().is_some() {
+            crate::metrics::record_direct_gate_usage(inflight, self.callback_read_inflight());
         }
         Ok(guard)
     }
@@ -216,6 +227,11 @@ impl RequestGate {
     #[cfg(any(test, feature = "internal"))]
     pub(crate) fn inflight(&self) -> usize {
         self.inflight.load(Ordering::SeqCst)
+    }
+
+    fn callback_read_inflight(&self) -> usize {
+        self.callback_read_capacity
+            .saturating_sub(self.callback_reads.available_permits())
     }
 
     #[cfg(test)]

@@ -94,6 +94,14 @@ make_static_metric! {
         },
     }
 
+    struct CkbTxPoolAuthorityRuntimeStatistics: IntGauge{
+        "metric" => {
+            descendant_index_entries,
+            direct_inflight,
+            callback_read_inflight,
+        },
+    }
+
     struct CkbHeaderMapMemoryHitMissStatistics: IntCounter{
         "type" => {
             hit,
@@ -185,6 +193,14 @@ pub struct Metrics {
     pub ckb_tx_pool_pipeline_failures: CkbTxPoolPipelineFailureStatistics,
     /// Gauges for the effect journal's cumulative capacity lattice.
     pub ckb_tx_pool_effect_usage: CkbTxPoolEffectUsageStatistics,
+    /// Histogram for waiting to acquire the single-writer authority write lock (seconds).
+    pub ckb_tx_pool_authority_write_wait_seconds: Histogram,
+    /// Histogram for holding the single-writer authority write lock (seconds).
+    pub ckb_tx_pool_authority_write_hold_seconds: Histogram,
+    /// Counter for ordinary commits/previews that yielded to ReorgGate priority preemption.
+    pub ckb_tx_pool_reorg_gate_waits: IntCounter,
+    /// Gauges for single-writer authority runtime indexes and direct-gate concurrency.
+    pub ckb_tx_pool_authority_runtime: CkbTxPoolAuthorityRuntimeStatistics,
     /// Histogram for CKB network connections
     pub ckb_message_bytes: HistogramVec,
     /// Gauge for CKB rocksdb statistics
@@ -414,6 +430,31 @@ static METRICS: std::sync::LazyLock<Metrics> = std::sync::LazyLock::new(|| {
             "ckb_tx_pool_effect_usage",
             "Staged tx-pool effect-journal usage by cumulative region",
             &["region"]
+        )
+                .unwrap(),
+        ),
+    ckb_tx_pool_authority_write_wait_seconds: register_histogram!(
+        "ckb_tx_pool_authority_write_wait_seconds",
+        "Wait duration to acquire the single-writer tx-pool authority write lock (seconds)",
+        vec![0.00001, 0.00005, 0.0001, 0.0005, 0.001, 0.005, 0.01, 0.05, 0.1, 0.5, 1.0]
+    )
+            .unwrap(),
+    ckb_tx_pool_authority_write_hold_seconds: register_histogram!(
+        "ckb_tx_pool_authority_write_hold_seconds",
+        "Hold duration of the single-writer tx-pool authority write lock (seconds)",
+        vec![0.00001, 0.00005, 0.0001, 0.0005, 0.001, 0.005, 0.01, 0.05, 0.1, 0.5, 1.0]
+    )
+            .unwrap(),
+    ckb_tx_pool_reorg_gate_waits: register_int_counter!(
+        "ckb_tx_pool_reorg_gate_waits",
+        "Count of ordinary tx-pool commits or previews yielding to ReorgGate priority"
+    )
+            .unwrap(),
+    ckb_tx_pool_authority_runtime: CkbTxPoolAuthorityRuntimeStatistics::from(
+            &register_int_gauge_vec!(
+            "ckb_tx_pool_authority_runtime",
+            "Single-writer tx-pool authority runtime index and direct-gate concurrency",
+            &["metric"]
         )
                 .unwrap(),
         ),

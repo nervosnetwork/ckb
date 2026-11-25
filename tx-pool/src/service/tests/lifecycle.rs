@@ -980,3 +980,501 @@ async fn hot_template_response_construction_enforces_deadline_and_reclaims_permi
     within(generation).await.unwrap();
     assert!(!pool.is_faulted());
 }
+
+fn funded_test_genesis(
+    output_count: usize,
+    output_capacity: u64,
+) -> (
+    Arc<ckb_chain_spec::consensus::Consensus>,
+    ckb_types::packed::Byte32,
+) {
+    use ckb_chain_spec::consensus::ConsensusBuilder;
+    use ckb_test_chain_utils::{always_success_cell, always_success_consensus};
+    use ckb_types::{bytes::Bytes, core::Capacity, packed::CellOutput, prelude::*};
+
+    let (_, _, always_success_script) = always_success_cell();
+    let funding_cell = CellOutput::new_builder()
+        .capacity(Capacity::shannons(output_capacity))
+        .lock(always_success_script.clone())
+        .build();
+    let mut funding_builder = TransactionBuilder::default();
+    for _ in 0..output_count {
+        funding_builder = funding_builder
+            .output(funding_cell.clone())
+            .output_data(Bytes::new().pack());
+    }
+    let funding_tx = funding_builder.build();
+    let funding_hash = funding_tx.hash();
+    let genesis = always_success_consensus()
+        .genesis_block()
+        .as_advanced_builder()
+        .transaction(funding_tx)
+        .build();
+    let consensus = Arc::new(
+        ConsensusBuilder::default()
+            .genesis_block(genesis)
+            .max_block_bytes(2_000_000)
+            .max_block_cycles(100_000_000_000)
+            .build(),
+    );
+    (consensus, funding_hash)
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn adversarial_mixed_local_and_hostile_remote_flood_preserves_local_fairness_and_invariants()
+{
+    use crate::authority::tests::common::{chain_store, funded_tx, template_config};
+    use ckb_network::PeerIndex;
+    use ckb_types::{
+        bytes::Bytes,
+        core::{Capacity, FeeRate},
+        packed::{Byte32, CellInput, CellOutput, OutPoint, Script},
+        prelude::*,
+    };
+
+    const OUTPUT_CAP: u64 = 20_000_000_000;
+    const LOCAL_COUNT: usize = 48;
+    const REMOTE_COUNT: usize = 64;
+
+    let (consensus, funding_hash) = funded_test_genesis(LOCAL_COUNT + REMOTE_COUNT, OUTPUT_CAP);
+    let (_mock_store, snapshot) = chain_store(consensus);
+    let directory = tempfile::tempdir().unwrap();
+    let handle = Handle::new(tokio::runtime::Handle::current(), None);
+    let (builder, controller, _relay) = TxPoolServiceBuilder::new(
+        TxPoolConfig {
+            max_tx_verify_workers: 2,
+            min_fee_rate: FeeRate::from_u64(1_000),
+            min_rbf_rate: FeeRate::from_u64(1_500),
+            max_tx_pool_size: 40_000,
+            persisted_data: directory.path().join("pool"),
+            recent_reject: directory.path().join("recent_reject"),
+            ..TxPoolConfig::default()
+        },
+        snapshot,
+        Some(template_config(50)),
+        Arc::new(RwLock::new(init_cache())),
+        &handle,
+        FeeEstimator::new_dummy(),
+    )
+    .unwrap();
+    let pool = builder.pool_for_test();
+    let generation = builder.start_with_handle(DummyTxPoolNetwork);
+    started(&controller).await;
+
+    // Build honest high-fee local transactions (outputs 0..LOCAL_COUNT).
+    let local_txs: Vec<_> = (0..LOCAL_COUNT as u32)
+        .map(|i| {
+            funded_tx(
+                OutPoint::new(funding_hash.clone(), i),
+                OUTPUT_CAP - 5_000_000,
+            )
+        })
+        .collect();
+
+    // Build hostile remote traffic: missing-parent orphans, low-fee valid
+    // transactions, RBF conflicts, and malformed zero-input transactions across
+    // multiple hostile peer indices.
+    let mut remote_batches = Vec::new();
+    for peer_offset in 0..8usize {
+        let peer = PeerIndex::from(100 + peer_offset);
+        let mut batch = Vec::new();
+        for k in 0..8usize {
+            let idx = (LOCAL_COUNT + peer_offset * 8 + k) as u32;
+            // Low-fee valid tx + competing RBF tx on same input
+            batch.push((
+                funded_tx(
+                    OutPoint::new(funding_hash.clone(), idx),
+                    OUTPUT_CAP - 10_000,
+                ),
+                Some(1_000_000),
+                peer,
+            ));
+            batch.push((
+                funded_tx(
+                    OutPoint::new(funding_hash.clone(), idx),
+                    OUTPUT_CAP - 50_000,
+                ),
+                Some(1_000_000),
+                peer,
+            ));
+            // Missing-parent orphan (exercises Waiting + waiters + dirty_wakes)
+            let orphan_parent = Byte32::new([(peer_offset as u8).wrapping_add(1); 32]);
+            batch.push((
+                funded_tx(OutPoint::new(orphan_parent, k as u32), OUTPUT_CAP - 10_000),
+                Some(1_000_000),
+                peer,
+            ));
+            // Malformed tx with invalid empty-code-hash script
+            let bad_tx = TransactionBuilder::default()
+                .input(CellInput::new(OutPoint::new(funding_hash.clone(), idx), 0))
+                .output(
+                    CellOutput::new_builder()
+                        .capacity(Capacity::shannons(OUTPUT_CAP + 1))
+                        .lock(Script::default())
+                        .build(),
+                )
+                .output_data(Bytes::new().pack())
+                .build();
+            batch.push((bad_tx, Some(1_000_000), peer));
+        }
+        remote_batches.push(batch);
+    }
+
+    // Flood hostile remote batches concurrently while submitting honest high-fee
+    // local transactions.
+    let remote_controller = controller.clone();
+    let flood = tokio::spawn(async move {
+        for batch in remote_batches {
+            for (tx, cycles, peer) in batch {
+                let _ = remote_controller
+                    .submit_remote_tx(tx, cycles.unwrap_or(0), peer)
+                    .await;
+            }
+            tokio::task::yield_now().await;
+        }
+    });
+
+    for tx in &local_txs {
+        within(controller.submit_local_tx_async(tx.clone()))
+            .await
+            .expect("honest local tx must not starve under remote flood")
+            .expect("honest high-fee local tx must be accepted");
+    }
+    within(flood).await.unwrap();
+
+    // Every honest high-fee local transaction must remain accepted in the pool
+    // and all authority indexes/descendants/eviction_bounds must stay exact.
+    let ids = controller.get_all_ids().unwrap();
+    for tx in &local_txs {
+        assert!(
+            ids.pending.contains(&tx.hash()) || ids.proposed.contains(&tx.hash()),
+            "honest high-fee local tx {} must survive hostile low-fee flood",
+            tx.hash()
+        );
+    }
+    pool.assert_state_invariants_for_test();
+    assert!(!pool.is_faulted());
+
+    controller.stop();
+    within(generation).await.unwrap();
+    assert_eq!(controller.gate.inflight(), 0);
+    assert!(!pool.is_faulted());
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn concurrent_multi_subsystem_soak_preserves_state_and_descendant_invariants() {
+    use crate::authority::tests::common::{chain_store, funded_tx, template_config};
+    use ckb_types::{U256, core::FeeRate, packed::OutPoint};
+
+    const OUTPUT_CAP: u64 = 20_000_000_000;
+    const CHAIN_COUNT: usize = 24;
+    const CHAIN_DEPTH: usize = 3;
+
+    let (consensus, funding_hash) = funded_test_genesis(CHAIN_COUNT + 8, OUTPUT_CAP);
+    let (mock_store, base_snapshot) = chain_store(Arc::clone(&consensus));
+    let directory = tempfile::tempdir().unwrap();
+    let handle = Handle::new(tokio::runtime::Handle::current(), None);
+    let (builder, controller, _relay) = TxPoolServiceBuilder::new(
+        TxPoolConfig {
+            max_tx_verify_workers: 2,
+            min_fee_rate: FeeRate::zero(),
+            max_tx_pool_size: 4_000_000,
+            persisted_data: directory.path().join("pool"),
+            recent_reject: directory.path().join("recent_reject"),
+            ..TxPoolConfig::default()
+        },
+        Arc::clone(&base_snapshot),
+        Some(template_config(25)),
+        Arc::new(RwLock::new(init_cache())),
+        &handle,
+        FeeEstimator::new_dummy(),
+    )
+    .unwrap();
+    let pool = builder.pool_for_test();
+    let generation = builder.start_with_handle(DummyTxPoolNetwork);
+    started(&controller).await;
+
+    // Build 24 multi-hop parent->child->grandchild chains + 8 preview-only txs.
+    let mut chains = Vec::with_capacity(CHAIN_COUNT);
+    for idx in 0..CHAIN_COUNT as u32 {
+        let mut chain = Vec::with_capacity(CHAIN_DEPTH);
+        let mut prev = OutPoint::new(funding_hash.clone(), idx);
+        let mut cap = OUTPUT_CAP;
+        for _ in 0..CHAIN_DEPTH {
+            cap -= 100_000;
+            let tx = funded_tx(prev, cap);
+            prev = OutPoint::new(tx.hash(), 0);
+            chain.push(tx);
+        }
+        chains.push(chain);
+    }
+    let preview_txs: Vec<_> = (CHAIN_COUNT as u32..(CHAIN_COUNT + 8) as u32)
+        .map(|idx| {
+            funded_tx(
+                OutPoint::new(funding_hash.clone(), idx),
+                OUTPUT_CAP - 100_000,
+            )
+        })
+        .collect();
+
+    // Prepare alternating fork blocks (fork A and fork B) at height 1 for live reorgs.
+    let genesis = consensus.genesis_block();
+    let epoch_ext = base_snapshot.epoch_ext().clone();
+    let fork_block = |timestamp: u64| -> (BlockView, Arc<Snapshot>) {
+        let block = BlockBuilder::default()
+            .number(1)
+            .parent_hash(genesis.hash())
+            .timestamp(timestamp)
+            .compact_target(genesis.compact_target())
+            .epoch(epoch_ext.number_with_fraction(1))
+            .dao(genesis.dao())
+            .build();
+        mock_store.insert_block(&block, &epoch_ext);
+        let snap = Arc::new(Snapshot::new(
+            block.header(),
+            U256::from(1u64),
+            epoch_ext.clone(),
+            mock_store.store().get_snapshot(),
+            Default::default(),
+            Arc::clone(&consensus),
+        ));
+        (block, snap)
+    };
+    let (block_a, snap_a) = fork_block(10_000);
+    let (block_b, snap_b) = fork_block(20_000);
+
+    let stop_readers = Arc::new(std::sync::atomic::AtomicBool::new(false));
+
+    // Subsystem 1: concurrent read-only previews (`test_accept_tx`).
+    // Under 24 concurrent chain writers with 2 workers, bounded active-job
+    // backpressure (`Reject::Full`) is valid; every other preview must succeed.
+    let preview_handle = tokio::task::spawn_blocking({
+        let controller = controller.clone();
+        let stop = Arc::clone(&stop_readers);
+        let preview_txs = preview_txs.clone();
+        move || {
+            let mut rounds = 0usize;
+            let mut succeeded = 0usize;
+            while !stop.load(std::sync::atomic::Ordering::SeqCst) || rounds < 2 {
+                for tx in &preview_txs {
+                    match controller.test_accept_tx(tx.clone()).unwrap() {
+                        Ok(_) => succeeded += 1,
+                        Err(crate::error::Reject::Full(_)) => {}
+                        Err(other) => panic!("unexpected preview rejection: {other:?}"),
+                    }
+                }
+                rounds += 1;
+                if rounds >= 8 {
+                    break;
+                }
+            }
+            assert!(
+                succeeded > 0,
+                "at least one concurrent preview must succeed"
+            );
+        }
+    });
+
+    // Subsystem 2: concurrent block templates & pool info queries.
+    let reader_handle = tokio::task::spawn_blocking({
+        let controller = controller.clone();
+        let stop = Arc::clone(&stop_readers);
+        move || {
+            let mut reads = 0usize;
+            while !stop.load(std::sync::atomic::Ordering::SeqCst) || reads < 3 {
+                let _ = controller.get_tx_pool_info().unwrap();
+                let _ = controller.get_block_template(None, None, None).unwrap();
+                reads += 1;
+                if reads >= 10 {
+                    break;
+                }
+            }
+        }
+    });
+
+    // Subsystem 3: rapid fork reorgs + persistence saves.
+    let reorg_handle = tokio::task::spawn_blocking({
+        let controller = controller.clone();
+        move || {
+            controller
+                .update_tx_pool_for_reorg(
+                    VecDeque::new(),
+                    VecDeque::from([block_a.clone()]),
+                    Arc::clone(&snap_a),
+                )
+                .unwrap();
+            controller.save_pool().unwrap();
+            controller
+                .update_tx_pool_for_reorg(
+                    VecDeque::from([block_a]),
+                    VecDeque::from([block_b.clone()]),
+                    Arc::clone(&snap_b),
+                )
+                .unwrap();
+            controller.save_pool().unwrap();
+            controller
+                .update_tx_pool_for_reorg(
+                    VecDeque::from([block_b]),
+                    VecDeque::new(),
+                    Arc::clone(&base_snapshot),
+                )
+                .unwrap();
+        }
+    });
+
+    // Subsystem 4: concurrent multi-hop chain submissions.
+    let mut submit_tasks = Vec::new();
+    for chain in chains {
+        let controller = controller.clone();
+        submit_tasks.push(tokio::spawn(async move {
+            for tx in chain {
+                controller.submit_local_tx_async(tx).await.unwrap().unwrap();
+            }
+        }));
+    }
+    for task in submit_tasks {
+        within(task).await.unwrap();
+    }
+    within(reorg_handle).await.unwrap();
+    stop_readers.store(true, std::sync::atomic::Ordering::SeqCst);
+    within(preview_handle).await.unwrap();
+    within(reader_handle).await.unwrap();
+
+    // All 72 chained transactions must be present, every preview tx succeeds
+    // once the burst drains, and every derived index (descendants,
+    // eviction_bounds, phase counts, usage) must match exact recomputation.
+    for tx in &preview_txs {
+        let res = controller.test_accept_tx(tx.clone()).unwrap();
+        assert!(
+            res.is_ok(),
+            "post-burst read-only preview must succeed: {res:?}"
+        );
+    }
+    let info = controller.get_tx_pool_info().unwrap();
+    assert_eq!(info.pending_size, CHAIN_COUNT * CHAIN_DEPTH);
+    pool.assert_state_invariants_for_test();
+    assert!(!pool.is_faulted());
+
+    controller.stop();
+    within(generation).await.unwrap();
+    assert_eq!(controller.gate.inflight(), 0);
+    assert!(!pool.is_faulted());
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn legacy_v1_persisted_pool_and_legacy_toml_upgrade_replay_cleanly() {
+    use crate::authority::tests::common::chain_store;
+    use crate::authority::tests::common::funded_tx;
+    use ckb_app_config::CKBAppConfig;
+    use ckb_types::{
+        packed::{OutPoint, TransactionVec},
+        prelude::*,
+    };
+
+    const OUTPUT_CAP: u64 = 20_000_000_000;
+    let (consensus, funding_hash) = funded_test_genesis(2, OUTPUT_CAP);
+    let (_mock_store, snapshot) = chain_store(consensus);
+
+    // 1. Verify a real legacy ckb.toml [tx_pool] section (including pre-rewrite
+    //    defaults and deprecated keys) loads cleanly into TxPoolConfig.
+    let base_toml = include_str!("../../../../resource/ckb.toml");
+    let before_tx_pool = base_toml
+        .split("[tx_pool]")
+        .next()
+        .expect("bundled ckb.toml contains [tx_pool]");
+    let after_tx_pool = base_toml
+        .split("[store]")
+        .nth(1)
+        .expect("bundled ckb.toml contains [store]");
+    let legacy_toml = format!(
+        "{before_tx_pool}[tx_pool]\n\
+max_tx_pool_size = 180_000_000\n\
+min_fee_rate = 1000\n\
+min_rbf_rate = 1500\n\
+max_tx_verify_cycles = 70_000_000\n\
+max_ancestors_count = 125\n\
+max_verify_cache_size = 100_000\n\
+max_conflict_cache_size = 1_000\n\
+max_committed_txs_hash_cache_size = 100_000\n\n\
+[store]{after_tx_pool}"
+    );
+    let parsed = CKBAppConfig::load_from_slice(legacy_toml.as_bytes())
+        .expect("legacy ckb.toml must load without error");
+    assert_eq!(parsed.tx_pool.max_tx_pool_size, 180_000_000);
+    assert_eq!(parsed.tx_pool.max_ancestors_count, 1_000);
+
+    // 2. Write a legacy v1 persisted tx-pool file (<base>.v1) containing a
+    //    parent->child chain stored in reverse order (child before parent).
+    let directory = tempfile::tempdir().unwrap();
+    let base_path = directory.path().join("persisted_data");
+    let v1_path = base_path.with_extension("v1");
+    let v2_path = base_path.with_extension("v2");
+
+    let parent = funded_tx(OutPoint::new(funding_hash, 0), OUTPUT_CAP - 10_000_000);
+    let child = funded_tx(OutPoint::new(parent.hash(), 0), OUTPUT_CAP - 20_000_000);
+    let legacy_v1 = TransactionVec::new_builder()
+        .push(child.data())
+        .push(parent.data())
+        .build();
+    std::fs::write(&v1_path, legacy_v1.as_slice()).unwrap();
+
+    let mut upgraded_config = parsed.tx_pool;
+    upgraded_config.persisted_data = base_path.clone();
+    upgraded_config.recent_reject = directory.path().join("recent_reject");
+    upgraded_config.max_tx_verify_workers = 1;
+
+    // 3. Boot Generation 1 from the legacy v1 file: startup must sort & replay
+    //    both transactions cleanly and persist v2 on save_pool().
+    let handle = Handle::new(tokio::runtime::Handle::current(), None);
+    let (builder1, controller1, _relay1) = TxPoolServiceBuilder::new(
+        upgraded_config.clone(),
+        Arc::clone(&snapshot),
+        None,
+        Arc::new(RwLock::new(init_cache())),
+        &handle,
+        FeeEstimator::new_dummy(),
+    )
+    .unwrap();
+    let pool1 = builder1.pool_for_test();
+    let gen1 = builder1.start_with_handle(DummyTxPoolNetwork);
+    started(&controller1).await;
+
+    let ids1 = controller1.get_all_ids().unwrap();
+    assert!(ids1.pending.contains(&parent.hash()));
+    assert!(ids1.pending.contains(&child.hash()));
+    pool1.assert_state_invariants_for_test();
+
+    controller1.save_pool().unwrap();
+    assert!(
+        v2_path.exists(),
+        "save_pool must write upgraded v2 snapshot"
+    );
+    controller1.stop();
+    within(gen1).await.unwrap();
+    assert!(!pool1.is_faulted());
+
+    // 4. Remove the legacy v1 file and boot Generation 2 from the newly written
+    //    v2 snapshot to verify full upgrade persistence continuity.
+    let _ = std::fs::remove_file(&v1_path);
+    let (builder2, controller2, _relay2) = TxPoolServiceBuilder::new(
+        upgraded_config,
+        snapshot,
+        None,
+        Arc::new(RwLock::new(init_cache())),
+        &handle,
+        FeeEstimator::new_dummy(),
+    )
+    .unwrap();
+    let pool2 = builder2.pool_for_test();
+    let gen2 = builder2.start_with_handle(DummyTxPoolNetwork);
+    started(&controller2).await;
+
+    let ids2 = controller2.get_all_ids().unwrap();
+    assert!(ids2.pending.contains(&parent.hash()));
+    assert!(ids2.pending.contains(&child.hash()));
+    pool2.assert_state_invariants_for_test();
+
+    controller2.stop();
+    within(gen2).await.unwrap();
+    assert!(!pool2.is_faulted());
+}

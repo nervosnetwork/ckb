@@ -170,6 +170,47 @@ pub(crate) fn record_failure(boundary: FailureBoundary) {
     }
 }
 
+/// Publish single-writer authority lock timings and descendant-index cardinality
+/// strictly after releasing `Store::state.write()`.
+pub(crate) fn record_authority_write(
+    wait: std::time::Duration,
+    hold: std::time::Duration,
+    descendant_index_entries: usize,
+) {
+    let Some(metrics) = ckb_metrics::handle() else {
+        return;
+    };
+    metrics
+        .ckb_tx_pool_authority_write_wait_seconds
+        .observe(wait.as_secs_f64());
+    metrics
+        .ckb_tx_pool_authority_write_hold_seconds
+        .observe(hold.as_secs_f64());
+    metrics
+        .ckb_tx_pool_authority_runtime
+        .descendant_index_entries
+        .set(gauge_value(descendant_index_entries));
+}
+
+/// Record an ordinary commit or preview yielding to an active `ReorgGate`.
+pub(crate) fn record_reorg_gate_wait() {
+    if let Some(metrics) = ckb_metrics::handle() {
+        metrics.ckb_tx_pool_reorg_gate_waits.inc();
+    }
+}
+
+/// Publish direct-gate in-flight counts outside all authority locks.
+pub(crate) fn record_direct_gate_usage(direct_inflight: usize, callback_read_inflight: usize) {
+    let Some(metrics) = ckb_metrics::handle() else {
+        return;
+    };
+    let runtime = &metrics.ckb_tx_pool_authority_runtime;
+    runtime.direct_inflight.set(gauge_value(direct_inflight));
+    runtime
+        .callback_read_inflight
+        .set(gauge_value(callback_read_inflight));
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -209,5 +250,52 @@ mod tests {
         ] {
             assert_eq!(RejectionClass::from_reject(&reject), expected, "{reject:?}");
         }
+    }
+
+    #[test]
+    fn authority_runtime_metrics_record_when_enabled() {
+        let _ = ckb_metrics::METRICS_SERVICE_ENABLED.set(true);
+        let metrics = ckb_metrics::handle().expect("metrics enabled in isolated nextest process");
+        let before_waits = metrics.ckb_tx_pool_reorg_gate_waits.get();
+        record_reorg_gate_wait();
+        assert_eq!(metrics.ckb_tx_pool_reorg_gate_waits.get(), before_waits + 1);
+
+        record_authority_write(
+            std::time::Duration::from_micros(25),
+            std::time::Duration::from_micros(120),
+            42,
+        );
+        assert!(
+            metrics
+                .ckb_tx_pool_authority_write_wait_seconds
+                .get_sample_count()
+                >= 1
+        );
+        assert!(
+            metrics
+                .ckb_tx_pool_authority_write_hold_seconds
+                .get_sample_count()
+                >= 1
+        );
+        assert_eq!(
+            metrics
+                .ckb_tx_pool_authority_runtime
+                .descendant_index_entries
+                .get(),
+            42
+        );
+
+        record_direct_gate_usage(7, 2);
+        assert_eq!(
+            metrics.ckb_tx_pool_authority_runtime.direct_inflight.get(),
+            7
+        );
+        assert_eq!(
+            metrics
+                .ckb_tx_pool_authority_runtime
+                .callback_read_inflight
+                .get(),
+            2
+        );
     }
 }

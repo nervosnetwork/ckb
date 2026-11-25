@@ -416,6 +416,77 @@ impl Pool {
         self.store.state_write()
     }
 
+    #[cfg(test)]
+    pub(crate) fn assert_state_invariants_for_test(&self) {
+        use super::eviction::EvictionRank;
+        use super::model::Status;
+        let state = self.store.state_read();
+        assert_eq!(
+            state.owners.len(),
+            state.proposals.len(),
+            "owners and proposals index cardinality must match"
+        );
+        let accepted_entries: Vec<&Arc<Entry>> = state
+            .owners
+            .values()
+            .filter(|entry| entry.accepted().is_some())
+            .collect();
+        assert_eq!(
+            state.usage.accepted.items,
+            accepted_entries.len(),
+            "accepted usage item count must match accepted owners"
+        );
+        assert_eq!(
+            state.eviction_bounds.len(),
+            accepted_entries.len(),
+            "eviction_bounds must track every accepted owner"
+        );
+        let mut expected_gap = 0usize;
+        let mut expected_proposed = 0usize;
+        for entry in &accepted_entries {
+            let bound = EvictionRank::lower_bound(entry).expect("accepted owner has bound");
+            assert!(
+                state.eviction_bounds.contains(&bound),
+                "eviction_bounds missing accepted owner"
+            );
+            let status = entry.accepted().unwrap().status(&state.snapshot);
+            expected_gap += usize::from(status == Status::Gap);
+            expected_proposed += usize::from(status == Status::Proposed);
+        }
+        assert_eq!(state.gap_count, expected_gap, "gap_count mismatch");
+        assert_eq!(
+            state.proposed_count, expected_proposed,
+            "proposed_count mismatch"
+        );
+        let recomputed = membership::aggregates(
+            accepted_entries.into_iter(),
+            self.config.max_ancestors_count,
+        )
+        .expect("accepted graph must be acyclic and within ancestor limit");
+        for (hash, totals) in &recomputed {
+            let live = state
+                .descendant_aggregate(hash)
+                .expect("live descendant aggregate exists");
+            assert_eq!(
+                live, totals.descendants,
+                "incremental descendant aggregate diverged from exact recomputation"
+            );
+            assert_eq!(
+                state.descendants.contains_key(hash),
+                totals.descendants.count > 1,
+                "leaves must be omitted from descendants map"
+            );
+        }
+        assert_eq!(
+            state.descendants.len(),
+            recomputed
+                .values()
+                .filter(|t| t.descendants.count > 1)
+                .count(),
+            "descendants map must contain no stale entries"
+        );
+    }
+
     pub(crate) fn open(&self) -> Result<(), Error> {
         if self.store.is_faulted() {
             Err(Error::Fault("closed generation"))

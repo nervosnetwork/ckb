@@ -151,6 +151,7 @@ impl ReorgGate {
         if self.pending.load(Ordering::SeqCst) == 0 {
             return;
         }
+        crate::metrics::record_reorg_gate_wait();
         let mut guard = self.wait.lock();
         while self.pending.load(Ordering::SeqCst) > 0 {
             #[cfg(test)]
@@ -497,8 +498,14 @@ impl Store {
         }
         #[cfg(test)]
         self.run_before_commit();
+        let write_wait_start = ckb_metrics::handle().is_some().then(Instant::now);
+        let mut write_hold_start = None;
+        let mut descendants_len = 0usize;
         let result = {
             let mut state = self.state.write();
+            if write_wait_start.is_some() {
+                write_hold_start = Some(Instant::now());
+            }
             if self.is_faulted() {
                 return Err(Error::Fault("closed generation"));
             }
@@ -511,7 +518,11 @@ impl Store {
                 batch: None,
                 outcome: CommitOutcome::default(),
             };
-            operation(&mut tx).map(|value| (value, tx.batch, tx.outcome))
+            let committed = operation(&mut tx).map(|value| (value, tx.batch, tx.outcome));
+            if write_wait_start.is_some() {
+                descendants_len = state.descendants.len();
+            }
+            committed
         };
         if result.is_ok()
             && let Some(guard) = priority_guard
@@ -520,6 +531,14 @@ impl Store {
             // writers resume before post-lock outbox activation and retired
             // payload deallocation.
             drop(guard.take());
+        }
+        if let (Some(wait_start), Some(hold_start)) = (write_wait_start, write_hold_start) {
+            let hold_end = Instant::now();
+            crate::metrics::record_authority_write(
+                hold_start.saturating_duration_since(wait_start),
+                hold_end.saturating_duration_since(hold_start),
+                descendants_len,
+            );
         }
         let (value, batch, outcome) = match result {
             Ok(committed) => committed,
