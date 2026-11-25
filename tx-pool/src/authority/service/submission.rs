@@ -156,12 +156,11 @@ impl Pool {
         batch: Option<Arc<Batch>>,
         result: Result<(), Reject>,
     ) -> LocalFastOutcome {
-        // When `commit_inline` was selected (idle local queue),
-        // `Batch::activate_nonblocking` already published non-blocking
-        // in-memory batches inline while keeping callbacks, `recent_reject` DB
-        // writes, bans, and block updates isolated on `TxPoolPublisher`. Under
-        // concurrent local backlog, `TxPoolPublisher` drains batches in
-        // parallel off the compute threads.
+        // `commit_inline` activates via `Batch::activate_nonblocking`, which
+        // drains non-blocking in-memory batches inline (flat-combining across
+        // concurrent local commits without waking `TxPoolPublisher`) while
+        // keeping callbacks, `recent_reject` DB writes, bans, and block
+        // updates isolated on `TxPoolPublisher`.
         match batch {
             Some(batch) if !batch.is_published() => LocalFastOutcome::WaitPublish { result, batch },
             _ => LocalFastOutcome::Done(Ok(result)),
@@ -289,11 +288,6 @@ impl Pool {
                     };
                 }
             };
-            let options = if self.compute.is_local_idle() {
-                AdmissionOptions::commit_inline()
-            } else {
-                AdmissionOptions::commit()
-            };
             let committed = (|| {
                 self.open()?;
                 membership::commit_admission(
@@ -302,7 +296,7 @@ impl Pool {
                     ctx.before.clone(),
                     &verified,
                     &self.config,
-                    options,
+                    AdmissionOptions::commit_inline(),
                 )
             })();
             drop((ctx, resolved, verified, memory));

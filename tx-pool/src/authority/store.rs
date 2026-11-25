@@ -424,8 +424,17 @@ pub(super) struct Store {
 }
 
 impl Store {
+    #[cfg(test)]
     pub(super) fn new(snapshot: Arc<Snapshot>, config: &TxPoolConfig) -> Result<Arc<Self>, Error> {
-        let limits = Limits::new(config, snapshot.consensus())?;
+        Self::with_runtime_workers(snapshot, config, None)
+    }
+
+    pub(super) fn with_runtime_workers(
+        snapshot: Arc<Snapshot>,
+        config: &TxPoolConfig,
+        runtime_workers: Option<usize>,
+    ) -> Result<Arc<Self>, Error> {
+        let limits = Limits::with_runtime_workers(config, snapshot.consensus(), runtime_workers)?;
         Self::with_limits(snapshot, config, limits)
     }
 

@@ -75,6 +75,27 @@ fn remote_active_limits_leave_trusted_headroom_and_release_on_cancellation() {
     drop((replacement, second, resolver, trusted));
     assert!(store.budget.active(Source::Local).is_ok());
     assert!(!store.budget.faulted());
+
+    // When runtime concurrency grants a second trusted local compute permit,
+    // both trusted headroom slots are available while remote stays at W + 1.
+    let high_store =
+        Store::with_runtime_workers(crate::test_support::genesis_snapshot(), &config(), Some(8))
+            .unwrap();
+    let r1 = high_store.budget.active(remote(1, 1)).unwrap();
+    let r2 = high_store.budget.active(remote(2, 1)).unwrap();
+    let r3 = high_store.budget.active(remote(3, 1)).unwrap();
+    assert!(matches!(
+        high_store.budget.active(remote(4, 1)),
+        Err(Error::Full(_))
+    ));
+    let t1 = high_store.budget.active(Source::Local).unwrap();
+    let t2 = high_store.budget.active(Source::Local).unwrap();
+    assert!(matches!(
+        high_store.budget.active(Source::Local),
+        Err(Error::Full(FullReason::Active))
+    ));
+    drop((r1, r2, r3, t1, t2));
+    assert!(!high_store.budget.faulted());
 }
 
 #[test]
@@ -148,49 +169,84 @@ fn active_pipeline_reserves_execution_population_within_the_derived_budget() {
     for workers in [0, 1, 2, 8, 16] {
         let mut configuration = config();
         configuration.max_tx_verify_workers = workers;
-        let store = Store::new(Arc::clone(&snapshot), &configuration).unwrap();
-        let limits = &store.budget.limits;
         let total_bytes =
             crate::constants::ResidencyLimits::from_pool_size(configuration.max_tx_pool_size)
                 .unwrap()
                 .pipeline;
-        // Keep the existing maximum job size; the added active envelope comes
-        // out of queued residency, including its edge allowance.
-        assert_eq!(limits.per_job.bytes, total_bytes / 4 / (workers + 1));
+
+        // 1. Baseline / insufficient runtime concurrency keeps `active_jobs = W + 2`
+        //    so low-concurrency and `W = 0` deployments keep their full queued budget.
+        for runtime_workers in [None, Some(2), Some(workers + 5)] {
+            let expected_active =
+                if workers > 0 && runtime_workers.is_some_and(|n| n >= workers + 6) {
+                    workers + 3
+                } else {
+                    workers + 2
+                };
+            let store =
+                Store::with_runtime_workers(Arc::clone(&snapshot), &configuration, runtime_workers)
+                    .unwrap();
+            let limits = &store.budget.limits;
+            assert_eq!(limits.active_jobs, expected_active);
+            assert_eq!(limits.per_job.bytes, total_bytes / 4 / (workers + 1));
+            assert_eq!(
+                limits.pipeline.bytes + limits.per_job.bytes * expected_active,
+                total_bytes
+            );
+            assert_eq!(
+                limits.pipeline.edges + limits.per_job.edges * expected_active,
+                total_bytes / 160
+            );
+            let mut remote_jobs: Vec<_> = (0..=workers)
+                .map(|index| store.budget.active(remote(index % 4, 1)).unwrap())
+                .collect();
+            assert!(matches!(
+                store.budget.active(remote(5, 1)),
+                Err(Error::Full(FullReason::Other("remote active work")))
+            ));
+            let trusted_extra = expected_active - (workers + 1);
+            let trusted: Vec<_> = (0..trusted_extra)
+                .map(|_| store.budget.active(Source::Local).unwrap())
+                .collect();
+            assert!(matches!(
+                store.budget.active(Source::Local),
+                Err(Error::Full(FullReason::Active))
+            ));
+            drop(remote_jobs.pop());
+            let replacement = store.budget.active(remote(5, 1)).unwrap();
+            drop((remote_jobs, replacement, trusted));
+            let peer_jobs: Vec<_> = (0..(workers + 1).div_ceil(4))
+                .map(|_| store.budget.active(remote(1, 1)).unwrap())
+                .collect();
+            assert!(matches!(
+                store.budget.active(remote(1, 1)),
+                Err(Error::Full(FullReason::Other(
+                    "peer active work" | "remote active work"
+                )))
+            ));
+            drop(peer_jobs);
+            assert!(!store.budget.faulted());
+        }
+
+        // 2. High runtime concurrency (`N >= W + 6`) grants the second extra
+        //    local headroom slot (`W + 3`) only when `W > 0`, never when `W == 0`.
+        let high_store =
+            Store::with_runtime_workers(Arc::clone(&snapshot), &configuration, Some(workers + 6))
+                .unwrap();
+        let expected_high = if workers == 0 { 2 } else { workers + 3 };
+        assert_eq!(high_store.budget.limits.active_jobs, expected_high);
         assert_eq!(
-            limits.pipeline.bytes + limits.per_job.bytes * (workers + 2),
+            high_store.budget.limits.per_job.bytes,
+            total_bytes / 4 / (workers + 1)
+        );
+        assert_eq!(
+            high_store.budget.limits.pipeline.bytes
+                + high_store.budget.limits.per_job.bytes * expected_high,
             total_bytes
         );
-        assert_eq!(
-            limits.pipeline.edges + limits.per_job.edges * (workers + 2),
-            total_bytes / 160
-        );
-        let mut remote_jobs: Vec<_> = (0..=workers)
-            .map(|index| store.budget.active(remote(index % 4, 1)).unwrap())
-            .collect();
-        assert!(matches!(
-            store.budget.active(remote(5, 1)),
-            Err(Error::Full(FullReason::Other("remote active work")))
-        ));
-        let trusted = store.budget.active(Source::Local).unwrap();
-        assert!(matches!(
-            store.budget.active(Source::Local),
-            Err(Error::Full(FullReason::Active))
-        ));
-        drop(remote_jobs.pop());
-        let replacement = store.budget.active(remote(5, 1)).unwrap();
-        drop((remote_jobs, replacement, trusted));
-        let peer_jobs: Vec<_> = (0..(workers + 1).div_ceil(4))
-            .map(|_| store.budget.active(remote(1, 1)).unwrap())
-            .collect();
-        assert!(matches!(
-            store.budget.active(remote(1, 1)),
-            Err(Error::Full(FullReason::Other(
-                "peer active work" | "remote active work"
-            )))
-        ));
-        drop(peer_jobs);
-        assert!(!store.budget.faulted());
+        if workers == 0 {
+            assert_eq!(high_store.budget.limits.pipeline.bytes, total_bytes / 2);
+        }
     }
 }
 
@@ -211,6 +267,18 @@ fn serialized_capacity_keeps_its_units_and_small_pools_keep_execution_room() {
         assert_eq!(limits.per_job.bytes, 32_000_000 * scale);
         assert_eq!(
             limits.pipeline.bytes + limits.per_job.bytes * 4,
+            384_000_000 * scale
+        );
+        let high_limits = super::super::budget::Limits::with_runtime_workers(
+            &configuration,
+            snapshot.consensus(),
+            Some(8),
+        )
+        .expect("high-concurrency runtime reserves second local headroom slot");
+        assert_eq!(high_limits.active_jobs, 5);
+        assert_eq!(high_limits.per_job.bytes, 32_000_000 * scale);
+        assert_eq!(
+            high_limits.pipeline.bytes + high_limits.per_job.bytes * 5,
             384_000_000 * scale
         );
     }

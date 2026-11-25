@@ -1507,3 +1507,157 @@ fn nonblocking_inline_publish_skips_callbacks_and_recent_reject_writes() {
     assert!(outbox.try_publish().unwrap());
     assert!(batch.is_published());
 }
+
+#[test]
+fn nonblocking_inline_publish_defers_behind_unready_head_and_drains_fifo_without_wakeup() {
+    let (outbox, endpoints, receiver) = fixture(Callbacks::new());
+    *outbox.publisher.lock() = Some(endpoints);
+    let epoch_before = outbox.wake_epoch.load(Ordering::SeqCst);
+
+    let hash_a = tx(960).hash();
+    let hash_b = tx(961).hash();
+    let batch_a = append(&outbox, vec![callback_effect(960)]);
+    let batch_b = append(&outbox, vec![callback_effect(961)]);
+
+    // Follower activates before head finishes post-commit activation: must not
+    // publish out of FIFO order and must not spuriously wake `TxPoolPublisher`.
+    batch_b.activate_nonblocking(&outbox);
+    assert!(!batch_a.is_published());
+    assert!(!batch_b.is_published());
+    assert_eq!(outbox.wake_epoch.load(Ordering::SeqCst), epoch_before);
+    assert!(receiver.try_recv().is_none());
+
+    // Head activates and flat-combines both batches in strict FIFO order with
+    // zero `TxPoolPublisher` wakeups.
+    batch_a.activate_nonblocking(&outbox);
+    assert!(batch_a.is_published());
+    assert!(batch_b.is_published());
+    assert_eq!(outbox.wake_epoch.load(Ordering::SeqCst), epoch_before);
+    assert!(
+        matches!(receiver.try_recv(), Some(TxVerificationResult::Reject { tx_hash }) if tx_hash == hash_a)
+    );
+    assert!(
+        matches!(receiver.try_recv(), Some(TxVerificationResult::Reject { tx_hash }) if tx_hash == hash_b)
+    );
+    assert!(outbox.idle_for_test());
+}
+
+#[test]
+fn nonblocking_inline_publish_stops_before_blocking_follower_and_wakes_publisher() {
+    let calls = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    let calls_cb = Arc::clone(&calls);
+    let mut callbacks = Callbacks::new();
+    callbacks.register_pending(Box::new(move |_| {
+        calls_cb.fetch_add(1, Ordering::SeqCst);
+    }));
+    let (outbox, endpoints, receiver) = fixture(callbacks);
+    *outbox.publisher.lock() = Some(endpoints);
+    let epoch_before = outbox.wake_epoch.load(Ordering::SeqCst);
+
+    let hash_a = tx(962).hash();
+    let batch_a = append(&outbox, vec![effect(962)]);
+    let batch_b = append(&outbox, vec![callback_effect(963)]);
+
+    // Mark blocking follower ready before head activates.
+    batch_b.ready.store(true, Ordering::SeqCst);
+    batch_a.activate_nonblocking(&outbox);
+
+    // Non-blocking head publishes inline; blocking follower stays queued and
+    // triggers a publisher wakeup without running the callback on the caller.
+    assert!(batch_a.is_published());
+    assert!(!batch_b.is_published());
+    assert_eq!(calls.load(Ordering::SeqCst), 0);
+    assert!(outbox.wake_epoch.load(Ordering::SeqCst) > epoch_before);
+    assert!(
+        matches!(receiver.try_recv(), Some(TxVerificationResult::Reject { tx_hash }) if tx_hash == hash_a)
+    );
+
+    // Background publisher drains the blocking follower cleanly.
+    assert!(outbox.try_publish().unwrap());
+    assert!(batch_b.is_published());
+    assert_eq!(calls.load(Ordering::SeqCst), 1);
+    assert!(outbox.idle_for_test());
+}
+
+#[test]
+fn nonblocking_inline_publish_handles_contention_and_close_without_lost_wakeups() {
+    // 1. Contending on a held `publisher` lock records contention without a
+    //    spurious wakeup; once the holder drains, no wakeup is lost.
+    let (outbox, endpoints, receiver) = fixture(Callbacks::new());
+    *outbox.publisher.lock() = Some(endpoints);
+    let epoch_before = outbox.wake_epoch.load(Ordering::SeqCst);
+
+    let hash_a = tx(964).hash();
+    let batch_a = append(&outbox, vec![effect(964)]);
+    let held = outbox.publisher.lock();
+    batch_a.activate_nonblocking(&outbox);
+    assert!(!batch_a.is_published());
+    assert!(outbox.publisher_contended.load(Ordering::SeqCst));
+    assert_eq!(outbox.wake_epoch.load(Ordering::SeqCst), epoch_before);
+    drop(held);
+
+    // Subsequent non-blocking pass drains the contended batch and clears the flag.
+    let hash_b = tx(965).hash();
+    let batch_b = append(&outbox, vec![effect(965)]);
+    batch_b.activate_nonblocking(&outbox);
+    assert!(batch_a.is_published());
+    assert!(batch_b.is_published());
+    assert!(!outbox.publisher_contended.load(Ordering::SeqCst));
+    assert_eq!(outbox.wake_epoch.load(Ordering::SeqCst), epoch_before);
+    assert!(
+        matches!(receiver.try_recv(), Some(TxVerificationResult::Reject { tx_hash }) if tx_hash == hash_a)
+    );
+    assert!(
+        matches!(receiver.try_recv(), Some(TxVerificationResult::Reject { tx_hash }) if tx_hash == hash_b)
+    );
+
+    // 2. Concurrent multi-thread stress with a real dedicated `TxPoolPublisher`
+    //    proves zero lost wakeups across inline non-blocking batches, blocking
+    //    batches, and outbox shutdown.
+    let rt = tokio::runtime::Builder::new_multi_thread()
+        .worker_threads(2)
+        .enable_all()
+        .build()
+        .unwrap();
+    rt.block_on(async {
+        let handle = ckb_async_runtime::Handle::new(rt.handle().clone(), None);
+        let (outbox, endpoints, _receiver) = fixture(Callbacks::new());
+        let signal = CancellationToken::new();
+        let publisher = Arc::clone(&outbox).spawn_dedicated(&handle, endpoints, signal);
+
+        let barrier = Arc::new(std::sync::Barrier::new(8));
+        let mut threads = Vec::new();
+        for tid in 0..8usize {
+            let outbox = Arc::clone(&outbox);
+            let barrier = Arc::clone(&barrier);
+            threads.push(std::thread::spawn(move || {
+                barrier.wait();
+                let mut batches = Vec::with_capacity(64);
+                for i in 0..64usize {
+                    let seed = (tid * 1000 + i) as u32 + 10_000;
+                    let batch = append(&outbox, vec![effect(seed)]);
+                    batch.activate_nonblocking(&outbox);
+                    batches.push(batch);
+                }
+                batches
+            }));
+        }
+        let mut all_batches = Vec::with_capacity(8 * 64);
+        for thread in threads {
+            all_batches.extend(thread.join().unwrap());
+        }
+        for batch in all_batches {
+            tokio::time::timeout(Duration::from_secs(5), batch.wait(&outbox))
+                .await
+                .expect("every concurrently activated batch must settle")
+                .expect("outbox must stay healthy");
+        }
+        outbox.close();
+        tokio::time::timeout(Duration::from_secs(5), publisher)
+            .await
+            .expect("dedicated publisher must exit after close")
+            .expect("publisher join")
+            .expect("publisher ok");
+        assert!(outbox.idle_for_test());
+    });
+}

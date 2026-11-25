@@ -420,6 +420,16 @@ impl Effect {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum NonblockingDrain {
+    /// No ready work remains at the FIFO head (queue empty or head not yet ready).
+    Idle,
+    /// Blocking head, shutdown close, or bounded-prefix spillover needs `TxPoolPublisher`.
+    WakeBackground,
+    /// Endpoint panicked or FIFO invariant faulted; `publication_failed` already woke waiters.
+    Faulted,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) enum Class {
     Remote,
     Trusted,
@@ -516,16 +526,16 @@ impl Batch {
         outbox.notify_publisher();
     }
 
-    /// Open publication and immediately drain non-blocking in-memory batches
-    /// inline when `publisher` is uncontended, avoiding a `TxPoolPublisher`
-    /// wakeup and second caller wakeup while keeping callbacks, `recent_reject`
-    /// DB writes, peer bans, and block updates isolated on `TxPoolPublisher`.
+    /// Open publication and drain any ready non-blocking FIFO prefix inline on
+    /// the calling thread when `publisher` is uncontended.
+    ///
+    /// Callbacks, `recent_reject` DB writes, peer bans, and block updates stay
+    /// isolated on `TxPoolPublisher`. Under concurrent commits, newly ready
+    /// non-blocking batches flat-combine onto the active `publisher` holder and
+    /// defer behind an unready FIFO head without waking `TxPoolPublisher`.
     pub(super) fn activate_nonblocking(&self, outbox: &Outbox) {
         self.ready.store(true, Ordering::SeqCst);
-        if outbox.try_publish_nonblocking() && self.published.load(Ordering::SeqCst) {
-            return;
-        }
-        outbox.notify_publisher();
+        outbox.publish_nonblocking_or_defer();
     }
 
     pub(super) fn is_published(&self) -> bool {
@@ -942,6 +952,48 @@ impl Outbox {
         Ok((true, has_more))
     }
 
+    fn retire_published_head(
+        &self,
+        batch: &Arc<Batch>,
+        state: &mut State,
+    ) -> Result<(Option<Arc<Batch>>, bool), Error> {
+        if !state
+            .queue
+            .front()
+            .is_some_and(|head| Arc::ptr_eq(head, batch))
+        {
+            return Err(Error::Fault("notice FIFO head"));
+        }
+        for effect in &batch.effects {
+            if let Some((hash, _)) = effect.recent()
+                && state
+                    .pending
+                    .get(hash)
+                    .is_some_and(|old| std::ptr::eq(old.as_ptr(), Arc::as_ptr(batch)))
+            {
+                state.pending.remove(hash);
+            }
+        }
+        let retired = state.queue.pop_front();
+        let failed = self.release(batch, state);
+        Ok((retired, failed))
+    }
+
+    fn complete_published_batch(
+        &self,
+        batch: &Arc<Batch>,
+        retired: Option<Arc<Batch>>,
+        failed: bool,
+    ) {
+        batch.published.store(true, Ordering::SeqCst);
+        batch.completed.notify_waiters();
+        if failed {
+            self.failed.notify_waiters();
+        }
+        self.room.notify_waiters();
+        drop(retired);
+    }
+
     /// Settle a ready FIFO prefix without await. Complete each batch before
     /// running the next endpoint; displaced payloads outlive the state lock.
     /// Returns `true` if remaining batches or shutdown close need the background owner.
@@ -959,25 +1011,7 @@ impl Outbox {
             // No await in a batch terminal: cancellation cannot replay a prefix.
             endpoints.publish_batch(&batch.effects);
             let mut state = self.state.lock();
-            if !state
-                .queue
-                .front()
-                .is_some_and(|head| Arc::ptr_eq(head, &batch))
-            {
-                return Err(Error::Fault("notice FIFO head"));
-            }
-            for effect in &batch.effects {
-                if let Some((hash, _)) = effect.recent()
-                    && state
-                        .pending
-                        .get(hash)
-                        .is_some_and(|old| std::ptr::eq(old.as_ptr(), Arc::as_ptr(&batch)))
-                {
-                    state.pending.remove(hash);
-                }
-            }
-            let retired = state.queue.pop_front();
-            let failed = self.release(&batch, &mut state);
+            let (retired, failed) = self.retire_published_head(&batch, &mut state)?;
             if remaining > 0 {
                 next = state
                     .queue
@@ -988,13 +1022,7 @@ impl Outbox {
                 wake_background = state.closed || !state.queue.is_empty();
             }
             drop(state);
-            batch.published.store(true, Ordering::SeqCst);
-            batch.completed.notify_waiters();
-            if failed {
-                self.failed.notify_waiters();
-            }
-            self.room.notify_waiters();
-            drop(retired);
+            self.complete_published_batch(&batch, retired, failed);
         }
         Ok(wake_background)
     }
@@ -1052,46 +1080,25 @@ impl Outbox {
         Ok(progress)
     }
 
-    /// Borrow the exclusive publisher without blocking and drain only a leading
-    /// ready FIFO prefix whose effects require no enabled external callbacks,
-    /// no persistent `recent_reject` DB writes, no peer bans, and no block
-    /// updates. Any batch that can run user code or touch disk/network stays
-    /// strictly on the dedicated `TxPoolPublisher` thread.
-    pub(super) fn try_publish_nonblocking(&self) -> bool {
-        let mut publisher = match self.publisher.try_lock() {
-            Some(guard) => guard,
-            None => {
-                self.publisher_contended.store(true, Ordering::SeqCst);
-                match self.publisher.try_lock() {
-                    Some(guard) => guard,
-                    None => return false,
-                }
-            }
-        };
-        let Some(endpoints) = publisher.as_mut() else {
-            return false;
-        };
-        let (head, count) = {
+    /// Drain a bounded leading ready non-blocking FIFO prefix under the held
+    /// `publisher` lease. Stops immediately before any blocking batch, unready
+    /// head, shutdown close, or `PUBLISH_BATCH_LIMIT`.
+    fn drain_nonblocking_prefix(&self, endpoints: &mut Endpoints) -> NonblockingDrain {
+        let mut next = {
             let state = self.state.lock();
-            let Some(head) = state
-                .queue
-                .front()
-                .filter(|batch| batch.ready.load(Ordering::SeqCst))
-            else {
-                return false;
-            };
-            let count = state
-                .queue
-                .iter()
-                .take(PUBLISH_BATCH_LIMIT)
-                .take_while(|batch| {
-                    batch.ready.load(Ordering::SeqCst) && endpoints.batch_is_nonblocking(batch)
-                })
-                .count();
-            if count == 0 {
-                return false;
+            if state.closed {
+                return NonblockingDrain::WakeBackground;
             }
-            (Arc::clone(head), count)
+            let Some(head) = state.queue.front() else {
+                return NonblockingDrain::Idle;
+            };
+            if !head.ready.load(Ordering::SeqCst) {
+                return NonblockingDrain::Idle;
+            }
+            if !endpoints.batch_is_nonblocking(head) {
+                return NonblockingDrain::WakeBackground;
+            }
+            Arc::clone(head)
         };
         struct Completion<'a> {
             outbox: &'a Outbox,
@@ -1108,15 +1115,97 @@ impl Outbox {
             outbox: self,
             done: false,
         };
-        let Ok(wake_background) = self.publish_prefix(endpoints, head, count) else {
-            return false;
-        };
-        completion.done = true;
-        drop(publisher);
-        if wake_background || self.publisher_contended.swap(false, Ordering::SeqCst) {
-            self.notify_publisher();
+        let mut wake_background = false;
+        for drained in 1..=PUBLISH_BATCH_LIMIT {
+            let batch = next;
+            endpoints.publish_batch(&batch.effects);
+            let mut state = self.state.lock();
+            let Ok((retired, failed)) = self.retire_published_head(&batch, &mut state) else {
+                return NonblockingDrain::Faulted;
+            };
+            let following = if state.closed {
+                wake_background = true;
+                None
+            } else if let Some(head) = state.queue.front() {
+                if !head.ready.load(Ordering::SeqCst) {
+                    None
+                } else if drained < PUBLISH_BATCH_LIMIT && endpoints.batch_is_nonblocking(head) {
+                    Some(Arc::clone(head))
+                } else {
+                    wake_background = true;
+                    None
+                }
+            } else {
+                None
+            };
+            drop(state);
+            self.complete_published_batch(&batch, retired, failed);
+            if let Some(following) = following {
+                next = following;
+            } else {
+                break;
+            }
         }
-        true
+        completion.done = true;
+        if wake_background {
+            NonblockingDrain::WakeBackground
+        } else {
+            NonblockingDrain::Idle
+        }
+    }
+
+    /// Borrow the exclusive publisher without blocking and drain only a leading
+    /// ready FIFO prefix whose effects require no enabled external callbacks,
+    /// no persistent `recent_reject` DB writes, no peer bans, and no block
+    /// updates. Flat-combines contended non-blocking batches onto the active
+    /// `publisher` holder and avoids waking `TxPoolPublisher` unless a blocking
+    /// batch, shutdown drain, or bounded-pass spillover remains.
+    pub(super) fn publish_nonblocking_or_defer(&self) {
+        for attempt in 0..2 {
+            let mut publisher = match self.publisher.try_lock() {
+                Some(guard) => guard,
+                None => {
+                    if attempt == 0 {
+                        // SeqCst Dekker: publish contention before one final
+                        // try_lock so the current holder cannot release
+                        // `publisher` without observing our ready batch.
+                        self.publisher_contended.store(true, Ordering::SeqCst);
+                        match self.publisher.try_lock() {
+                            Some(guard) => guard,
+                            None => return,
+                        }
+                    } else {
+                        self.notify_publisher();
+                        return;
+                    }
+                }
+            };
+            let Some(endpoints) = publisher.as_mut() else {
+                drop(publisher);
+                self.notify_publisher();
+                return;
+            };
+            // Clear any pre-existing contention flag before scanning `state.queue`
+            // so batches activated prior to this scan are drained in one pass,
+            // while any caller contending after this point sets the flag again
+            // before our post-drop `swap(false)` check.
+            self.publisher_contended.store(false, Ordering::SeqCst);
+            let outcome = self.drain_nonblocking_prefix(endpoints);
+            drop(publisher);
+            match outcome {
+                NonblockingDrain::WakeBackground => {
+                    self.notify_publisher();
+                    return;
+                }
+                NonblockingDrain::Idle => {
+                    if !self.publisher_contended.swap(false, Ordering::SeqCst) {
+                        return;
+                    }
+                }
+                NonblockingDrain::Faulted => return,
+            }
+        }
+        self.notify_publisher();
     }
 
     /// Run the sole publisher on one dedicated OS thread so synchronous

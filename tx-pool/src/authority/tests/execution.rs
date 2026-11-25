@@ -2247,19 +2247,78 @@ async fn one_worker_sync_compute_hands_off_for_query_and_stop() {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 18)]
 async fn local_headroom_compute_uses_existing_active_slot_and_preserves_background_cap() {
-    assert_eq!(local_headroom_permits(13, 15, 18), 1);
-    assert_eq!(local_headroom_permits(12, 14, 16), 1);
-    assert_eq!(local_headroom_permits(3, 5, 4), 0);
-    assert_eq!(local_headroom_permits(0, 2, 18), 0);
+    use super::super::budget::ConcurrencyPlan;
 
-    let cfg = TxPoolConfig {
-        max_tx_verify_workers: 13,
-        ..config()
-    };
+    let plan_13_19 = ConcurrencyPlan::derive(13, Some(19)).unwrap();
+    assert_eq!(plan_13_19.bg_compute, 14);
+    assert_eq!(plan_13_19.local_headroom, 2);
+    assert_eq!(plan_13_19.active_jobs, 16);
+
+    let plan_12_18 = ConcurrencyPlan::derive(12, Some(18)).unwrap();
+    assert_eq!(plan_12_18.bg_compute, 13);
+    assert_eq!(plan_12_18.local_headroom, 2);
+    assert_eq!(plan_12_18.active_jobs, 15);
+
+    let plan_13_18 = ConcurrencyPlan::derive(13, Some(18)).unwrap();
+    assert_eq!(plan_13_18.bg_compute, 14);
+    assert_eq!(plan_13_18.local_headroom, 1);
+    assert_eq!(plan_13_18.active_jobs, 15);
+
+    let plan_13_17 = ConcurrencyPlan::derive(13, Some(17)).unwrap();
+    assert_eq!(plan_13_17.bg_compute, 14);
+    assert_eq!(plan_13_17.local_headroom, 0);
+    assert_eq!(plan_13_17.active_jobs, 15);
+
+    let plan_3_4 = ConcurrencyPlan::derive(3, Some(4)).unwrap();
+    assert_eq!(plan_3_4.bg_compute, 4);
+    assert_eq!(plan_3_4.local_headroom, 0);
+    assert_eq!(plan_3_4.active_jobs, 5);
+
+    let plan_0_18 = ConcurrencyPlan::derive(0, Some(18)).unwrap();
+    assert_eq!(plan_0_18.bg_compute, 1);
+    assert_eq!(plan_0_18.local_headroom, 0);
+    assert_eq!(plan_0_18.active_jobs, 2);
+
+    let plan_0_2 = ConcurrencyPlan::derive(0, Some(2)).unwrap();
+    assert_eq!(plan_0_2.bg_compute, 1);
+    assert_eq!(plan_0_2.local_headroom, 0);
+    assert_eq!(plan_0_2.active_jobs, 2);
+
     let snap = chain_snapshot();
     let handle = Handle::new(tokio::runtime::Handle::current(), None);
+
+    // 1. With 18 runtime workers and W=13, keeping 3 non-compute cores grants
+    //    1 local headroom permit inside the baseline W+2 active-job envelope.
+    let (pool_13, _sink, _drain) = Pool::new(
+        TxPoolConfig {
+            max_tx_verify_workers: 13,
+            ..config()
+        },
+        Arc::clone(&snap),
+        &handle,
+        Arc::new(RwLock::new(init_cache())),
+        None,
+        None,
+        ckb_fee_estimator::FeeEstimator::new_dummy(),
+    )
+    .unwrap();
+    assert_eq!(pool_13.cpu.available_permits(), 14);
+    assert_eq!(
+        pool_13
+            .local_headroom_cpu
+            .as_ref()
+            .map(|sem| sem.available_permits()),
+        Some(1)
+    );
+    assert_eq!(pool_13.store.budget.limits.active_jobs, 15);
+
+    // 2. With 18 runtime workers and W=12 (N >= bg + 5), the runtime grants
+    //    both trusted local headroom permits and reserves the W+3 active slot.
     let (pool, _sink, _drain) = Pool::new(
-        cfg,
+        TxPoolConfig {
+            max_tx_verify_workers: 12,
+            ..config()
+        },
         snap,
         &handle,
         Arc::new(RwLock::new(init_cache())),
@@ -2268,37 +2327,57 @@ async fn local_headroom_compute_uses_existing_active_slot_and_preserves_backgrou
         ckb_fee_estimator::FeeEstimator::new_dummy(),
     )
     .unwrap();
-    assert_eq!(pool.cpu.available_permits(), 14);
+    assert_eq!(pool.cpu.available_permits(), 13);
     assert_eq!(
         pool.local_headroom_cpu
             .as_ref()
             .map(|sem| sem.available_permits()),
-        Some(1)
+        Some(2)
     );
     assert_eq!(pool.store.budget.limits.active_jobs, 15);
 
-    // Background callers stay strictly bounded to `pool.cpu` (14 permits) and
-    // cannot consume the 1 trusted local headroom permit.
+    // Background callers stay strictly bounded to `pool.cpu` (13 permits) and
+    // cannot consume the 2 trusted local headroom permits.
     let mut bg = Vec::new();
-    for _ in 0..14 {
+    let mut bg_mem = Vec::new();
+    for i in 0..13 {
         bg.push(pool.compute_background().await.unwrap());
+        bg_mem.push(pool.store.budget.active(remote(i % 4, 1)).unwrap());
     }
     assert_eq!(pool.cpu.available_permits(), 0);
     let mut extra_bg = Box::pin(pool.compute_background());
     assert!(futures_util::poll!(extra_bg.as_mut()).is_pending());
     drop(extra_bg);
 
-    // Local fast path can claim the 1 reserved trusted headroom slot inside
-    // `budget.limits.active_jobs == W + 2` (15), and contends once occupied.
-    let local1 = pool
+    // Local fast path can claim both reserved trusted headroom slots inside
+    // `budget.limits.active_jobs == W + 3` (15), and contends once occupied.
+    let (local1_cpu, local1_mem) = pool
         .try_fast_direct_capacity()
         .ok()
-        .expect("trusted headroom slot");
+        .expect("first trusted headroom slot");
+    let (local2_cpu, local2_mem) = pool
+        .try_fast_direct_capacity()
+        .ok()
+        .expect("second trusted headroom slot");
     assert!(matches!(
         pool.try_fast_direct_capacity(),
         Err(FastCapacityError::Contended)
     ));
-    drop(local1);
+
+    // Work that finished computation (dropped `cpu`) while still waiting to
+    // settle continues holding its active-memory permit until actually dropped,
+    // so new callers cannot exceed `active_jobs` even though a CPU slot freed.
+    drop(local1_cpu);
+    assert!(matches!(
+        pool.try_fast_direct_capacity(),
+        Err(FastCapacityError::Contended)
+    ));
+    drop(local1_mem);
+    let local_reclaimed = pool
+        .try_fast_direct_capacity()
+        .ok()
+        .expect("slot becomes available only after settling memory permit drops");
+    drop((local2_cpu, local2_mem, local_reclaimed));
 
     // Suspending verification blocks local headroom as well as shared permits.
     pool.verification.suspend().unwrap();
@@ -2307,7 +2386,87 @@ async fn local_headroom_compute_uses_existing_active_slot_and_preserves_backgrou
         Err(FastCapacityError::Suspended)
     ));
     pool.verification.resume().unwrap();
-    drop(bg);
+    drop((bg, bg_mem));
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn zero_worker_low_concurrency_preserves_proposal_queue_capacity_under_64kib_pipeline() {
+    let cfg = TxPoolConfig {
+        max_tx_verify_workers: 0,
+        ..config()
+    };
+    let snap = chain_snapshot();
+    let handle = Handle::new(tokio::runtime::Handle::current(), None);
+
+    // 1. Default 384 MB pipeline with W=0 and 2 runtime workers retains the
+    //    baseline W+2 active budget (192 MB queued residency, not 96 MB).
+    let (default_pool, _sink, _drain) = Pool::new(
+        cfg.clone(),
+        Arc::clone(&snap),
+        &handle,
+        Arc::new(RwLock::new(init_cache())),
+        None,
+        None,
+        ckb_fee_estimator::FeeEstimator::new_dummy(),
+    )
+    .unwrap();
+    assert_eq!(default_pool.store.budget.limits.active_jobs, 2);
+    assert_eq!(default_pool.store.budget.limits.pipeline.bytes, 192_000_000);
+    assert!(default_pool.local_headroom_cpu.is_none());
+
+    // 2. Same service proposal ingress under a 64 KiB pipeline with W=0 and
+    //    2 Tokio workers retains at least 8 of 48 valid proposals.
+    let limits = super::super::budget::Limits::with_residency_for_runtime(
+        &cfg,
+        snap.consensus(),
+        crate::constants::ResidencyLimits {
+            accepted: 32_000_000,
+            pipeline: 64 * 1024,
+        },
+        Some(2),
+    )
+    .unwrap();
+    assert_eq!(limits.active_jobs, 2);
+    assert_eq!(limits.pipeline.bytes, 32 * 1024);
+    let store = Store::with_limits(Arc::clone(&snap), &cfg, limits).unwrap();
+    let (pool, sink, _drain) = Pool::with_store(
+        cfg,
+        store,
+        &handle,
+        Arc::new(RwLock::new(init_cache())),
+        None,
+        None,
+        ckb_fee_estimator::FeeEstimator::new_dummy(),
+    )
+    .unwrap();
+    let signal = CancellationToken::new();
+    let (_chain_tx, chain_rx) = mpsc::channel(4);
+    let (mut tasks, publisher) = pool.start_background(
+        &handle,
+        endpoints(sink, Callbacks::new()),
+        chain_rx,
+        &signal,
+    );
+
+    let mut proposals = Vec::with_capacity(48);
+    for nonce in 0..48u32 {
+        let transaction = funded_tx(OutPoint::new(tx(80_000 + nonce).hash(), 0), 20_000_000_000);
+        proposals.push(bounded(transaction));
+    }
+    pool.submit_proposal_batch(proposals).await.unwrap();
+    let retained = pool.owner_hashes().len();
+    assert!(
+        retained >= 8,
+        "expected at least 8 retained proposals under 64 KiB pipeline with W=0, got {retained}"
+    );
+
+    pool.stop();
+    while let Some(joined) = tasks.join_next().await {
+        joined.unwrap().unwrap();
+    }
+    pool.close_outbox();
+    publisher.await.unwrap().unwrap();
+    assert!(!pool.is_faulted());
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]

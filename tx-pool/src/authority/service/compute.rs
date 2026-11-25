@@ -157,12 +157,6 @@ impl ComputePool {
         self.signal().notify();
     }
 
-    /// True when no additional direct local RPC submissions are waiting in the
-    /// local queue (serial or low-concurrency RPC traffic).
-    pub(super) fn is_local_idle(&self) -> bool {
-        self.shared.local_queued.load(Ordering::SeqCst) == 0
-    }
-
     #[cfg(test)]
     pub(super) fn set_spawn_hook(&self, hook: Option<SpawnHook>) {
         *self.spawn_hook.lock() = hook;

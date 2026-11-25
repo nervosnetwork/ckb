@@ -266,19 +266,15 @@ pub(crate) struct Pool {
     stopped: CancellationToken,
 }
 
-/// Trusted local RPC may also utilize the 1 extra active-job headroom slot
-/// already reserved by `budget.limits.active_jobs == W + 2` (above `W + 1`
-/// shared/background compute permits) when `W > 0` and at least 3 runtime cores
-/// remain reserved for control, RPC I/O, chain and block-filter work.
-fn local_headroom_permits(workers: usize, active_jobs: usize, runtime_workers: usize) -> usize {
-    let bg_permits = workers.saturating_add(1).min(runtime_workers).max(1);
-    if workers == 0 || runtime_workers < bg_permits.saturating_add(3) {
-        return 0;
-    }
-    active_jobs.saturating_sub(bg_permits).min(1)
-}
-
 impl Pool {
+    fn runtime_workers(handle: &Handle) -> Result<usize, Error> {
+        let runtime = handle.clone().into_inner();
+        if runtime.runtime_flavor() != tokio::runtime::RuntimeFlavor::MultiThread {
+            return Err(Error::Full("multi-thread runtime required".into()));
+        }
+        Ok(runtime.metrics().num_workers().max(1))
+    }
+
     pub(crate) fn new(
         config: TxPoolConfig,
         snapshot: Arc<Snapshot>,
@@ -288,7 +284,8 @@ impl Pool {
         recent: Option<Arc<RecentReject>>,
         estimator: FeeEstimator,
     ) -> Result<(Arc<Self>, RelaySink, RelayDrain), Error> {
-        let store = Store::new(snapshot, &config)?;
+        let runtime_workers = Self::runtime_workers(handle)?;
+        let store = Store::with_runtime_workers(snapshot, &config, Some(runtime_workers))?;
         Self::with_store(config, store, handle, cache, assembler, recent, estimator)
     }
 
@@ -301,23 +298,15 @@ impl Pool {
         recent: Option<Arc<RecentReject>>,
         estimator: FeeEstimator,
     ) -> Result<(Arc<Self>, RelaySink, RelayDrain), Error> {
-        let runtime = handle.clone().into_inner();
-        if runtime.runtime_flavor() != tokio::runtime::RuntimeFlavor::MultiThread {
-            return Err(Error::Full("multi-thread runtime required".into()));
-        }
-        let workers = runtime.metrics().num_workers().max(1);
-        let permits = store
-            .budget
-            .limits
-            .workers
-            .saturating_add(1)
-            .min(workers)
-            .max(1);
-        let local_headroom = local_headroom_permits(
+        let runtime_workers = Self::runtime_workers(handle)?;
+        let plan = super::budget::ConcurrencyPlan::derive(
             store.budget.limits.workers,
-            store.budget.limits.active_jobs,
-            workers,
-        );
+            Some(runtime_workers),
+        )?;
+        let permits = plan.bg_compute;
+        let local_headroom = plan
+            .local_headroom
+            .min(store.budget.limits.active_jobs.saturating_sub(permits));
         let total_compute = permits.saturating_add(local_headroom);
         // Bound concurrent local submissions entering `direct_capacity()` to at
         // most `min(total_compute + 1, active_jobs)` in strict FIFO order so

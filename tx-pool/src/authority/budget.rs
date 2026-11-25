@@ -130,6 +130,78 @@ pub(super) struct MaterializationLimits {
     pub(super) edges: usize,
 }
 
+/// Shared concurrency derivation for both active-job memory budgets
+/// (`Limits`) and runtime compute permits (`service::Pool`).
+///
+/// - Shared/background compute permits: `bg_compute = max(1, min(W + 1, N))`.
+/// - Remote active-job memory slots: `remote_active_jobs = W + 1`.
+/// - Trusted local headroom compute permits: when `W > 0`, up to 2 extra local
+///   compute permits when the multi-thread runtime still keeps at least 3
+///   workers reserved for control/RPC I/O, chain/template/publisher, and
+///   OS/network scheduling headroom so CPU-bound VM threads do not preempt the
+///   HTTP reactor (`N.saturating_sub(bg_compute + 3).min(2)`). When `W == 0`,
+///   no extra local compute permit is needed (`bg_compute == 1` already serves
+///   local RPC).
+/// - Active-job memory slots: retains the baseline `W + 2` slots (`W` verify +
+///   `1` resolve + `1` trusted local/settlement slot), and reserves the second
+///   extra slot (`W + 3`) only when the runtime actually grants the second
+///   trusted local compute permit (`local_headroom == 2`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) struct ConcurrencyPlan {
+    pub(super) bg_compute: usize,
+    pub(super) local_headroom: usize,
+    pub(super) total_compute: usize,
+    pub(super) remote_active_jobs: usize,
+    pub(super) active_jobs: usize,
+}
+
+impl ConcurrencyPlan {
+    pub(super) fn derive(workers: usize, runtime_workers: Option<usize>) -> Result<Self, Error> {
+        let remote_active_jobs = workers
+            .checked_add(1)
+            .ok_or_else(|| Self::worker_limit_error(workers))?;
+        let (bg_compute, local_headroom) = match runtime_workers {
+            Some(runtime_workers) => {
+                let runtime_workers = runtime_workers.max(1);
+                let bg = remote_active_jobs.min(runtime_workers).max(1);
+                let headroom = if workers == 0 {
+                    0
+                } else {
+                    runtime_workers.saturating_sub(bg.saturating_add(3)).min(2)
+                };
+                (bg, headroom)
+            }
+            None => (remote_active_jobs, 0),
+        };
+        let extra_active = usize::from(local_headroom == 2);
+        let active_jobs = workers
+            .checked_add(2)
+            .and_then(|slots| slots.checked_add(extra_active))
+            .filter(|slots| *slots <= tokio::sync::Semaphore::MAX_PERMITS)
+            .ok_or_else(|| Self::worker_limit_error(workers))?;
+        let total_compute = bg_compute
+            .checked_add(local_headroom)
+            .filter(|permits| *permits <= active_jobs)
+            .ok_or_else(|| Self::worker_limit_error(workers))?;
+        Ok(Self {
+            bg_compute,
+            local_headroom,
+            total_compute,
+            remote_active_jobs,
+            active_jobs,
+        })
+    }
+
+    fn worker_limit_error(workers: usize) -> Error {
+        let reason = "max_tx_verify_workers exceeds the supported worker count";
+        ckb_logger::error!(
+            "{reason}: {workers}; maximum is {}",
+            tokio::sync::Semaphore::MAX_PERMITS.saturating_sub(3),
+        );
+        Error::Full(reason.into())
+    }
+}
+
 /// Limits are derived once from existing configuration and canonical consensus.
 #[derive(Clone, Debug)]
 pub(super) struct Limits {
@@ -148,36 +220,48 @@ pub(super) struct Limits {
 }
 
 impl Limits {
+    #[cfg(test)]
     pub(super) fn new(config: &TxPoolConfig, consensus: &Consensus) -> Result<Self, Error> {
-        let residency = ResidencyLimits::from_pool_size(config.max_tx_pool_size)
-            .ok_or_else(|| Error::Full("transaction-pool residency bound overflow".into()))?;
-        Self::with_residency(config, consensus, residency)
+        Self::with_runtime_workers(config, consensus, None)
     }
 
+    pub(super) fn with_runtime_workers(
+        config: &TxPoolConfig,
+        consensus: &Consensus,
+        runtime_workers: Option<usize>,
+    ) -> Result<Self, Error> {
+        let residency = ResidencyLimits::from_pool_size(config.max_tx_pool_size)
+            .ok_or_else(|| Error::Full("transaction-pool residency bound overflow".into()))?;
+        Self::with_residency_for_runtime(config, consensus, residency, runtime_workers)
+    }
+
+    #[cfg(test)]
     pub(super) fn with_residency(
         config: &TxPoolConfig,
         consensus: &Consensus,
         residency: ResidencyLimits,
     ) -> Result<Self, Error> {
+        Self::with_residency_for_runtime(config, consensus, residency, None)
+    }
+
+    pub(super) fn with_residency_for_runtime(
+        config: &TxPoolConfig,
+        consensus: &Consensus,
+        residency: ResidencyLimits,
+        runtime_workers: Option<usize>,
+    ) -> Result<Self, Error> {
         let bad = || Error::Full("transaction-pool resource bound arithmetic overflow".into());
         let workers = config.max_tx_verify_workers;
-        let active_items = workers
-            .checked_add(2)
-            .filter(|slots| *slots <= tokio::sync::Semaphore::MAX_PERMITS)
-            .ok_or_else(|| {
-                let reason = "max_tx_verify_workers exceeds the supported worker count";
-                ckb_logger::error!(
-                    "{reason}: {workers}; maximum is {}",
-                    tokio::sync::Semaphore::MAX_PERMITS.saturating_sub(2),
-                );
-                Error::Full(reason.into())
-            })?;
-        let remote_items = active_items.checked_sub(1).ok_or_else(bad)?;
+        let concurrency = ConcurrencyPlan::derive(workers, runtime_workers)?;
+        let active_items = concurrency.active_jobs;
+        let remote_items = concurrency.remote_active_jobs;
         let pipeline_bytes = residency.pipeline;
         let max_block_bytes = usize::try_from(consensus.max_block_bytes()).map_err(|_| bad())?;
         let raw_edges = pipeline_bytes / 160;
-        // Keep one job for each VM worker, one resolver and trusted headroom.
-        // The last envelope comes from queued residency, not a smaller job cap.
+        // Keep one job for each VM worker, one resolver and baseline trusted
+        // headroom (adding a second extra slot only when runtime concurrency
+        // grants a second trusted local compute permit). Extra active envelopes
+        // come from queued residency, not a smaller per-job cap.
         let job_bytes = (pipeline_bytes / 4)
             .checked_div(remote_items)
             .ok_or_else(bad)?;

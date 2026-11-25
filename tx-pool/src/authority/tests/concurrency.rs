@@ -437,7 +437,7 @@ fn index_roles_survive_phase_changes_and_duplicate_dependencies() {
     accepted.timestamp += 1;
     let owner = replace(&store, owner, Phase::Accepted(accepted.clone()));
     check_roles(true, true, true, false);
-    let keys = BTreeSet::from([point.clone()]);
+    let keys = BTreeSet::from([point]);
     let owner = replace(&store, owner, Phase::Waiting(keys.clone()));
     check_roles(false, false, false, true);
     let owner = replace(
@@ -1595,8 +1595,7 @@ fn dirty_retirement_preserves_spender_and_clear_releases_all_queued_keys() {
     chain::commit_clear(&store, None, ClearScope::All).unwrap();
     assert!(store.state_read().dirty_wakes.is_empty());
     assert!(store.state_read().waiters.is_empty());
-    let waiter =
-        entry(&store, tx(30_304), remote(1, 1)).with_phase(Phase::Waiting([point.clone()].into()));
+    let waiter = entry(&store, tx(30_304), remote(1, 1)).with_phase(Phase::Waiting([point].into()));
     insert(&store, waiter);
     store
         .commit_with(|tx| {
@@ -1614,8 +1613,7 @@ fn repeated_availability_advances_pass_without_duplicating_dirty_membership() {
     let store = store();
     let key = OutPoint::new(tx(30_400).hash(), 0);
     let key_op = OutPointKey::from_out_point(&key);
-    let waiter =
-        entry(&store, tx(30_401), remote(1, 1)).with_phase(Phase::Waiting([key.clone()].into()));
+    let waiter = entry(&store, tx(30_401), remote(1, 1)).with_phase(Phase::Waiting([key].into()));
     insert(&store, waiter);
     store
         .commit_with(|tx| {
