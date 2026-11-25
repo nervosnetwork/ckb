@@ -1447,3 +1447,63 @@ fn try_publish_skips_idle_wakeup_but_wakes_after_contention() {
     assert!(post_drain_wait.as_mut().poll(&mut cx).is_ready());
     assert!(!outbox.publisher_contended.load(Ordering::SeqCst));
 }
+
+#[test]
+fn nonblocking_inline_publish_skips_callbacks_and_recent_reject_writes() {
+    use std::sync::atomic::AtomicUsize;
+
+    // 1. Callback-free accepted batch publishes inline on `activate_nonblocking`
+    //    without waking `TxPoolPublisher`.
+    let (outbox, endpoints, receiver) = fixture(Callbacks::new());
+    *outbox.publisher.lock() = Some(endpoints);
+    let epoch_before = outbox.wake_epoch.load(Ordering::SeqCst);
+    let hash = tx(951).hash();
+    let batch = append(&outbox, vec![callback_effect(951)]);
+    batch.activate_nonblocking(&outbox);
+    assert!(batch.is_published());
+    assert_eq!(outbox.wake_epoch.load(Ordering::SeqCst), epoch_before);
+    assert!(
+        matches!(receiver.try_recv(), Some(TxVerificationResult::Reject { tx_hash }) if tx_hash == hash)
+    );
+
+    // 2. Registered callback batch is NOT executed inline; it waits for publisher.
+    let calls = Arc::new(AtomicUsize::new(0));
+    let calls_cb = Arc::clone(&calls);
+    let mut callbacks = Callbacks::new();
+    callbacks.register_pending(Box::new(move |_| {
+        calls_cb.fetch_add(1, Ordering::SeqCst);
+    }));
+    let (outbox, endpoints, _receiver) = fixture(callbacks);
+    *outbox.publisher.lock() = Some(endpoints);
+    let epoch_before = outbox.wake_epoch.load(Ordering::SeqCst);
+    let batch = append(&outbox, vec![callback_effect(952)]);
+    batch.activate_nonblocking(&outbox);
+    assert!(!batch.is_published());
+    assert_eq!(calls.load(Ordering::SeqCst), 0);
+    assert!(outbox.wake_epoch.load(Ordering::SeqCst) > epoch_before);
+    assert!(outbox.try_publish().unwrap());
+    assert!(batch.is_published());
+    assert_eq!(calls.load(Ordering::SeqCst), 1);
+
+    // 3. Rejection with `recent_reject` DB write is NOT executed inline.
+    let dir = tempfile::tempdir().unwrap();
+    let recent = Arc::new(RecentReject::new(dir.path(), 1, 1024 * 1024).unwrap());
+    let store = store();
+    let (sink, _rx) = super::super::relay::production_authority_relay_mailbox(1024, 128).unwrap();
+    let endpoints = Endpoints::new(
+        Arc::new(DummyTxPoolNetwork),
+        sink,
+        Arc::new(Callbacks::new()),
+        Some(recent),
+        FeeEstimator::new_dummy(),
+    );
+    let outbox = &store.outbox;
+    *outbox.publisher.lock() = Some(endpoints);
+    let rej_hash = tx(953).hash();
+    let rej = Effect::rejected(&rej_hash, Reject::RBFRejected("low".into()), None, true).unwrap();
+    let batch = append(outbox, vec![rej]);
+    batch.activate_nonblocking(outbox);
+    assert!(!batch.is_published());
+    assert!(outbox.try_publish().unwrap());
+    assert!(batch.is_published());
+}

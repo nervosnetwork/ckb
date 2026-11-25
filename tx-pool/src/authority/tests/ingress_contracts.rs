@@ -146,6 +146,7 @@ fn rejected_preview_validates_premises_without_consuming_notice_capacity_or_reti
             super::super::membership::AdmissionOptions {
                 retain_history: false,
                 dry_run: true,
+                inline_publish: false,
                 silence_effects: false,
                 forbid_displacement: false,
             },

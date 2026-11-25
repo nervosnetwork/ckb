@@ -519,6 +519,7 @@ fn build_history_entry(
 pub(super) struct AdmissionOptions {
     pub(super) retain_history: bool,
     pub(super) dry_run: bool,
+    pub(super) inline_publish: bool,
     #[cfg(any(test, feature = "internal"))]
     pub(super) silence_effects: bool,
     #[cfg(any(test, feature = "internal"))]
@@ -530,6 +531,7 @@ impl AdmissionOptions {
         Self {
             retain_history: true,
             dry_run: false,
+            inline_publish: false,
             #[cfg(any(test, feature = "internal"))]
             silence_effects: false,
             #[cfg(any(test, feature = "internal"))]
@@ -537,10 +539,18 @@ impl AdmissionOptions {
         }
     }
 
+    pub(super) fn commit_inline() -> Self {
+        Self {
+            inline_publish: true,
+            ..Self::commit()
+        }
+    }
+
     pub(super) fn preview() -> Self {
         Self {
             retain_history: false,
             dry_run: true,
+            inline_publish: false,
             #[cfg(any(test, feature = "internal"))]
             silence_effects: false,
             #[cfg(any(test, feature = "internal"))]
@@ -1117,7 +1127,7 @@ pub(super) fn commit_admission(
         return Ok((None, reject));
     }
 
-    let (reject, batch) = store.commit_with(|tx| {
+    let commit_op = |tx: &mut super::store::Commit<'_>| {
         let retire = before
             .as_ref()
             .filter(|entry| Arc::ptr_eq(entry, candidate))
@@ -1156,7 +1166,12 @@ pub(super) fn commit_admission(
                 Ok(None)
             }
         }
-    })?;
+    };
+    let (reject, batch) = if options.inline_publish {
+        store.commit_with_inline_publish(commit_op)?
+    } else {
+        store.commit_with(commit_op)?
+    };
     Ok((batch, reject))
 }
 

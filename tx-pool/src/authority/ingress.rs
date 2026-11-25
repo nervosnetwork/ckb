@@ -133,14 +133,17 @@ pub(super) fn commit_ingress_chunk(
         let count = items
             .iter()
             .take_while(|(tx, source)| {
-                is_fresh_unbanned(
-                    &state,
-                    now,
-                    source.residency_peer(),
-                    hash_key(tx.hash_ref()),
-                    &mut seen_hashes,
-                    &mut seen_proposals,
-                )
+                let hash = hash_key(tx.hash_ref());
+                !(matches!(source, Source::Remote { .. })
+                    && store.is_budget_cooled_down(hash, hash_key(&tx.witness_hash()), now))
+                    && is_fresh_unbanned(
+                        &state,
+                        now,
+                        source.residency_peer(),
+                        hash,
+                        &mut seen_hashes,
+                        &mut seen_proposals,
+                    )
             })
             .count();
         (Arc::clone(&state.snapshot), count)
@@ -184,14 +187,17 @@ pub(super) fn commit_ingress_chunk(
         };
         let mut edits = Vec::with_capacity(prepared.len());
         for (hash, entry) in prepared {
-            if !is_fresh_unbanned(
-                tx.state,
-                tx.now,
-                entry.preaccepted_peer(),
-                hash,
-                &mut seen_hashes,
-                &mut seen_proposals,
-            ) || !quota.try_add(tx.state, tx.limits, &entry)
+            if (matches!(entry.source, Source::Remote { .. })
+                && tx.is_budget_cooled_down(hash, hash_key(&entry.transaction.witness_hash())))
+                || !is_fresh_unbanned(
+                    tx.state,
+                    tx.now,
+                    entry.preaccepted_peer(),
+                    hash,
+                    &mut seen_hashes,
+                    &mut seen_proposals,
+                )
+                || !quota.try_add(tx.state, tx.limits, &entry)
             {
                 break;
             }
@@ -236,7 +242,13 @@ pub(super) fn commit_ingress(
 
     let (_, batch) = store.commit_with(|tx| {
         if let Source::Remote { origin, .. } = source
-            && tx.state.is_peer_banned(origin.peer, tx.now)
+            && (tx.state.is_peer_banned(origin.peer, tx.now)
+                || if tx.is_budget_cooled_down(hash_bytes, hash_key(&transaction.witness_hash())) {
+                    crate::metrics::record_verify_budget_cooldown_hit();
+                    true
+                } else {
+                    false
+                })
         {
             return tx.commit_effects(
                 vec![Effect::relay(TxVerificationResult::Reject {
@@ -375,6 +387,14 @@ pub(super) fn commit_rejection(
     reject: Reject,
 ) -> Result<Option<Arc<Batch>>, Error> {
     let hash_bytes = hash_key(hash);
+    let cooldown_witness = (matches!(reject, Reject::ExcessiveVerifyTime)
+        && matches!(source, Source::Remote { .. }))
+    .then(|| {
+        before
+            .as_ref()
+            .map(|entry| hash_key(&entry.transaction.witness_hash()))
+    })
+    .flatten();
     let (_, batch) = store.commit_with(|tx| {
         tx.state.validate_premises(view, premises)?;
         if let Some(expected) = &before
@@ -385,7 +405,15 @@ pub(super) fn commit_rejection(
         {
             return Err(Error::Stale);
         }
-        commit_rejection_locked(tx, before, hash, source, reject)
+        commit_rejection_locked(tx, before, hash, source, reject)?;
+        // Record remote CPU-budget cooldown only after view/premises/owner
+        // validation and rejection commit all succeed in the same write lock,
+        // so stale verification results from a previous view can never pollute
+        // the new view's cooldown table.
+        if let Some(witness_hash) = cooldown_witness {
+            tx.record_budget_cooldown(hash_bytes, witness_hash);
+        }
+        Ok(())
     })?;
     Ok(batch)
 }
@@ -527,5 +555,69 @@ mod tests {
             0
         );
         assert_eq!(store.next_arrival().unwrap(), before_ban_arrival + 1);
+    }
+
+    #[test]
+    fn budget_cooldown_sheds_remote_replay_only_and_clears_on_reorg() {
+        let store = store();
+        let peer: PeerIndex = 12.into();
+        let source = remote_source(peer, 1_000).unwrap();
+        let tx_a = valid_tx(21);
+        let tx_a_modified_witness = Arc::new(
+            tx_a.as_ref()
+                .clone()
+                .as_advanced_builder()
+                .witness(Bytes::from_static(b"re-signed").pack())
+                .build(),
+        );
+        assert_eq!(tx_a.hash(), tx_a_modified_witness.hash());
+        assert_ne!(tx_a.witness_hash(), tx_a_modified_witness.witness_hash());
+
+        store.record_budget_cooldown(hash_key(tx_a.hash_ref()), hash_key(&tx_a.witness_hash()));
+
+        // Chunk and single remote ingress both shed exact (tx_hash, witness_hash) replay.
+        assert_eq!(
+            commit_ingress_chunk(&store, &[(Arc::clone(&tx_a), source)]).unwrap(),
+            0
+        );
+        let batch = commit_ingress(&store, Arc::clone(&tx_a), source)
+            .unwrap()
+            .expect("cooldown refusal emits relay reject batch");
+        assert!(store.point(tx_a.hash_ref()).1.is_none());
+        drop(batch);
+
+        // Changed witness is not blocked by the old witness's cooldown.
+        assert_eq!(
+            commit_ingress_chunk(&store, &[(Arc::clone(&tx_a_modified_witness), source)]).unwrap(),
+            1
+        );
+        assert!(store.point(tx_a.hash_ref()).1.is_some());
+
+        // Proposal ingress bypasses remote cooldown even for the original witness.
+        let tx_b = valid_tx(22);
+        store.record_budget_cooldown(hash_key(tx_b.hash_ref()), hash_key(&tx_b.witness_hash()));
+        assert_eq!(
+            commit_ingress_chunk(
+                &store,
+                &[(Arc::clone(&tx_b), Source::Proposal { remote: None })]
+            )
+            .unwrap(),
+            1
+        );
+        assert!(store.point(tx_b.hash_ref()).1.is_some());
+
+        // Chain reorg clears the in-memory cooldown so a later remote submission enters normally.
+        let tx_c = valid_tx(23);
+        store.record_budget_cooldown(hash_key(tx_c.hash_ref()), hash_key(&tx_c.witness_hash()));
+        assert_eq!(
+            commit_ingress_chunk(&store, &[(Arc::clone(&tx_c), source)]).unwrap(),
+            0
+        );
+        store.commit_reorg(|_| Ok(())).unwrap();
+        assert_eq!(
+            commit_ingress_chunk(&store, &[(Arc::clone(&tx_c), source)]).unwrap(),
+            1
+        );
+        assert!(store.point(tx_c.hash_ref()).1.is_some());
     }
 }

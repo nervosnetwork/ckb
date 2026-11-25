@@ -1431,6 +1431,7 @@ fn transient_wake_views_release_payload_before_dirty_keys_and_publication() {
         membership::AdmissionOptions {
             retain_history: false,
             dry_run: false,
+            inline_publish: false,
             silence_effects: true,
             forbid_displacement: false,
         },

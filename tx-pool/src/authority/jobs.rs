@@ -2,13 +2,13 @@
 //! through admission/discard. Selection does not rewrite the immutable owner.
 use super::{
     budget::ActivePermit,
-    model::{Entry, Error, Premises, Resolved, Status, VerifiedScripts, status},
-    service::ComputePermit,
+    model::{Entry, Error, Premises, Resolved, Source, Status, VerifiedScripts, status},
+    service::{ComputePermit, ComputePool},
     store::Store,
 };
 use crate::{
     error::Reject,
-    verification::{try_verify_rtx_sync, verify_rtx},
+    verification::{script_group_count, try_verify_rtx_sync, verify_rtx_with_compute},
 };
 use ckb_app_config::TxPoolConfig;
 use ckb_script::ChunkCommand;
@@ -17,7 +17,7 @@ use ckb_snapshot::Snapshot;
 use ckb_types::core::TransactionView;
 use ckb_types::packed::OutPoint;
 use ckb_verification::{TxVerifyEnv, cache::TxVerificationCache};
-use std::{collections::BTreeSet, sync::Arc};
+use std::{collections::BTreeSet, sync::Arc, time::Duration};
 use tokio::sync::{RwLock, watch};
 
 mod resolution;
@@ -80,6 +80,7 @@ pub(super) struct Verified {
     resolved: Arc<Resolved>,
     scripts: VerifiedScripts,
     timestamp: u64,
+    spent_cpu: Duration,
     // Trusted internal fixtures supply status and serialized size before policy
     // planning; live verification derives both from the chain/transaction.
     #[cfg(any(test, feature = "internal"))]
@@ -96,6 +97,10 @@ impl Verified {
 
     pub(super) fn scripts(&self) -> VerifiedScripts {
         self.scripts
+    }
+
+    pub(super) fn spent_cpu(&self) -> Duration {
+        self.spent_cpu
     }
 
     #[cfg(any(test, feature = "internal"))]
@@ -164,6 +169,7 @@ pub(super) fn try_verify_local_sync(
             resolved,
             scripts: VerifiedScripts::Vm(outcome.proof()),
             timestamp,
+            spent_cpu: Duration::ZERO,
             #[cfg(any(test, feature = "internal"))]
             fixture: None,
         }),
@@ -171,15 +177,7 @@ pub(super) fn try_verify_local_sync(
     })
 }
 
-#[cfg_attr(
-    feature = "profiling",
-    tracing::instrument(
-        level = "trace",
-        target = "ckb_tx_pool_profile",
-        name = "tx_pool.stage.verify",
-        skip_all
-    )
-)]
+#[cfg(test)]
 pub(super) async fn verify(
     store: &Store,
     entry: &Entry,
@@ -189,6 +187,33 @@ pub(super) async fn verify(
     commands: &mut watch::Receiver<ChunkCommand>,
     // Retain admitted CPU capacity through canonical verification and its VM child.
     compute: &ComputePermit,
+) -> Result<Verified, Error> {
+    verify_with_compute(
+        store, entry, resolved, config, cache, commands, compute, None,
+    )
+    .await
+}
+
+#[allow(clippy::too_many_arguments)]
+#[cfg_attr(
+    feature = "profiling",
+    tracing::instrument(
+        level = "trace",
+        target = "ckb_tx_pool_profile",
+        name = "tx_pool.stage.verify",
+        skip_all
+    )
+)]
+pub(super) async fn verify_with_compute(
+    store: &Store,
+    entry: &Entry,
+    resolved: Arc<Resolved>,
+    config: &TxPoolConfig,
+    cache: &RwLock<TxVerificationCache>,
+    commands: &mut watch::Receiver<ChunkCommand>,
+    // Retain admitted CPU capacity through canonical verification and its VM child.
+    compute: &ComputePermit,
+    compute_pool: Option<&ComputePool>,
 ) -> Result<Verified, Error> {
     let snapshot = store.snapshot_checked(resolved.view, &resolved.premises)?;
     verify_with_snapshot(
@@ -201,6 +226,7 @@ pub(super) async fn verify(
         cache,
         commands,
         compute,
+        compute_pool,
     )
     .await
 }
@@ -215,24 +241,43 @@ pub(super) async fn verify_with_snapshot(
     cache: &RwLock<TxVerificationCache>,
     commands: &mut watch::Receiver<ChunkCommand>,
     _compute: &ComputePermit,
+    compute_pool: Option<&ComputePool>,
 ) -> Result<Verified, Error> {
     #[cfg(any(test, feature = "internal"))]
-    store.run_verify_observer(entry.transaction.hash_ref());
+    let before_prepare = store.verify_observer_task(entry.transaction.hash_ref());
     let environment = Arc::new(environment(status(&snapshot, &entry.proposal()), &snapshot));
     let max_cycles = entry
         .source
         .declared_cycles()
         .unwrap_or_else(|| snapshot.consensus().max_block_cycles());
-    let (outcome, timestamp) = verify_rtx(
+    let groups = script_group_count(&resolved.transaction);
+    let time_limit = entry
+        .source
+        .verification_time_limit_for_groups(config, groups);
+    let (outcome, timestamp, spent_cpu) = match verify_rtx_with_compute(
         snapshot,
         Arc::clone(&resolved.transaction),
         environment,
         cache,
         max_cycles,
         commands,
-        entry.source.verification_time_limit(config),
+        time_limit,
+        compute_pool,
+        #[cfg(any(test, feature = "internal"))]
+        before_prepare,
     )
-    .await?;
+    .await
+    {
+        Ok(result) => result,
+        Err(Reject::ExcessiveVerifyTime) => {
+            crate::metrics::record_verify_time_budget_exceeded(matches!(
+                entry.source,
+                Source::Proposal { .. }
+            ));
+            return Err(Reject::ExcessiveVerifyTime.into());
+        }
+        Err(reject) => return Err(reject.into()),
+    };
     if let Some(declared) = entry.source.declared_cycles()
         && outcome.cycles() != declared
     {
@@ -248,6 +293,7 @@ pub(super) async fn verify_with_snapshot(
         resolved,
         scripts: VerifiedScripts::Vm(outcome.proof()),
         timestamp,
+        spent_cpu,
         #[cfg(any(test, feature = "internal"))]
         fixture: None,
     })
@@ -274,6 +320,7 @@ pub(super) fn fixture(
         }),
         scripts: VerifiedScripts::Fixture(entry.cycles),
         timestamp: entry.timestamp,
+        spent_cpu: Duration::ZERO,
         fixture: Some((status, entry.size)),
     }
 }

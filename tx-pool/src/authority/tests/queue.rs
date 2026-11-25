@@ -360,3 +360,54 @@ async fn global_active_refusal_preserves_both_queues_and_observes_an_early_relea
         assert!(!store.budget.faulted());
     }
 }
+
+#[test]
+fn peer_pacing_prefers_unpaced_peers_while_remaining_work_conserving() {
+    use ckb_network::PeerIndex;
+
+    let store = store();
+    let queues = Queues::new(VerifyOrdering::FeeRate, 10_000);
+    let slow_peer: PeerIndex = 1.into();
+
+    let slow_1 = entry(&store, tx(9101), remote(1, 500));
+    let slow_2 = entry(&store, tx(9102), remote(1, 500));
+    let fast_1 = entry(&store, tx(9103), remote(2, 500));
+    let fast_2 = entry(&store, tx(9104), remote(2, 500));
+    let trusted = entry(&store, tx(9105), Source::Proposal { remote: None });
+
+    for item in [&slow_1, &slow_2, &fast_1, &fast_2, &trusted] {
+        queues.insert(item);
+    }
+    queues.pace_peer(slow_peer, Duration::from_secs(5));
+
+    // Unpaced work (trusted + honest peer) must all drain ahead of the paced peer.
+    let mut first_three = Vec::new();
+    for _ in 0..3 {
+        let (selected, permit) = queues
+            .pop(WorkStage::Resolve, WorkSelection::Any, &store.budget)
+            .unwrap()
+            .expect("unpaced work available");
+        first_three.push(selected.hash());
+        drop(permit);
+    }
+    assert!(first_three.contains(&trusted.hash()));
+    assert!(first_three.contains(&fast_1.hash()));
+    assert!(first_three.contains(&fast_2.hash()));
+    assert!(!first_three.contains(&slow_1.hash()));
+    assert!(!first_three.contains(&slow_2.hash()));
+
+    // Work-conserving fallback: once only the paced peer remains, it runs immediately.
+    let (fallback_1, permit) = queues
+        .pop(WorkStage::Resolve, WorkSelection::Any, &store.budget)
+        .unwrap()
+        .expect("paced peer must still run when no unpaced work exists");
+    assert!(fallback_1.hash() == slow_1.hash() || fallback_1.hash() == slow_2.hash());
+    drop(permit);
+    let (fallback_2, permit) = queues
+        .pop(WorkStage::Resolve, WorkSelection::Any, &store.budget)
+        .unwrap()
+        .expect("remaining paced work must drain");
+    assert_ne!(fallback_1.hash(), fallback_2.hash());
+    drop(permit);
+    assert_eq!(queues.queued_len(), 0);
+}

@@ -33,10 +33,6 @@ use tokio_util::sync::CancellationToken;
 
 // Bound one endpoint handoff; each batch still settles and releases separately.
 const PUBLISH_BATCH_LIMIT: usize = 32;
-/// Brief adaptive spin on `TxPoolPublisher` strictly when the pool is in
-/// single-worker serial mode (`spin_allowed == true`), eliminating kernel wake
-/// latency on serial local commits without burning CPU under concurrent load.
-const PUBLISHER_IDLE_SPIN: Duration = Duration::from_micros(100);
 
 #[cfg(test)]
 #[path = "tests/notice.rs"]
@@ -518,6 +514,22 @@ impl Batch {
     pub(super) fn activate(&self, outbox: &Outbox) {
         self.ready.store(true, Ordering::SeqCst);
         outbox.notify_publisher();
+    }
+
+    /// Open publication and immediately drain non-blocking in-memory batches
+    /// inline when `publisher` is uncontended, avoiding a `TxPoolPublisher`
+    /// wakeup and second caller wakeup while keeping callbacks, `recent_reject`
+    /// DB writes, peer bans, and block updates isolated on `TxPoolPublisher`.
+    pub(super) fn activate_nonblocking(&self, outbox: &Outbox) {
+        self.ready.store(true, Ordering::SeqCst);
+        if outbox.try_publish_nonblocking() && self.published.load(Ordering::SeqCst) {
+            return;
+        }
+        outbox.notify_publisher();
+    }
+
+    pub(super) fn is_published(&self) -> bool {
+        self.published.load(Ordering::SeqCst)
     }
 
     /// Wait for the synchronous endpoint pass and removal from the outbox.
@@ -1040,6 +1052,73 @@ impl Outbox {
         Ok(progress)
     }
 
+    /// Borrow the exclusive publisher without blocking and drain only a leading
+    /// ready FIFO prefix whose effects require no enabled external callbacks,
+    /// no persistent `recent_reject` DB writes, no peer bans, and no block
+    /// updates. Any batch that can run user code or touch disk/network stays
+    /// strictly on the dedicated `TxPoolPublisher` thread.
+    pub(super) fn try_publish_nonblocking(&self) -> bool {
+        let mut publisher = match self.publisher.try_lock() {
+            Some(guard) => guard,
+            None => {
+                self.publisher_contended.store(true, Ordering::SeqCst);
+                match self.publisher.try_lock() {
+                    Some(guard) => guard,
+                    None => return false,
+                }
+            }
+        };
+        let Some(endpoints) = publisher.as_mut() else {
+            return false;
+        };
+        let (head, count) = {
+            let state = self.state.lock();
+            let Some(head) = state
+                .queue
+                .front()
+                .filter(|batch| batch.ready.load(Ordering::SeqCst))
+            else {
+                return false;
+            };
+            let count = state
+                .queue
+                .iter()
+                .take(PUBLISH_BATCH_LIMIT)
+                .take_while(|batch| {
+                    batch.ready.load(Ordering::SeqCst) && endpoints.batch_is_nonblocking(batch)
+                })
+                .count();
+            if count == 0 {
+                return false;
+            }
+            (Arc::clone(head), count)
+        };
+        struct Completion<'a> {
+            outbox: &'a Outbox,
+            done: bool,
+        }
+        impl Drop for Completion<'_> {
+            fn drop(&mut self) {
+                if !self.done {
+                    self.outbox.publication_failed();
+                }
+            }
+        }
+        let mut completion = Completion {
+            outbox: self,
+            done: false,
+        };
+        let Ok(wake_background) = self.publish_prefix(endpoints, head, count) else {
+            return false;
+        };
+        completion.done = true;
+        drop(publisher);
+        if wake_background || self.publisher_contended.swap(false, Ordering::SeqCst) {
+            self.notify_publisher();
+        }
+        true
+    }
+
     /// Run the sole publisher on one dedicated OS thread so synchronous
     /// endpoints (callbacks, `recent_reject`, `fee_estimator`, `ban_peer`)
     /// never invoke Tokio `block_in_place` or churn `GlobalRt` threads.
@@ -1048,7 +1127,6 @@ impl Outbox {
         handle: &ckb_async_runtime::Handle,
         endpoints: Endpoints,
         signal: CancellationToken,
-        spin_allowed: Arc<AtomicBool>,
     ) -> tokio::task::JoinHandle<Result<(), Error>> {
         {
             let mut publisher = self.publisher.lock();
@@ -1085,14 +1163,10 @@ impl Outbox {
                     signal: worker_signal,
                     done: false,
                 };
-                let mut should_spin = false;
                 let result = loop {
                     let observed = worker_outbox.wake_epoch.load(Ordering::SeqCst);
                     match worker_outbox.try_publish() {
-                        Ok(true) => {
-                            should_spin = true;
-                            continue;
-                        }
+                        Ok(true) => continue,
                         Ok(false) => {}
                         Err(error) => break Err(error),
                     }
@@ -1102,23 +1176,6 @@ impl Outbox {
                     }
                     if worker_outbox.faulted.load(Ordering::SeqCst) {
                         break Err(Error::Fault("notice publisher"));
-                    }
-                    if should_spin && spin_allowed.load(Ordering::SeqCst) {
-                        should_spin = false;
-                        if let Some(deadline) = Instant::now().checked_add(PUBLISHER_IDLE_SPIN) {
-                            while worker_outbox.wake_epoch.load(Ordering::SeqCst) == observed
-                                && !worker_outbox.faulted.load(Ordering::SeqCst)
-                                && spin_allowed.load(Ordering::SeqCst)
-                                && Instant::now() < deadline
-                            {
-                                std::hint::spin_loop();
-                            }
-                        }
-                        if worker_outbox.wake_epoch.load(Ordering::SeqCst) != observed {
-                            continue;
-                        }
-                    } else {
-                        should_spin = false;
                     }
                     let mut guard = worker_outbox.wake_lock.lock();
                     worker_outbox
@@ -1349,6 +1406,26 @@ impl Endpoints {
 
     fn callback_enabled(&self, event: &CallbackEvent) -> bool {
         !self.callbacks_disabled && self.callbacks.has_callback(event)
+    }
+
+    fn batch_is_nonblocking(&self, batch: &Batch) -> bool {
+        batch.effects.iter().all(|effect| match effect {
+            Effect::Accepted { callback, .. } | Effect::Projected(callback) => {
+                !self.callback_enabled(callback)
+            }
+            Effect::Relay(_) => true,
+            Effect::Rejected {
+                rejection,
+                callback,
+                ..
+            } => {
+                callback
+                    .as_ref()
+                    .is_none_or(|event| !self.callback_enabled(event))
+                    && (self.recent.is_none() || rejection.recent.is_none())
+            }
+            Effect::Blocks(_) | Effect::PeerBanned { .. } => false,
+        })
     }
 
     fn publish_callback(&mut self, event: &CallbackEvent) {

@@ -1,17 +1,27 @@
 //! Owns interruptible VM work and charges execution-thread CPU time.
 
 use super::cpu_clock::CpuTime;
-use crate::util::block_offload;
+use crate::{authority::service::ComputePool, util::block_offload};
 use ckb_script::{
     ChunkCommand, RunMode, Scheduler, SchedulerRunner, VM_INTERRUPTED_MESSAGE,
     types::{DebugPrinter, Machine, TerminatedResult},
 };
+#[cfg(test)]
 use ckb_snapshot::Snapshot;
+#[cfg(test)]
 use ckb_store::data_loader_wrapper::DataLoaderWrapper;
 use ckb_types::core::Cycle;
+use ckb_verification::{CellDataProvider, ExtensionProvider, HeaderProvider};
 use ckb_vm::{Error, machine::Pause};
 use futures_util::FutureExt;
-use std::{future::Future, io, time::Duration};
+use std::{
+    future::Future,
+    io,
+    panic::AssertUnwindSafe,
+    pin::Pin,
+    task::{Context, Poll},
+    time::Duration,
+};
 use tokio::{
     sync::{oneshot, watch},
     task::JoinHandle,
@@ -23,14 +33,16 @@ mod tests;
 pub(super) struct VmRunner<'a> {
     pub command: &'a mut watch::Receiver<ChunkCommand>,
     pub remaining: Duration,
+    pub compute: Option<&'a ComputePool>,
 }
 
-impl SchedulerRunner<Scheduler<DataLoaderWrapper<Snapshot>, DebugPrinter, Machine>>
-    for VmRunner<'_>
+impl<DL> SchedulerRunner<Scheduler<DL, DebugPrinter, Machine>> for VmRunner<'_>
+where
+    DL: CellDataProvider + HeaderProvider + ExtensionProvider + Send + Sync + Clone + 'static,
 {
     async fn run(
         &mut self,
-        mut scheduler: Scheduler<DataLoaderWrapper<Snapshot>, DebugPrinter, Machine>,
+        mut scheduler: Scheduler<DL, DebugPrinter, Machine>,
         max_cycles: Cycle,
     ) -> Result<Option<TerminatedResult>, Error> {
         self.run_vm(move |pause| {
@@ -80,11 +92,23 @@ impl VmRunner<'_> {
                 }
             };
             self.remaining = self.remaining.saturating_sub(elapsed);
-            if self.remaining.is_zero() {
-                return Ok(None);
-            }
-            if !matches!(result, Err(Error::Pause)) {
-                return result.map(Some);
+            match result {
+                // Determined consensus failures must always reach canonical
+                // attribution (and rejection/peer-ban handling), even when
+                // the slice simultaneously exhausted its CPU-time budget.
+                Ok(result) if result.exit_code != 0 => return Ok(Some(result)),
+                Err(error) if error != Error::Pause => return Err(error),
+                Ok(result) => {
+                    if self.remaining.is_zero() {
+                        return Ok(None);
+                    }
+                    return Ok(Some(result));
+                }
+                Err(_) => {
+                    if self.remaining.is_zero() {
+                        return Ok(None);
+                    }
+                }
             }
         }
     }
@@ -103,9 +127,28 @@ impl VmRunner<'_> {
         let pause = Pause::new();
         let child_pause = pause.clone();
         let (started, start) = oneshot::channel();
-        let child = VmTask {
-            pause,
-            handle: tokio::spawn(async move {
+        let handle = if let Some(compute) = self.compute {
+            let (done_tx, done_rx) = oneshot::channel();
+            let task = Box::new(move || {
+                let outcome = std::panic::catch_unwind(AssertUnwindSafe(move || {
+                    if child_pause.has_interrupted() {
+                        return Ok((execute, Err(Error::Pause), Ok(Duration::ZERO)));
+                    }
+                    let (clock, monitor) = CpuTime::start_monitored().map_err(clock_failure)?;
+                    let _ = started.send(monitor);
+                    let result = execute(child_pause);
+                    let elapsed = clock.elapsed();
+                    Ok((execute, result, elapsed))
+                }));
+                let _ = done_tx.send(outcome);
+            });
+            if let Err((_, task)) = compute.push_permitted(task) {
+                drop(task);
+                return Err(Error::External(VM_INTERRUPTED_MESSAGE.into()));
+            }
+            SliceHandle::Compute(done_rx)
+        } else {
+            SliceHandle::Tokio(tokio::spawn(async move {
                 let measured = block_offload(|| {
                     let (clock, monitor) = CpuTime::start_monitored().map_err(clock_failure)?;
                     let _ = started.send(monitor);
@@ -113,8 +156,9 @@ impl VmRunner<'_> {
                     Ok((result, clock.elapsed()))
                 });
                 measured.map(|(result, elapsed)| (execute, result, elapsed))
-            }),
+            }))
         };
+        let child = VmTask { pause, handle };
         // Off-CPU waiting may postpone checks, but cannot itself request Pause.
         // This future survives command changes and completes at most once.
         let monitor = async move {
@@ -162,10 +206,34 @@ async fn wait_for_cpu_budget(
     }
 }
 
+enum SliceHandle<T> {
+    Tokio(JoinHandle<T>),
+    Compute(oneshot::Receiver<std::thread::Result<T>>),
+}
+
+impl<T> Future for SliceHandle<T> {
+    type Output = Result<T, Error>;
+
+    fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
+        match self.get_mut() {
+            Self::Tokio(handle) => Pin::new(handle).poll(cx).map(|completed| match completed {
+                Ok(value) => Ok(value),
+                Err(error) if error.is_panic() => std::panic::resume_unwind(error.into_panic()),
+                Err(_) => Err(Error::External(VM_INTERRUPTED_MESSAGE.into())),
+            }),
+            Self::Compute(rx) => Pin::new(rx).poll(cx).map(|completed| match completed {
+                Ok(Ok(value)) => Ok(value),
+                Ok(Err(payload)) => std::panic::resume_unwind(payload),
+                Err(_) => Err(Error::External(VM_INTERRUPTED_MESSAGE.into())),
+            }),
+        }
+    }
+}
+
 /// Dropping the caller interrupts and cancels the slice it owns.
 struct VmTask<T> {
     pause: Pause,
-    handle: JoinHandle<T>,
+    handle: SliceHandle<T>,
 }
 
 impl<T> VmTask<T> {
@@ -179,16 +247,16 @@ impl<T> VmTask<T> {
     ) -> Result<T, Error> {
         let monitor = monitor.fuse();
         tokio::pin!(monitor);
-        let completed = loop {
+        loop {
             tokio::select! {
                 biased;
-                result = &mut self.handle => break result,
+                result = &mut self.handle => return result,
                 observed = &mut monitor => {
                     if let Err(error) = observed {
                         // Completion can occur after the first join poll. A
                         // failed read of the old thread must not stop a resume.
                         if let Some(result) = (&mut self.handle).now_or_never() {
-                            break result;
+                            return result;
                         }
                         ckb_logger::warn!("VM CPU monitoring failed: {error}");
                         *desired = ChunkCommand::Stop;
@@ -204,11 +272,6 @@ impl<T> VmTask<T> {
                     }
                 }
             }
-        };
-        match completed {
-            Ok(completed) => Ok(completed),
-            Err(error) if error.is_panic() => std::panic::resume_unwind(error.into_panic()),
-            Err(_) => Err(Error::External(VM_INTERRUPTED_MESSAGE.into())),
         }
     }
 }
@@ -216,6 +279,8 @@ impl<T> VmTask<T> {
 impl<T> Drop for VmTask<T> {
     fn drop(&mut self) {
         self.pause.interrupt();
-        self.handle.abort();
+        if let SliceHandle::Tokio(handle) = &self.handle {
+            handle.abort();
+        }
     }
 }

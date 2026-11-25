@@ -102,6 +102,13 @@ make_static_metric! {
         },
     }
 
+    struct CkbTxPoolVerifyTimeBudgetExceededStatistics: IntCounter{
+        "source" => {
+            remote,
+            proposal,
+        },
+    }
+
     struct CkbHeaderMapMemoryHitMissStatistics: IntCounter{
         "type" => {
             hit,
@@ -201,6 +208,14 @@ pub struct Metrics {
     pub ckb_tx_pool_reorg_gate_waits: IntCounter,
     /// Gauges for single-writer authority runtime indexes and direct-gate concurrency.
     pub ckb_tx_pool_authority_runtime: CkbTxPoolAuthorityRuntimeStatistics,
+    /// Histogram of network VM CPU time spent as a fraction of the transaction's calibrated budget.
+    pub ckb_tx_pool_verify_cpu_budget_ratio: Histogram,
+    /// Counters for network verifications refused due to exhausting their VM CPU-time budget.
+    pub ckb_tx_pool_verify_time_budget_exceeded: CkbTxPoolVerifyTimeBudgetExceededStatistics,
+    /// Gauge for the currently active VM calibration rate (cycles per millisecond).
+    pub ckb_tx_pool_verify_calibration_cycles_per_ms: IntGauge,
+    /// Counter for replayed over-budget remote transactions shed during short in-memory cooldown.
+    pub ckb_tx_pool_verify_budget_cooldown_hits: IntCounter,
     /// Histogram for CKB network connections
     pub ckb_message_bytes: HistogramVec,
     /// Gauge for CKB rocksdb statistics
@@ -458,6 +473,30 @@ static METRICS: std::sync::LazyLock<Metrics> = std::sync::LazyLock::new(|| {
         )
                 .unwrap(),
         ),
+    ckb_tx_pool_verify_cpu_budget_ratio: register_histogram!(
+        "ckb_tx_pool_verify_cpu_budget_ratio",
+        "Network transaction VM CPU time spent divided by its calibrated budget",
+        vec![0.05, 0.1, 0.25, 0.5, 0.75, 0.9, 1.0]
+    )
+            .unwrap(),
+    ckb_tx_pool_verify_time_budget_exceeded: CkbTxPoolVerifyTimeBudgetExceededStatistics::from(
+        &register_int_counter_vec!(
+            "ckb_tx_pool_verify_time_budget_exceeded",
+            "Network transaction verifications refused by VM CPU-time budget exhaustion",
+            &["source"]
+        )
+        .unwrap(),
+    ),
+    ckb_tx_pool_verify_calibration_cycles_per_ms: register_int_gauge!(
+        "ckb_tx_pool_verify_calibration_cycles_per_ms",
+        "Currently active node-local VM calibration rate in cycles per millisecond"
+    )
+            .unwrap(),
+    ckb_tx_pool_verify_budget_cooldown_hits: register_int_counter!(
+        "ckb_tx_pool_verify_budget_cooldown_hits",
+        "Remote transactions shed at ingress by short-TTL VM CPU-budget cooldown"
+    )
+            .unwrap(),
     ckb_message_bytes: register_histogram_vec!(
         "ckb_message_bytes",
         "The CKB message bytes",

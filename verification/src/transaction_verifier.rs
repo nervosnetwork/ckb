@@ -119,6 +119,64 @@ impl<'a> NonContextualTransactionVerifier<'a> {
     }
 }
 
+#[cfg(not(target_family = "wasm"))]
+enum PreparedScriptVerificationState<DL: CellDataProvider> {
+    Reused(ScriptVerificationOutcome),
+    Ready {
+        cache_key: TxVerificationCacheKey,
+        max_cycles: Cycle,
+        verifier: ScriptVerifier<DL>,
+    },
+}
+
+/// Sealed result of running contextual checks, sealed-proof lookup, and
+/// synchronous script-group / cell-dep preparation before runner-controlled VM
+/// execution.
+///
+/// Only [`ContextualTransactionVerifier::prepare_for_runner`] can construct
+/// this value, binding the original transaction's cache identity and
+/// `max_cycles` limit so both cache-hit reuse and VM execution enforce the
+/// exact same cycle cap.
+#[cfg(not(target_family = "wasm"))]
+pub struct PreparedScriptVerification<DL: CellDataProvider>(PreparedScriptVerificationState<DL>);
+
+#[cfg(not(target_family = "wasm"))]
+impl<DL> PreparedScriptVerification<DL>
+where
+    DL: CellDataProvider + HeaderProvider + ExtensionProvider + Send + Sync + Clone + 'static,
+{
+    /// Execute prepared script groups with `runner`, or immediately return a
+    /// reused sealed proof, enforcing the `max_cycles` cap bound at preparation
+    /// time. Returns `None` if the runner stops verification.
+    #[expect(
+        clippy::manual_async_fn,
+        reason = "the explicit Send bound is needed by tx-pool worker futures"
+    )]
+    pub fn verify_with_runner<'a>(
+        self,
+        runner: &'a mut impl SchedulerRunner<Scheduler<DL, DebugPrinter, Machine>>,
+    ) -> impl std::future::Future<Output = Result<Option<ScriptVerificationOutcome>, Error>> + Send + 'a
+    {
+        async move {
+            match self.0 {
+                PreparedScriptVerificationState::Reused(outcome) => Ok(Some(outcome)),
+                PreparedScriptVerificationState::Ready {
+                    cache_key,
+                    max_cycles,
+                    verifier,
+                } => {
+                    let cycles = verifier.verify_with_runner(max_cycles, runner).await?;
+                    Ok(cycles.map(|cycles| {
+                        ScriptVerificationOutcome::Executed(
+                            ScriptVerificationProof::from_vm_success(cache_key, cycles),
+                        )
+                    }))
+                }
+            }
+        }
+    }
+}
+
 /// Context-dependent verification checks for transaction
 ///
 /// Contains:
@@ -240,6 +298,32 @@ where
         Ok(self.transaction_fee()?)
     }
 
+    /// Perform synchronous contextual checks, sealed-proof reuse check, and
+    /// script-group/data-hash preparation before asynchronous VM execution.
+    ///
+    /// Callers with a dedicated compute pool can run this entire synchronous
+    /// preparation off the async runtime so storage reads never block a Tokio
+    /// worker thread, then await [`PreparedScriptVerification::verify_with_runner`].
+    #[cfg(not(target_family = "wasm"))]
+    pub fn prepare_for_runner(
+        &self,
+        max_cycles: Cycle,
+        cached: Option<ScriptVerificationProof>,
+    ) -> Result<PreparedScriptVerification<DL>, Error> {
+        if let Some(outcome) = self.prepare_script_verification(max_cycles, cached)? {
+            return Ok(PreparedScriptVerification(
+                PreparedScriptVerificationState::Reused(outcome),
+            ));
+        }
+        Ok(PreparedScriptVerification(
+            PreparedScriptVerificationState::Ready {
+                cache_key: self.cache_key,
+                max_cycles,
+                verifier: self.script_verifier(),
+            },
+        ))
+    }
+
     /// Verify contextual rules and cached proofs, delegating uncached VM execution.
     /// Returns `None` if the runner stops verification.
     #[cfg(not(target_family = "wasm"))]
@@ -255,19 +339,9 @@ where
     ) -> impl std::future::Future<Output = Result<Option<ScriptVerificationOutcome>, Error>> + Send + 'a
     {
         async move {
-            if let Some(outcome) = self.prepare_script_verification(max_cycles, cached)? {
-                return Ok(Some(outcome));
-            }
-            let cycles = self
-                .script_verifier()
-                .verify_with_runner(max_cycles, runner)
-                .await?;
-            Ok(cycles.map(|cycles| {
-                ScriptVerificationOutcome::Executed(ScriptVerificationProof::from_vm_success(
-                    self.cache_key,
-                    cycles,
-                ))
-            }))
+            self.prepare_for_runner(max_cycles, cached)?
+                .verify_with_runner(runner)
+                .await
         }
     }
 

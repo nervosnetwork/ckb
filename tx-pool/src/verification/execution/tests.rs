@@ -85,17 +85,18 @@ fn failed_measurement_cannot_accept_or_resume_but_preserves_vm_failures() {
 async fn completed_pause_wins_a_late_monitor_failure() {
     let (_commands, mut receiver) = watch::channel(ChunkCommand::Resume);
     let (release, released) = mpsc::channel();
+    let handle = tokio::spawn(async move {
+        released.recv_timeout(TEST_TIMEOUT).unwrap();
+        (
+            Err::<TerminatedResult, _>(Error::Pause),
+            Duration::from_millis(1),
+        )
+    });
+    let completed = handle.abort_handle();
     let child = VmTask {
         pause: Pause::new(),
-        handle: tokio::spawn(async move {
-            released.recv_timeout(TEST_TIMEOUT).unwrap();
-            (
-                Err::<TerminatedResult, _>(Error::Pause),
-                Duration::from_millis(1),
-            )
-        }),
+        handle: SliceHandle::Tokio(handle),
     };
-    let completed = child.handle.abort_handle();
     let monitor = async move {
         // This single poll runs after join first reported Pending. Complete the
         // child on another worker before returning the old clock's read failure.
@@ -128,10 +129,10 @@ async fn running_monitor_failure_stops_and_joins_before_returning() {
     let pause = Pause::new();
     let child = VmTask {
         pause: pause.clone(),
-        handle: tokio::spawn(async move {
+        handle: SliceHandle::Tokio(tokio::spawn(async move {
             released.await.unwrap();
             Err::<TerminatedResult, _>(Error::Pause)
-        }),
+        })),
     };
     let monitor = async { Err(io::Error::other("clock unavailable")) };
     let mut desired = ChunkCommand::Resume;
@@ -222,6 +223,7 @@ async fn initial_suspend_and_stop_do_not_enter_the_scheduler() {
     let mut runner = VmRunner {
         command: &mut receiver,
         remaining: TEST_TIMEOUT,
+        compute: None,
     };
     let mut execution = Box::pin(runner.run_vm(|_| panic!("the scheduler must wait for Resume")));
     assert!(poll!(&mut execution).is_pending());
@@ -239,6 +241,7 @@ async fn resume_waits_for_the_interrupted_slice_to_return() {
     let mut runner = VmRunner {
         command: &mut receiver,
         remaining: TEST_TIMEOUT,
+        compute: None,
     };
     let mut verification = Box::pin(runner.run_vm(execute));
     assert!(poll!(&mut verification).is_pending());
@@ -271,6 +274,7 @@ async fn suspension_can_outlast_the_remaining_budget() {
     let mut runner = VmRunner {
         command: &mut receiver,
         remaining: Duration::from_millis(250),
+        compute: None,
     };
     let mut verification = Box::pin(runner.run_vm(execute));
     assert!(poll!(&mut verification).is_pending());
@@ -301,6 +305,7 @@ async fn off_cpu_wait_does_not_interrupt_or_exhaust_execution() {
         let mut runner = VmRunner {
             command: &mut receiver,
             remaining: Duration::from_millis(100),
+            compute: None,
         };
         let mut verification = Box::pin(runner.run_vm(execute));
         assert!(poll!(&mut verification).is_pending());
@@ -351,6 +356,7 @@ async fn cancellation_interrupts_and_releases_running_vm_work() {
     let mut runner = VmRunner {
         command: &mut receiver,
         remaining: TEST_TIMEOUT,
+        compute: None,
     };
     let mut verification = Box::pin(runner.run_vm(execute));
     assert!(poll!(&mut verification).is_pending());
@@ -372,6 +378,7 @@ async fn stop_and_closed_control_join_running_vm_work_before_returning() {
         let mut runner = VmRunner {
             command: &mut receiver,
             remaining: TEST_TIMEOUT,
+            compute: None,
         };
         let mut verification = Box::pin(runner.run_vm(execute));
         assert!(poll!(&mut verification).is_pending());
@@ -404,6 +411,7 @@ async fn cancellation_and_closed_control_release_suspended_vm_work() {
         let mut runner = VmRunner {
             command: &mut receiver,
             remaining: TEST_TIMEOUT,
+            compute: None,
         };
         let mut verification = Box::pin(runner.run_vm(execute));
         assert!(poll!(&mut verification).is_pending());
@@ -464,6 +472,7 @@ async fn cpu_limit_under_resume_flood() {
     let mut runner = VmRunner {
         command: &mut receiver,
         remaining: Duration::from_millis(10),
+        compute: None,
     };
     let verification = runner.run_vm(execute);
     tokio::pin!(verification);
@@ -492,6 +501,7 @@ async fn groups_share_the_budget_and_exhaustion_precedes_completion() {
     let mut runner = VmRunner {
         command: &mut receiver,
         remaining: TEST_TIMEOUT,
+        compute: None,
     };
     assert!(
         runner
@@ -540,6 +550,7 @@ async fn resumed_slices_spend_one_cpu_budget() {
     let mut runner = VmRunner {
         command: &mut receiver,
         remaining: Duration::from_millis(120),
+        compute: None,
     };
     let result = runner
         .run_vm(move |_| {
@@ -574,6 +585,7 @@ async fn consuming_the_cpu_interrupt_does_not_rearm_the_monitor() {
     let mut runner = VmRunner {
         command: &mut receiver,
         remaining: Duration::from_millis(10),
+        compute: None,
     };
     let mut verification = Box::pin(runner.run_vm(execute));
     assert!(poll!(&mut verification).is_pending());
@@ -595,15 +607,16 @@ async fn consuming_the_cpu_interrupt_does_not_rearm_the_monitor() {
 #[tokio::test(flavor = "multi_thread", worker_threads = 1)]
 async fn joined_receipt_excludes_delay_after_task_completion() {
     let (_commands, mut receiver) = watch::channel(ChunkCommand::Resume);
+    let handle = tokio::spawn(async {
+        let start = CpuTime::now().unwrap();
+        consume_cpu(Duration::from_millis(2));
+        start.elapsed().unwrap()
+    });
+    let completed = handle.abort_handle();
     let child = VmTask {
         pause: Pause::new(),
-        handle: tokio::spawn(async {
-            let start = CpuTime::now().unwrap();
-            consume_cpu(Duration::from_millis(2));
-            start.elapsed().unwrap()
-        }),
+        handle: SliceHandle::Tokio(handle),
     };
-    let completed = child.handle.abort_handle();
     tokio::time::timeout(TEST_TIMEOUT, async {
         while !completed.is_finished() {
             tokio::task::yield_now().await;
@@ -646,6 +659,7 @@ fn waiting_for_a_runtime_worker_does_not_spend_vm_time() {
         let mut runner = VmRunner {
             command: &mut receiver,
             remaining: Duration::from_millis(250),
+            compute: None,
         };
         let mut verification = Box::pin(runner.run_vm(|_| Ok(success())));
         assert!(poll!(&mut verification).is_pending());
@@ -695,6 +709,7 @@ async fn scheduler_state_and_cycles_survive_joined_pauses() {
         let mut runner = VmRunner {
             command: &mut receiver,
             remaining: TEST_TIMEOUT,
+            compute: None,
         };
         let mut attempts = 0;
         let actual = runner
@@ -779,6 +794,7 @@ async fn scheduler_resume_cannot_regrant_consumed_cycles() {
             let mut runner = VmRunner {
                 command: &mut receiver,
                 remaining: TEST_TIMEOUT,
+                compute: None,
             };
             let result = runner.run(scheduler, max_cycles).await;
             if max_cycles < expected.consumed_cycles {
@@ -832,4 +848,85 @@ async fn failed_clock_preserves_canonical_nonzero_exit_attribution() {
         .await
         .unwrap_err();
     ckb_error::assert_error_eq!(actual, expected);
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 1)]
+async fn exhausted_budget_preserves_determined_failure_over_timeout() {
+    let (_commands, mut receiver) = watch::channel(ChunkCommand::Resume);
+
+    // 1. Nonzero script exit must reach canonical failure attribution even when
+    //    the slice's CPU receipt simultaneously exhausted remaining budget.
+    let mut runner = VmRunner {
+        command: &mut receiver,
+        remaining: Duration::from_nanos(1),
+        compute: None,
+    };
+    let failed = runner
+        .run_vm(|_| {
+            consume_cpu(Duration::from_millis(2));
+            Ok(TerminatedResult {
+                exit_code: -1,
+                consumed_cycles: 77,
+            })
+        })
+        .await
+        .expect("nonzero exit is returned for canonical attribution")
+        .expect("determined failure must not be downgraded to budget timeout");
+    assert_eq!(failed.exit_code, -1);
+    assert_eq!(failed.consumed_cycles, 77);
+    assert_eq!(runner.remaining, Duration::ZERO);
+
+    // 2. Consensus VM error (e.g. CyclesExceeded) must also take precedence.
+    runner.remaining = Duration::from_nanos(1);
+    let err = runner
+        .run_vm(|_| {
+            consume_cpu(Duration::from_millis(2));
+            Err(Error::CyclesExceeded)
+        })
+        .await
+        .expect_err("consensus VM error must not hide behind budget timeout");
+    assert_eq!(err, Error::CyclesExceeded);
+    assert_eq!(runner.remaining, Duration::ZERO);
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 1)]
+async fn compute_pool_runner_executes_on_dedicated_worker_and_enforces_budget() {
+    let pool = ComputePool::new(2);
+    let (_commands, mut receiver) = watch::channel(ChunkCommand::Resume);
+    let (thread_tx, thread_rx) = mpsc::channel();
+    let mut runner = VmRunner {
+        command: &mut receiver,
+        remaining: TEST_TIMEOUT,
+        compute: Some(&pool),
+    };
+    let result = runner
+        .run_vm(move |_| {
+            let _ = thread_tx.send(std::thread::current().name().unwrap_or("").to_owned());
+            consume_cpu(Duration::from_millis(2));
+            Ok(success())
+        })
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(result.consumed_cycles, 42);
+    let worker_name = thread_rx.recv_timeout(TEST_TIMEOUT).unwrap();
+    assert!(
+        worker_name.starts_with("TxPoolCpu-"),
+        "expected dedicated ComputePool worker, got {worker_name}"
+    );
+    assert!(runner.remaining < TEST_TIMEOUT);
+
+    // Exhausting budget on ComputePool still cooperatively interrupts and returns Ok(None).
+    runner.remaining = Duration::from_millis(10);
+    let exhausted = runner
+        .run_vm(|pause| {
+            while !pause.has_interrupted() {
+                std::hint::spin_loop();
+            }
+            Err(Error::Pause)
+        })
+        .await
+        .unwrap();
+    assert!(exhausted.is_none());
+    assert_eq!(runner.remaining, Duration::ZERO);
 }

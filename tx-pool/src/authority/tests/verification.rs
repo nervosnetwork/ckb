@@ -3,6 +3,7 @@ use crate::authority::{
     model::{Phase, RemoteOrigin, Source},
     tests::common::*,
 };
+use crate::verification::verify_rtx;
 use ckb_types::{
     bytes::Bytes,
     core::{Capacity, DepType, cell::ResolvedTransaction, error::OutPointError},

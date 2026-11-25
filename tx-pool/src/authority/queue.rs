@@ -6,15 +6,19 @@ use super::{
 use ckb_app_config::VerifyOrdering;
 use ckb_network::PeerIndex;
 use ckb_util::parking_lot::Mutex;
+use lru::LruCache;
 use std::{
     cmp::Ordering,
     collections::BTreeMap,
     ops::Bound::{Excluded, Unbounded},
     sync::{
         Arc, Weak,
-        atomic::{AtomicUsize, Ordering as AtomicOrdering},
+        atomic::{AtomicBool, AtomicUsize, Ordering as AtomicOrdering},
     },
+    time::{Duration, Instant},
 };
+
+const PEER_PACING_CAPACITY: usize = 256;
 
 /// The queue projection of a runnable owner phase.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -169,6 +173,8 @@ pub(super) struct Queues {
     verify: Mutex<Lane>,
     total_len: AtomicUsize,
     verify_len: AtomicUsize,
+    has_paced_peers: AtomicBool,
+    paced_peers: Mutex<LruCache<PeerIndex, Instant>>,
     order: VerifyOrdering,
     large_threshold: u64,
 }
@@ -180,8 +186,47 @@ impl Queues {
             verify: Mutex::new(Lane::default()),
             total_len: AtomicUsize::new(0),
             verify_len: AtomicUsize::new(0),
+            has_paced_peers: AtomicBool::new(false),
+            paced_peers: Mutex::new(LruCache::new(PEER_PACING_CAPACITY)),
             order,
             large_threshold,
+        }
+    }
+
+    /// Softly deprioritize a remote peer for `delay` after heavy or over-budget
+    /// VM CPU consumption. Scheduling remains strictly work-conserving: if only
+    /// paced peers have runnable work, they are still served immediately.
+    pub(super) fn pace_peer(&self, peer: PeerIndex, delay: Duration) {
+        if delay.is_zero() {
+            return;
+        }
+        let Some(deadline) = Instant::now().checked_add(delay) else {
+            return;
+        };
+        let mut paced = self.paced_peers.lock();
+        let next = paced
+            .peek(&peer)
+            .copied()
+            .map_or(deadline, |existing| existing.max(deadline));
+        paced.put(peer, next);
+        self.has_paced_peers.store(true, AtomicOrdering::SeqCst);
+    }
+
+    fn is_peer_paced(&self, peer: PeerIndex, now: Instant) -> bool {
+        if !self.has_paced_peers.load(AtomicOrdering::SeqCst) {
+            return false;
+        }
+        let mut paced = self.paced_peers.lock();
+        match paced.peek(&peer).copied() {
+            Some(deadline) if now < deadline => true,
+            Some(_) => {
+                paced.pop(&peer);
+                if paced.is_empty() {
+                    self.has_paced_peers.store(false, AtomicOrdering::SeqCst);
+                }
+                false
+            }
+            None => false,
         }
     }
 
@@ -207,11 +252,15 @@ impl Queues {
         let taken_len = taken_resolve.len.saturating_add(taken_verify_len);
         self.total_len.store(0, AtomicOrdering::SeqCst);
         self.verify_len.store(0, AtomicOrdering::SeqCst);
+        self.paced_peers.lock().clear();
+        self.has_paced_peers.store(false, AtomicOrdering::SeqCst);
         Self {
             resolve: Mutex::new(taken_resolve),
             verify: Mutex::new(taken_verify),
             total_len: AtomicUsize::new(taken_len),
             verify_len: AtomicUsize::new(taken_verify_len),
+            has_paced_peers: AtomicBool::new(false),
+            paced_peers: Mutex::new(LruCache::new(PEER_PACING_CAPACITY)),
             order: self.order,
             large_threshold: self.large_threshold,
         }
@@ -316,46 +365,62 @@ impl Queues {
         budget: &Arc<ActiveBudget>,
     ) -> Result<Option<(Arc<Entry>, ActivePermit)>, Error> {
         let mut lane = self.lane(stage).lock();
-        let mut cursor = lane.cursor;
-        let bound = lane.owners.len();
-        for _ in 0..bound {
-            let next = lane
-                .owners
-                .range((cursor.map_or(Unbounded, Excluded), Unbounded))
-                .next()
-                .or_else(|| lane.owners.first_key_value())
-                .map(|(owner, _)| *owner);
-            let Some(owner) = next else {
-                return Ok(None);
-            };
-            cursor = Some(owner);
-            let selected = lane
-                .owners
-                .get(&owner)
-                .and_then(|queue| queue.front(selection))
-                .map(|(size, key, entry)| (size, *key, entry.upgrade()));
-            let Some((size, key, entry)) = selected else {
-                continue;
-            };
-            let selected = match entry {
-                Some(entry) => match budget.active(entry.source) {
-                    Ok(reservation) => Some((entry, reservation)),
-                    // Total capacity blocks every peer and both work stages.
-                    Err(error @ Error::Full(FullReason::Active)) => return Err(error),
-                    Err(Error::Full(_)) => continue,
-                    Err(error) => return Err(error),
-                },
-                None => None,
-            };
-            if lane.remove(owner, size, &key, None) {
-                self.total_len.fetch_sub(1, AtomicOrdering::SeqCst);
-                if stage == WorkStage::Verify {
-                    self.verify_len.fetch_sub(1, AtomicOrdering::SeqCst);
+        let pacing_active = self.has_paced_peers.load(AtomicOrdering::SeqCst);
+        let now = pacing_active.then(Instant::now);
+        let passes: &[bool] = if pacing_active {
+            &[true, false]
+        } else {
+            &[false]
+        };
+        for &skip_paced in passes {
+            let mut cursor = lane.cursor;
+            let bound = lane.owners.len();
+            for _ in 0..bound {
+                let next = lane
+                    .owners
+                    .range((cursor.map_or(Unbounded, Excluded), Unbounded))
+                    .next()
+                    .or_else(|| lane.owners.first_key_value())
+                    .map(|(owner, _)| *owner);
+                let Some(owner) = next else {
+                    return Ok(None);
+                };
+                cursor = Some(owner);
+                if skip_paced
+                    && let WorkOwner::Peer(peer) = owner
+                    && let Some(now) = now
+                    && self.is_peer_paced(peer, now)
+                {
+                    continue;
                 }
-            }
-            if let Some(selected) = selected {
-                lane.cursor = Some(owner);
-                return Ok(Some(selected));
+                let selected = lane
+                    .owners
+                    .get(&owner)
+                    .and_then(|queue| queue.front(selection))
+                    .map(|(size, key, entry)| (size, *key, entry.upgrade()));
+                let Some((size, key, entry)) = selected else {
+                    continue;
+                };
+                let selected = match entry {
+                    Some(entry) => match budget.active(entry.source) {
+                        Ok(reservation) => Some((entry, reservation)),
+                        // Total capacity blocks every peer and both work stages.
+                        Err(error @ Error::Full(FullReason::Active)) => return Err(error),
+                        Err(Error::Full(_)) => continue,
+                        Err(error) => return Err(error),
+                    },
+                    None => None,
+                };
+                if lane.remove(owner, size, &key, None) {
+                    self.total_len.fetch_sub(1, AtomicOrdering::SeqCst);
+                    if stage == WorkStage::Verify {
+                        self.verify_len.fetch_sub(1, AtomicOrdering::SeqCst);
+                    }
+                }
+                if let Some(selected) = selected {
+                    lane.cursor = Some(owner);
+                    return Ok(Some(selected));
+                }
             }
         }
         Ok(None)

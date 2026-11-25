@@ -50,7 +50,7 @@ use ckb_types::{
 use ckb_util::parking_lot::Mutex;
 use ckb_verification::cache::TxVerificationCache;
 pub(in crate::authority) use compute::CapacitySignal;
-pub(crate) use compute::{LocalStep, LocalTask, PushErrorKind};
+pub(crate) use compute::{ComputePool, LocalStep, LocalTask, PushErrorKind};
 #[cfg(feature = "internal")]
 use std::collections::BTreeSet;
 use std::{
@@ -402,6 +402,11 @@ impl Pool {
     }
 
     #[cfg(test)]
+    pub(crate) fn set_compute_spawn_hook(&self, hook: Option<compute::SpawnHook>) {
+        self.compute.set_spawn_hook(hook);
+    }
+
+    #[cfg(test)]
     pub(crate) fn owner_hashes(&self) -> std::collections::BTreeSet<Byte32> {
         self.store
             .capture_all()
@@ -516,12 +521,8 @@ impl Pool {
         chain: mpsc::Receiver<ChainControl>,
         signal: &CancellationToken,
     ) -> (JoinSet<Result<(), Error>>, JoinHandle<Result<(), Error>>) {
-        let publisher = Arc::clone(&self.store.outbox).spawn_dedicated(
-            handle,
-            endpoints,
-            signal.clone(),
-            self.compute.serial_spin_flag(),
-        );
+        let publisher =
+            Arc::clone(&self.store.outbox).spawn_dedicated(handle, endpoints, signal.clone());
         let mut tasks = JoinSet::new();
         let workers = self.store.budget.limits.workers;
         if workers == 0 {

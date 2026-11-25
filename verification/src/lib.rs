@@ -20,6 +20,8 @@ pub use crate::error::{
 };
 pub use crate::genesis_verifier::GenesisVerifier;
 pub use crate::header_verifier::HeaderVerifier;
+#[cfg(not(target_family = "wasm"))]
+pub use crate::transaction_verifier::PreparedScriptVerification;
 pub use crate::transaction_verifier::{
     CapacityVerifier, ContextualTransactionVerifier, DaoScriptSizeVerifier,
     NonContextualTransactionVerifier, ScriptVerifier, Since, SinceMetric,
@@ -28,6 +30,10 @@ pub use crate::transaction_verifier::{
 pub use ckb_script::{
     ScriptError, ScriptGroupType, TransactionState as ScriptVerifyState, TxVerifyEnv,
     VerifyResult as ScriptVerifyResult,
+};
+pub use ckb_traits::{
+    CellDataProvider, EpochProvider, ExtensionProvider, HeaderFields, HeaderFieldsProvider,
+    HeaderProvider,
 };
 
 /// Maximum amount of time that a block timestamp is allowed to exceed the

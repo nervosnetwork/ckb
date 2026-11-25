@@ -156,12 +156,15 @@ impl Pool {
         batch: Option<Arc<Batch>>,
         result: Result<(), Reject>,
     ) -> LocalFastOutcome {
-        // Never invoke `outbox.try_publish()` on a `ComputePool` worker: a slow
-        // or blocked external callback must stay isolated on `TxPoolPublisher`
-        // so compute workers remain free for subsequent submissions.
+        // When `commit_inline` was selected (idle local queue),
+        // `Batch::activate_nonblocking` already published non-blocking
+        // in-memory batches inline while keeping callbacks, `recent_reject` DB
+        // writes, bans, and block updates isolated on `TxPoolPublisher`. Under
+        // concurrent local backlog, `TxPoolPublisher` drains batches in
+        // parallel off the compute threads.
         match batch {
-            Some(batch) => LocalFastOutcome::WaitPublish { result, batch },
-            None => LocalFastOutcome::Done(Ok(result)),
+            Some(batch) if !batch.is_published() => LocalFastOutcome::WaitPublish { result, batch },
+            _ => LocalFastOutcome::Done(Ok(result)),
         }
     }
 
@@ -286,6 +289,11 @@ impl Pool {
                     };
                 }
             };
+            let options = if self.compute.is_local_idle() {
+                AdmissionOptions::commit_inline()
+            } else {
+                AdmissionOptions::commit()
+            };
             let committed = (|| {
                 self.open()?;
                 membership::commit_admission(
@@ -294,7 +302,7 @@ impl Pool {
                     ctx.before.clone(),
                     &verified,
                     &self.config,
-                    AdmissionOptions::commit(),
+                    options,
                 )
             })();
             drop((ctx, resolved, verified, memory));
@@ -591,6 +599,7 @@ impl Pool {
                     &self.cache,
                     &mut self.local_commands.clone(),
                     &cpu,
+                    Some(&self.compute),
                 )
                 .await;
                 drop(cpu);
@@ -827,6 +836,7 @@ impl Pool {
                 let options = membership::AdmissionOptions {
                     retain_history: false,
                     dry_run: false,
+                    inline_publish: false,
                     silence_effects: true,
                     forbid_displacement: true,
                 };

@@ -3893,3 +3893,493 @@ async fn relay_batch_rebuild_has_a_fixed_page_budget_and_resumes_next_call() {
     assert!(receiver.drain(usize::MAX).is_empty());
     assert!(!pool.is_faulted());
 }
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn background_cold_start_dispatch_failure_rejects_single_tx_and_keeps_pool_alive() {
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
+    // 1. Verify BOTH ordinary Resolve worker (`resolve_job`) and fused Verify
+    // worker (`resolve_and_verify_fused`) settle a single cold-start compute
+    // dispatch failure cleanly without dropping an unhandled Job or faulting.
+    for stage in [WorkStage::Resolve, WorkStage::Verify] {
+        let (pool, _, _, _) = fixture_with_config(TxPoolConfig {
+            max_tx_verify_workers: 1,
+            ..config()
+        });
+        let tx_fail = fund(
+            &pool,
+            9_500 + if stage == WorkStage::Resolve { 0 } else { 10 },
+        );
+        let tx_ok = fund(
+            &pool,
+            9_501 + if stage == WorkStage::Resolve { 0 } else { 10 },
+        );
+
+        let attempts = Arc::new(AtomicUsize::new(0));
+        let (failed_tx, failed_rx) = std::sync::mpsc::channel();
+        let attempts_hook = Arc::clone(&attempts);
+        pool.set_compute_spawn_hook(Some(Arc::new(move |_| {
+            if attempts_hook.fetch_add(1, Ordering::SeqCst) == 0 {
+                let _ = failed_tx.send(());
+                Some(Err(std::io::Error::other(
+                    "injected first compute thread creation failure",
+                )))
+            } else {
+                None
+            }
+        })));
+
+        let worker = tokio::spawn(Arc::clone(&pool).worker(stage, 0));
+        pool.submit_proposal_batch(vec![bounded(tx_fail.clone())])
+            .await
+            .unwrap();
+
+        tokio::task::spawn_blocking(move || {
+            failed_rx
+                .recv_timeout(Duration::from_secs(5))
+                .expect("worker must observe injected cold-start dispatch failure");
+        })
+        .await
+        .unwrap();
+
+        within(async {
+            loop {
+                let changed = pool.store.budget.active_changed.notified();
+                tokio::pin!(changed);
+                changed.as_mut().enable();
+                if pool.store.point(&tx_fail.hash()).1.is_none()
+                    && pool.store.budget.active_is_empty_for_test()
+                {
+                    break;
+                }
+                assert!(!pool.is_faulted(), "dispatch failure must not fault pool");
+                changed.await;
+            }
+        })
+        .await;
+        assert!(!pool.is_faulted());
+        assert!(!worker.is_finished());
+
+        // Subsequent proposal submission recovers on the next worker spawn attempt.
+        pool.submit_proposal_batch(vec![bounded(tx_ok.clone())])
+            .await
+            .unwrap();
+        observe(&pool, &tx_ok.hash(), |entry| {
+            if stage == WorkStage::Resolve {
+                matches!(entry.phase, Phase::Verify(_))
+            } else {
+                entry.accepted().is_some()
+            }
+        })
+        .await;
+        pool.stop();
+        within(worker).await.unwrap().unwrap();
+        assert!(!pool.is_faulted());
+    }
+
+    // 2. End-to-end service acceptance through public proposal ingress (`notify_txs`),
+    // followed by `get_tx_pool_info`, new proposal & local submissions, and clean shutdown.
+    let directory = tempfile::tempdir().unwrap();
+    let configuration = TxPoolConfig {
+        persisted_data: directory.path().join("pool"),
+        recent_reject: Default::default(),
+        max_tx_verify_workers: 2,
+        ..config()
+    };
+    let handle = Handle::new(tokio::runtime::Handle::current(), None);
+    let (builder, controller, _relay) = crate::service::TxPoolServiceBuilder::new(
+        configuration,
+        chain_snapshot(),
+        None,
+        Arc::new(RwLock::new(init_cache())),
+        &handle,
+        FeeEstimator::new_dummy(),
+    )
+    .unwrap();
+    let pool = builder.pool_for_test();
+    let tx_first = fund(&pool, 9_520);
+    let tx_proposal = fund(&pool, 9_521);
+    let tx_local = fund(&pool, 9_522);
+
+    let attempts = Arc::new(AtomicUsize::new(0));
+    let (failed_tx, failed_rx) = std::sync::mpsc::channel();
+    let attempts_hook = Arc::clone(&attempts);
+    pool.set_compute_spawn_hook(Some(Arc::new(move |_| {
+        if attempts_hook.fetch_add(1, Ordering::SeqCst) == 0 {
+            let _ = failed_tx.send(());
+            Some(Err(std::io::Error::other(
+                "injected service cold-start compute thread failure",
+            )))
+        } else {
+            None
+        }
+    })));
+
+    let generation = builder.start_with_handle(DummyTxPoolNetwork);
+    within(async {
+        while !controller.service_started() {
+            tokio::task::yield_now().await;
+        }
+    })
+    .await;
+
+    controller.notify_txs(vec![tx_first.clone()]).unwrap();
+    tokio::task::spawn_blocking(move || {
+        failed_rx
+            .recv_timeout(Duration::from_secs(5))
+            .expect("service proposal dispatch must hit injected first thread failure");
+    })
+    .await
+    .unwrap();
+
+    within(async {
+        loop {
+            let changed = pool.store.budget.active_changed.notified();
+            tokio::pin!(changed);
+            changed.as_mut().enable();
+            if pool.store.point(&tx_first.hash()).1.is_none()
+                && pool.store.budget.active_is_empty_for_test()
+            {
+                break;
+            }
+            assert!(!pool.is_faulted());
+            changed.await;
+        }
+    })
+    .await;
+
+    assert!(!pool.is_faulted());
+    assert!(controller.service_started());
+    assert!(!generation.is_finished());
+
+    let info_client = controller.clone();
+    let info = within(tokio::task::spawn_blocking(move || {
+        info_client.get_tx_pool_info().unwrap()
+    }))
+    .await
+    .unwrap();
+    assert_eq!(info.pending_size, 3);
+
+    controller.notify_txs(vec![tx_proposal.clone()]).unwrap();
+    observe(&pool, &tx_proposal.hash(), |entry| {
+        entry.accepted().is_some()
+    })
+    .await;
+
+    within(controller.submit_local_tx_async(tx_local.clone()))
+        .await
+        .unwrap()
+        .unwrap();
+    observe(&pool, &tx_local.hash(), |entry| entry.accepted().is_some()).await;
+
+    controller.stop();
+    within(generation).await.unwrap();
+    assert!(pool.persistence_eligible());
+    assert!(!pool.is_faulted());
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn stale_view_budget_timeout_cannot_cooldown_new_view_while_same_view_timeout_does() {
+    use crate::authority::model::hash_key;
+    use ckb_types::{
+        bytes::Bytes,
+        core::{Capacity, ScriptHashType, TransactionBuilder},
+        packed::{CellDep, CellInput, CellOutput, Script},
+        prelude::*,
+    };
+
+    const INFINITE_LOOP: &[u8] = include_bytes!("../../../../script/testdata/infinite_loop");
+    let seed_infinite_loop_tx = |pool: &Pool, nonce: u32| -> TransactionView {
+        let code_data = Bytes::from_static(INFINITE_LOOP);
+        let code_hash = CellOutput::calc_data_hash(&code_data);
+        let code_tx = TransactionBuilder::default()
+            .version(nonce)
+            .output(CellOutput::default())
+            .output_data(code_data.pack())
+            .build();
+        accept(&pool.store, code_tx.clone(), 1, 1, Status::Pending);
+        let code_owner = pool.store.point(&code_tx.hash()).1.unwrap();
+        let mut code_accepted = code_owner.accepted().unwrap().clone();
+        code_accepted.timestamp = ckb_systemtime::unix_time_as_millis();
+        replace(&pool.store, code_owner, Phase::Accepted(code_accepted));
+
+        let lock = Script::new_builder()
+            .code_hash(code_hash)
+            .hash_type(ScriptHashType::Data)
+            .build();
+        let parent = TransactionBuilder::default()
+            .version(nonce + 10_000)
+            .output(
+                CellOutput::new_builder()
+                    .capacity(Capacity::shannons(20_000_000_000))
+                    .lock(lock.clone())
+                    .build(),
+            )
+            .output_data(Bytes::new().pack())
+            .build();
+        accept(&pool.store, parent.clone(), 1, 1, Status::Pending);
+        let parent_owner = pool.store.point(&parent.hash()).1.unwrap();
+        let mut parent_accepted = parent_owner.accepted().unwrap().clone();
+        parent_accepted.timestamp = ckb_systemtime::unix_time_as_millis();
+        replace(&pool.store, parent_owner, Phase::Accepted(parent_accepted));
+
+        TransactionBuilder::default()
+            .input(CellInput::new(OutPoint::new(parent.hash(), 0), 0))
+            .cell_dep(
+                CellDep::new_builder()
+                    .out_point(OutPoint::new(code_tx.hash(), 0))
+                    .build(),
+            )
+            .output(
+                CellOutput::new_builder()
+                    .capacity(Capacity::shannons(19_999_999_000))
+                    .lock(lock)
+                    .build(),
+            )
+            .output_data(Bytes::new().pack())
+            .build()
+    };
+
+    let configuration = TxPoolConfig {
+        max_tx_verify_workers: 1,
+        max_tx_verify_time_ms: 1,
+        ..config()
+    };
+    let (pool, sink, drain, handle) = fixture_with_config(configuration);
+    let peer: PeerIndex = 77.into();
+    let declared_cycles = pool.store.snapshot().1.consensus().max_block_cycles();
+    let tx_stale = seed_infinite_loop_tx(&pool, 9_600);
+    let tx_stale_hash = tx_stale.hash();
+
+    let (entered_tx, entered_rx) = std::sync::mpsc::channel();
+    let (release_tx, release_rx) = std::sync::mpsc::channel();
+    let release_rx = Mutex::new(release_rx);
+    let paused_target = tx_stale_hash.clone();
+    *pool.store.verify_observer.lock() = Some(Arc::new(move |hash| {
+        if *hash == paused_target {
+            let _ = entered_tx.send(());
+            release_rx
+                .lock()
+                .recv_timeout(Duration::from_secs(10))
+                .expect("test must release paused stale-view verification");
+        }
+    }));
+
+    let (_chain, chain) = mpsc::channel(2);
+    let (tasks, publisher) = pool.start_background(
+        &handle,
+        endpoints(sink, Callbacks::new()),
+        chain,
+        &CancellationToken::new(),
+    );
+
+    // Direction 1: tx_stale begins verification in old view V, then clear switches
+    // to view V+1 (old owner gone, cooldown empty). When old verification returns
+    // ExcessiveVerifyTime, it must NOT write cooldown into view V+1.
+    within(pool.submit_remote(bounded(tx_stale.clone()), declared_cycles, peer))
+        .await
+        .unwrap();
+    tokio::task::spawn_blocking(move || {
+        entered_rx
+            .recv_timeout(Duration::from_secs(5))
+            .expect("tx_stale must enter verification in old view");
+    })
+    .await
+    .unwrap();
+
+    chain::commit_clear(&pool.store, None, ClearScope::All).unwrap();
+    assert!(pool.store.point(&tx_stale_hash).1.is_none());
+    assert!(!pool.store.is_budget_cooled_down(
+        hash_key(&tx_stale_hash),
+        hash_key(&tx_stale.witness_hash()),
+        Instant::now(),
+    ));
+
+    release_tx.send(()).unwrap();
+    within(async {
+        loop {
+            let changed = pool.store.budget.active_changed.notified();
+            tokio::pin!(changed);
+            changed.as_mut().enable();
+            if pool.store.budget.active_is_empty_for_test() {
+                break;
+            }
+            assert!(!pool.is_faulted());
+            changed.await;
+        }
+    })
+    .await;
+
+    assert!(
+        !pool.store.is_budget_cooled_down(
+            hash_key(&tx_stale_hash),
+            hash_key(&tx_stale.witness_hash()),
+            Instant::now(),
+        ),
+        "stale-view verification timeout must not write cooldown into new view"
+    );
+    let resubmitted = ingress::commit_ingress_chunk(
+        &pool.store,
+        &[(
+            Arc::new(tx_stale.clone()),
+            ingress::remote_source(peer, declared_cycles).unwrap(),
+        )],
+    )
+    .unwrap();
+    assert_eq!(
+        resubmitted, 1,
+        "remote resubmission in new view must not be shed by stale cooldown"
+    );
+
+    // Clear again and verify Direction 2: a real ExcessiveVerifyTime timeout in
+    // the SAME view MUST record cooldown and shed immediate remote replay.
+    *pool.store.verify_observer.lock() = None;
+    chain::commit_clear(&pool.store, None, ClearScope::All).unwrap();
+    let tx_live = seed_infinite_loop_tx(&pool, 9_601);
+    let tx_live_hash = tx_live.hash();
+
+    within(pool.submit_remote(bounded(tx_live.clone()), declared_cycles, peer))
+        .await
+        .unwrap();
+    within(async {
+        let mut saw_reject = false;
+        loop {
+            while let Some(result) = drain.try_recv() {
+                if matches!(result, TxVerificationResult::Reject { tx_hash } if tx_hash == tx_live_hash)
+                {
+                    saw_reject = true;
+                }
+            }
+            if saw_reject
+                && pool.store.point(&tx_live_hash).1.is_none()
+                && pool.store.budget.active_is_empty_for_test()
+            {
+                break;
+            }
+            assert!(!pool.is_faulted());
+            tokio::time::sleep(Duration::from_millis(5)).await;
+        }
+    })
+    .await;
+
+    assert!(
+        pool.store.is_budget_cooled_down(
+            hash_key(&tx_live_hash),
+            hash_key(&tx_live.witness_hash()),
+            Instant::now(),
+        ),
+        "same-view ExcessiveVerifyTime timeout must record cooldown"
+    );
+    assert_eq!(
+        ingress::commit_ingress_chunk(
+            &pool.store,
+            &[(
+                Arc::new(tx_live.clone()),
+                ingress::remote_source(peer, declared_cycles).unwrap(),
+            )],
+        )
+        .unwrap(),
+        0,
+        "immediate remote replay in the same view must be shed by cooldown"
+    );
+    assert!(pool.store.point(&tx_live_hash).1.is_none());
+
+    shutdown(&pool, tasks, publisher).await;
+    assert!(!pool.is_faulted());
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 1)]
+async fn single_worker_verification_preparation_pause_keeps_control_tasks_live() {
+    let directory = tempfile::tempdir().unwrap();
+    let configuration = TxPoolConfig {
+        persisted_data: directory.path().join("pool"),
+        recent_reject: Default::default(),
+        max_tx_verify_workers: 1,
+        ..config()
+    };
+    let handle = Handle::new(tokio::runtime::Handle::current(), None);
+    let (builder, controller, _relay) = crate::service::TxPoolServiceBuilder::new(
+        configuration,
+        chain_snapshot(),
+        None,
+        Arc::new(RwLock::new(init_cache())),
+        &handle,
+        FeeEstimator::new_dummy(),
+    )
+    .unwrap();
+    let pool = builder.pool_for_test();
+    let tx_valid = fund(&pool, 9_620);
+    let target = tx_valid.hash();
+    let cycles = within(pool.test_accept(bounded(tx_valid.clone())))
+        .await
+        .unwrap()
+        .unwrap()
+        .cycles;
+    *pool.cache.write().await = init_cache();
+
+    let (entered_tx, entered_rx) = std::sync::mpsc::channel();
+    let (release_tx, release_rx) = std::sync::mpsc::channel();
+    let release_rx = Mutex::new(release_rx);
+    let target_hook = target.clone();
+    *pool.store.verify_observer.lock() = Some(Arc::new(move |hash| {
+        if *hash == target_hook {
+            let _ = entered_tx.send(());
+            release_rx
+                .lock()
+                .recv_timeout(Duration::from_secs(10))
+                .expect("test must release preparation barrier");
+        }
+    }));
+
+    let generation = builder.start_with_handle(DummyTxPoolNetwork);
+    within(async {
+        while !controller.service_started() {
+            tokio::task::yield_now().await;
+        }
+    })
+    .await;
+
+    within(pool.submit_remote(bounded(tx_valid.clone()), cycles, 81.into()))
+        .await
+        .unwrap();
+    tokio::task::spawn_blocking(move || {
+        entered_rx
+            .recv_timeout(Duration::from_secs(5))
+            .expect("valid remote tx must enter verification preparation");
+    })
+    .await
+    .unwrap();
+
+    // While preparation is still paused, independent control tasks and pool
+    // queries must complete on the single Tokio runtime worker.
+    let control = within(tokio::spawn(async {
+        tokio::task::yield_now().await;
+        true
+    }))
+    .await
+    .unwrap();
+    assert!(control);
+    let info_client = controller.clone();
+    let info = within(tokio::task::spawn_blocking(move || {
+        info_client.get_tx_pool_info().unwrap()
+    }))
+    .await
+    .unwrap();
+    assert_eq!(info.pending_size, 1);
+    assert!(
+        pool.store
+            .point(&target)
+            .1
+            .as_deref()
+            .is_some_and(|entry| entry.accepted().is_none()),
+        "transaction must still be paused before release"
+    );
+
+    release_tx.send(()).unwrap();
+    observe(&pool, &target, |entry| entry.accepted().is_some()).await;
+
+    controller.stop();
+    within(generation).await.unwrap();
+    assert!(pool.persistence_eligible());
+    assert!(!pool.is_faulted());
+}

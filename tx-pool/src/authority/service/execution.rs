@@ -1,6 +1,13 @@
 //! Worker execution and complete job settlement for the single Pool.
 
 use super::{membership::AdmissionOptions, *};
+use crate::verification::calibration::{PRESSURE_REFRESH_COOLDOWN, PROACTIVE_REFRESH_INTERVAL};
+
+/// Remote transactions burning at least this much VM CPU trigger work-conserving
+/// soft pacing on their originating peer so honest peers are never starved.
+const PEER_PACING_CPU_THRESHOLD: Duration = Duration::from_secs(1);
+const PEER_PACING_MIN_DELAY: Duration = Duration::from_millis(200);
+const PEER_PACING_MAX_DELAY: Duration = Duration::from_secs(2);
 
 impl Pool {
     pub(super) async fn requeue(&self, job: &Job) -> Result<(), Error> {
@@ -42,7 +49,7 @@ impl Pool {
         job: &Job,
         reject: Reject,
         premises: Premises,
-    ) -> Result<(), Error> {
+    ) -> Result<bool, Error> {
         let result = self
             .commit_attempt(|| {
                 ingress::commit_rejection(
@@ -57,15 +64,20 @@ impl Pool {
             })
             .await;
         match result {
-            Ok(_) => Ok(()),
-            Err(Error::Stale) => self.requeue(job).await,
+            Ok(_) => Ok(true),
+            Err(Error::Stale) => {
+                self.requeue(job).await?;
+                Ok(false)
+            }
             Err(error) => Err(error),
         }
     }
 
     async fn reject_capacity(&self, job: &Job, reason: FullReason) -> Result<(), Error> {
-        self.reject_job(job, Reject::Full(reason.to_string()), Premises::default())
-            .await
+        let _ = self
+            .reject_job(job, Reject::Full(reason.to_string()), Premises::default())
+            .await?;
+        Ok(())
     }
 
     async fn settle_resolution(&self, job: &Job, resolution: Resolution) -> Result<(), Error> {
@@ -94,37 +106,121 @@ impl Pool {
             return self.requeue(job).await;
         }
         match verified {
-            Ok(verified) => self.accept_job(job, &verified).await,
+            Ok(verified) => {
+                let spent = verified.spent_cpu();
+                if self.accept_job(job, &verified).await?
+                    && spent >= PEER_PACING_CPU_THRESHOLD
+                    && let Source::Remote { origin, .. } = job.entry.source
+                {
+                    let delay = spent
+                        .checked_div(2)
+                        .unwrap_or(PEER_PACING_MAX_DELAY)
+                        .clamp(PEER_PACING_MIN_DELAY, PEER_PACING_MAX_DELAY);
+                    self.store.pace_peer(origin.peer, delay);
+                }
+                Ok(())
+            }
             Err(Error::Stale) => self.requeue(job).await,
             Err(Error::Rejected(reject)) => {
-                self.reject_job(job, reject, resolved.premises.clone())
-                    .await
+                let is_budget_timeout = matches!(reject, Reject::ExcessiveVerifyTime);
+                if self
+                    .reject_job(job, reject, resolved.premises.clone())
+                    .await?
+                    && is_budget_timeout
+                    && let Source::Remote { origin, .. } = job.entry.source
+                {
+                    self.store.pace_peer(origin.peer, PEER_PACING_MAX_DELAY);
+                }
+                Ok(())
             }
             Err(Error::Full(reason)) => self.reject_capacity(job, reason).await,
             Err(error) => Err(error),
         }
     }
 
-    pub(super) async fn resolve_job(&self, job: &Job, cpu: ComputePermit) -> Result<(), Error> {
-        let store = Arc::clone(&self.store);
-        let entry = Arc::clone(&job.entry);
-        let config = Arc::clone(&self.config);
-        let resolution = self
-            .compute
-            .run_permitted(move || jobs::resolve(&store, &entry, &config))
-            .await?;
-        drop(cpu);
-        match resolution {
-            Ok(resolution) => self.settle_resolution(job, resolution).await,
-            Err(Error::Stale) => self.requeue(job).await,
-            Err(Error::Full(reason)) => self.reject_capacity(job, reason).await,
-            Err(error) => Err(error),
+    /// Dispatch synchronous job work onto `ComputePool` while the worker still
+    /// owns `job` and `cpu`.
+    ///
+    /// Both ordinary resolution and fused resolve-and-verify share this path so
+    /// compute dispatch failures (such as cold-start OS thread creation
+    /// failure) settle the single job cleanly (capacity rejection or stop
+    /// requeue) and release `cpu` before returning `Ok(None)`, preventing an
+    /// unhandled `Job` drop from faulting the entire tx-pool.
+    async fn dispatch_job_compute<T: Send + 'static>(
+        &self,
+        job: &Job,
+        cpu: &mut Option<ComputePermit>,
+        operation: impl FnOnce() -> Result<T, Error> + Send + 'static,
+    ) -> Result<Option<T>, Error> {
+        let outcome = match self.compute.run_permitted(operation).await {
+            Ok(outcome) => outcome,
+            Err(Error::Closed) if self.store.is_stopped() => {
+                drop(cpu.take());
+                self.requeue(job).await?;
+                return Ok(None);
+            }
+            Err(Error::Full(reason)) => {
+                drop(cpu.take());
+                if self.store.is_stopped() {
+                    self.requeue(job).await?;
+                } else {
+                    self.reject_capacity(job, reason).await?;
+                }
+                return Ok(None);
+            }
+            Err(error) => {
+                drop(cpu.take());
+                return Err(error);
+            }
+        };
+        match outcome {
+            Ok(value) => Ok(Some(value)),
+            Err(Error::Stale) => {
+                drop(cpu.take());
+                self.requeue(job).await?;
+                Ok(None)
+            }
+            Err(Error::Closed) if self.store.is_stopped() => {
+                drop(cpu.take());
+                self.requeue(job).await?;
+                Ok(None)
+            }
+            Err(Error::Full(reason)) => {
+                drop(cpu.take());
+                if self.store.is_stopped() {
+                    self.requeue(job).await?;
+                } else {
+                    self.reject_capacity(job, reason).await?;
+                }
+                Ok(None)
+            }
+            Err(error) => {
+                drop(cpu.take());
+                Err(error)
+            }
         }
     }
 
-    pub(super) async fn accept_job(&self, job: &Job, verified: &Verified) -> Result<(), Error> {
-        if !job.current() {
+    pub(super) async fn resolve_job(&self, job: &Job, cpu: ComputePermit) -> Result<(), Error> {
+        let mut cpu = Some(cpu);
+        let store = Arc::clone(&self.store);
+        let entry = Arc::clone(&job.entry);
+        let config = Arc::clone(&self.config);
+        let Some(resolution) = self
+            .dispatch_job_compute(job, &mut cpu, move || {
+                jobs::resolve(&store, &entry, &config)
+            })
+            .await?
+        else {
             return Ok(());
+        };
+        drop(cpu);
+        self.settle_resolution(job, resolution).await
+    }
+
+    pub(super) async fn accept_job(&self, job: &Job, verified: &Verified) -> Result<bool, Error> {
+        if !job.current() {
+            return Ok(false);
         }
         let result = self
             .commit_attempt(|| {
@@ -140,11 +236,26 @@ impl Pool {
             })
             .await;
         match result {
-            Ok(_) => Ok(()),
-            Err(Error::Stale) => self.requeue(job).await,
-            Err(Error::Closed) if self.store.is_stopped() => self.requeue(job).await,
-            Err(Error::Full(reason)) => self.reject_capacity(job, reason).await,
+            Ok(_) => Ok(true),
+            Err(Error::Stale) => {
+                self.requeue(job).await?;
+                Ok(false)
+            }
+            Err(Error::Closed) if self.store.is_stopped() => {
+                self.requeue(job).await?;
+                Ok(false)
+            }
+            Err(Error::Full(reason)) => {
+                self.reject_capacity(job, reason).await?;
+                Ok(false)
+            }
             Err(error) => Err(error),
+        }
+    }
+
+    async fn maybe_refresh_calibration(&self, min_age: Duration) {
+        if let Some(guard) = crate::verification::calibration::try_begin_refresh(min_age) {
+            let _ = self.compute.run_permitted(move || guard.run()).await;
         }
     }
 
@@ -157,28 +268,18 @@ impl Pool {
         cpu: ComputePermit,
         commands: &mut watch::Receiver<ChunkCommand>,
     ) -> Result<(), Error> {
+        let mut cpu = Some(cpu);
         let store = Arc::clone(&self.store);
         let entry = Arc::clone(&job.entry);
         let config = Arc::clone(&self.config);
         let view = job.view;
-        let (snapshot, resolution) = match self
-            .compute
-            .run_permitted(move || jobs::resolve_for_view(&store, &entry, &config, view))
+        let Some((snapshot, resolution)) = self
+            .dispatch_job_compute(job, &mut cpu, move || {
+                jobs::resolve_for_view(&store, &entry, &config, view)
+            })
             .await?
-        {
-            Ok(pair) => pair,
-            Err(Error::Stale) => {
-                drop(cpu);
-                return self.requeue(job).await;
-            }
-            Err(Error::Full(reason)) => {
-                drop(cpu);
-                return self.reject_capacity(job, reason).await;
-            }
-            Err(error) => {
-                drop(cpu);
-                return Err(error);
-            }
+        else {
+            return Ok(());
         };
         let Resolution::Ready(resolved) = resolution else {
             drop(cpu);
@@ -188,6 +289,11 @@ impl Pool {
             drop(cpu);
             return self.requeue(job).await;
         }
+        self.maybe_refresh_calibration(PROACTIVE_REFRESH_INTERVAL)
+            .await;
+        let permit = cpu
+            .as_ref()
+            .ok_or(Error::Fault("missing compute permit for fused verify"))?;
         let verified = jobs::verify_with_snapshot(
             #[cfg(any(test, feature = "internal"))]
             &self.store,
@@ -197,9 +303,16 @@ impl Pool {
             &self.config,
             &self.cache,
             commands,
-            &cpu,
+            permit,
+            Some(&self.compute),
         )
         .await;
+        if !self.store.is_stopped()
+            && matches!(verified, Err(Error::Rejected(Reject::ExcessiveVerifyTime)))
+        {
+            self.maybe_refresh_calibration(PRESSURE_REFRESH_COOLDOWN)
+                .await;
+        }
         drop(cpu);
         self.settle_verification(job, &resolved, verified).await
     }
@@ -266,7 +379,9 @@ impl Pool {
             };
             if let Phase::Verify(resolved) = &job.entry.phase {
                 let resolved = Arc::clone(resolved);
-                let verified = jobs::verify(
+                self.maybe_refresh_calibration(PROACTIVE_REFRESH_INTERVAL)
+                    .await;
+                let verified = jobs::verify_with_compute(
                     &self.store,
                     &job.entry,
                     Arc::clone(&resolved),
@@ -274,8 +389,15 @@ impl Pool {
                     &self.cache,
                     &mut commands,
                     &cpu,
+                    Some(&self.compute),
                 )
                 .await;
+                if !self.store.is_stopped()
+                    && matches!(verified, Err(Error::Rejected(Reject::ExcessiveVerifyTime)))
+                {
+                    self.maybe_refresh_calibration(PRESSURE_REFRESH_COOLDOWN)
+                        .await;
+                }
                 drop(cpu);
                 self.settle_verification(&job, &resolved, verified).await?;
                 if self.store.is_stopped() {

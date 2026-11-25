@@ -29,13 +29,14 @@ use ckb_types::{
     prelude::*,
 };
 use ckb_util::parking_lot::{Condvar, Mutex, RwLock, RwLockReadGuard};
+use lru::LruCache;
 use std::{
     ops::Bound::{Excluded, Unbounded},
     sync::{
         Arc,
         atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering},
     },
-    time::Instant,
+    time::{Duration, Instant},
 };
 use tokio::sync::Notify;
 
@@ -191,6 +192,7 @@ pub(super) struct Commit<'a> {
     pub(super) now: Instant,
     queues: &'a Queues,
     outbox: &'a Arc<Outbox>,
+    budget_cooldown: &'a TimeBudgetCooldown,
     batch: Option<Arc<Batch>>,
     outcome: CommitOutcome,
 }
@@ -286,6 +288,15 @@ impl Commit<'_> {
     pub(super) fn apply_ban(&mut self, peer: PeerIndex, deadline: Instant) {
         self.state.apply_ban(peer, deadline, self.now);
     }
+
+    pub(super) fn record_budget_cooldown(&mut self, tx_hash: [u8; 32], witness_hash: [u8; 32]) {
+        self.budget_cooldown.record(tx_hash, witness_hash, self.now);
+    }
+
+    pub(super) fn is_budget_cooled_down(&self, tx_hash: [u8; 32], witness_hash: [u8; 32]) -> bool {
+        self.budget_cooldown
+            .is_active(tx_hash, witness_hash, self.now)
+    }
 }
 
 #[cfg(test)]
@@ -324,9 +335,71 @@ pub(super) fn read_rwlock_until<T>(
     })
 }
 
+const BUDGET_COOLDOWN_CAPACITY: usize = 1_024;
+const BUDGET_COOLDOWN_TTL: Duration = Duration::from_secs(30);
+
+/// Bounded, non-persistent short-TTL cooldown for remote transactions that
+/// recently exhausted their VM CPU-time budget.
+///
+/// Keyed by `(tx_hash, witness_hash)` so re-signed or fixed witnesses, local
+/// RPC submissions, recovery, and block proposals are never blocked. Cleared
+/// automatically on chain tip transitions and generation resets.
+type CooldownKey = ([u8; 32], [u8; 32]);
+
+struct TimeBudgetCooldown {
+    non_empty: AtomicBool,
+    entries: Mutex<LruCache<CooldownKey, Instant>>,
+}
+
+impl TimeBudgetCooldown {
+    fn new() -> Self {
+        Self {
+            non_empty: AtomicBool::new(false),
+            entries: Mutex::new(LruCache::new(BUDGET_COOLDOWN_CAPACITY)),
+        }
+    }
+
+    fn record(&self, tx_hash: [u8; 32], witness_hash: [u8; 32], now: Instant) {
+        let Some(deadline) = now.checked_add(BUDGET_COOLDOWN_TTL) else {
+            return;
+        };
+        let mut entries = self.entries.lock();
+        entries.put((tx_hash, witness_hash), deadline);
+        self.non_empty.store(true, Ordering::SeqCst);
+    }
+
+    fn is_active(&self, tx_hash: [u8; 32], witness_hash: [u8; 32], now: Instant) -> bool {
+        if !self.non_empty.load(Ordering::SeqCst) {
+            return false;
+        }
+        let mut entries = self.entries.lock();
+        let key = (tx_hash, witness_hash);
+        match entries.peek(&key).copied() {
+            Some(deadline) if now < deadline => true,
+            Some(_) => {
+                entries.pop(&key);
+                if entries.is_empty() {
+                    self.non_empty.store(false, Ordering::SeqCst);
+                }
+                false
+            }
+            None => false,
+        }
+    }
+
+    fn clear(&self) {
+        if !self.non_empty.load(Ordering::SeqCst) {
+            return;
+        }
+        let mut entries = self.entries.lock();
+        entries.clear();
+        self.non_empty.store(false, Ordering::SeqCst);
+    }
+}
+
 /// Lock order (strictly 2 levels):
 ///   1. `state: RwLock<AuthorityState>`
-///   2. Leaf bookkeeping mutexes (`queues`, `outbox.state`, `budget.active`)
+///   2. Leaf bookkeeping mutexes (`queues`, `outbox.state`, `budget.active`, `budget_cooldown`)
 pub(super) struct Store {
     #[cfg(test)]
     pub(super) admission_attempts: AtomicU64,
@@ -344,6 +417,7 @@ pub(super) struct Store {
     pub(super) budget: Arc<ActiveBudget>,
     pub(super) outbox: Arc<Outbox>,
     queues: Queues,
+    budget_cooldown: TimeBudgetCooldown,
     pub(super) changed: Notify,
     pub(super) template_changed: Notify,
     pub(super) work: Notify,
@@ -380,6 +454,7 @@ impl Store {
             budget,
             outbox,
             queues: Queues::new(config.verify_ordering, config.max_tx_verify_cycles),
+            budget_cooldown: TimeBudgetCooldown::new(),
             changed: Notify::new(),
             template_changed: Notify::new(),
             work: Notify::new(),
@@ -441,7 +516,18 @@ impl Store {
         operation: impl FnOnce(&mut Commit<'_>) -> Result<T, Error>,
     ) -> Result<(T, Option<Arc<Batch>>), Error> {
         self.reorg.wait_if_pending();
-        self.commit_inner(operation, None)
+        self.commit_inner(operation, None, false, false)
+    }
+
+    /// Like [`Store::commit_with`], but activates any committed notice batch via
+    /// [`Batch::activate_nonblocking`] so callback-free in-memory effects settle
+    /// inline without waking `TxPoolPublisher`.
+    pub(super) fn commit_with_inline_publish<T>(
+        &self,
+        operation: impl FnOnce(&mut Commit<'_>) -> Result<T, Error>,
+    ) -> Result<(T, Option<Arc<Batch>>), Error> {
+        self.reorg.wait_if_pending();
+        self.commit_inner(operation, None, false, true)
     }
 
     /// Execute a read-only admission preview under `state.read()`, never
@@ -474,7 +560,7 @@ impl Store {
         &self,
         operation: impl FnOnce(&mut Commit<'_>) -> Result<T, Error>,
     ) -> Result<(T, Option<Arc<Batch>>), Error> {
-        self.commit_inner(operation, None)
+        self.commit_inner(operation, None, true, false)
     }
 
     pub(super) fn commit_reorg_releasing<T>(
@@ -482,13 +568,34 @@ impl Store {
         priority_guard: &mut Option<ReorgPriorityGuard<'_>>,
         operation: impl FnOnce(&mut Commit<'_>) -> Result<T, Error>,
     ) -> Result<(T, Option<Arc<Batch>>), Error> {
-        self.commit_inner(operation, Some(priority_guard))
+        self.commit_inner(operation, Some(priority_guard), true, false)
+    }
+
+    #[cfg(test)]
+    pub(super) fn record_budget_cooldown(&self, tx_hash: [u8; 32], witness_hash: [u8; 32]) {
+        self.budget_cooldown
+            .record(tx_hash, witness_hash, Instant::now());
+    }
+
+    pub(super) fn is_budget_cooled_down(
+        &self,
+        tx_hash: [u8; 32],
+        witness_hash: [u8; 32],
+        now: Instant,
+    ) -> bool {
+        self.budget_cooldown.is_active(tx_hash, witness_hash, now)
+    }
+
+    pub(super) fn pace_peer(&self, peer: PeerIndex, delay: Duration) {
+        self.queues.pace_peer(peer, delay);
     }
 
     fn commit_inner<T>(
         &self,
         operation: impl FnOnce(&mut Commit<'_>) -> Result<T, Error>,
         priority_guard: Option<&mut Option<ReorgPriorityGuard<'_>>>,
+        clear_cooldown: bool,
+        inline_publish: bool,
     ) -> Result<(T, Option<Arc<Batch>>), Error> {
         #[cfg(feature = "profiling")]
         let _span = tracing::trace_span!(target: "ckb_tx_pool_profile", "tx_pool.authority.apply")
@@ -515,10 +622,16 @@ impl Store {
                 now: Instant::now(),
                 queues: &self.queues,
                 outbox: &self.outbox,
+                budget_cooldown: &self.budget_cooldown,
                 batch: None,
                 outcome: CommitOutcome::default(),
             };
             let committed = operation(&mut tx).map(|value| (value, tx.batch, tx.outcome));
+            if clear_cooldown && committed.is_ok() {
+                // Clear cooldown inside `state.write()` so view transitions and
+                // same-view cooldown writes serialize atomically.
+                self.budget_cooldown.clear();
+            }
             if write_wait_start.is_some() {
                 descendants_len = state.descendants.len();
             }
@@ -550,7 +663,11 @@ impl Store {
             }
         };
         if let Some(batch) = &batch {
-            batch.activate(&self.outbox);
+            if inline_publish {
+                batch.activate_nonblocking(&self.outbox);
+            } else {
+                batch.activate(&self.outbox);
+            }
         }
         if outcome.template_changed {
             self.template_changed.notify_waiters();
@@ -993,6 +1110,13 @@ impl Store {
         if let Some(hook) = hook {
             hook();
         }
+    }
+
+    #[cfg(any(test, feature = "internal"))]
+    pub(super) fn verify_observer_task(&self, hash: &Byte32) -> Option<Box<dyn FnOnce() + Send>> {
+        let hook = self.verify_observer.lock().clone()?;
+        let hash = hash.clone();
+        Some(Box::new(move || hook(&hash)))
     }
 
     #[cfg(any(test, feature = "internal"))]

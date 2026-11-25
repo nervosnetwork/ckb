@@ -171,9 +171,18 @@ impl Source {
         }
     }
 
+    #[cfg(test)]
     pub(super) fn verification_time_limit(
         self,
         config: &ckb_app_config::TxPoolConfig,
+    ) -> Option<Duration> {
+        self.verification_time_limit_for_groups(config, 1)
+    }
+
+    pub(super) fn verification_time_limit_for_groups(
+        self,
+        config: &ckb_app_config::TxPoolConfig,
+        script_groups: usize,
     ) -> Option<Duration> {
         let cap = config.max_tx_verify_time();
         Some(match self {
@@ -181,7 +190,7 @@ impl Source {
             Self::Remote {
                 cycles: Some(cycles),
                 ..
-            } => crate::verification::calibration::for_cycles(cycles, cap),
+            } => crate::verification::calibration::for_workload(cycles, script_groups, cap),
             Self::Remote { cycles: None, .. } | Self::Proposal { .. } => cap,
         })
     }

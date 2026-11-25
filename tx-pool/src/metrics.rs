@@ -211,6 +211,51 @@ pub(crate) fn record_direct_gate_usage(direct_inflight: usize, callback_read_inf
         .set(gauge_value(callback_read_inflight));
 }
 
+/// Observe the fraction of its VM CPU-time budget consumed by a network verification.
+pub(crate) fn record_verify_cpu_budget_ratio(
+    spent: std::time::Duration,
+    budget: std::time::Duration,
+) {
+    let Some(metrics) = ckb_metrics::handle() else {
+        return;
+    };
+    let budget_secs = budget.as_secs_f64();
+    if budget_secs > 0.0 {
+        let ratio = (spent.as_secs_f64() / budget_secs).clamp(0.0, 1.0);
+        metrics.ckb_tx_pool_verify_cpu_budget_ratio.observe(ratio);
+    }
+}
+
+/// Record a network verification refused for exhausting its VM CPU-time budget.
+pub(crate) fn record_verify_time_budget_exceeded(is_proposal: bool) {
+    let Some(metrics) = ckb_metrics::handle() else {
+        return;
+    };
+    let counters = &metrics.ckb_tx_pool_verify_time_budget_exceeded;
+    if is_proposal {
+        counters.proposal.inc();
+    } else {
+        counters.remote.inc();
+    }
+}
+
+/// Publish the active node-local VM calibration rate in cycles per millisecond.
+pub(crate) fn record_verify_calibration_cycles_per_ms(cycles_per_ms: u64) {
+    if let Some(metrics) = ckb_metrics::handle() {
+        let value = i64::try_from(cycles_per_ms).unwrap_or(i64::MAX);
+        metrics
+            .ckb_tx_pool_verify_calibration_cycles_per_ms
+            .set(value);
+    }
+}
+
+/// Record a replayed over-budget remote transaction shed during short-TTL cooldown.
+pub(crate) fn record_verify_budget_cooldown_hit() {
+    if let Some(metrics) = ckb_metrics::handle() {
+        metrics.ckb_tx_pool_verify_budget_cooldown_hits.inc();
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -296,6 +341,46 @@ mod tests {
                 .callback_read_inflight
                 .get(),
             2
+        );
+
+        let before_remote = metrics.ckb_tx_pool_verify_time_budget_exceeded.remote.get();
+        let before_proposal = metrics
+            .ckb_tx_pool_verify_time_budget_exceeded
+            .proposal
+            .get();
+        let before_cooldown = metrics.ckb_tx_pool_verify_budget_cooldown_hits.get();
+        record_verify_cpu_budget_ratio(
+            std::time::Duration::from_millis(25),
+            std::time::Duration::from_millis(100),
+        );
+        record_verify_time_budget_exceeded(false);
+        record_verify_time_budget_exceeded(true);
+        record_verify_calibration_cycles_per_ms(125_000);
+        record_verify_budget_cooldown_hit();
+        assert!(
+            metrics
+                .ckb_tx_pool_verify_cpu_budget_ratio
+                .get_sample_count()
+                >= 1
+        );
+        assert_eq!(
+            metrics.ckb_tx_pool_verify_time_budget_exceeded.remote.get(),
+            before_remote + 1
+        );
+        assert_eq!(
+            metrics
+                .ckb_tx_pool_verify_time_budget_exceeded
+                .proposal
+                .get(),
+            before_proposal + 1
+        );
+        assert_eq!(
+            metrics.ckb_tx_pool_verify_calibration_cycles_per_ms.get(),
+            125_000
+        );
+        assert_eq!(
+            metrics.ckb_tx_pool_verify_budget_cooldown_hits.get(),
+            before_cooldown + 1
         );
     }
 }

@@ -19,7 +19,7 @@ use std::{
 /// workloads while keeping idle CPU at zero and bounding spinning to one core.
 const LOCAL_IDLE_SPIN: Duration = Duration::from_micros(100);
 
-pub(super) type ComputeTask = Box<dyn FnOnce() + Send + 'static>;
+pub(crate) type ComputeTask = Box<dyn FnOnce() + Send + 'static>;
 
 /// Result of one attempt to execute a queued direct local submission on a
 /// compute worker.
@@ -66,10 +66,6 @@ struct Shared {
     max_threads: usize,
     has_worker: AtomicBool,
     closed_flag: AtomicBool,
-    /// True only when no concurrent worker activity is detected (serial local
-    /// traffic). Shared with `TxPoolPublisher` so neither thread ever burns
-    /// spin cycles under multi-worker saturation.
-    serial_spin: Arc<AtomicBool>,
     local_queued: AtomicUsize,
     permitted_queued: AtomicUsize,
     capacity_epoch: AtomicU64,
@@ -99,7 +95,7 @@ impl CapacitySignal {
 }
 
 #[cfg(test)]
-type SpawnHook = Arc<dyn Fn(usize) -> Option<std::io::Result<()>> + Send + Sync>;
+pub(super) type SpawnHook = Arc<dyn Fn(usize) -> Option<std::io::Result<()>> + Send + Sync>;
 
 /// Bounded lazy-spawning OS worker pool owned by one [`super::Pool`] generation.
 ///
@@ -111,7 +107,7 @@ type SpawnHook = Arc<dyn Fn(usize) -> Option<std::io::Result<()>> + Send + Sync>
 /// The first worker is established and committed in the same `queue` transition
 /// that accepts the caller's task, so a cold-start thread creation failure can
 /// only return that caller's own task and never strands acknowledged work.
-pub(super) struct ComputePool {
+pub(crate) struct ComputePool {
     shared: Arc<Shared>,
     first_worker: Mutex<()>,
     threads: Mutex<Vec<std::thread::JoinHandle<()>>>,
@@ -120,13 +116,12 @@ pub(super) struct ComputePool {
 }
 
 impl ComputePool {
-    pub(super) fn new(max_threads: usize) -> Self {
+    pub(crate) fn new(max_threads: usize) -> Self {
         Self {
             shared: Arc::new(Shared {
                 max_threads: max_threads.max(1),
                 has_worker: AtomicBool::new(false),
                 closed_flag: AtomicBool::new(false),
-                serial_spin: Arc::new(AtomicBool::new(false)),
                 local_queued: AtomicUsize::new(0),
                 permitted_queued: AtomicUsize::new(0),
                 capacity_epoch: AtomicU64::new(0),
@@ -162,8 +157,15 @@ impl ComputePool {
         self.signal().notify();
     }
 
-    pub(super) fn serial_spin_flag(&self) -> Arc<AtomicBool> {
-        Arc::clone(&self.shared.serial_spin)
+    /// True when no additional direct local RPC submissions are waiting in the
+    /// local queue (serial or low-concurrency RPC traffic).
+    pub(super) fn is_local_idle(&self) -> bool {
+        self.shared.local_queued.load(Ordering::SeqCst) == 0
+    }
+
+    #[cfg(test)]
+    pub(super) fn set_spawn_hook(&self, hook: Option<SpawnHook>) {
+        *self.spawn_hook.lock() = hook;
     }
 
     fn spawn_worker_thread(&self, id: usize) -> std::io::Result<std::thread::JoinHandle<()>> {
@@ -242,7 +244,10 @@ impl ComputePool {
         Ok(())
     }
 
-    fn push_permitted(&self, task: ComputeTask) -> Result<(), (PushErrorKind, ComputeTask)> {
+    pub(crate) fn push_permitted(
+        &self,
+        task: ComputeTask,
+    ) -> Result<(), (PushErrorKind, ComputeTask)> {
         if !self.shared.has_worker.load(Ordering::SeqCst) {
             return self.push_cold(
                 task,
@@ -264,7 +269,6 @@ impl ComputePool {
             }
             q.permitted.push_back(task);
             self.shared.permitted_queued.fetch_add(1, Ordering::SeqCst);
-            self.shared.serial_spin.store(false, Ordering::SeqCst);
             let total_idle = q
                 .work_idle
                 .saturating_add(q.capacity_idle)
@@ -314,14 +318,11 @@ impl ComputePool {
             }
             q.local.push_back(task);
             self.shared.local_queued.fetch_add(1, Ordering::SeqCst);
-            let pending = q.permitted.len().saturating_add(q.local.len());
-            if pending > 1 || (q.work_idle == 0 && !q.spinning) {
-                self.shared.serial_spin.store(false, Ordering::SeqCst);
-            }
             if q.work_idle > 0 {
                 self.shared.work_ready.notify_one();
                 None
             } else {
+                let pending = q.permitted.len().saturating_add(q.local.len());
                 let active_idle = q.capacity_idle.saturating_add(usize::from(q.spinning));
                 if q.live_workers.saturating_add(q.spawning) < self.shared.max_threads
                     && pending > active_idle
@@ -342,7 +343,7 @@ impl ComputePool {
 
     /// Execute a synchronous closure on a dedicated worker for a caller that
     /// already holds a [`super::ComputePermit`], propagating panics to the caller.
-    pub(super) async fn run_permitted<T: Send + 'static>(
+    pub(crate) async fn run_permitted<T: Send + 'static>(
         &self,
         operation: impl FnOnce() -> T + Send + 'static,
     ) -> Result<T, Error> {
@@ -369,7 +370,6 @@ impl ComputePool {
 
 impl Drop for ComputePool {
     fn drop(&mut self) {
-        self.shared.serial_spin.store(false, Ordering::SeqCst);
         self.shared.closed_flag.store(true, Ordering::SeqCst);
         let (leftover_permitted, leftover_local): (Vec<ComputeTask>, Vec<LocalTask>) = {
             let mut q = self.shared.queue.lock();
@@ -465,7 +465,6 @@ fn worker_loop(shared: Arc<Shared>) {
             .saturating_sub(q.work_idle)
             .saturating_sub(q.capacity_idle);
         if should_spin && !q.spinning && other_busy == 0 && q.capacity_idle == 0 {
-            shared.serial_spin.store(true, Ordering::SeqCst);
             q.spinning = true;
             should_spin = false;
             drop(q);
@@ -473,7 +472,6 @@ fn worker_loop(shared: Arc<Shared>) {
                 while !shared.closed_flag.load(Ordering::SeqCst)
                     && shared.local_queued.load(Ordering::SeqCst) == 0
                     && shared.permitted_queued.load(Ordering::SeqCst) == 0
-                    && shared.serial_spin.load(Ordering::SeqCst)
                     && Instant::now() < deadline
                 {
                     std::hint::spin_loop();
@@ -481,13 +479,7 @@ fn worker_loop(shared: Arc<Shared>) {
             }
             q = shared.queue.lock();
             q.spinning = false;
-            if q.local.is_empty() && q.permitted.is_empty() {
-                shared.serial_spin.store(false, Ordering::SeqCst);
-            }
             continue;
-        }
-        if other_busy > 0 {
-            shared.serial_spin.store(false, Ordering::SeqCst);
         }
         q.work_idle = q.work_idle.saturating_add(1);
         shared.work_ready.wait(&mut q);
