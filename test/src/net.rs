@@ -1,10 +1,10 @@
 use crate::Node;
-use crate::utils::{TempPathBuf, find_available_port, message_name, wait_until};
+use crate::utils::{TempPathBuf, find_available_port, message_name, tweaked_duration};
 use ckb_app_config::NetworkConfig;
 use ckb_async_runtime::{Runtime, new_global_runtime};
 use ckb_chain_spec::consensus::Consensus;
 use ckb_channel::{self as channel, Receiver, RecvTimeoutError, Sender, unbounded};
-use ckb_logger::info;
+use ckb_logger::debug;
 use ckb_network::{
     CKBProtocol, CKBProtocolContext, CKBProtocolHandler, Flags, NetworkController, NetworkService,
     NetworkState, PeerIndex, ProtocolId, SupportProtocols, async_trait, bytes::Bytes,
@@ -13,7 +13,7 @@ use ckb_network::{
 use ckb_util::Mutex;
 use std::collections::HashMap;
 use std::sync::Arc;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 pub type NetMessage = (PeerIndex, ProtocolId, Bytes);
 
@@ -65,7 +65,7 @@ impl Net {
                 )
             })
             .collect();
-        let (async_handle, _handle_recv, async_runtime) = new_global_runtime(None);
+        let (async_handle, _handle_recv, async_runtime) = new_global_runtime(Some(2));
         let controller = NetworkService::new(
             Arc::clone(&network_state),
             ckb_protocols,
@@ -126,7 +126,12 @@ impl Net {
                 return;
             }
         }
-        panic!("timeout to connect to {}", node.p2p_address());
+        panic!(
+            "timeout to connect to {} (connected {}/{} protocols)",
+            node.p2p_address(),
+            n_protocols_connected,
+            self.protocols.len()
+        );
     }
 
     pub fn connect_uncheck(&self, node: &Node) {
@@ -158,7 +163,7 @@ impl Net {
             .get(&node_id)
             .unwrap_or_else(|| panic!("not connected peer {}", node.p2p_address()));
         let net_message = receiver.recv_timeout(timeout)?;
-        info!(
+        debug!(
             "Net received from peer-{}, message_name: {}",
             peer_index,
             message_name(&net_message.2)
@@ -170,12 +175,48 @@ impl Net {
     where
         Predicate: Fn(&Bytes) -> bool,
     {
-        let timeout = Duration::from_secs(30);
-        wait_until(30, || {
-            self.receive_timeout(node, timeout)
-                .map(|(_, _, data)| predicate(&data))
-                .unwrap_or(false)
-        })
+        self.should_receive_within(node, tweaked_duration(30), predicate)
+    }
+
+    pub fn should_receive_within<Predicate>(
+        &self,
+        node: &Node,
+        timeout: Duration,
+        predicate: Predicate,
+    ) -> bool
+    where
+        Predicate: Fn(&Bytes) -> bool,
+    {
+        let deadline = Instant::now() + timeout;
+        let mut seen = Vec::new();
+        loop {
+            let Some(remaining) = deadline.checked_duration_since(Instant::now()) else {
+                debug!(
+                    "Net::should_receive_within timed out after {:?} waiting for peer {}; received {} non-matching message(s): {:?}",
+                    timeout,
+                    node.p2p_address(),
+                    seen.len(),
+                    seen
+                );
+                return false;
+            };
+            match self.receive_timeout(node, remaining) {
+                Ok((_, _, data)) if predicate(&data) => return true,
+                Ok((_, _, data)) => {
+                    seen.push(message_name(&data));
+                }
+                Err(err) => {
+                    debug!(
+                        "Net::should_receive_within ended ({:?}) waiting for peer {}; received {} non-matching message(s): {:?}",
+                        err,
+                        node.p2p_address(),
+                        seen.len(),
+                        seen
+                    );
+                    return false;
+                }
+            }
+        }
     }
 }
 

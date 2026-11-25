@@ -43,15 +43,26 @@ pub trait Spec: Send {
 
     fn before_run(&self) -> Vec<Node> {
         let mut nodes = (0..self.setup().num_nodes)
-            .map(|i| Node::new(self.name(), &format!("node{i}")))
+            .map(|i| {
+                Node::new_with_modifiers(
+                    self.name(),
+                    &format!("node{i}"),
+                    |config| self.modify_app_config(config),
+                    |spec| self.modify_chain_spec(spec),
+                )
+            })
             .collect::<Vec<_>>();
-        nodes
-            .iter_mut()
-            .for_each(|node| node.modify_app_config(|config| self.modify_app_config(config)));
-        nodes
-            .iter_mut()
-            .for_each(|node| node.modify_chain_spec(|spec| self.modify_chain_spec(spec)));
-        nodes.iter_mut().for_each(|node| node.start());
+        if nodes.len() <= 1 {
+            if let Some(node) = nodes.first_mut() {
+                node.start();
+            }
+        } else {
+            std::thread::scope(|scope| {
+                for node in nodes.iter_mut() {
+                    scope.spawn(|| node.start());
+                }
+            });
+        }
         nodes
     }
 

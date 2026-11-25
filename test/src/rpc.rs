@@ -20,9 +20,22 @@ use ckb_types::{H256, packed::Byte32};
 pub static HTTP_CLIENT: std::sync::LazyLock<reqwest::blocking::Client> =
     std::sync::LazyLock::new(|| {
         reqwest::blocking::Client::builder()
+            // Integration RPC endpoints are always loopback nodes started by this
+            // runner; disable system/environment proxy discovery so localhost
+            // traffic is never routed through an external proxy.
+            .no_proxy()
             .timeout(::std::time::Duration::from_secs(30))
             .build()
             .expect("reqwest Client build")
+    });
+
+static DIAGNOSTIC_HTTP_CLIENT: std::sync::LazyLock<reqwest::blocking::Client> =
+    std::sync::LazyLock::new(|| {
+        reqwest::blocking::Client::builder()
+            .no_proxy()
+            .timeout(::std::time::Duration::from_secs(2))
+            .build()
+            .expect("reqwest diagnostic Client build")
     });
 
 pub struct RpcClient {
@@ -38,6 +51,35 @@ impl RpcClient {
 
     pub fn inner(&self) -> &Inner {
         &self.inner
+    }
+
+    /// Best-effort short-timeout (2s) JSON-RPC call used when capturing failure
+    /// diagnostics so a hung or unresponsive node never stalls failure reporting.
+    pub fn diagnostic_call(
+        &self,
+        method: &str,
+        params: serde_json::Value,
+    ) -> Result<serde_json::Value, String> {
+        let req = serde_json::json!({
+            "id": self.inner.id_generator.next(),
+            "jsonrpc": "2.0",
+            "method": method,
+            "params": params,
+        });
+        let resp = DIAGNOSTIC_HTTP_CLIENT
+            .post(self.inner.url.clone())
+            .json(&req)
+            .send()
+            .map_err(|err| format!("http error: {err}"))?;
+        let output = resp
+            .json::<jsonrpc_core::response::Output>()
+            .map_err(|err| format!("json decode error: {err}"))?;
+        match output {
+            jsonrpc_core::response::Output::Success(success) => Ok(success.result),
+            jsonrpc_core::response::Output::Failure(failure) => {
+                Err(format!("rpc error: {:?}", failure.error))
+            }
+        }
     }
 
     pub fn get_block(&self, hash: Byte32) -> Option<BlockView> {
@@ -183,13 +225,18 @@ impl RpcClient {
     where
         F: Fn(),
     {
-        let now = std::time::Instant::now();
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(60);
+        let mut attempt = 0u32;
         while self.inner.get_tip_block_number().is_err() {
-            std::thread::sleep(std::time::Duration::from_millis(100));
-            if now.elapsed() > std::time::Duration::from_secs(60) {
+            let now = std::time::Instant::now();
+            if now >= deadline {
                 fail();
                 return false;
             }
+            let sleep_dur =
+                crate::utils::adaptive_poll_interval(attempt, 10, 50).min(deadline - now);
+            std::thread::sleep(sleep_dur);
+            attempt = attempt.saturating_add(1);
         }
         true
     }

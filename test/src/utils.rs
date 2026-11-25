@@ -12,9 +12,11 @@ use ckb_types::{
     prelude::*,
 };
 use core::sync::atomic::Ordering::SeqCst;
+use std::cell::RefCell;
 use std::convert::Into;
 use std::env;
-use std::fs::read_to_string;
+use std::fs::{self, read_to_string};
+use std::io::ErrorKind;
 use std::net::{Ipv4Addr, SocketAddrV4, TcpListener};
 use std::ops::Deref;
 use std::path::{Path, PathBuf};
@@ -126,19 +128,31 @@ pub fn build_relay_tx_hashes(hashes: &[Byte32]) -> Bytes {
     RelayMessage::new_builder().set(content).build().as_bytes()
 }
 
+pub(crate) fn adaptive_poll_interval(attempt: u32, initial_ms: u64, max_ms: u64) -> Duration {
+    let shift = attempt.min(16);
+    let ms = initial_ms.saturating_mul(1u64 << shift).min(max_ms);
+    Duration::from_millis(ms)
+}
+
 pub fn wait_until<F>(secs: u64, mut f: F) -> bool
 where
     F: FnMut() -> bool,
 {
     let timeout = tweaked_duration(secs);
-    let start = Instant::now();
-    while Instant::now().duration_since(start) <= timeout {
+    let deadline = Instant::now() + timeout;
+    let mut attempt = 0u32;
+    loop {
         if f() {
             return true;
         }
-        thread::sleep(Duration::new(1, 0));
+        let now = Instant::now();
+        if now >= deadline {
+            return false;
+        }
+        let sleep_dur = adaptive_poll_interval(attempt, 10, 100).min(deadline - now);
+        thread::sleep(sleep_dur);
+        attempt = attempt.saturating_add(1);
     }
-    false
 }
 
 pub fn sleep(secs: u64) {
@@ -202,15 +216,109 @@ pub fn assert_send_transaction_ok(node: &Node, transaction: &TransactionView) {
     assert!(result.is_ok(), "result: {:?}", result.unwrap_err());
 }
 
+thread_local! {
+    static SPEC_RUN_DIR: RefCell<Option<PathBuf>> = const { RefCell::new(None) };
+}
+
+/// RAII guard that scopes `TempPathBuf::new(...)` calls on the current thread
+/// into subdirectories of a single per-spec directory.
+pub(crate) struct SpecRunDirGuard {
+    previous: Option<PathBuf>,
+}
+
+impl SpecRunDirGuard {
+    pub(crate) fn enter(dir: PathBuf) -> Self {
+        let previous = SPEC_RUN_DIR.with(|slot| slot.replace(Some(dir)));
+        Self { previous }
+    }
+}
+
+impl Drop for SpecRunDirGuard {
+    fn drop(&mut self) {
+        let previous = self.previous.take();
+        SPEC_RUN_DIR.with(|slot| {
+            *slot.borrow_mut() = previous;
+        });
+    }
+}
+
+fn sanitize_path_component(raw: &str) -> String {
+    let sanitized: String = raw
+        .chars()
+        .map(|ch| {
+            if ch.is_ascii_alphanumeric() || ch == '_' || ch == '-' {
+                ch
+            } else {
+                '-'
+            }
+        })
+        .collect();
+    let trimmed = sanitized.trim_matches('-');
+    if trimmed.is_empty() {
+        "node".to_string()
+    } else {
+        trimmed.to_string()
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct TempPathBuf {
     path: PathBuf,
-    _tempdir: Arc<TempDir>,
+    // `Some` for owned root tempdirs; `None` for child subdirs inside a spec's
+    // root tempdir (whose lifecycle is owned by that root `TempPathBuf`).
+    _tempdir: Option<Arc<TempDir>>,
 }
 
 impl TempPathBuf {
-    /// Return a random path located on temp_dir
+    /// Create a root temporary directory for a single spec execution.
+    pub fn new_spec_dir(spec_label: &str) -> Self {
+        let mut builder = tempfile::Builder::new();
+        let label = sanitize_path_component(spec_label);
+        let prefix = ["ckb-it", label.as_str(), ""].join("-");
+        builder.prefix(&prefix);
+        let tempdir = if let Ok(val) = env::var("CKB_INTEGRATION_TEST_TMP") {
+            builder.tempdir_in(val)
+        } else {
+            builder.tempdir()
+        }
+        .expect("create spec tempdir failed");
+        let path = tempdir.path().to_owned();
+        Self {
+            path,
+            _tempdir: Some(Arc::new(tempdir)),
+        }
+    }
+
+    /// Return a path located under the active spec run directory (if any),
+    /// or a standalone random path under temp_dir.
     pub fn new(case_name: &str, suffix: &str) -> Self {
+        if let Some(spec_dir) = SPEC_RUN_DIR.with(|slot| slot.borrow().clone()) {
+            let base = sanitize_path_component(suffix);
+            let mut candidate = spec_dir.join(&base);
+            let mut counter = 1usize;
+            loop {
+                match fs::create_dir(&candidate) {
+                    Ok(()) => {
+                        return Self {
+                            path: candidate,
+                            _tempdir: None,
+                        };
+                    }
+                    Err(err) if err.kind() == ErrorKind::AlreadyExists => {
+                        candidate = spec_dir.join(format!("{base}-{counter}"));
+                        counter += 1;
+                    }
+                    Err(err) => {
+                        panic!(
+                            "create node dir {} inside spec dir failed: {}",
+                            candidate.display(),
+                            err
+                        );
+                    }
+                }
+            }
+        }
+
         let mut builder = tempfile::Builder::new();
         let prefix = ["ckb-it", case_name, suffix, ""].join("-");
         builder.prefix(&prefix);
@@ -223,12 +331,17 @@ impl TempPathBuf {
         let path = tempdir.path().to_owned();
         Self {
             path,
-            _tempdir: Arc::new(tempdir),
+            _tempdir: Some(Arc::new(tempdir)),
         }
     }
 
     pub fn path(&self) -> &Path {
         &self.path
+    }
+
+    /// Returns `true` if this `TempPathBuf` owns a standalone root tempdir.
+    pub fn is_owned_root(&self) -> bool {
+        self._tempdir.is_some()
     }
 
     /// Consumes the `TempPathBuf` and returns the underlying path without
@@ -326,17 +439,19 @@ pub fn blank(node: &Node) -> BlockView {
 
 // grep "panicked at" $node_log_path
 pub fn nodes_panicked(node_log_paths: &[PathBuf]) -> bool {
-    node_log_paths.iter().any(|log_path| {
-        read_to_string(log_path)
-            .unwrap_or_else(|err| {
+    node_log_paths
+        .iter()
+        .any(|log_path| match read_to_string(log_path) {
+            Ok(content) => content.contains("panicked at"),
+            Err(err) if err.kind() == std::io::ErrorKind::NotFound => false,
+            Err(err) => {
                 panic!(
                     "failed to read node's log {}, error: {:?}",
                     log_path.display(),
                     err
                 )
-            })
-            .contains("panicked at")
-    })
+            }
+        })
 }
 
 pub fn now_ms() -> u64 {
@@ -387,5 +502,55 @@ mod tests {
         );
         // Clean up manually since the test intentionally bypassed automatic cleanup.
         remove_dir_all(&path).unwrap();
+    }
+
+    #[test]
+    fn spec_run_dir_groups_child_nodes_and_disambiguates_duplicates() {
+        let spec_dir = TempPathBuf::new_spec_dir("DemoSpec [1/2]");
+        let spec_root = spec_dir.path().to_owned();
+        assert!(spec_dir.is_owned_root());
+
+        {
+            let _guard = SpecRunDirGuard::enter(spec_root.clone());
+            let node0 = TempPathBuf::new("DemoSpec", "node0");
+            let node0_dup = TempPathBuf::new("DemoSpec", "node0");
+            let node1 = TempPathBuf::new("DemoSpec", "node1");
+
+            assert!(!node0.is_owned_root());
+            assert_eq!(node0.path(), spec_root.join("node0"));
+            assert_eq!(node0_dup.path(), spec_root.join("node0-1"));
+            assert_eq!(node1.path(), spec_root.join("node1"));
+            assert!(node0.path().is_dir());
+            assert!(node0_dup.path().is_dir());
+            assert!(node1.path().is_dir());
+        }
+
+        // Dropping the spec root removes the grouped directory and all child node dirs.
+        drop(spec_dir);
+        assert!(!spec_root.exists());
+    }
+
+    #[test]
+    fn adaptive_poll_interval_caps_at_max() {
+        assert_eq!(
+            adaptive_poll_interval(0, 10, 100),
+            Duration::from_millis(10)
+        );
+        assert_eq!(
+            adaptive_poll_interval(1, 10, 100),
+            Duration::from_millis(20)
+        );
+        assert_eq!(
+            adaptive_poll_interval(3, 10, 100),
+            Duration::from_millis(80)
+        );
+        assert_eq!(
+            adaptive_poll_interval(4, 10, 100),
+            Duration::from_millis(100)
+        );
+        assert_eq!(
+            adaptive_poll_interval(100, 10, 100),
+            Duration::from_millis(100)
+        );
     }
 }

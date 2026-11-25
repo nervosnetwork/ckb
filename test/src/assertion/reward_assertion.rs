@@ -1,23 +1,34 @@
 use crate::Node;
 use ckb_types::core::{BlockEconomicState, BlockView, Capacity, Ratio, TransactionView};
 use ckb_types::packed::{Byte32, OutPoint, ProposalShortId};
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
 
 pub fn check_fee(node: &Node) {
     let tip_number = node.get_tip_block_number();
     let finalization_delay_length = node.consensus().finalization_delay_length();
     let proposer_reward_ratio = node.consensus().proposer_reward_ratio();
     let mut checker = RewardChecker::new(proposer_reward_ratio);
+    let mut window_blocks: VecDeque<BlockView> =
+        VecDeque::with_capacity(finalization_delay_length as usize + 1);
 
     for block_number in 0..=tip_number {
         let block = node.get_block_by_number(block_number);
         checker.apply_new_block(&block);
+        window_blocks.push_back(block);
 
         if block_number > finalization_delay_length {
-            let early_number = block_number - finalization_delay_length;
-            let early_block = node.get_block_by_number(early_number);
-            let (txs_fee, committed_fee, proposed_fee) = checker.calc_block_fee(&early_block);
-            checker.remove_committed_proposals(&early_block);
+            // `window_blocks` holds blocks `[block_number - finalization_delay_length - 1 ..= block_number]`
+            // after `block_number == finalization_delay_length + 1`, so pop block 0 first.
+            if window_blocks.len() > finalization_delay_length as usize + 1 {
+                window_blocks.pop_front();
+            }
+            let early_block = window_blocks.front().expect("early_block exists");
+            debug_assert_eq!(
+                early_block.number(),
+                block_number - finalization_delay_length
+            );
+            let (txs_fee, committed_fee, proposed_fee) = checker.calc_block_fee(early_block);
+            checker.remove_committed_proposals(early_block);
             let economic : BlockEconomicState = node.rpc_client().get_block_economic_state(early_block.hash()).expect("block that is higher than finalization_delay_length should have economic state").into();
             assert_eq!(txs_fee, economic.txs_fee.as_u64());
             assert_eq!(proposed_fee, economic.miner_reward.proposal.as_u64());
@@ -25,9 +36,12 @@ pub fn check_fee(node: &Node) {
         }
     }
 
-    for block_number in tip_number.saturating_sub(finalization_delay_length - 1)..tip_number {
-        let block_hash = node.rpc_client().get_block_hash(block_number).unwrap();
-        let economic = node.rpc_client().get_block_economic_state(block_hash);
+    let unfinalized_start = tip_number.saturating_sub(finalization_delay_length - 1);
+    for block in window_blocks
+        .iter()
+        .filter(|b| b.number() >= unfinalized_start && b.number() < tip_number)
+    {
+        let economic = node.rpc_client().get_block_economic_state(block.hash());
         assert_eq!(None, economic, "block not finalized has not economic state");
     }
 }

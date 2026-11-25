@@ -1,13 +1,14 @@
 use crate::DEFAULT_TX_PROPOSAL_WINDOW;
 use crate::Node;
 use crate::util::chain::forward_main_blocks;
+use crate::utils::{adaptive_poll_interval, tweaked_duration};
 use ckb_jsonrpc_types::{BlockTemplate, ProposalShortId};
 use ckb_types::{
     core::{BlockBuilder, BlockView, EpochNumberWithFraction, HeaderView},
     packed,
     prelude::*,
 };
-use std::{thread::sleep, time::Duration};
+use std::{thread::sleep, time::Instant};
 
 pub fn out_bootstrap_period(nodes: &[Node]) {
     if let Some(node0) = nodes.first() {
@@ -87,16 +88,24 @@ impl Node {
     where
         B: Fn(&mut BlockTemplate) -> bool,
     {
-        let mut count = 0;
+        let deadline = Instant::now() + tweaked_duration(30);
+        let mut attempt = 0u32;
         let mut template = self.rpc_client().get_block_template(None, None, None);
         while blocking(&mut template) {
-            sleep(Duration::from_millis(100));
-            template = self.rpc_client().get_block_template(None, None, None);
-            count += 1;
-
-            if count > 300 {
-                panic!("mine_with_blocking timeout");
+            let now = Instant::now();
+            if now >= deadline {
+                panic!(
+                    "mine_include_uncles_with_blocking timeout (tip={}, template_number={}, proposals={}, txs={}, uncles={})",
+                    self.get_tip_block_number(),
+                    template.number.value(),
+                    template.proposals.len(),
+                    template.transactions.len(),
+                    template.uncles.len()
+                );
             }
+            sleep(adaptive_poll_interval(attempt, 2, 50).min(deadline - now));
+            template = self.rpc_client().get_block_template(None, None, None);
+            attempt = attempt.saturating_add(1);
         }
         let block = packed::Block::from(template).as_advanced_builder().build();
         let number = block.number();
@@ -110,16 +119,25 @@ impl Node {
     where
         B: Fn(&mut BlockTemplate) -> bool,
     {
-        let mut count = 0;
+        let deadline = Instant::now() + tweaked_duration(90);
+        let mut attempt = 0u32;
         let mut template = self.rpc_client().get_block_template(None, None, None);
 
         while blocking(&mut template) {
-            sleep(Duration::from_millis(100));
-            template = self.rpc_client().get_block_template(None, None, None);
-            count += 1;
-            if count > 900 {
-                panic!("mine_with_blocking timeout");
+            let now = Instant::now();
+            if now >= deadline {
+                panic!(
+                    "mine_with_blocking timeout (tip={}, template_number={}, proposals={}, txs={}, uncles={})",
+                    self.get_tip_block_number(),
+                    template.number.value(),
+                    template.proposals.len(),
+                    template.transactions.len(),
+                    template.uncles.len()
+                );
             }
+            sleep(adaptive_poll_interval(attempt, 2, 50).min(deadline - now));
+            template = self.rpc_client().get_block_template(None, None, None);
+            attempt = attempt.saturating_add(1);
         }
         // uncles are not included by default,
         // because uncles' proposals can have an impact on the assertions of some tests
@@ -169,16 +187,18 @@ impl Node {
     where
         W: Fn(BlockBuilder) -> BlockView,
     {
+        if count == 0 {
+            return;
+        }
+        let mut template = self.rpc_client().get_block_template(None, None, None);
         for _ in 0..count {
-            let template = self.rpc_client().get_block_template(None, None, None);
             let builder = packed::Block::from(template).as_advanced_builder();
             let block = with(builder);
             self.rpc_client()
                 .submit_block("".to_owned(), block.data().into())
                 .unwrap();
-            self.new_block_with_blocking(|template| {
-                template.number.value() != (block.number() + 1)
-            });
+            let next_number = block.number() + 1;
+            template = self.wait_block_template_with_blocking(|t| t.number.value() != next_number);
         }
     }
 
@@ -203,20 +223,23 @@ impl Node {
         U: Fn() -> Option<T>,
         W: Fn(BlockBuilder) -> BlockView,
     {
+        let mut cached_template = None;
         loop {
             if let Some(t) = until() {
                 return t;
             }
 
-            let template = self.rpc_client().get_block_template(None, None, None);
+            let template = cached_template
+                .take()
+                .unwrap_or_else(|| self.rpc_client().get_block_template(None, None, None));
             let builder = packed::Block::from(template).as_advanced_builder();
             let block = with(builder);
             self.rpc_client()
                 .submit_block("".to_owned(), block.data().into())
                 .unwrap();
-            self.new_block_with_blocking(|template| {
-                template.number.value() != (block.number() + 1)
-            });
+            let next_number = block.number() + 1;
+            cached_template =
+                Some(self.wait_block_template_with_blocking(|t| t.number.value() != next_number));
         }
     }
 }
