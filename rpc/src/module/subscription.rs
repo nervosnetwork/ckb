@@ -100,6 +100,9 @@ pub trait SubscriptionRpc {
     /// ###### `new_transaction`
     ///
     /// Subscribers will get notified when a new transaction is submitted to the pool.
+    /// Transaction notifications (`new_transaction`, `proposed_transaction`, and
+    /// `rejected_transaction`) are best effort: a full notification channel
+    /// immediately omits the event for that delivery path.
     ///
     /// The type of the `params.result` in the push message is [`PoolTransactionEntry`](../../ckb_jsonrpc_types/struct.PoolTransactionEntry.html).
     ///
@@ -202,9 +205,13 @@ pub struct SubscriptionRpcImpl {
 
 macro_rules! publiser_send {
     ($ty:ty, $info:expr, $sender:ident) => {{
-        let msg: $ty = $info.into();
-        let json_string = serde_json::to_string(&msg).expect("serialization should be ok");
-        drop($sender.send(PublishMsg::result(&json_string)));
+        // Broadcast keeps no history for future subscribers. Observe current
+        // receivers before constructing or serializing an unused notification.
+        if $sender.receiver_count() != 0 {
+            let msg: $ty = $info.into();
+            let json_string = serde_json::to_string(&msg).expect("serialization should be ok");
+            drop($sender.send(PublishMsg::result(&json_string)));
+        }
     }};
 }
 
@@ -301,8 +308,15 @@ impl SubscriptionRpcImpl {
                             publiser_send!(ckb_jsonrpc_types::PoolTransactionEntry, tx_entry, proposed_transaction_sender);
                         },
                         Some((tx_entry, reject)) = reject_transaction_receiver.recv() => {
+                            let reject = match ckb_jsonrpc_types::PoolTransactionReject::try_from(reject) {
+                                Ok(reject) => reject,
+                                Err(reject) => {
+                                    error!("Unexpected internal tx-pool outcome in rejection subscription: {reject}");
+                                    continue;
+                                }
+                            };
                             publiser_send!((ckb_jsonrpc_types::PoolTransactionEntry, ckb_jsonrpc_types::PoolTransactionReject),
-                                            (tx_entry.into(), reject.into()),
+                                            (tx_entry.into(), reject),
                                             new_reject_transaction_sender);
                         },
                         Some(log_entry) = log_receiver.recv() => {
@@ -328,5 +342,66 @@ impl SubscriptionRpcImpl {
             new_reject_transaction_sender,
             log_sender,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::cell::Cell;
+
+    #[test]
+    fn notifications_only_project_for_current_subscribers() {
+        let (sender, receiver) = broadcast::channel(2);
+        drop(receiver);
+        let projections = Cell::new(0);
+        let value = || {
+            projections.set(projections.get() + 1);
+            7u64
+        };
+
+        publiser_send!(ckb_jsonrpc_types::Uint64, value(), sender);
+        assert_eq!(projections.get(), 0);
+
+        let mut first = sender.subscribe();
+        let mut second = sender.subscribe();
+        assert!(matches!(
+            first.try_recv(),
+            Err(broadcast::error::TryRecvError::Empty)
+        ));
+        publiser_send!(ckb_jsonrpc_types::Uint64, value(), sender);
+        assert_eq!(projections.get(), 1);
+        assert!(first.try_recv().is_ok());
+        assert!(second.try_recv().is_ok());
+
+        drop(first);
+        publiser_send!(ckb_jsonrpc_types::Uint64, value(), sender);
+        assert_eq!(projections.get(), 2);
+        assert!(second.try_recv().is_ok());
+
+        drop(second);
+        publiser_send!(ckb_jsonrpc_types::Uint64, value(), sender);
+        assert_eq!(projections.get(), 2);
+
+        // Losing the last subscriber after the observation is an ordinary
+        // failed broadcast; it must not retain work for a future subscriber.
+        let receiver = sender.subscribe();
+        publiser_send!(
+            ckb_jsonrpc_types::Uint64,
+            {
+                drop(receiver);
+                value()
+            },
+            sender
+        );
+        assert_eq!(projections.get(), 3);
+        let mut next = sender.subscribe();
+        assert!(matches!(
+            next.try_recv(),
+            Err(broadcast::error::TryRecvError::Empty)
+        ));
+        publiser_send!(ckb_jsonrpc_types::Uint64, value(), sender);
+        assert_eq!(projections.get(), 4);
+        assert!(next.try_recv().is_ok());
     }
 }

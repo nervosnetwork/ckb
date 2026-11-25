@@ -71,6 +71,7 @@ impl Spec for ConflictInPending {
 
         let (txa, txb) = conflict_transactions(node);
         node.submit_transaction(&txa);
+        node.assert_pool_entry_status(txa.hash(), "pending");
         let res = node.submit_transaction_with_result(&txb);
         assert!(res.is_err());
 
@@ -98,6 +99,8 @@ impl Spec for ConflictInGap {
         assert!(res.is_err());
 
         node.submit_block(&propose(node, &[&txa]));
+        node.assert_pool_entry_status(txa.hash(), "gap");
+
         (0..window.closest() - 1).for_each(|_| {
             node.submit_block(&blank(node));
         });
@@ -126,6 +129,8 @@ impl Spec for ConflictInProposed {
 
         node.submit_block(&propose(node, &[&txa, &txb]));
         node.mine(window.farthest());
+        assert!(is_transaction_committed(node, &txa));
+        assert!(is_transaction_rejected(node, &txb));
     }
 }
 

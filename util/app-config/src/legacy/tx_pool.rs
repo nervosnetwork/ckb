@@ -1,4 +1,6 @@
-use crate::configs::default_max_tx_verify_workers;
+use crate::configs::{VerifyOrdering, default_max_tx_verify_workers};
+#[cfg(any(test, feature = "test"))]
+use ckb_chain_spec::consensus::MIN_BLOCK_INTERVAL;
 use ckb_chain_spec::consensus::TWO_IN_TWO_OUT_CYCLES;
 use ckb_jsonrpc_types::FeeRateDef;
 use ckb_types::core::{Cycle, FeeRate};
@@ -14,6 +16,8 @@ const DEFAULT_MIN_RBF_RATE: FeeRate = FeeRate::from_u64(1500);
 const DEFAULT_MAX_TX_VERIFY_CYCLES: Cycle = TWO_IN_TWO_OUT_CYCLES * 20;
 // default max ancestors count
 const DEFAULT_MAX_ANCESTORS_COUNT: usize = 1_000;
+// Legacy files normalize smaller configured values to this compatibility floor.
+const LEGACY_MIN_ANCESTORS_COUNT: usize = 1_000;
 // Default expiration time for pool transactions in hours
 const DEFAULT_EXPIRY_HOURS: u8 = 12;
 // Default max_tx_pool_size 180mb
@@ -41,6 +45,9 @@ pub(crate) struct TxPoolConfig {
     #[serde(with = "FeeRateDef", default = "default_min_rbf_rate")]
     min_rbf_rate: FeeRate,
     max_tx_verify_cycles: Cycle,
+    #[cfg(feature = "test")]
+    #[serde(default = "default_max_tx_verify_time_ms")]
+    max_tx_verify_time_ms: u32,
     max_ancestors_count: usize,
     #[serde(default)]
     persisted_data: PathBuf,
@@ -48,6 +55,8 @@ pub(crate) struct TxPoolConfig {
     recent_reject: PathBuf,
     #[serde(default = "default_expiry_hours")]
     expiry_hours: u8,
+    #[serde(default)]
+    verify_ordering: VerifyOrdering,
 }
 
 fn default_keep_rejected_tx_hashes_days() -> u8 {
@@ -70,9 +79,17 @@ fn default_min_rbf_rate() -> FeeRate {
     DEFAULT_MIN_RBF_RATE
 }
 
+#[cfg(feature = "test")]
+fn default_max_tx_verify_time_ms() -> u32 {
+    MIN_BLOCK_INTERVAL as u32 * 1_000
+}
+
 impl Default for crate::TxPoolConfig {
     fn default() -> Self {
-        TxPoolConfig::default().into()
+        Self {
+            max_ancestors_count: DEFAULT_MAX_ANCESTORS_COUNT,
+            ..TxPoolConfig::default().into()
+        }
     }
 }
 
@@ -91,10 +108,13 @@ impl Default for TxPoolConfig {
             min_fee_rate: DEFAULT_MIN_FEE_RATE,
             min_rbf_rate: DEFAULT_MIN_RBF_RATE,
             max_tx_verify_cycles: DEFAULT_MAX_TX_VERIFY_CYCLES,
+            #[cfg(feature = "test")]
+            max_tx_verify_time_ms: default_max_tx_verify_time_ms(),
             max_ancestors_count: DEFAULT_MAX_ANCESTORS_COUNT,
             persisted_data: Default::default(),
             recent_reject: Default::default(),
             expiry_hours: DEFAULT_EXPIRY_HOURS,
+            verify_ordering: VerifyOrdering::default(),
         }
     }
 }
@@ -114,10 +134,13 @@ impl From<TxPoolConfig> for crate::TxPoolConfig {
             min_fee_rate,
             min_rbf_rate,
             max_tx_verify_cycles,
+            #[cfg(feature = "test")]
+            max_tx_verify_time_ms,
             max_ancestors_count,
             persisted_data,
             recent_reject,
             expiry_hours,
+            verify_ordering,
         } = input;
 
         Self {
@@ -125,13 +148,207 @@ impl From<TxPoolConfig> for crate::TxPoolConfig {
             min_fee_rate,
             min_rbf_rate,
             max_tx_verify_cycles,
+            #[cfg(feature = "test")]
+            max_tx_verify_time_ms,
             max_tx_verify_workers,
-            max_ancestors_count: cmp::max(DEFAULT_MAX_ANCESTORS_COUNT, max_ancestors_count),
+            max_ancestors_count: cmp::max(LEGACY_MIN_ANCESTORS_COUNT, max_ancestors_count),
             keep_rejected_tx_hashes_days,
             keep_rejected_tx_hashes_count,
             persisted_data,
             recent_reject,
             expiry_hours,
+            verify_ordering,
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    #[cfg(not(feature = "test"))]
+    fn network_time_cap_is_not_a_user_configuration() {
+        let config = crate::TxPoolConfig::default();
+        assert_eq!(
+            config.max_tx_verify_time(),
+            std::time::Duration::from_secs(ckb_chain_spec::consensus::MIN_BLOCK_INTERVAL)
+        );
+        let value = toml::Value::try_from(config).unwrap();
+        let _: TxPoolConfig = value.clone().try_into().unwrap();
+        for field in [
+            "max_tx_verify_time_ms",
+            "min_tx_verify_time_ms",
+            "cycles_per_ms",
+        ] {
+            assert!(!value.as_table().unwrap().contains_key(field));
+            let mut configured = value.clone();
+            configured
+                .as_table_mut()
+                .unwrap()
+                .insert(field.into(), toml::Value::Integer(1));
+            assert!(configured.try_into::<TxPoolConfig>().is_err(), "{field}");
+        }
+    }
+
+    // The tx_pool section shipped before this PR (f75d609f9).
+    const RELEASED_FIELDS: &str = r#"
+max_tx_pool_size = 180_000_000
+min_fee_rate = 1_000
+min_rbf_rate = 1_500
+max_tx_verify_cycles = 70_000_000
+max_ancestors_count = 25
+"#;
+
+    fn parse(extra: &str) -> crate::TxPoolConfig {
+        toml::from_str::<TxPoolConfig>(&format!("{RELEASED_FIELDS}\n{extra}"))
+            .expect("parse tx-pool config")
+            .into()
+    }
+
+    #[test]
+    fn released_config_upgrades_with_default_verification_policy() {
+        let config = parse("");
+        assert_eq!(config.max_tx_pool_size, 180_000_000);
+        assert_eq!(config.min_fee_rate, FeeRate::from_u64(1_000));
+        assert_eq!(config.min_rbf_rate, FeeRate::from_u64(1_500));
+        assert_eq!(config.max_tx_verify_cycles, 70_000_000);
+        assert_eq!(config.max_ancestors_count, 1_000);
+        assert_eq!(config.verify_ordering, VerifyOrdering::FeeRate);
+        assert_eq!(
+            config.max_tx_verify_time(),
+            std::time::Duration::from_secs(MIN_BLOCK_INTERVAL)
+        );
+        assert_eq!(
+            config.max_tx_verify_workers,
+            default_max_tx_verify_workers()
+        );
+        assert_eq!(config.expiry_hours, 12);
+        assert_eq!(config.keep_rejected_tx_hashes_days, 7);
+        assert_eq!(config.keep_rejected_tx_hashes_count, 10_000_000);
+        assert!(config.persisted_data.as_os_str().is_empty());
+        assert!(config.recent_reject.as_os_str().is_empty());
+    }
+
+    #[test]
+    fn explicit_released_fields_keep_their_values() {
+        let legacy: TxPoolConfig = toml::from_str(
+            r#"
+max_tx_pool_size = 271_000_000
+min_fee_rate = 1_100
+min_rbf_rate = 1_600
+max_tx_verify_cycles = 80_000_000
+max_tx_verify_workers = 3
+max_ancestors_count = 1_234
+keep_rejected_tx_hashes_days = 5
+keep_rejected_tx_hashes_count = 2_000
+persisted_data = "custom/persisted"
+recent_reject = "custom/rejected"
+expiry_hours = 9
+"#,
+        )
+        .unwrap();
+        let config: crate::TxPoolConfig = legacy.into();
+        assert_eq!(config.max_tx_pool_size, 271_000_000);
+        assert_eq!(config.min_fee_rate, FeeRate::from_u64(1_100));
+        assert_eq!(config.min_rbf_rate, FeeRate::from_u64(1_600));
+        assert_eq!(config.max_tx_verify_cycles, 80_000_000);
+        assert_eq!(config.max_tx_verify_workers, 3);
+        assert_eq!(config.max_ancestors_count, 1_234);
+        assert_eq!(config.keep_rejected_tx_hashes_days, 5);
+        assert_eq!(config.keep_rejected_tx_hashes_count, 2_000);
+        assert_eq!(config.persisted_data, PathBuf::from("custom/persisted"));
+        assert_eq!(config.recent_reject, PathBuf::from("custom/rejected"));
+        assert_eq!(config.expiry_hours, 9);
+    }
+
+    #[test]
+    fn obsolete_released_fields_are_accepted_without_changing_policy() {
+        let config = parse(
+            r#"
+max_mem_size = 17
+max_cycles = 23
+max_verify_cache_size = 31
+max_conflict_cache_size = 37
+max_committed_txs_hash_cache_size = 41
+"#,
+        );
+        assert_eq!(
+            serde_json::to_value(config).unwrap(),
+            serde_json::to_value(parse("")).unwrap(),
+            "previously ignored fields must not acquire new resource semantics"
+        );
+    }
+
+    #[test]
+    fn ancestor_default_and_legacy_normalization_preserve_their_separate_policies() {
+        assert_eq!(crate::TxPoolConfig::default().max_ancestors_count, 1_000);
+        for (configured, expected) in [(0, 1_000), (25, 1_000), (1_000, 1_000), (1_001, 1_001)] {
+            let text = RELEASED_FIELDS.replace(
+                "max_ancestors_count = 25",
+                &format!("max_ancestors_count = {configured}"),
+            );
+            let legacy: TxPoolConfig = toml::from_str(&text).unwrap();
+            let config: crate::TxPoolConfig = legacy.into();
+            assert_eq!(config.max_ancestors_count, expected);
+        }
+    }
+
+    #[test]
+    fn ordering_defaults_to_fee_rate_and_preserves_explicit_selection() {
+        assert_eq!(
+            crate::TxPoolConfig::default().verify_ordering,
+            VerifyOrdering::FeeRate
+        );
+        assert_eq!(parse("").verify_ordering, VerifyOrdering::FeeRate);
+        for (name, expected) in [
+            ("fee_rate", VerifyOrdering::FeeRate),
+            ("arrival_time", VerifyOrdering::ArrivalTime),
+        ] {
+            assert_eq!(
+                parse(&format!("verify_ordering = \"{name}\"")).verify_ordering,
+                expected
+            );
+        }
+        assert!(
+            toml::from_str::<TxPoolConfig>(&format!(
+                "{RELEASED_FIELDS}\nverify_ordering = \"unknown\""
+            ))
+            .is_err()
+        );
+    }
+
+    #[test]
+    #[cfg(feature = "test")]
+    fn test_build_can_override_the_network_time_cap() {
+        let config = parse(
+            r#"
+max_tx_verify_time_ms = 12_000
+"#,
+        );
+        assert_eq!(
+            config.max_tx_verify_time(),
+            std::time::Duration::from_millis(12_000)
+        );
+    }
+
+    #[test]
+    fn unknown_and_unreleased_fields_are_rejected() {
+        for field in [
+            "max_tx_pool_szie",
+            "max_tx_pool_resident_size",
+            "max_tx_pipeline_resident_size",
+            "max_verify_queue_tx_size",
+            "max_tx_verify_initial_load_bytes",
+            "min_tx_verify_time_ms",
+            "tx_verify_cycles_per_ms",
+        ] {
+            let error = toml::from_str::<TxPoolConfig>(&format!("{RELEASED_FIELDS}\n{field} = 1"))
+                .expect_err("only supported configuration keys are accepted");
+            assert!(
+                error.to_string().contains("unknown field"),
+                "{field}: {error}"
+            );
         }
     }
 }

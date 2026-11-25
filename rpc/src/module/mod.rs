@@ -16,9 +16,9 @@
 //! Use the RPC [`send_transaction`](trait.PoolRpc.html#tymethod.send_transaction) in the module `PoolRpc` as an example.
 //!
 //! ```text
-//! fn send_transaction(
-//!    ^^^^^^^^^^^^^^^^
-//!                `-- JSONRPC method name
+//! async fn send_transaction(
+//!          ^^^^^^^^^^^^^^^^
+//!                      `-- JSONRPC method name
 //!     &self,
 //!     ^^^^^
 //!       `-- ignore this

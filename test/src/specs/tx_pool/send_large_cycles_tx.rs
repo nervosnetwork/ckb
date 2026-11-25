@@ -75,6 +75,9 @@ impl Spec for SendLargeCyclesTxInBlock {
         let lock_arg = self.random_key.lock_arg();
         config.network.connect_outbound_interval_secs = 0;
         config.tx_pool.max_tx_verify_cycles = 5000u64;
+        // A strict network budget must not reject local RPC submission or
+        // canonical verification of the block relayed to the other node.
+        config.tx_pool.max_tx_verify_time_ms = 1;
         let block_assembler = new_block_assembler_config(lock_arg, ScriptHashType::Type);
         config.block_assembler = Some(block_assembler);
     }

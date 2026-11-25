@@ -1,26 +1,46 @@
 use crate::{ChainStore, StoreTransaction};
 use ckb_error::Error;
-use ckb_types::{core::BlockView, packed, prelude::*};
+use ckb_types::{
+    bytes::Bytes,
+    core::{BlockView, TransactionInfo},
+    packed,
+    prelude::*,
+};
 use std::collections::HashMap;
 
-/*
- * Live cell entry.
- *
- *  table CellEntry {
- *      output:                CellOutput,
- *      block_hash:            Byte32,
- *      block_number:          Uint64,
- *      block_epoch:           Uint64,
- *      index:                 Uint32,
- *      data_size:             Uint64,
- *  }
- *
- *
- *  table CellDataEntry {
- *      output_data:           Bytes,
- *      output_data_hash:      Byte32,
- *  }
- */
+// Attaching an output and restoring it after a detach must write the same
+// origin, payload and data hash for its out point.
+fn live_cell(
+    tx_hash: &packed::Byte32,
+    index: usize,
+    (output, data): (packed::CellOutput, Bytes),
+    origin: &TransactionInfo,
+) -> (
+    packed::OutPoint,
+    packed::CellEntry,
+    Option<packed::CellDataEntry>,
+) {
+    let point = packed::OutPoint::new_builder()
+        .tx_hash(tx_hash.clone())
+        .index(index)
+        .build();
+    let cell = packed::CellEntry::new_builder()
+        .output(output)
+        .block_hash(origin.block_hash.clone())
+        .block_number(origin.block_number)
+        .block_epoch(origin.block_epoch)
+        .index(origin.index)
+        .data_size(data.len() as u64)
+        .build();
+    let data = (!data.is_empty()).then(|| {
+        let hash = packed::CellOutput::calc_data_hash(&data);
+        packed::CellDataEntry::new_builder()
+            .output_data(data)
+            .output_data_hash(hash)
+            .build()
+    });
+    (point, cell, data)
+}
 
 /// Apply the effects of this block on the live cell set.
 pub fn attach_block_cell(txn: &StoreTransaction, block: &BlockView) -> Result<(), Error> {
@@ -29,52 +49,28 @@ pub fn attach_block_cell(txn: &StoreTransaction, block: &BlockView) -> Result<()
     let block_number = block.number();
     let block_epoch = block.epoch();
 
-    // add new live cells
-    let new_cells = transactions.iter().enumerate().flat_map(|(tx_index, tx)| {
-        let tx_hash = tx.hash();
-        let block_hash = &block_hash;
-
+    // Keep original transaction indices while writing outputs in database-key
+    // order. Stable sorting preserves the final origin for repeated hashes.
+    let mut output_order: Vec<_> = transactions.iter().enumerate().collect();
+    output_order.sort_by(|(_, left), (_, right)| left.hash_ref().cmp(right.hash_ref()));
+    let new_cells = output_order.into_iter().flat_map(|(tx_index, tx)| {
+        let origin = TransactionInfo::new(block_number, block_epoch, block_hash.clone(), tx_index);
         tx.outputs_with_data_iter()
             .enumerate()
-            .map(move |(index, (cell_output, data))| {
-                let out_point = packed::OutPoint::new_builder()
-                    .tx_hash(tx_hash.clone())
-                    .index(index)
-                    .build();
-
-                let entry = packed::CellEntryBuilder::default()
-                    .output(cell_output)
-                    .block_hash(block_hash.clone())
-                    .block_number(block_number)
-                    .block_epoch(block_epoch)
-                    .index(tx_index)
-                    .data_size(data.len() as u64)
-                    .build();
-
-                let data_entry = if !data.is_empty() {
-                    let data_hash = packed::CellOutput::calc_data_hash(&data);
-                    Some(
-                        packed::CellDataEntryBuilder::default()
-                            .output_data(data)
-                            .output_data_hash(data_hash)
-                            .build(),
-                    )
-                } else {
-                    None
-                };
-
-                (out_point, entry, data_entry)
-            })
+            .map(move |(index, output)| live_cell(tx.hash_ref(), index, output, &origin))
     });
     txn.insert_cells(new_cells)?;
 
     // mark inputs dead
     // skip cellbase
-    let deads = transactions
+    let mut deads: Vec<_> = transactions
         .iter()
         .skip(1)
-        .flat_map(|tx| tx.input_pts_iter());
-    txn.delete_cells(deads)?;
+        .flat_map(|tx| tx.input_pts_iter())
+        .collect();
+    // Cell keys sort by hash and then by the numeric output index.
+    deads.sort_unstable();
+    txn.delete_cells(deads.into_iter())?;
 
     Ok(())
 }
@@ -96,47 +92,13 @@ pub fn detach_block_cell(txn: &StoreTransaction, block: &BlockView) -> Result<()
     // restore inputs
     // skip cellbase
     let undo_deads = input_pts
-        .iter()
+        .into_iter()
         .filter_map(|(tx_hash, indexes)| {
-            txn.get_transaction_with_info(tx_hash)
-                .map(move |(tx, info)| {
-                    let block_hash = info.block_hash;
-                    let block_number = info.block_number;
-                    let block_epoch = info.block_epoch;
-                    let tx_index = info.index;
-
-                    indexes.iter().filter_map(move |index| {
-                        tx.output_with_data(*index).map(|(cell_output, data)| {
-                            let out_point = packed::OutPoint::new_builder()
-                                .tx_hash(tx_hash.clone())
-                                .index(index)
-                                .build();
-
-                            let entry = packed::CellEntryBuilder::default()
-                                .output(cell_output)
-                                .block_hash(block_hash.clone())
-                                .block_number(block_number)
-                                .block_epoch(block_epoch)
-                                .index(tx_index)
-                                .data_size(data.len() as u64)
-                                .build();
-
-                            let data_entry = if !data.is_empty() {
-                                let data_hash = packed::CellOutput::calc_data_hash(&data);
-                                Some(
-                                    packed::CellDataEntryBuilder::default()
-                                        .output_data(data)
-                                        .output_data_hash(data_hash)
-                                        .build(),
-                                )
-                            } else {
-                                None
-                            };
-
-                            (out_point, entry, data_entry)
-                        })
-                    })
-                })
+            let (tx, origin) = txn.get_transaction_with_info(&tx_hash)?;
+            Some(indexes.into_iter().filter_map(move |index| {
+                let output = tx.output_with_data(index)?;
+                Some(live_cell(&tx_hash, index, output, &origin))
+            }))
         })
         .flatten();
     txn.insert_cells(undo_deads)?;
