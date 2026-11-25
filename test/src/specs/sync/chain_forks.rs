@@ -12,8 +12,6 @@ use ckb_types::{
     h256,
     prelude::*,
 };
-use std::thread::sleep;
-use std::time::Duration;
 
 pub struct ChainFork1;
 
@@ -40,7 +38,13 @@ impl Spec for ChainFork1 {
         info!("Generate 1 block (C) on node0");
         node0.mine(1);
         info!("Generate 2 blocks (D, E) on node1");
-        node1.mine(2);
+        node1.mine_with(1, |builder| builder.nonce(1).build());
+        assert_ne!(
+            node0.get_tip_block().hash(),
+            node1.get_tip_block().hash(),
+            "node0 (C) and node1 (D) must diverge at height 3"
+        );
+        node1.mine(1);
 
         info!("Reconnect node0 to node1");
         node0.connect(node1);
@@ -86,7 +90,13 @@ impl Spec for ChainFork2 {
         node0.disconnect(node2);
 
         info!("Generate 2 blocks (D, E) on node1");
-        node1.mine(2);
+        node1.mine_with(1, |builder| builder.nonce(1).build());
+        assert_ne!(
+            node0.get_tip_block().hash(),
+            node1.get_tip_block().hash(),
+            "node0 (C) and node1 (D) must diverge"
+        );
+        node1.mine(1);
         info!("Reconnect node1");
         node0.connect(node1);
         waiting_for_sync(&[node0, node1]);
@@ -134,7 +144,13 @@ impl Spec for ChainFork3 {
         node0.disconnect(node2);
 
         info!("Generate 2 blocks (D, E) on node1");
-        node1.mine(2);
+        node1.mine_with(1, |builder| builder.nonce(1).build());
+        assert_ne!(
+            node0.get_tip_block().hash(),
+            node1.get_tip_block().hash(),
+            "node0 (C) and node1 (D) must diverge"
+        );
+        node1.mine(1);
         info!("Generate 1 block (F) with invalid reward cellbase on node1");
         let block = node1.new_block(None, None, None);
         let invalid_block = modify_block_transaction(block, 0, |transaction| {
@@ -203,7 +219,13 @@ impl Spec for ChainFork4 {
         node0.disconnect(node2);
 
         info!("Generate 2 blocks (D, E) on node1");
-        node1.mine(2);
+        node1.mine_with(1, |builder| builder.nonce(1).build());
+        assert_ne!(
+            node0.get_tip_block().hash(),
+            node1.get_tip_block().hash(),
+            "node0 (C) and node1 (D) must diverge"
+        );
+        node1.mine(1);
         info!("Generate 1 block (F) with capacity overflow cellbase on node1");
         let block = node1.new_block(None, None, None);
         let invalid_block = modify_block_transaction(block, 0, |transaction| {
@@ -273,7 +295,12 @@ impl Spec for ChainFork5 {
         node0.disconnect(node2);
 
         info!("Generate 1 blocks (D) on node1");
-        node1.mine(1);
+        node1.mine_with(1, |builder| builder.nonce(1).build());
+        assert_ne!(
+            node0.get_tip_block().hash(),
+            node1.get_tip_block().hash(),
+            "node0 (C) and node1 (D) must diverge"
+        );
         info!("Generate 1 blocks (E) with transaction on node1");
         let block = {
             let block = node1.new_block(None, None, None);
@@ -341,7 +368,13 @@ impl Spec for ChainFork6 {
         node0.disconnect(node2);
 
         info!("Generate 2 blocks (D, E) on node1");
-        node1.mine(2);
+        node1.mine_with(1, |builder| builder.nonce(1).build());
+        assert_ne!(
+            node0.get_tip_block().hash(),
+            node1.get_tip_block().hash(),
+            "node0 (C) and node1 (D) must diverge"
+        );
+        node1.mine(1);
         info!("Generate 1 block (F) with spending non-existent transaction on node1");
         let block = node1.new_block(None, None, None);
         let invalid_transaction = node1.new_transaction(h256!("0x1").into());
@@ -397,7 +430,13 @@ impl Spec for ChainFork7 {
         node0.disconnect(node2);
 
         info!("Generate 2 blocks (D, E) on node1");
-        node1.mine(2);
+        node1.mine_with(1, |builder| builder.nonce(1).build());
+        assert_ne!(
+            node0.get_tip_block().hash(),
+            node1.get_tip_block().hash(),
+            "node0 (C) and node1 (D) must diverge"
+        );
+        node1.mine(1);
         info!("Generate 1 block (F) with spending invalid index transaction on node1");
         let block = node1.new_block(None, None, None);
         let transaction = node1.new_transaction_spend_tip_cellbase();
@@ -450,7 +489,14 @@ impl Spec for LongForks {
         test_node.disconnect(node1);
 
         // test_node == node2 == chain2, height = 149 = PER_FETCH_BLOCK_LIMIT + 20 + 1
-        node2.mine(PER_FETCH_BLOCK_LIMIT + 20);
+        // Note: `out_ibd_mode(nodes)` already mined block #1 on all nodes, so node1 and node2 diverge at height #2.
+        node2.mine_with(1, |builder| builder.nonce(1).build());
+        assert_ne!(
+            node1.get_header_by_number(2).hash(),
+            node2.get_header_by_number(2).hash(),
+            "node1 and node2 must diverge at block #2"
+        );
+        node2.mine(PER_FETCH_BLOCK_LIMIT + 19);
         test_node.connect(node2);
         waiting_for_sync(&[test_node, node2]);
         test_node.disconnect(node2);
@@ -492,17 +538,17 @@ impl Spec for ForksContainSameTransactions {
 
         // Build `chain1`, contain the target `transaction`, with length = 61
         {
-            // `sleep` to make sure that the chain1[2] != chain2[2]
-            sleep(Duration::from_millis(1));
-            node1.mine(30);
+            // Use distinct nonces so chain0[2], chain1[2], and chain2[2] are guaranteed to diverge.
+            node1.mine_with(1, |builder| builder.nonce(1).build());
+            node1.mine(29);
             node1.submit_transaction(&transaction);
             node1.mine(40);
         }
 
         // Build `chain2`, all the blocks are empty, with length = 51
         {
-            sleep(Duration::from_millis(1));
-            node2.mine(60);
+            node2.mine_with(1, |builder| builder.nonce(2).build());
+            node2.mine(59);
         }
 
         let (rpc_client0, rpc_client1, rpc_client2) =
@@ -519,19 +565,28 @@ impl Spec for ForksContainSameTransactions {
         target_node.connect(node0);
         waiting_for_sync(&[target_node, node0]);
         target_node.disconnect(node0);
-        is_transaction_committed(target_node, &transaction);
+        assert!(
+            is_transaction_committed(target_node, &transaction),
+            "target_node should commit transaction on chain0"
+        );
 
         // `target_node` switch to `chain2` as the main chain
         target_node.connect(node2);
         waiting_for_sync(&[target_node, node2]);
         target_node.disconnect(node2);
-        is_transaction_committed(target_node, &transaction);
+        assert!(
+            !is_transaction_committed(target_node, &transaction),
+            "target_node should not have transaction committed on chain2"
+        );
 
         // `target_node` switch to `chain1` as the main chain
         target_node.connect(node1);
         waiting_for_sync(&[target_node, node1]);
         target_node.disconnect(node1);
-        is_transaction_committed(target_node, &transaction);
+        assert!(
+            is_transaction_committed(target_node, &transaction),
+            "target_node should commit transaction on chain1"
+        );
     }
 }
 
@@ -560,7 +615,7 @@ impl Spec for ForksContainSameUncle {
         info!("(1) Construct an uncle before fork point");
         let (block, uncle) = node_a.construct_uncle();
         node_a.submit_block(&block);
-        node_b.mine(1);
+        node_b.mine_with(1, |builder| builder.nonce(1).build());
 
         info!("(2) Add `uncle` into different forks in node_a and node_b");
         node_a.submit_block(&uncle);

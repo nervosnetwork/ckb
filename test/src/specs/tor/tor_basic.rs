@@ -39,27 +39,30 @@ impl Spec for TorServiceContainsPublicAddr {
         let node = &nodes[0];
 
         let rpc_client = node.rpc_client();
-        wait_until(30, || {
-            let node_info = rpc_client.local_node_info();
+        assert!(
+            wait_until(30, || {
+                let node_info = rpc_client.local_node_info();
 
-            info!(
-                "node_onion_p2p_addr: {:?}",
-                node_info
+                info!(
+                    "node_onion_p2p_addr: {:?}",
+                    node_info
+                        .addresses
+                        .iter()
+                        .map(|addrs| addrs.address.clone())
+                        .collect::<Vec<_>>()
+                );
+
+                let node_onion_addrs: Vec<_> = node_info
                     .addresses
                     .iter()
-                    .map(|addrs| addrs.address.clone())
-                    .collect::<Vec<_>>()
-            );
-
-            let node_onion_addrs: Vec<_> = node_info
-                .addresses
-                .iter()
-                .filter(|addr| {
-                    // check contains the onion address
-                    addr.address.contains("/onion3")
-                })
-                .collect();
-            !node_onion_addrs.is_empty()
-        });
+                    .filter(|addr| {
+                        // check contains the onion address
+                        addr.address.contains("/onion3")
+                    })
+                    .collect();
+                !node_onion_addrs.is_empty()
+            }),
+            "node should advertise at least one /onion3 address",
+        );
     }
 }

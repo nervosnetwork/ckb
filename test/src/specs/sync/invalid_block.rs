@@ -1,4 +1,5 @@
-use crate::utils::{build_block, build_get_blocks, build_headers, wait_until};
+use crate::util::log_monitor::monitor_log_until_expected_show;
+use crate::utils::{build_block, build_get_blocks, build_headers, tweaked_duration, wait_until};
 use crate::{Net, Node, Spec};
 use ckb_network::SupportProtocols;
 use ckb_types::{
@@ -6,7 +7,8 @@ use ckb_types::{
     packed::{self, Byte32, GetBlocks, SyncMessage},
     prelude::*,
 };
-use std::time::Duration;
+use std::collections::HashSet;
+use std::time::{Duration, Instant};
 
 pub struct ChainContainsInvalidBlock;
 
@@ -25,10 +27,6 @@ impl Spec for ChainContainsInvalidBlock {
         let bad_node = nodes.pop().unwrap();
         let good_node = nodes.pop().unwrap();
         let fresh_node = nodes.pop().unwrap();
-
-        // wait a few seconds to let find_unverified_block thread finish
-        #[cfg(target_os = "macos")]
-        std::thread::sleep(Duration::from_secs(3));
 
         // Build invalid chain on bad_node
         bad_node.mine(3);
@@ -51,25 +49,38 @@ impl Spec for ChainContainsInvalidBlock {
             invalid_number - 1,
         );
         assert!(
-            !wait_until(5, || good_node
+            good_node
                 .rpc_client()
                 .get_block(invalid_hash.clone())
-                .is_some()),
+                .is_none(),
             "good_node should not synchronize invalid block {invalid_number} from bad_node"
         );
 
         // good_node mine the next block
         good_node.mine(1);
         let valid_hash = good_node.get_tip_block().header().hash();
-        let valid_number = invalid_number + 1;
-
-        assert!(
-            !wait_until(5, || fresh_node.get_tip_block_number() > valid_number),
-            "fresh_node should synchronize the valid blocks only",
+        let valid_number = good_node.get_tip_block_number();
+        assert_eq!(
+            valid_number, invalid_number,
+            "good_node mined valid replacement at invalid_number"
         );
+
         assert!(
             wait_until(5, || fresh_node.get_tip_block().header().hash()
                 == valid_hash),
+            "fresh_node should synchronize the valid blocks only",
+        );
+        assert_eq!(
+            fresh_node.get_tip_block_number(),
+            valid_number,
+            "fresh_node should stay at valid_number"
+        );
+        assert!(
+            fresh_node.rpc_client().get_block(invalid_hash).is_none(),
+            "fresh_node should not store invalid block from bad_node"
+        );
+        assert!(
+            !wait_until(1, || fresh_node.get_tip_block_number() > valid_number),
             "fresh_node should synchronize the valid blocks only",
         );
     }
@@ -134,37 +145,87 @@ impl Spec for ForkContainsInvalidBlock {
         assert_eq!(good_node.get_tip_block(), tip_block);
 
         // Sync second part of bad fork.
-        // Good_node detect the invalid block when fork.total_difficulty > tip.difficulty
+        // Good_node detects the invalid block when fork.total_difficulty > tip.difficulty,
+        // rejects the fork, and bans the peer.
         bad_chain2
             .iter()
             .for_each(|block| net.send(&good_node, SupportProtocols::Sync, build_block(block)));
         let last_hash = bad_chain2.last().map(|b| b.hash()).unwrap();
+        let banned = wait_until(10, || {
+            !good_node.rpc_client().get_banned_addresses().is_empty()
+                && good_node.rpc_client().get_peers().is_empty()
+        });
         assert!(
-            !wait_until(10, || good_node
-                .rpc_client()
-                .get_block(last_hash.clone())
-                .is_some()),
+            banned,
+            "good_node should reject the invalid fork and ban the peer"
+        );
+        assert!(
+            good_node.rpc_client().get_block(last_hash).is_none(),
             "good_node should keep the good chain",
         );
         assert_eq!(good_node.get_tip_block(), tip_block);
 
-        // Additional testing: request an invalid fork via `GetBlock` should be failed
-        net.send(
+        // Additional testing: reconnect a fresh peer after clearing the ban and verify that
+        // requesting the invalid fork via `GetBlocks` does not return any invalid fork blocks.
+        good_node.rpc_client().clear_banned_addresses();
+        let mut net2 = Net::new(
+            self.name(),
+            good_node.consensus(),
+            vec![SupportProtocols::Sync],
+        );
+        net2.connect(&good_node);
+        let tip_hash = tip_block.hash();
+        net2.send(
             &good_node,
             SupportProtocols::Sync,
             build_get_blocks(&bad_hashes),
         );
-        let ret = wait_until(10, || {
-            if let Ok((_, _, data)) = net.receive_timeout(&good_node, Duration::from_secs(10))
-                && let Ok(message) = SyncMessage::from_slice(&data)
+        net2.send(
+            &good_node,
+            SupportProtocols::Sync,
+            build_get_blocks(std::slice::from_ref(&tip_hash)),
+        );
+
+        let mut received_blocks = HashSet::new();
+        let deadline = Instant::now() + tweaked_duration(10);
+        while !received_blocks.contains(&tip_hash) {
+            let Some(remaining) = deadline.checked_duration_since(Instant::now()) else {
+                break;
+            };
+            let Ok((_, _, data)) = net2.receive_timeout(&good_node, remaining) else {
+                break;
+            };
+            if let Ok(message) = SyncMessage::from_compatible_slice(&data)
+                && let packed::SyncMessageUnion::SendBlock(send_block) = message.to_enum()
             {
-                return message.to_enum().item_name() == packed::SendBlock::NAME;
+                received_blocks.insert(send_block.block().calc_header_hash());
             }
-            false
-        });
+        }
         assert!(
-            !ret,
-            "request an invalid fork via GetBlock should be failed"
+            received_blocks.contains(&tip_hash),
+            "good_node should still serve valid tip block via GetBlocks"
+        );
+        let last_bad_hash = bad_hashes.last().unwrap();
+        assert!(
+            monitor_log_until_expected_show(
+                &good_node,
+                0,
+                10,
+                &format!("Ignoring get_block {last_bad_hash} request"),
+            )
+            .is_some(),
+            "good_node should log ignoring invalid fork GetBlocks request"
+        );
+        while let Ok((_, _, data)) = net2.receive_timeout(&good_node, Duration::from_millis(300)) {
+            if let Ok(message) = SyncMessage::from_compatible_slice(&data)
+                && let packed::SyncMessageUnion::SendBlock(send_block) = message.to_enum()
+            {
+                received_blocks.insert(send_block.block().calc_header_hash());
+            }
+        }
+        assert!(
+            bad_hashes.iter().all(|h| !received_blocks.contains(h)),
+            "request an invalid fork via GetBlocks should not return invalid blocks"
         );
     }
 }

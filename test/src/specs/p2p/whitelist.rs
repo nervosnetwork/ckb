@@ -1,5 +1,5 @@
 use crate::util::mining::out_ibd_mode;
-use crate::utils::{sleep, wait_until};
+use crate::utils::wait_until;
 use crate::{Node, Spec};
 
 use ckb_logger::info;
@@ -41,8 +41,6 @@ impl Spec for WhitelistOnSessionLimit {
         node3.connect(&node0);
         // inbound session will be rotated by network partition
         node4.connect_uncheck(&node0);
-
-        sleep(5);
 
         let rpc_client0 = node0.rpc_client();
         let is_connect_peer_num_eq_2 = wait_until(10, || {

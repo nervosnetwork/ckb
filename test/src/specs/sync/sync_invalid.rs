@@ -1,3 +1,5 @@
+use crate::node::waiting_for_sync;
+use crate::utils::wait_until;
 use crate::{Node, Spec};
 use ckb_app_config::CKBAppConfig;
 use ckb_logger::info;
@@ -6,8 +8,6 @@ use ckb_types::core;
 use ckb_types::core::BlockNumber;
 use ckb_types::packed;
 use ckb_types::prelude::{Builder, Entity, IntoUncleBlockView};
-use std::thread::sleep;
-use std::time::Duration;
 
 pub struct SyncInvalid;
 
@@ -23,6 +23,8 @@ impl Spec for SyncInvalid {
         nodes[1].mine(1);
 
         nodes[0].connect(&nodes[1]);
+        waiting_for_sync(nodes);
+        nodes[0].disconnect(&nodes[1]);
 
         let info_nodes_tip = || {
             info!(
@@ -51,15 +53,22 @@ impl Spec for SyncInvalid {
         info_nodes_tip();
         assert_eq!(nodes[0].get_tip_block_number(), 22);
 
-        while nodes[1]
-            .rpc_client()
-            .sync_state()
-            .best_known_block_number
-            .value()
-            <= 20
-        {
-            sleep(Duration::from_secs(1));
-        }
+        // Reconnect so node[1] immediately starts header sync for blocks 21..=22
+        // instead of waiting for the next periodic GetHeaders cycle.
+        nodes[0].connect(&nodes[1]);
+
+        let saw_new_best = wait_until(60, || {
+            nodes[1]
+                .rpc_client()
+                .sync_state()
+                .best_known_block_number
+                .value()
+                > 20
+        });
+        assert!(
+            saw_new_best,
+            "node[1] should receive best_known_block_number > 20 in 60s"
+        );
 
         let block_21_hash = core::BlockView::from(
             nodes[0]
@@ -76,24 +85,15 @@ impl Spec for SyncInvalid {
         )
         .hash();
 
-        {
-            let now = std::time::Instant::now();
-            while nodes[1].rpc_client().get_banned_addresses().is_empty()
-                || !nodes[1]
-                    .rpc_client()
-                    .get_banned_addresses()
-                    .first()
-                    .unwrap()
-                    .ban_reason
-                    .contains(&format!("{}", block_21_hash))
-            {
-                if now.elapsed() > Duration::from_secs(60) {
-                    panic!("node[1] should ban node[0] in 60s");
-                }
-                info!("waiting for node[1] to ban node[0]");
-                sleep(Duration::from_secs(1));
-            }
-        }
+        let expected_reason = format!("{block_21_hash}");
+        let banned = wait_until(60, || {
+            nodes[1]
+                .rpc_client()
+                .get_banned_addresses()
+                .first()
+                .is_some_and(|ban| ban.ban_reason.contains(&expected_reason))
+        });
+        assert!(banned, "node[1] should ban node[0] in 60s");
 
         info_nodes_tip();
 
@@ -108,7 +108,6 @@ impl Spec for SyncInvalid {
                 assert_eq!(ext.verified, Some(true));
             }
             {
-                assert!(store.get_block(&block_22_hash).is_some());
                 assert!(store.get_block(&block_22_hash).is_some());
                 let ext = store.get_block_ext(&block_22_hash).expect("block 22 ext");
                 assert_eq!(ext.verified, Some(true));

@@ -1,3 +1,4 @@
+use crate::util::log_monitor::monitor_log_until_expected_count;
 use crate::util::mining::out_ibd_mode;
 use crate::utils::{sleep, wait_until};
 use crate::{Net, Node, Spec};
@@ -87,13 +88,19 @@ impl Spec for MalformedMessageWithWhitelist {
         info!("Send malformed message to node0 twice");
         net.send(&node0, SupportProtocols::Sync, vec![0, 0, 0, 0].into());
         net.send(&node0, SupportProtocols::Sync, vec![0, 1, 2, 3].into());
+        assert!(
+            monitor_log_until_expected_count(&node0, 0, 10, "A malformed message from peer", 2),
+            "Node0 should process both malformed messages from whitelisted test node"
+        );
 
         node1.connect(&node0);
 
         let rpc_client = node0.rpc_client();
         let ret = wait_until(10, || rpc_client.get_peers().len() == 2);
         assert!(ret, "Node0 should keep connection with test node");
-        let ret = wait_until(10, || rpc_client.get_banned_addresses().is_empty());
-        assert!(ret, "Node0 should not ban test node");
+        assert!(
+            rpc_client.get_banned_addresses().is_empty(),
+            "Node0 should not ban whitelisted test node"
+        );
     }
 }

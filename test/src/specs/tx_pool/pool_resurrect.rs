@@ -93,8 +93,14 @@ impl Spec for InvalidHeaderDep {
         let tx_pool_info = node0.get_tip_tx_pool_info();
         assert_eq!(tx_pool_info.pending.value(), 2);
 
+        node1.mine_with(1, |builder| builder.nonce(1).build());
         node1.mine_until_out_bootstrap_period();
         node1.mine(2);
+        assert_ne!(
+            node0.get_header_by_number(1).hash(),
+            node1.get_header_by_number(1).hash(),
+            "node0 and node1 must diverge at block #1"
+        );
 
         info!("Connect node0 to node1, waiting for sync");
         node0.connect(node1);

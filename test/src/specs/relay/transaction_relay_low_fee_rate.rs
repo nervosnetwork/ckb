@@ -1,5 +1,4 @@
-use crate::node::connect_all;
-use crate::node::waiting_for_sync;
+use crate::node::{connect_all, wait_relay_protocols_connected, waiting_for_sync};
 use crate::util::cell::{as_input, as_output, gen_spendable};
 use crate::util::log_monitor::monitor_log_until_expected_show;
 use crate::util::mining::out_ibd_mode;
@@ -13,7 +12,6 @@ pub struct TransactionRelayLowFeeRate;
 impl Spec for TransactionRelayLowFeeRate {
     fn run(&self, nodes: &mut Vec<Node>) {
         out_ibd_mode(nodes);
-        connect_all(nodes);
 
         let node0 = &nodes[0];
         let node1 = &nodes[1];
@@ -29,7 +27,9 @@ impl Spec for TransactionRelayLowFeeRate {
             .build();
 
         debug!("make sure node1 has the cell");
+        connect_all(nodes);
         waiting_for_sync(nodes);
+        wait_relay_protocols_connected(nodes);
 
         node0.rpc_client().send_transaction(low_fee.data().into());
 
@@ -43,18 +43,27 @@ impl Spec for TransactionRelayLowFeeRate {
     }
 
     fn before_run(&self) -> Vec<Node> {
-        let mut node0 = Node::new(self.name(), "node0");
-        let mut node1 = Node::new(self.name(), "node1");
+        let mut node0 = Node::new_with_modifiers(
+            self.name(),
+            "node0",
+            |config| {
+                config.tx_pool.min_fee_rate = FeeRate::from_u64(0);
+            },
+            |_| {},
+        );
+        let mut node1 = Node::new_with_modifiers(
+            self.name(),
+            "node1",
+            |config| {
+                config.tx_pool.min_fee_rate = FeeRate::from_u64(1_000);
+            },
+            |_| {},
+        );
 
-        node0.modify_app_config(|config: &mut ckb_app_config::CKBAppConfig| {
-            config.tx_pool.min_fee_rate = FeeRate::from_u64(0);
+        std::thread::scope(|scope| {
+            scope.spawn(|| node0.start());
+            scope.spawn(|| node1.start());
         });
-        node0.start();
-
-        node1.modify_app_config(|config: &mut ckb_app_config::CKBAppConfig| {
-            config.tx_pool.min_fee_rate = FeeRate::from_u64(1_000);
-        });
-        node1.start();
         vec![node0, node1]
     }
 }

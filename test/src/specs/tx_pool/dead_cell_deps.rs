@@ -159,13 +159,23 @@ impl Spec for CellBeingCellDepAndSpentInSameBlockTestGetBlockTemplateMultiple {
     crate::setup!(num_nodes: 10);
 
     fn run(&self, nodes: &mut Vec<Node>) {
-        while let Some(node) = nodes.pop() {
-            info!(
-                "Run CellBeingCellDepAndSpentInSameBlockTestGetBlockTemplate on Node.{}",
-                nodes.len()
-            );
-            CellBeingCellDepAndSpentInSameBlockTestGetBlockTemplate {}.run(&mut vec![node])
-        }
+        // Run all 10 independent nodes in parallel and deterministically cover
+        // both weight orderings (5 with B weightier than C, 5 with C weightier than B).
+        std::thread::scope(|scope| {
+            for (index, node) in nodes.iter().enumerate() {
+                let b_weightier_than_c = index.is_multiple_of(2);
+                scope.spawn(move || {
+                    info!(
+                        "Run CellBeingCellDepAndSpentInSameBlockTestGetBlockTemplate on Node.{} (b_weightier_than_c={})",
+                        index, b_weightier_than_c
+                    );
+                    run_cell_being_cell_dep_and_spent_in_same_block_get_block_template(
+                        node,
+                        b_weightier_than_c,
+                    );
+                });
+            }
+        });
     }
 }
 
@@ -182,105 +192,110 @@ pub struct CellBeingCellDepAndSpentInSameBlockTestGetBlockTemplate;
 impl Spec for CellBeingCellDepAndSpentInSameBlockTestGetBlockTemplate {
     fn run(&self, nodes: &mut Vec<Node>) {
         let node0 = &nodes[0];
+        run_cell_being_cell_dep_and_spent_in_same_block_get_block_template(node0, true);
+        run_cell_being_cell_dep_and_spent_in_same_block_get_block_template(node0, false);
+    }
+}
 
-        let initial_inputs = gen_spendable(node0, 2);
-        let input_a = &initial_inputs[0];
-        let input_c = &initial_inputs[1];
+fn run_cell_being_cell_dep_and_spent_in_same_block_get_block_template(
+    node0: &Node,
+    b_weightier_than_c: bool,
+) {
+    let initial_inputs = gen_spendable(node0, 2);
+    let input_a = &initial_inputs[0];
+    let input_c = &initial_inputs[1];
 
-        // Commit transaction A
-        let tx_a = {
-            let tx_a = always_success_transaction(node0, input_a);
-            node0.submit_transaction(&tx_a);
-            node0.mine_until_bool(|| is_transaction_committed(node0, &tx_a));
-            tx_a
-        };
+    // Commit transaction A
+    let tx_a = {
+        let tx_a = always_success_transaction(node0, input_a);
+        node0.submit_transaction(&tx_a);
+        node0.mine_until_bool(|| is_transaction_committed(node0, &tx_a));
+        tx_a
+    };
 
-        // Create transaction B which spends A
-        let mut tx_b = {
-            let input =
-                CellMetaBuilder::from_cell_output(tx_a.output(0).unwrap(), Default::default())
-                    .out_point(OutPoint::new(tx_a.hash(), 0))
-                    .build();
-            always_success_transaction(node0, &input)
-        };
-
-        // Create transaction C which depends A
-        let mut tx_c = {
-            let tx = always_success_transaction(node0, input_c);
-            let cell_dep_to_tx_a = CellDepBuilder::default()
-                .dep_type(DepType::Code)
-                .out_point(OutPoint::new(tx_a.hash(), 0))
-                .build();
-            tx.as_advanced_builder().cell_dep(cell_dep_to_tx_a).build()
-        };
-
-        let b_weightier_than_c = rand::random::<u32>().is_multiple_of(2);
-        if b_weightier_than_c {
-            // make B's fee >> C's fee, which means B's tx-weight > C's tx-weight
-            let minimum_outputs_capacity = tx_b
-                .output(0)
-                .unwrap()
-                .as_builder()
-                .build_exact_capacity(Capacity::zero())
-                .unwrap()
-                .capacity();
-            let minimum_output = tx_b
-                .output(0)
-                .unwrap()
-                .as_builder()
-                .capacity(minimum_outputs_capacity)
-                .build();
-            tx_b = tx_b
-                .as_advanced_builder()
-                .set_outputs(vec![minimum_output])
-                .build();
-        } else {
-            // make B's fee << C's fee, which means B's tx-weight < C's tx-weight
-            let minimum_outputs_capacity = tx_c
-                .output(0)
-                .unwrap()
-                .as_builder()
-                .build_exact_capacity(Capacity::zero())
-                .unwrap()
-                .capacity();
-            let minimum_output = tx_c
-                .output(0)
-                .unwrap()
-                .as_builder()
-                .capacity(minimum_outputs_capacity)
-                .build();
-            tx_c = tx_c
-                .as_advanced_builder()
-                .set_outputs(vec![minimum_output])
-                .build();
-        }
-
-        // Propose B and C, to prepare testing
-        let block = node0
-            .new_block_builder(None, None, None)
-            .proposal(tx_b.proposal_short_id())
-            .proposal(tx_c.proposal_short_id())
+    // Create transaction B which spends A
+    let mut tx_b = {
+        let input = CellMetaBuilder::from_cell_output(tx_a.output(0).unwrap(), Default::default())
+            .out_point(OutPoint::new(tx_a.hash(), 0))
             .build();
-        node0.submit_block(&block);
-        node0.mine(node0.consensus().tx_proposal_window().closest());
+        always_success_transaction(node0, &input)
+    };
 
-        // Submit B and C
-        //
-        // NOTE: It MUST submit C before B. If submit C after B, the proposed pool will reject C as
-        // it thinks that B has already spent A; A is one of C's cell-deps; hence C is invalid. This
-        // is current tx-pool implementation limitation but not consensus rule.
-        node0.submit_transaction(&tx_c);
-        node0.submit_transaction(&tx_b);
+    // Create transaction C which depends A
+    let mut tx_c = {
+        let tx = always_success_transaction(node0, input_c);
+        let cell_dep_to_tx_a = CellDepBuilder::default()
+            .dep_type(DepType::Code)
+            .out_point(OutPoint::new(tx_a.hash(), 0))
+            .build();
+        tx.as_advanced_builder().cell_dep(cell_dep_to_tx_a).build()
+    };
 
-        // Inside `mine`, RPC `get_block_template` will be involved, that's our testing interface.
-        node0.mine(node0.consensus().tx_proposal_window().farthest());
+    if b_weightier_than_c {
+        // make B's fee >> C's fee, which means B's tx-weight > C's tx-weight
+        let minimum_outputs_capacity = tx_b
+            .output(0)
+            .unwrap()
+            .as_builder()
+            .build_exact_capacity(Capacity::zero())
+            .unwrap()
+            .capacity();
+        let minimum_output = tx_b
+            .output(0)
+            .unwrap()
+            .as_builder()
+            .capacity(minimum_outputs_capacity)
+            .build();
+        tx_b = tx_b
+            .as_advanced_builder()
+            .set_outputs(vec![minimum_output])
+            .build();
+    } else {
+        // make B's fee << C's fee, which means B's tx-weight < C's tx-weight
+        let minimum_outputs_capacity = tx_c
+            .output(0)
+            .unwrap()
+            .as_builder()
+            .build_exact_capacity(Capacity::zero())
+            .unwrap()
+            .capacity();
+        let minimum_output = tx_c
+            .output(0)
+            .unwrap()
+            .as_builder()
+            .capacity(minimum_outputs_capacity)
+            .build();
+        tx_c = tx_c
+            .as_advanced_builder()
+            .set_outputs(vec![minimum_output])
+            .build();
+    }
 
-        assert!(is_transaction_committed(node0, &tx_b));
-        if b_weightier_than_c {
-            // B's tx-weight > C's tx-weight
-        } else {
-            // B's tx-weight < C's tx-weight,
-            assert!(is_transaction_committed(node0, &tx_c));
-        }
+    // Propose B and C, to prepare testing
+    let block = node0
+        .new_block_builder(None, None, None)
+        .proposal(tx_b.proposal_short_id())
+        .proposal(tx_c.proposal_short_id())
+        .build();
+    node0.submit_block(&block);
+    node0.mine(node0.consensus().tx_proposal_window().closest());
+
+    // Submit B and C
+    //
+    // NOTE: It MUST submit C before B. If submit C after B, the proposed pool will reject C as
+    // it thinks that B has already spent A; A is one of C's cell-deps; hence C is invalid. This
+    // is current tx-pool implementation limitation but not consensus rule.
+    node0.submit_transaction(&tx_c);
+    node0.submit_transaction(&tx_b);
+
+    // Inside `mine`, RPC `get_block_template` will be involved, that's our testing interface.
+    node0.mine(node0.consensus().tx_proposal_window().farthest());
+
+    assert!(is_transaction_committed(node0, &tx_b));
+    if b_weightier_than_c {
+        // B's tx-weight > C's tx-weight
+    } else {
+        // B's tx-weight < C's tx-weight,
+        assert!(is_transaction_committed(node0, &tx_c));
     }
 }

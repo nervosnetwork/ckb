@@ -15,8 +15,14 @@ impl Spec for GetBlocksTimeout {
         let node1 = nodes.pop().unwrap();
         let node2 = nodes.pop().unwrap();
 
-        node1.mine(1);
+        // Ensure node1 and node2 diverge at block #1 even when mined within the same millisecond.
+        node1.mine_with(1, |builder| builder.nonce(1).build());
         node2.mine(INIT_BLOCKS_IN_TRANSIT_PER_PEER as u64 + 20);
+        assert_ne!(
+            node1.get_header_by_number(1).hash(),
+            node2.get_header_by_number(1).hash(),
+            "node1 and node2 must diverge at block #1"
+        );
 
         let headers: Vec<HeaderView> = (1..=node2.get_tip_block_number())
             .map(|i| node2.get_header_by_number(i))

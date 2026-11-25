@@ -50,8 +50,16 @@ impl Spec for InvalidLocatorSize {
             "Net should disconnect node0 because node0 already disconnect it"
         );
 
+        let ret = wait_until(10, || {
+            rpc_client
+                .get_banned_addresses()
+                .iter()
+                .any(|ban| ban.address == "127.0.0.1/32")
+        });
+        assert!(ret, "Node0 should ban test node");
+
         net.connect_uncheck(node0);
-        let ret = wait_until(10, || !rpc_client.get_peers().is_empty());
-        assert!(!ret, "Node0 should ban test node");
+        let ret = wait_until(2, || !rpc_client.get_peers().is_empty());
+        assert!(!ret, "Node0 should refuse banned test node reconnection");
     }
 }

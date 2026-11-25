@@ -1,7 +1,9 @@
 use crate::node::waiting_for_sync;
+use crate::util::log_monitor::monitor_log_until_expected_show;
 use crate::util::mining::out_ibd_mode;
 use crate::utils::{
-    build_block, build_compact_block, build_get_blocks, build_header, now_ms, sleep, wait_until,
+    build_block, build_compact_block, build_get_blocks, build_header, now_ms, sleep,
+    tweaked_duration, wait_until,
 };
 use crate::{Net, Node, Spec};
 use ckb_jsonrpc_types::ChainInfo;
@@ -12,7 +14,8 @@ use ckb_types::{
     packed::{self, Byte32, SendHeaders, SyncMessage},
     prelude::*,
 };
-use std::time::Duration;
+use std::collections::HashSet;
+use std::time::{Duration, Instant};
 
 pub struct BlockSyncFromOne;
 
@@ -165,11 +168,39 @@ impl Spec for BlockSyncDuplicatedAndReconnect {
         should_receive_get_blocks_message(&net, node, block.hash());
 
         // Sync duplicated header again, `node` should discard the duplicated one.
-        // So we will not receive any response messages
+        // Wait well past NOT_IBD_BLOCK_FETCH_INTERVAL (200ms) and send a sentinel GetBlocks
+        // request to ensure no duplicate GetBlocks was scheduled for `block`.
         sync_header(&net, node, &block);
         assert!(
-            net.receive_timeout(node, Duration::new(10, 0)).is_err(),
+            net.receive_timeout(node, tweaked_duration(1)).is_err(),
             "node should discard duplicated sync headers",
+        );
+        let tip_hash = node.get_tip_block().hash();
+        sync_get_blocks(&net, node, std::slice::from_ref(&tip_hash));
+        let received_sentinel = net.should_receive_within(node, tweaked_duration(5), |data| {
+            let Ok(message) = SyncMessage::from_compatible_slice(data) else {
+                return false;
+            };
+            match message.to_enum() {
+                packed::SyncMessageUnion::GetBlocks(get_blocks) => {
+                    assert!(
+                        !get_blocks
+                            .block_hashes()
+                            .into_iter()
+                            .any(|hash| hash == block.hash()),
+                        "node should not re-request duplicated header block"
+                    );
+                    false
+                }
+                packed::SyncMessageUnion::SendBlock(send_block) => {
+                    send_block.block().calc_header_hash() == tip_hash
+                }
+                _ => false,
+            }
+        });
+        assert!(
+            received_sentinel,
+            "node should still respond to sentinel GetBlocks after discarding duplicated header"
         );
 
         // Disconnect and reconnect node, and then sync the same header
@@ -179,9 +210,11 @@ impl Spec for BlockSyncDuplicatedAndReconnect {
         let peer = ctrl.connected_peers()[peers_num - 1].clone();
         ctrl.remove_node(&extract_peer_id(&peer.1.connected_addr).unwrap());
         let ret = wait_until(5, || {
-            node.rpc_client().get_peers().is_empty() && ctrl.connected_peers().is_empty()
+            node.rpc_client().get_peers().is_empty()
+                && ctrl.connected_peers().is_empty()
+                && node.rpc_client().sync_state().inflight_blocks_count.value() == 0
         });
-        assert!(ret, "Net disconnect node");
+        assert!(ret, "Net disconnect node and clear in-flight blocks state");
 
         // Sync that header to `node` once more, `node` should send back a corresponding GetBlocks
         // message
@@ -191,7 +224,10 @@ impl Spec for BlockSyncDuplicatedAndReconnect {
 
         // Sync corresponding block entity, `node` should accept the block as tip block
         sync_block(&net, node, &block);
-        wait_until(10, || node.get_tip_block() == block);
+        assert!(
+            wait_until(10, || node.get_tip_block() == block),
+            "node should accept synced block as tip"
+        );
     }
 }
 
@@ -396,15 +432,45 @@ impl Spec for RequestUnverifiedBlocks {
             vec![SupportProtocols::Sync],
         );
         net.connect(target_node);
-        sync_get_blocks(&net, target_node, &main_hashes);
+        // Send `fork_hashes` before `main_hashes` on the same Sync stream so receiving all
+        // `main_hashes` and observing the unverified ignore log deterministically confirms
+        // `target_node` processed and discarded all `fork_hashes`.
         sync_get_blocks(&net, target_node, &fork_hashes);
+        sync_get_blocks(&net, target_node, &main_hashes);
 
-        let mut received = Vec::new();
-        while let Ok((_, _, data)) = net.receive_timeout(target_node, Duration::from_secs(10)) {
+        let expected_main: HashSet<Byte32> = main_hashes.iter().cloned().collect();
+        let mut received = HashSet::new();
+        let deadline = Instant::now() + tweaked_duration(10);
+        while !expected_main.is_subset(&received) {
+            let Some(remaining) = deadline.checked_duration_since(Instant::now()) else {
+                break;
+            };
+            let Ok((_, _, data)) = net.receive_timeout(target_node, remaining) else {
+                break;
+            };
             let message = SyncMessage::from_compatible_slice(&data).unwrap();
             if let packed::SyncMessageUnionReader::SendBlock(reader) = message.as_reader().to_enum()
             {
-                received.push(reader.block().calc_header_hash());
+                received.insert(reader.block().calc_header_hash());
+            }
+        }
+        let last_fork_hash = fork_hashes.last().unwrap();
+        assert!(
+            monitor_log_until_expected_show(
+                target_node,
+                0,
+                10,
+                &format!("Ignoring get_block {last_fork_hash} request"),
+            )
+            .is_some(),
+            "target_node should log ignoring unverified fork block {last_fork_hash}"
+        );
+        // Drain briefly to catch any unexpected asynchronous SendBlock for fork_hashes.
+        while let Ok((_, _, data)) = net.receive_timeout(target_node, Duration::from_millis(300)) {
+            let message = SyncMessage::from_compatible_slice(&data).unwrap();
+            if let packed::SyncMessageUnionReader::SendBlock(reader) = message.as_reader().to_enum()
+            {
+                received.insert(reader.block().calc_header_hash());
             }
         }
         assert!(
@@ -505,26 +571,21 @@ impl Spec for HeaderSyncCycle {
 }
 
 fn build_forks(node: &Node, offsets: &[u64]) -> Vec<BlockView> {
-    use std::thread::sleep;
+    if offsets.is_empty() {
+        return Vec::new();
+    }
 
     let rpc_client = node.rpc_client();
     let mut blocks = Vec::with_capacity(offsets.len());
+    let mut template = rpc_client.get_block_template(None, None, None);
     for offset in offsets.iter() {
-        let mut template = rpc_client.get_block_template(None, None, None);
         let next_number = template.number.value() + 1;
 
         template.current_time = (template.current_time.value() + offset).into();
         rpc_client.generate_block_with_template(template.clone());
         blocks.push(packed::Block::from(template).into_view());
 
-        while rpc_client
-            .get_block_template(None, None, None)
-            .number
-            .value()
-            != next_number
-        {
-            sleep(Duration::from_millis(100));
-        }
+        template = node.wait_block_template_with_blocking(|t| t.number.value() != next_number);
     }
     blocks
 }

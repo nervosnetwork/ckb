@@ -1,4 +1,5 @@
-use crate::utils::{sleep, wait_until};
+use crate::util::log_monitor::monitor_log_until_expected_count;
+use crate::utils::wait_until;
 use crate::{Node, Spec};
 use ckb_logger::info;
 
@@ -23,7 +24,10 @@ impl Spec for IBDProcess {
         node0.connect_uncheck(node1);
         node0.connect_uncheck(node2);
 
-        sleep(5);
+        assert!(
+            monitor_log_until_expected_count(node0, 0, 10, "getheader with ibd peer", 2),
+            "node0 should detect and disconnect both outbound IBD peers"
+        );
 
         let rpc_client0 = node0.rpc_client();
         let is_connect_peer_num_eq_0 = wait_until(10, || {

@@ -115,13 +115,23 @@ impl Spec for TxPoolLimitAncestorCount {
             .send_transaction_result(last.data().into());
         assert!(res.is_ok());
 
-        // assert the first 127 in 250 transactions are evicated.
+        // assert the first 1002 in 2000 transactions are evicted and the rest remain pending.
         for (i, tx) in cell_ref_txs.iter().enumerate() {
             let res = node0
                 .rpc_client()
-                .get_transaction_with_verbosity(tx.hash(), 2);
+                .get_transaction_with_verbosity(tx.hash(), 1);
             if i < 1002 {
-                assert!(matches!(res.tx_status.status, Status::Rejected));
+                assert!(
+                    matches!(res.tx_status.status, Status::Rejected),
+                    "expected cell_ref_tx[{i}] to be rejected, got {:?}",
+                    res.tx_status.status
+                );
+            } else {
+                assert!(
+                    matches!(res.tx_status.status, Status::Pending),
+                    "expected cell_ref_tx[{i}] to remain pending, got {:?}",
+                    res.tx_status.status
+                );
             }
         }
 

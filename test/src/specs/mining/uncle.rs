@@ -26,14 +26,31 @@ impl Spec for UncleInheritFromForkBlock {
         let feed_node = &nodes[1];
 
         let uncle = construct_uncle(target_node);
+        let target_block1_hash = target_node.get_header_by_number(1).hash();
 
-        let longer_fork = (0..=target_node.get_tip_block_number()).map(|_| {
-            let block = feed_node.new_block(None, None, None);
-            feed_node.submit_block(&block);
-            block
-        });
-        longer_fork.for_each(|block| {
-            target_node.submit_block(&block);
+        let fork_len = target_node.get_tip_block_number() + 1;
+        let longer_fork: Vec<BlockView> = (0..fork_len)
+            .map(|i| {
+                // Ensure feed_node's block #1 diverges from target_node's block #1 even within the same ms.
+                let block = if i == 0 {
+                    feed_node
+                        .new_block_builder(None, None, None)
+                        .nonce(1)
+                        .build()
+                } else {
+                    feed_node.new_block(None, None, None)
+                };
+                feed_node.submit_block(&block);
+                block
+            })
+            .collect();
+        assert_ne!(
+            target_block1_hash,
+            longer_fork[0].hash(),
+            "longer_fork must diverge from target_node at block #1"
+        );
+        longer_fork.iter().for_each(|block| {
+            target_node.submit_block(block);
         });
 
         let block = target_node
@@ -97,13 +114,30 @@ impl Spec for UncleInheritFromForkUncle {
             })
             .build();
 
-        let longer_fork = (0..=target_node.get_tip_block_number()).map(|_| {
-            let block = feed_node.new_block(None, None, None);
-            feed_node.submit_block(&block);
-            block
-        });
-        longer_fork.for_each(|block| {
-            target_node.submit_block(&block);
+        let target_block1_hash = target_node.get_header_by_number(1).hash();
+        let fork_len = target_node.get_tip_block_number() + 1;
+        let longer_fork: Vec<BlockView> = (0..fork_len)
+            .map(|i| {
+                // Ensure feed_node's block #1 diverges from target_node's block #1 even within the same ms.
+                let block = if i == 0 {
+                    feed_node
+                        .new_block_builder(None, None, None)
+                        .nonce(1)
+                        .build()
+                } else {
+                    feed_node.new_block(None, None, None)
+                };
+                feed_node.submit_block(&block);
+                block
+            })
+            .collect();
+        assert_ne!(
+            target_block1_hash,
+            longer_fork[0].hash(),
+            "longer_fork must diverge from target_node at block #1"
+        );
+        longer_fork.iter().for_each(|block| {
+            target_node.submit_block(block);
         });
 
         let block = target_node

@@ -833,7 +833,10 @@ impl Spec for RbfReplaceProposedSuccess {
             .build();
         node0.submit_block(&blank_block);
 
-        wait_until(10, move || node0.get_tip_block() == blank_block);
+        assert!(
+            wait_until(10, move || node0.get_tip_block() == blank_block),
+            "node0 should update tip to blank_block"
+        );
 
         let window_count = node0.consensus().tx_proposal_window().closest();
         node0.mine(window_count);
@@ -1070,7 +1073,7 @@ impl Spec for RbfCyclingAttack {
             prev = cur.clone();
         }
         let tx_b1 = txs_chain_b[1].clone();
-        eprintln!("tx_b1 {:?}", tx_b1.proposal_short_id());
+        ckb_logger::debug!("tx_b1 {:?}", tx_b1.proposal_short_id());
 
         // Create a child transaction consume B0 and A1
         // A0 ---> A1 ---> A2
@@ -1097,7 +1100,7 @@ impl Spec for RbfCyclingAttack {
             .set_outputs(vec![tx_b2_output])
             .build();
         let res = node0.rpc_client().send_transaction(tx_b2.data().into());
-        eprintln!("tx_b2 {:?}", res);
+        ckb_logger::debug!("tx_b2 {:?}", res);
 
         // after A2 and B1 is replaced by B2
         // A0 ---> A1
@@ -1139,7 +1142,7 @@ impl Spec for RbfCyclingAttack {
         assert_eq!(res.tx_status.status, Status::Pending);
         let res = node0.rpc_client().get_transaction(tx_b2.hash());
         assert_eq!(res.tx_status.status, Status::Rejected);
-        eprintln!("tx_b1 {:?}", tx_b1.proposal_short_id());
+        ckb_logger::debug!("tx_b1 {:?}", tx_b1.proposal_short_id());
 
         // B1 is expected by recovered back
         let res = node0.rpc_client().get_transaction(tx_b1.hash());
@@ -1203,11 +1206,17 @@ fn run_spec_send_conflict_relay(nodes: &mut [Node]) {
         .send_transaction_result(tx2.data().into());
     assert!(res.is_ok(), "tx2 should be accepted by node0");
 
-    let _ = wait_until(60, || {
-        node1.get_tip_block_number() == node0.get_tip_block_number()
-    });
+    assert!(
+        wait_until(60, || {
+            node1.get_tip_block_number() == node0.get_tip_block_number()
+        }),
+        "node1 should stay synced with node0",
+    );
 
-    let _result = wait_until(60, || get_tx_pool_conflicts(node1).len() == 1);
+    assert!(
+        wait_until(60, || get_tx_pool_conflicts(node1).len() == 1),
+        "node1 should record tx2 in conflicts pool",
+    );
 
     let res = node1.get_transaction(tx2.hash());
     assert_eq!(res.status, Status::Rejected);

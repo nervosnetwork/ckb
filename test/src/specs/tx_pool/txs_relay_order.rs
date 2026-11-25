@@ -1,6 +1,6 @@
 use crate::node::{connect_all, waiting_for_sync};
-use crate::util::mining::out_ibd_mode;
-use crate::utils::sleep;
+use crate::util::mining::out_bootstrap_period;
+use crate::utils::wait_until;
 use crate::{Node, Spec};
 use ckb_types::core::FeeRate;
 use ckb_types::{
@@ -16,14 +16,12 @@ impl Spec for TxsRelayOrder {
     crate::setup!(num_nodes: 2);
 
     fn run(&self, nodes: &mut Vec<Node>) {
-        out_ibd_mode(nodes);
+        out_bootstrap_period(nodes);
         connect_all(nodes);
+        waiting_for_sync(nodes);
 
         let node0 = &nodes[0];
         let node1 = &nodes[1];
-
-        node0.mine_until_out_bootstrap_period();
-        waiting_for_sync(nodes);
         // build chain txs
         let mut txs = vec![node0.new_transaction_spend_tip_cellbase()];
         while txs.len() < COUNT {
@@ -48,11 +46,16 @@ impl Spec for TxsRelayOrder {
         assert_eq!(0, tx_pool_info.orphan.value());
 
         // node1 should receive all txs
-        sleep(10);
+        let relayed = wait_until(10, || {
+            let tx_pool_info = node1.get_tip_tx_pool_info();
+            tx_pool_info.pending.value() + tx_pool_info.orphan.value() == COUNT as u64
+        });
         let tx_pool_info = node1.get_tip_tx_pool_info();
-        assert_eq!(
-            COUNT as u64,
-            tx_pool_info.pending.value() + tx_pool_info.orphan.value()
+        assert!(
+            relayed,
+            "node1 should receive all {COUNT} txs, got pending={}, orphan={}",
+            tx_pool_info.pending.value(),
+            tx_pool_info.orphan.value()
         );
     }
 
