@@ -136,6 +136,18 @@ pub trait CKBProtocolContext: Send {
     // Interact with NetworkState
     /// Get peer info
     fn get_peer(&self, peer_index: PeerIndex) -> Option<Peer>;
+    /// Whether the session is a block-relay-only (anchor) connection.
+    ///
+    /// Such connections must not carry transaction or address relay traffic, so that
+    /// they stay hard to detect and keep obfuscating the network topology.
+    ///
+    /// The default implementation goes through [`Self::get_peer`], which clones the
+    /// whole [`Peer`]. Implementations sitting on a hot message path should override
+    /// it with a cheaper lookup.
+    fn is_block_relay_only(&self, peer_index: PeerIndex) -> bool {
+        self.get_peer(peer_index)
+            .is_some_and(|peer| peer.is_block_relay_only())
+    }
     /// Modify peer info
     fn with_peer_mut(&self, peer_index: PeerIndex, f: Box<dyn FnOnce(&mut Peer)>);
     /// Get all session id
@@ -638,6 +650,11 @@ impl CKBProtocolContext for DefaultCKBProtocolContext {
     fn get_peer(&self, peer_index: PeerIndex) -> Option<Peer> {
         self.network_state
             .with_peer_registry(|reg| reg.get_peer(peer_index).cloned())
+    }
+    fn is_block_relay_only(&self, peer_index: PeerIndex) -> bool {
+        // Avoid the `Peer` clone `get_peer` would do, this runs per relay message.
+        self.network_state
+            .with_peer_registry(|reg| reg.is_anchor(peer_index))
     }
     fn with_peer_mut(&self, peer_index: PeerIndex, f: Box<dyn FnOnce(&mut Peer)>) {
         self.network_state.with_peer_registry_mut(|reg| {
