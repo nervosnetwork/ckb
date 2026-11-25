@@ -18,12 +18,9 @@ env:
   NUM_TEST_CHUNKS: 8
 jobs:
   build:
-    name: Build and prepare test chunks
+    name: Build binaries
     if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name != github.repository
     runs-on: ${{ github.repository_owner == 'nervosnetwork' && 'blacksmith-16vcpu-ubuntu-2204' || 'ubuntu-22.04' }}
-    outputs:
-      test_chunks: ${{ steps.chunk_tests.outputs.test_chunks }}
-      chunk_indices: ${{ steps.chunk_tests.outputs.chunk_indices }}
     steps:
       - name: Free up disk space
         if: github.repository_owner != 'nervosnetwork'
@@ -56,57 +53,6 @@ jobs:
           cargo build --locked --bin ckb --verbose --release --features "deadlock_detection"
           cargo build --locked -p ckb-test --verbose --release --features "deadlock_detection"
         shell: bash
-      - name: List and chunk test specs
-        id: chunk_tests
-        run: |
-          # List all test specs
-          ./target/release/ckb-test --list-specs --bin ./target/release/ckb > all_specs.txt
-
-          # Split specs into chunks
-          NUM_CHUNKS=${{ env.NUM_TEST_CHUNKS }}
-          total_specs=$(wc -l < all_specs.txt)
-          echo "Total specs: $total_specs"
-          echo "Number of chunks: $NUM_CHUNKS"
-
-          # Create chunks array
-          declare -a chunks
-          for i in $(seq 0 $((NUM_CHUNKS - 1))); do
-            chunks[$i]=""
-          done
-
-          # Distribute specs round-robin
-          chunk_idx=0
-          while IFS= read -r spec; do
-            if [ -n "${chunks[$chunk_idx]}" ]; then
-              chunks[$chunk_idx]="${chunks[$chunk_idx]} $spec"
-            else
-              chunks[$chunk_idx]="$spec"
-            fi
-            chunk_idx=$(( (chunk_idx + 1) % NUM_CHUNKS ))
-          done < all_specs.txt
-
-          # Create JSON array for chunks
-          test_chunks="["
-          chunk_indices="["
-          for i in $(seq 0 $((NUM_CHUNKS - 1))); do
-            if [ $i -gt 0 ]; then
-              test_chunks="$test_chunks,"
-              chunk_indices="$chunk_indices,"
-            fi
-            # Escape quotes and create JSON string
-            chunk_json=$(echo "${chunks[$i]}" | jq -Rs .)
-            test_chunks="$test_chunks$chunk_json"
-            chunk_indices="$chunk_indices$i"
-          done
-          test_chunks="$test_chunks]"
-          chunk_indices="$chunk_indices]"
-
-          echo "test_chunks=$test_chunks" >> $GITHUB_OUTPUT
-          echo "chunk_indices=$chunk_indices" >> $GITHUB_OUTPUT
-
-          echo "Test chunks created:"
-          echo "$test_chunks" | jq .
-        shell: bash
       - name: Upload ckb binary
         uses: actions/upload-artifact@v6
         with:
@@ -134,7 +80,7 @@ jobs:
     strategy:
       fail-fast: true
       matrix:
-        chunk_index: ${{ fromJson(needs.build.outputs.chunk_indices) }}
+        chunk_index: [0, 1, 2, 3, 4, 5, 6, 7]
     steps:
       - uses: actions/checkout@v6
         with:
@@ -165,15 +111,25 @@ jobs:
           export CKB_INTEGRATION_TEST_TMP="${{ runner.temp }}/ckb-integration-test"
           mkdir -p "$CKB_INTEGRATION_TEST_TMP"
 
-          # Get the test specs for this chunk
-          CHUNK_SPECS=$(echo '${{ needs.build.outputs.test_chunks }}' | jq -r '.[${{ matrix.chunk_index }}]')
-          echo "Running tests: $CHUNK_SPECS"
-
-          # Run the tests with -c 1
-          RUST_BACKTRACE=1 RUST_LOG=info,ckb_test=debug,ckb_sync=debug,ckb_relay=debug,ckb_network=debug \
+          REPORT_JSON="$CKB_INTEGRATION_TEST_TMP/report-chunk-${{ matrix.chunk_index }}.json"
+          RUST_BACKTRACE=1 \
             ${{ github.workspace }}/target/release/ckb-test --bin ${{ github.workspace }}/target/release/ckb \
             --obfs4proxy-bin ${{ github.workspace }}/test/obfs4/obfs4proxy/obfs4proxy \
-            --no-report --max-time 7200 $CHUNK_SPECS
+            --shard "${{ matrix.chunk_index }}/${{ env.NUM_TEST_CHUNKS }}" \
+            -c 4 --spec-timeout 300 --max-time 7200 \
+            --json-report "$REPORT_JSON"
+        shell: bash
+      - name: Publish shard summary
+        if: always()
+        run: |
+          REPORT_JSON="${{ runner.temp }}/ckb-integration-test/report-chunk-${{ matrix.chunk_index }}.json"
+          if [ -f "$REPORT_JSON" ] && command -v jq >/dev/null 2>&1; then
+            {
+              echo "### Ubuntu Chunk ${{ matrix.chunk_index }}/${{ env.NUM_TEST_CHUNKS }}"
+              jq -r '"- **Result**: \(.passed) passed, \(.failed) failed, \(.panicked) panicked (\(.total) total, seed=\(.seed))\n- **Elapsed**: \(.wall_secs | .*10 | round / 10)s wall | \(.cumulative_secs | .*10 | round / 10)s cumulative (\(.effective_concurrency | .*100 | round / 100)x concurrency)"' "$REPORT_JSON"
+              jq -r 'if (.failed + .panicked) > 0 then "\n#### Failures\n" + ([.specs[] | select(.status != "Passed") | "- [\(.status)] `\(.name)` (\(.duration_secs | .*100 | round / 100)s): \(.detail // "unknown")"] | join("\n")) else "" end' "$REPORT_JSON"
+            } >> "$GITHUB_STEP_SUMMARY"
+          fi
         shell: bash
       - name: upload log files
         if: failure()
