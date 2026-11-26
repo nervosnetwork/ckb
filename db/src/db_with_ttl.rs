@@ -1,9 +1,10 @@
 //! DB with ttl support wrapper
 
 use crate::{Result, internal_error};
-use rocksdb::ops::{DropCF, GetColumnFamilys, GetPinnedCF, GetPropertyCF, OpenCF, PutCF};
+use rocksdb::ops::{DropCF, GetColumnFamilys, GetPinnedCF, GetPropertyCF, OpenCF, PutCF, WriteOps};
 use rocksdb::{
     ColumnFamilyDescriptor, DBPinnableSlice, DBWithTTL as RawDBWithTTL, Options, TTLOpenDescriptor,
+    WriteBatch,
 };
 use std::path::Path;
 
@@ -54,6 +55,11 @@ impl DBWithTTL {
         Ok(DBWithTTL { inner })
     }
 
+    /// Returns whether the database has the given column family.
+    pub fn has_cf(&self, col: &str) -> bool {
+        self.inner.cf_handle(col).is_some()
+    }
+
     /// Return the value associated with a key using RocksDB's PinnableSlice from the given column
     /// so as to avoid unnecessary memory copy.
     pub fn get_pinned(&self, col: &str, key: &[u8]) -> Result<Option<DBPinnableSlice<'_>>> {
@@ -75,6 +81,22 @@ impl DBWithTTL {
             .cf_handle(col)
             .ok_or_else(|| internal_error(format!("column {col} not found")))?;
         self.inner.put_cf(cf, key, value).map_err(internal_error)
+    }
+
+    /// Atomically insert a batch of `(column_family, key, value)` entries.
+    pub fn put_batch<'a>(
+        &self,
+        entries: impl IntoIterator<Item = (&'a str, &'a [u8], &'a [u8])>,
+    ) -> Result<()> {
+        let mut batch = WriteBatch::default();
+        for (col, key, value) in entries {
+            let cf = self
+                .inner
+                .cf_handle(col)
+                .ok_or_else(|| internal_error(format!("column {col} not found")))?;
+            batch.put_cf(cf, key, value).map_err(internal_error)?;
+        }
+        self.inner.write(&batch).map_err(internal_error)
     }
 
     /// Create a new column family for the database.

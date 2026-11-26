@@ -16,6 +16,14 @@ pub fn gather() -> Vec<prometheus::proto::MetricFamily> {
 }
 
 make_static_metric! {
+    struct CkbRelayQueueResets: IntCounter {
+        "reason" => { capacity, accounting },
+    }
+
+    struct CkbRelayPendingDiscarded: IntCounter {
+        "reason" => { capacity, reset },
+    }
+
     // Struct for the CKB sys mem process statistics type label
     struct CkbSysMemProcessStatistics: IntGauge{
         "type" => {
@@ -45,6 +53,62 @@ make_static_metric! {
         },
     }
 
+    struct CkbTxPoolPipelineResidencyStatistics: IntGauge{
+        "resource" => {
+            total_entries,
+            total_bytes,
+            remote_entries,
+            remote_bytes,
+            conflict_entries,
+            conflict_bytes,
+            active_work,
+        },
+    }
+
+    struct CkbTxPoolPipelineRejectionStatistics: IntCounter{
+        "class" => {
+            malformed,
+            policy,
+            capacity,
+            duplicate,
+        },
+    }
+
+    struct CkbTxPoolPipelineFailureStatistics: IntCounter{
+        "boundary" => {
+            typed_fault,
+            worker_exit,
+            handler_unwind,
+            effect_publisher,
+        },
+    }
+
+    struct CkbTxPoolEffectUsageStatistics: IntGauge{
+        "region" => {
+            remote_batches,
+            remote_bytes,
+            ordinary_batches,
+            ordinary_bytes,
+            total_batches,
+            total_bytes,
+        },
+    }
+
+    struct CkbTxPoolAuthorityRuntimeStatistics: IntGauge{
+        "metric" => {
+            descendant_index_entries,
+            direct_inflight,
+            callback_read_inflight,
+        },
+    }
+
+    struct CkbTxPoolVerifyTimeBudgetExceededStatistics: IntCounter{
+        "source" => {
+            remote,
+            proposal,
+        },
+    }
+
     struct CkbHeaderMapMemoryHitMissStatistics: IntCounter{
         "type" => {
             hit,
@@ -54,6 +118,8 @@ make_static_metric! {
 }
 
 pub struct Metrics {
+    /// Transaction notifications omitted at bounded service/subscriber channels.
+    pub ckb_notify_transaction_dropped: IntCounterVec,
     /// Gauge metric for CKB chain tip header number
     pub ckb_chain_tip: IntGauge,
     /// CKB chain unverified tip header number
@@ -94,8 +160,14 @@ pub struct Metrics {
     pub ckb_freezer_number: IntGauge,
     /// Counter for relay transaction short id collide
     pub ckb_relay_transaction_short_id_collide: IntCounter,
-    /// Gauge for pending transaction verification results waiting for relay
+    /// Pending verification results in the bounded relay mailbox.
     pub ckb_relay_tx_verify_result_queue_size: IntGauge,
+    /// Item capacity of the bounded relay mailbox.
+    pub ckb_relay_tx_verify_result_queue_capacity: IntGauge,
+    /// Mailbox reconstructions caused by capacity or inconsistent byte accounting.
+    pub ckb_relay_tx_verify_result_queue_resets: CkbRelayQueueResets,
+    /// Pending transaction announcements discarded before a broadcast attempt.
+    pub ckb_relay_pending_transactions_discarded: CkbRelayPendingDiscarded,
     /// Histogram for relay compact block verify duration
     pub ckb_relay_cb_verify_duration: Histogram,
     /// Histogram for block process duration
@@ -120,6 +192,30 @@ pub struct Metrics {
     pub ckb_sys_mem_jemalloc: CkbSysMemJemallocStatistics,
     // GaugeVec for CKB tx-pool tx entry status statistics
     pub ckb_tx_pool_entry: CkbTxPoolEntryStatistics,
+    /// Gauges for bounded pre-pool ownership and active work.
+    pub ckb_tx_pool_pipeline_residency: CkbTxPoolPipelineResidencyStatistics,
+    /// Counters for terminal tx-pool rejection classes.
+    pub ckb_tx_pool_pipeline_rejections: CkbTxPoolPipelineRejectionStatistics,
+    /// Counters for typed service failure boundaries.
+    pub ckb_tx_pool_pipeline_failures: CkbTxPoolPipelineFailureStatistics,
+    /// Gauges for the effect journal's cumulative capacity lattice.
+    pub ckb_tx_pool_effect_usage: CkbTxPoolEffectUsageStatistics,
+    /// Histogram for waiting to acquire the single-writer authority write lock (seconds).
+    pub ckb_tx_pool_authority_write_wait_seconds: Histogram,
+    /// Histogram for holding the single-writer authority write lock (seconds).
+    pub ckb_tx_pool_authority_write_hold_seconds: Histogram,
+    /// Counter for ordinary commits/previews that yielded to ReorgGate priority preemption.
+    pub ckb_tx_pool_reorg_gate_waits: IntCounter,
+    /// Gauges for single-writer authority runtime indexes and direct-gate concurrency.
+    pub ckb_tx_pool_authority_runtime: CkbTxPoolAuthorityRuntimeStatistics,
+    /// Histogram of network VM CPU time spent as a fraction of the transaction's calibrated budget.
+    pub ckb_tx_pool_verify_cpu_budget_ratio: Histogram,
+    /// Counters for network verifications refused due to exhausting their VM CPU-time budget.
+    pub ckb_tx_pool_verify_time_budget_exceeded: CkbTxPoolVerifyTimeBudgetExceededStatistics,
+    /// Gauge for the currently active VM calibration rate (cycles per millisecond).
+    pub ckb_tx_pool_verify_calibration_cycles_per_ms: IntGauge,
+    /// Counter for replayed over-budget remote transactions shed during short in-memory cooldown.
+    pub ckb_tx_pool_verify_budget_cooldown_hits: IntCounter,
     /// Histogram for CKB network connections
     pub ckb_message_bytes: HistogramVec,
     /// Gauge for CKB rocksdb statistics
@@ -220,6 +316,11 @@ static METRICS: std::sync::LazyLock<Metrics> = std::sync::LazyLock::new(|| {
                 .unwrap()
         ),
     ckb_freezer_size: register_int_gauge!("ckb_freezer_size", "The CKB freezer size").unwrap(),
+    ckb_notify_transaction_dropped: register_int_counter_vec!(
+        "ckb_notify_transaction_dropped",
+        "Transaction notification handoffs omitted by a full or closed bounded channel",
+        &["boundary", "reason"]
+    ).unwrap(),
     ckb_freezer_read: register_int_counter!("ckb_freezer_read", "The CKB freezer read").unwrap(),
     ckb_freezer_number: register_int_gauge!("ckb_freezer_number", "The CKB freezer number").unwrap(),
     ckb_relay_transaction_short_id_collide: register_int_counter!(
@@ -229,9 +330,26 @@ static METRICS: std::sync::LazyLock<Metrics> = std::sync::LazyLock::new(|| {
             .unwrap(),
     ckb_relay_tx_verify_result_queue_size: register_int_gauge!(
         "ckb_relay_tx_verify_result_queue_size",
-        "Pending transaction verification results waiting for relay"
-    )
-            .unwrap(),
+        "Pending transaction verification results in the relay mailbox"
+    ).unwrap(),
+    ckb_relay_tx_verify_result_queue_capacity: register_int_gauge!(
+        "ckb_relay_tx_verify_result_queue_capacity",
+        "Maximum pending transaction verification results in the relay mailbox"
+    ).unwrap(),
+    ckb_relay_tx_verify_result_queue_resets: CkbRelayQueueResets::from(
+        &register_int_counter_vec!(
+            "ckb_relay_tx_verify_result_queue_resets",
+            "Relay mailbox reconstructions, excluding ordinary authority generation resets",
+            &["reason"]
+        ).unwrap()
+    ),
+    ckb_relay_pending_transactions_discarded: CkbRelayPendingDiscarded::from(
+        &register_int_counter_vec!(
+            "ckb_relay_pending_transactions_discarded",
+            "Pending transaction announcements discarded by cache capacity or projection reset",
+            &["reason"]
+        ).unwrap()
+    ),
     ckb_relay_cb_verify_duration: register_histogram!(
         "ckb_relay_cb_verify_duration",
         "The CKB relay compact block verify duration"
@@ -298,6 +416,87 @@ static METRICS: std::sync::LazyLock<Metrics> = std::sync::LazyLock::new(|| {
         )
                 .unwrap(),
         ),
+    ckb_tx_pool_pipeline_residency: CkbTxPoolPipelineResidencyStatistics::from(
+            &register_int_gauge_vec!(
+            "ckb_tx_pool_pipeline_residency",
+            "Bounded tx-pool pipeline residency and active work",
+            &["resource"]
+        )
+                .unwrap(),
+        ),
+    ckb_tx_pool_pipeline_rejections: CkbTxPoolPipelineRejectionStatistics::from(
+            &register_int_counter_vec!(
+            "ckb_tx_pool_pipeline_rejections",
+            "Terminal tx-pool rejection outcomes by closed class",
+            &["class"]
+        )
+                .unwrap(),
+        ),
+    ckb_tx_pool_pipeline_failures: CkbTxPoolPipelineFailureStatistics::from(
+            &register_int_counter_vec!(
+            "ckb_tx_pool_pipeline_failures",
+            "Tx-pool service failures by existing fail-closed boundary",
+            &["boundary"]
+        )
+                .unwrap(),
+        ),
+    ckb_tx_pool_effect_usage: CkbTxPoolEffectUsageStatistics::from(
+            &register_int_gauge_vec!(
+            "ckb_tx_pool_effect_usage",
+            "Staged tx-pool effect-journal usage by cumulative region",
+            &["region"]
+        )
+                .unwrap(),
+        ),
+    ckb_tx_pool_authority_write_wait_seconds: register_histogram!(
+        "ckb_tx_pool_authority_write_wait_seconds",
+        "Wait duration to acquire the single-writer tx-pool authority write lock (seconds)",
+        vec![0.00001, 0.00005, 0.0001, 0.0005, 0.001, 0.005, 0.01, 0.05, 0.1, 0.5, 1.0]
+    )
+            .unwrap(),
+    ckb_tx_pool_authority_write_hold_seconds: register_histogram!(
+        "ckb_tx_pool_authority_write_hold_seconds",
+        "Hold duration of the single-writer tx-pool authority write lock (seconds)",
+        vec![0.00001, 0.00005, 0.0001, 0.0005, 0.001, 0.005, 0.01, 0.05, 0.1, 0.5, 1.0]
+    )
+            .unwrap(),
+    ckb_tx_pool_reorg_gate_waits: register_int_counter!(
+        "ckb_tx_pool_reorg_gate_waits",
+        "Count of ordinary tx-pool commits or previews yielding to ReorgGate priority"
+    )
+            .unwrap(),
+    ckb_tx_pool_authority_runtime: CkbTxPoolAuthorityRuntimeStatistics::from(
+            &register_int_gauge_vec!(
+            "ckb_tx_pool_authority_runtime",
+            "Single-writer tx-pool authority runtime index and direct-gate concurrency",
+            &["metric"]
+        )
+                .unwrap(),
+        ),
+    ckb_tx_pool_verify_cpu_budget_ratio: register_histogram!(
+        "ckb_tx_pool_verify_cpu_budget_ratio",
+        "Network transaction VM CPU time spent divided by its calibrated budget",
+        vec![0.05, 0.1, 0.25, 0.5, 0.75, 0.9, 1.0]
+    )
+            .unwrap(),
+    ckb_tx_pool_verify_time_budget_exceeded: CkbTxPoolVerifyTimeBudgetExceededStatistics::from(
+        &register_int_counter_vec!(
+            "ckb_tx_pool_verify_time_budget_exceeded",
+            "Network transaction verifications refused by VM CPU-time budget exhaustion",
+            &["source"]
+        )
+        .unwrap(),
+    ),
+    ckb_tx_pool_verify_calibration_cycles_per_ms: register_int_gauge!(
+        "ckb_tx_pool_verify_calibration_cycles_per_ms",
+        "Currently active node-local VM calibration rate in cycles per millisecond"
+    )
+            .unwrap(),
+    ckb_tx_pool_verify_budget_cooldown_hits: register_int_counter!(
+        "ckb_tx_pool_verify_budget_cooldown_hits",
+        "Remote transactions shed at ingress by short-TTL VM CPU-budget cooldown"
+    )
+            .unwrap(),
     ckb_message_bytes: register_histogram_vec!(
         "ckb_message_bytes",
         "The CKB message bytes",

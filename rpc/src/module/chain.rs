@@ -534,8 +534,13 @@ pub trait ChainRpc {
     ///
     /// ## Returns
     ///
-    /// This RPC returns `null` if the transaction is not committed in the
-    /// [canonical chain](#canonical-chain) nor the transaction memory pool.
+    /// If the transaction is absent from the [canonical chain](#canonical-chain)
+    /// and the accepted transaction pool, `transaction` is `null` and the status
+    /// is `rejected` when a retained rejection exists, or `unknown` otherwise.
+    /// With `only_committed`, a transaction absent from the chain is `unknown`.
+    ///
+    /// Only transactions accepted by tx-pool are reported as `pending` or `proposed`.
+    /// Internal validation and waiting phases do not establish a public transaction status.
     ///
     /// If the transaction is in the chain, the block hash is also returned.
     ///
@@ -2215,18 +2220,16 @@ impl ChainRpcImpl {
         }
 
         let tx_pool = self.shared.tx_pool_controller();
-        let tx_status = tx_pool.get_tx_status(tx_hash);
-        if let Err(e) = tx_status {
-            error!("Send get_tx_status request error {}", e);
-            return Err(RPCError::ckb_internal_error(e));
-        };
-        let tx_status = tx_status.unwrap();
-
-        if let Err(e) = tx_status {
-            error!("get_tx_status from db error {}", e);
-            return Err(RPCError::ckb_internal_error(e));
-        };
-        let (tx_status, cycles) = tx_status.unwrap();
+        let (tx_status, cycles) = tx_pool
+            .get_tx_status(tx_hash)
+            .map_err(|e| {
+                error!("Send get_tx_status request error {}", e);
+                RPCError::ckb_internal_error(e)
+            })?
+            .map_err(|e| {
+                error!("get_tx_status from db error {}", e);
+                RPCError::ckb_internal_error(e)
+            })?;
         Ok(TransactionWithStatus::omit_transaction(tx_status, cycles))
     }
 
@@ -2264,19 +2267,16 @@ impl ChainRpcImpl {
         }
 
         let tx_pool = self.shared.tx_pool_controller();
-        let transaction_with_status = tx_pool.get_transaction_with_status(tx_hash);
-        if let Err(e) = transaction_with_status {
-            error!("Send get_transaction_with_status request error {}", e);
-            return Err(RPCError::ckb_internal_error(e));
-        };
-        let transaction_with_status = transaction_with_status.unwrap();
-
-        if let Err(e) = transaction_with_status {
-            error!("Get transaction_with_status from db error {}", e);
-            return Err(RPCError::ckb_internal_error(e));
-        };
-        let transaction_with_status = transaction_with_status.unwrap();
-        Ok(transaction_with_status)
+        tx_pool
+            .get_transaction_with_status(tx_hash)
+            .map_err(|e| {
+                error!("Send get_transaction_with_status request error {}", e);
+                RPCError::ckb_internal_error(e)
+            })?
+            .map_err(|e| {
+                error!("Get transaction_with_status from db error {}", e);
+                RPCError::ckb_internal_error(e)
+            })
     }
 
     fn get_block_by_hash(

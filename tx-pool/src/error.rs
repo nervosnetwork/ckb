@@ -7,24 +7,20 @@ use ckb_error::{
 };
 pub use ckb_types::core::tx_pool::Reject;
 use std::fmt;
-use tokio::sync::mpsc::error::TrySendError;
 use tokio::sync::watch::error::SendError;
 
 /// The error type for block assemble related
 #[derive(Error, Debug, PartialEq, Clone, Eq)]
 pub enum BlockAssemblerError {
-    /// Input is invalid
-    #[error("InvalidInput")]
-    InvalidInput,
-    /// Parameters is invalid
-    #[error("InvalidParams {0}")]
-    InvalidParams(String),
-    /// BlockAssembler is disabled
-    #[error("Disabled")]
-    Disabled,
     /// BlockAssembler calculate overflow
     #[error("Overflow")]
     Overflow,
+    /// The chain snapshot has no epoch extension for its tip.
+    #[error("Missing tip epoch")]
+    MissingTipEpoch,
+    /// A monotonic assembler publication/work token was exhausted.
+    #[error("Block assembler {0} counter exhausted")]
+    CounterExhausted(&'static str),
 }
 
 impl_error_conversion_with_kind!(
@@ -34,14 +30,6 @@ impl_error_conversion_with_kind!(
 );
 
 impl_error_conversion_with_adaptor!(BlockAssemblerError, InternalError, Error);
-
-pub(crate) fn handle_try_send_error<T>(error: TrySendError<T>) -> (T, OtherError) {
-    let e = OtherError::new(format!("TrySendError {error}"));
-    let m = match error {
-        TrySendError::Full(t) | TrySendError::Closed(t) => t,
-    };
-    (m, e)
-}
 
 pub(crate) fn handle_recv_error(error: RecvError) -> OtherError {
     OtherError::new(format!("RecvError {error}"))

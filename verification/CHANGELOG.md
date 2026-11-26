@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- Shard `TxVerificationCache` into 64 hash buckets to eliminate global write-lock
+  contention across concurrent pool workers, template refreshes and block
+  verification, and skip Rayon dispatch on warm blocks whose scripts are already
+  cached.
+- Defer script preparation to uncached verification runs and seal
+  `PreparedScriptVerification` inside `ckb-verification`.
+
 ## [1.2.1](https://github.com/nervosnetwork/ckb/compare/ckb-verification-v1.2.0...ckb-verification-v1.2.1) - 2026-09-28
 
 ### Changed

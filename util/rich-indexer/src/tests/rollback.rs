@@ -7,7 +7,6 @@ async fn test_rollback_block_0() {
     let storage = connect_sqlite(MEMORY_DB).await;
     let indexer = AsyncRichIndexer::new(
         storage.clone(),
-        None,
         CustomFilters::new(
             Some("block.header.number.to_uint() >= \"0x0\".to_uint()"),
             None,
@@ -63,7 +62,6 @@ async fn test_rollback_block_9() {
     let storage = connect_sqlite(MEMORY_DB).await;
     let indexer = AsyncRichIndexer::new(
         storage.clone(),
-        None,
         CustomFilters::new(
             Some("block.header.number.to_uint() >= \"0x0\".to_uint()"),
             None,
@@ -147,7 +145,6 @@ async fn test_block_filter_and_rollback_block() {
     let storage = connect_sqlite(MEMORY_DB).await;
     let indexer = AsyncRichIndexer::new(
         storage.clone(),
-        None,
         CustomFilters::new(
             Some("block.header.number.to_uint() >= \"0x1\".to_uint()"),
             None,

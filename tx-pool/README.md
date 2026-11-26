@@ -1,5 +1,12 @@
 # ckb-tx-pool
 
-This crate is a component of [ckb](https://github.com/nervosnetwork/ckb).
+The transaction pool admits and verifies transactions, maintains dependencies and
+replacement history, reconciles chain changes, and supplies relay observations
+and block-template inputs. Consensus and script verification remain in their
+canonical crates.
 
-CKB Tx-pool stores transactions, which is designed for CKB Two Step Transaction Confirmation mechanism
+- [Architecture](docs/ARCHITECTURE.md): ownership, commit and execution contracts.
+- [Maintenance](docs/MAINTENANCE.md): configuration, caller completion, diagnosis
+  and migration. Release changes are in the [changelog](CHANGELOG.md).
+- [Benchmarking](docs/BENCHMARK.md): reproducible comparisons and measurement limits.
+- [Profiling](docs/PROFILING.md): CPU, allocation and async scheduling tools.

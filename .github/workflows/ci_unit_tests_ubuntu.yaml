@@ -35,6 +35,11 @@ jobs:
       - name: Install nextest
         uses: taiki-e/install-action@nextest
       - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.11'
+      - name: Test tx-pool measurement tools
+        run: python3 -B -m unittest discover -s tx-pool/scripts -p 'test_*.py'
       - name: Cache cargo target
         if: github.event_name == 'pull_request' || (github.event_name == 'push' && github.ref != 'refs/heads/develop' && github.ref != 'refs/heads/master' && !startsWith(github.ref, 'refs/heads/rc/') && !startsWith(github.ref, 'refs/heads/pkg/'))
         uses: actions/cache@v5

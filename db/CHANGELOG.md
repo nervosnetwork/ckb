@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Add `DBWithTTL::put_batch` so callers such as `RecentReject` can flush
+  multiple TTL-indexed entries in one RocksDB `WriteBatch`.
+
 ## [1.1.2](https://github.com/nervosnetwork/ckb/compare/ckb-db-v1.1.1...ckb-db-v1.1.2) - 2026-10-30
 
 ### Changed

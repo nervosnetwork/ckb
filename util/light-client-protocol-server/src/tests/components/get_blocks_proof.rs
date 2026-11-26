@@ -8,8 +8,8 @@ use crate::tests::{
     utils::{MockChain, MockNetworkContext},
 };
 
-#[tokio::test(flavor = "multi_thread")]
-async fn get_blocks_proof_with_missing_blocks() {
+#[test]
+fn get_blocks_proof_with_missing_blocks() {
     let chain = MockChain::new();
     let nc = MockNetworkContext::new(SupportProtocols::LightClient);
 
@@ -39,7 +39,7 @@ async fn get_blocks_proof_with_missing_blocks() {
     };
 
     // Rollback
-    chain.rollback_to(base_header.number(), HashSet::default());
+    chain.rollback_to(base_header.number());
 
     // Spend tx
     let tx = chain.get_cellbase_as_input(12);
@@ -73,7 +73,10 @@ async fn get_blocks_proof_with_missing_blocks() {
     assert!(nc.sent_messages().borrow().is_empty());
 
     let peer_index = PeerIndex::new(1);
-    protocol.received(nc.context(), peer_index, data).await;
+    chain
+        .shared()
+        .async_handle()
+        .block_on(protocol.received(nc.context(), peer_index, data));
 
     assert!(nc.not_banned(peer_index));
 
