@@ -33,9 +33,119 @@ use std::fs::{self, File};
 use std::io::{self, BufRead, BufReader, ErrorKind, Seek, SeekFrom};
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
-use std::sync::{Arc, OnceLock, RwLock};
+use std::sync::{Arc, Mutex, OnceLock, RwLock};
 use std::thread::sleep;
 use std::time::{Duration, Instant};
+
+static GENESIS_DB_SEED: Mutex<Option<TempPathBuf>> = Mutex::new(None);
+
+/// Pre-initialize a clean default-consensus RocksDB (`data/db`) once per runner
+/// invocation so subsequent default-spec nodes can CoW-clone it instead of
+/// repeating genesis DB initialization hundreds of times.
+pub(crate) fn prepare_genesis_db_seed() {
+    let mut guard = GENESIS_DB_SEED.lock().expect("lock genesis db seed");
+    if guard.is_some() {
+        return;
+    }
+    let mut seed_node = Node::new("genesis_seed", "template");
+    seed_node.start();
+    seed_node.stop_gracefully();
+    let working_dir = seed_node.working_dir();
+    let db_dir = working_dir.join("data/db");
+    if db_dir.is_dir() {
+        // Remove any residual LOCK file and non-DB directories so only clean genesis DB remains.
+        let _ = fs::remove_file(db_dir.join("LOCK"));
+        let _ = fs::remove_dir_all(working_dir.join("data/network"));
+        let _ = fs::remove_dir_all(working_dir.join("data/logs"));
+        let _ = fs::remove_dir_all(working_dir.join("data/tx_pool"));
+        let _ = fs::remove_dir_all(working_dir.join("data/indexer"));
+        let _ = fs::remove_dir_all(working_dir.join("data/freezer"));
+        *guard = Some(seed_node.owned_working_dir());
+    }
+}
+
+/// Remove the shared genesis DB seed directory cleanly at runner shutdown.
+pub(crate) fn cleanup_genesis_db_seed() {
+    if let Ok(mut guard) = GENESIS_DB_SEED.lock() {
+        guard.take();
+    }
+}
+
+fn clone_genesis_db_if_available(target_working_dir: &Path) {
+    let target_db = target_working_dir.join("data/db");
+    if target_db.exists() {
+        return;
+    }
+    let seed_db = {
+        let Ok(guard) = GENESIS_DB_SEED.lock() else {
+            return;
+        };
+        let Some(root) = guard.as_ref() else {
+            return;
+        };
+        root.path().join("data/db")
+    };
+    if !seed_db.is_dir() {
+        return;
+    }
+    let target_data = target_working_dir.join("data");
+    if fs::create_dir_all(&target_data).is_err() {
+        return;
+    }
+
+    // Prefer OS-native copy-on-write clones when supported, falling back to plain file copy.
+    #[cfg(target_os = "macos")]
+    {
+        if Command::new("cp")
+            .args(["-cR"])
+            .arg(&seed_db)
+            .arg(&target_db)
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .status()
+            .is_ok_and(|s| s.success())
+        {
+            return;
+        }
+    }
+    #[cfg(target_os = "linux")]
+    {
+        if Command::new("cp")
+            .args(["-a", "--reflink=auto"])
+            .arg(&seed_db)
+            .arg(&target_db)
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .status()
+            .is_ok_and(|s| s.success())
+        {
+            return;
+        }
+    }
+
+    if copy_dir_recursive(&seed_db, &target_db).is_err() {
+        let _ = fs::remove_dir_all(&target_db);
+    }
+}
+
+fn copy_dir_recursive(src: &Path, dst: &Path) -> io::Result<()> {
+    fs::create_dir_all(dst)?;
+    for entry in fs::read_dir(src)? {
+        let entry = entry?;
+        let file_name = entry.file_name();
+        if file_name == "LOCK" {
+            continue;
+        }
+        let src_path = entry.path();
+        let dst_path = dst.join(file_name);
+        if entry.file_type()?.is_dir() {
+            copy_dir_recursive(&src_path, &dst_path)?;
+        } else {
+            fs::copy(&src_path, &dst_path)?;
+        }
+    }
+    Ok(())
+}
 
 struct TemplateAssets {
     ckb_toml_raw: Vec<u8>,
@@ -1025,6 +1135,12 @@ impl Node {
 
     pub fn start(&mut self) {
         let working_dir = self.working_dir();
+        if Arc::ptr_eq(
+            &self.inner.consensus,
+            &TemplateAssets::get().default_consensus,
+        ) {
+            clone_genesis_db_if_available(&working_dir);
+        }
         let args = ["-C", &working_dir.to_string_lossy(), "run", "--ba-advanced"];
         let binary = binary();
 
@@ -1309,17 +1425,20 @@ impl Node {
         debug!("accessed db done");
     }
 
-    #[allow(unused_mut)]
     pub fn stop_gracefully(&mut self) {
         let guard = self.take_guard();
         if let Some(mut guard) = guard
             && !guard.killed
         {
-            // on nix: send SIGINT to the child
-            // on windows: don't kill gracefully..... fix later
             #[cfg(not(target_os = "windows"))]
             {
                 Self::kill_gracefully(guard.child.id());
+                let _ = guard.child.wait();
+                guard.killed = true;
+            }
+            #[cfg(target_os = "windows")]
+            {
+                let _ = guard.child.kill();
                 let _ = guard.child.wait();
                 guard.killed = true;
             }

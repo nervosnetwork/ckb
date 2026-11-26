@@ -1,3 +1,4 @@
+use crate::logger::{SpecLogGuard, read_runner_log_path};
 use crate::utils::{SpecRunDirGuard, TempPathBuf, nodes_panicked};
 use crate::{Node, Spec, extract_panic_message, format_duration};
 use ckb_channel::{Receiver, Sender, unbounded};
@@ -84,6 +85,7 @@ pub enum Notify {
         duration: Duration,
         spec_dir: TempPathBuf,
         report_path: Option<PathBuf>,
+        runner_log_path: Option<PathBuf>,
         node_log_paths: Vec<PathBuf>,
         node_paths: Vec<TempPathBuf>,
     },
@@ -93,6 +95,7 @@ pub enum Notify {
         duration: Duration,
         spec_dir: TempPathBuf,
         report_path: Option<PathBuf>,
+        runner_log_path: Option<PathBuf>,
         node_log_paths: Vec<PathBuf>,
         node_paths: Vec<TempPathBuf>,
     },
@@ -243,6 +246,7 @@ impl Worker {
         }
 
         let _dir_guard = SpecRunDirGuard::enter(spec_dir_path.clone());
+        let _log_guard = SpecLogGuard::enter(&spec_dir_path.join("runner.log"));
 
         let setup_result = panic::catch_unwind(panic::AssertUnwindSafe(|| spec.before_run()));
         let mut nodes = match setup_result {
@@ -253,11 +257,14 @@ impl Worker {
                         "{} setup failed at {} attempt, retry...",
                         task.display_name, retried
                     );
+                    drop(_log_guard);
                     drop(_dir_guard);
                     drop(spec_dir);
                     self.run_spec(task, retried + 1);
                 } else {
                     let duration = now.elapsed();
+                    drop(_log_guard);
+                    let runner_log_path = read_runner_log_path(&spec_dir_path);
                     let node_log_paths = discover_spec_log_paths(&spec_dir_path, &[]);
                     let reason = extract_panic_message(spec_error.as_ref());
                     let report_path = write_failure_report(
@@ -267,6 +274,7 @@ impl Worker {
                         duration,
                         &reason,
                         &[],
+                        runner_log_path.as_deref(),
                         &node_log_paths,
                         &self.config,
                     );
@@ -279,6 +287,7 @@ impl Worker {
                             duration,
                             spec_dir,
                             report_path,
+                            runner_log_path,
                             node_log_paths,
                             node_paths: Vec::new(),
                         })
@@ -309,11 +318,14 @@ impl Worker {
                 task.display_name, retried
             );
             drop(nodes);
+            drop(_log_guard);
             drop(_dir_guard);
             drop(spec_dir);
             self.run_spec(task, retried + 1);
         } else if panicked_error || spec_error.is_some() {
             let duration = now.elapsed();
+            drop(_log_guard);
+            let runner_log_path = read_runner_log_path(&spec_dir_path);
             let status_label = if panicked_error { "PANICKED" } else { "FAILED" };
             let reason = spec_error
                 .as_deref()
@@ -328,6 +340,7 @@ impl Worker {
                 duration,
                 &reason,
                 &nodes,
+                runner_log_path.as_deref(),
                 &node_log_paths,
                 &self.config,
             );
@@ -354,6 +367,7 @@ impl Worker {
                         duration,
                         spec_dir,
                         report_path,
+                        runner_log_path,
                         node_log_paths,
                         node_paths,
                     })
@@ -367,6 +381,7 @@ impl Worker {
                         duration,
                         spec_dir,
                         report_path,
+                        runner_log_path,
                         node_log_paths,
                         node_paths,
                     })
@@ -376,6 +391,7 @@ impl Worker {
             let duration = now.elapsed();
             // Stop child processes cleanly BEFORE coordinator deletes `spec_dir`.
             drop(nodes);
+            drop(_log_guard);
             drop(_dir_guard);
             outbox
                 .send(Notify::Done {
@@ -422,6 +438,7 @@ fn write_failure_report(
     duration: Duration,
     reason: &str,
     nodes: &[Node],
+    runner_log_path: Option<&Path>,
     node_log_paths: &[PathBuf],
     config: &WorkerConfig,
 ) -> Option<PathBuf> {
@@ -433,12 +450,32 @@ fn write_failure_report(
     let _ = writeln!(out, "Duration: {}", format_duration(duration));
     let _ = writeln!(out, "Seed:     {}", config.seed);
     let _ = writeln!(out, "Dir:      {}", spec_dir.display());
+    if let Some(runner_log) = runner_log_path {
+        let _ = writeln!(out, "Runner:   {}", runner_log.display());
+    }
     let _ = writeln!(
         out,
         "Repro:    {} --seed {} --verbose --keep-tmp-data {}",
         config.rerun_cmd_prefix, config.seed, task.base_name
     );
     let _ = writeln!(out, "\n--- Failure Reason ---\n{reason}");
+
+    if let Some(runner_log) = runner_log_path
+        && let Ok(content) = fs::read_to_string(runner_log)
+        && !content.is_empty()
+    {
+        let lines: Vec<&str> = content.lines().collect();
+        let tail_start = lines.len().saturating_sub(120);
+        let _ = writeln!(
+            out,
+            "\n--- Spec Runner Log (last {} of {} lines) ---",
+            lines.len() - tail_start,
+            lines.len()
+        );
+        for (offset, line) in lines[tail_start..].iter().enumerate() {
+            let _ = writeln!(out, "  L{}: {line}", tail_start + offset + 1);
+        }
+    }
 
     if !nodes.is_empty() {
         let _ = writeln!(out, "\n--- Live Node Snapshots ({}) ---", nodes.len());

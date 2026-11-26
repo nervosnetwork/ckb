@@ -5,6 +5,7 @@ extern crate core;
 pub mod assertion;
 pub mod generic;
 pub mod global;
+mod logger;
 mod net;
 mod node;
 mod rpc;
@@ -67,7 +68,14 @@ struct TestResult {
     detail: Option<String>,
     spec_dir: Option<PathBuf>,
     report_path: Option<PathBuf>,
+    runner_log_path: Option<PathBuf>,
     node_log_paths: Vec<PathBuf>,
+}
+
+fn default_concurrency() -> usize {
+    std::thread::available_parallelism()
+        .map(|n| (n.get() / 2).clamp(4, 8))
+        .unwrap_or(4)
 }
 
 struct RunningSpec {
@@ -163,7 +171,14 @@ pub fn main_test() {
     }
     let max_time = matches.get_one::<u64>("max-time").cloned().unwrap();
     let spec_timeout = matches.get_one::<u64>("spec-timeout").cloned().unwrap();
-    let worker_count = matches.get_one::<usize>("concurrent").cloned().unwrap();
+    let worker_count = matches
+        .get_one::<usize>("concurrent")
+        .copied()
+        .unwrap_or_else(default_concurrency);
+    if worker_count == 0 {
+        eprintln!("--concurrent must be >= 1");
+        std::process::exit(1);
+    }
     let vendor = matches
         .get_one::<PathBuf>("vendor")
         .cloned()
@@ -176,7 +191,7 @@ pub fn main_test() {
     let pause_on_fail = matches.get_flag("pause-on-fail");
     let verbose = matches.get_flag("verbose");
 
-    let logger_guard = {
+    {
         let filter = if !verbose {
             env::var("RUST_LOG").unwrap_or_else(|_| {
                 "warn,ckb_network=error,ckb_test=warn,ckb_test::progress=info".to_string()
@@ -188,31 +203,15 @@ pub fn main_test() {
                 module_path!(),
             )
         };
-        let mut logger_config = ckb_logger_config::Config {
-            filter: Some(filter),
-            ..Default::default()
-        };
-        if let Some(log_file) = log_file_opt {
-            let full_log_file = if log_file.is_relative() {
+        let full_log_file = log_file_opt.map(|log_file| {
+            if log_file.is_relative() {
                 current_dir().join(log_file)
             } else {
                 log_file
-            };
-            logger_config.file = full_log_file
-                .file_name()
-                .map(|name| Path::new(name).to_path_buf())
-                .unwrap_or_else(|| panic!("failed to get the filename for log_file"));
-            logger_config.log_dir = full_log_file
-                .parent()
-                .map(Path::to_path_buf)
-                .unwrap_or_else(|| panic!("failed to get the parent path for log_file"));
-            logger_config.log_to_file = true;
-        } else {
-            logger_config.log_to_file = false;
-        }
-        ckb_logger_service::init(None, logger_config, None)
-            .unwrap_or_else(|err| panic!("failed to init the logger service since {err}"))
-    };
+            }
+        });
+        logger::init_test_logger(&filter, full_log_file.as_deref());
+    }
 
     if matches.get_flag("list-specs") {
         list_specs(spec_filter, shard);
@@ -324,6 +323,9 @@ pub fn main_test() {
         pause_on_fail,
         rerun_cmd_prefix: rerun_cmd_prefix.clone(),
     };
+    if total >= 6 {
+        node::prepare_genesis_db_seed();
+    }
     let mut workers = Workers::new(worker_count, Arc::clone(&specs), notify_tx, worker_config);
     workers.start();
 
@@ -434,6 +436,7 @@ pub fn main_test() {
                 duration,
                 spec_dir,
                 report_path,
+                runner_log_path,
                 node_log_paths,
                 node_paths,
             } => {
@@ -460,6 +463,7 @@ pub fn main_test() {
                     detail: Some(reason),
                     spec_dir: Some(preserved_dir),
                     report_path,
+                    runner_log_path,
                     node_log_paths: node_log_paths.clone(),
                 });
                 error_spec_names.push(base_name.clone());
@@ -481,6 +485,7 @@ pub fn main_test() {
                 duration,
                 spec_dir,
                 report_path,
+                runner_log_path,
                 node_log_paths,
                 node_paths,
             } => {
@@ -505,6 +510,7 @@ pub fn main_test() {
                     detail: Some("ckb node process panicked (check node log)".to_string()),
                     spec_dir: Some(preserved_dir),
                     report_path,
+                    runner_log_path,
                     node_log_paths: node_log_paths.clone(),
                 });
                 error_spec_names.push(base_name.clone());
@@ -533,6 +539,7 @@ pub fn main_test() {
                     detail: None,
                     spec_dir: None,
                     report_path: None,
+                    runner_log_path: None,
                     node_log_paths: Vec::new(),
                 });
                 remove_running_spec(&running_specs, &spec_name);
@@ -582,12 +589,14 @@ pub fn main_test() {
         if let Some(json_path) = json_report_opt.as_deref() {
             write_json_report(json_path, &test_results, total_elapsed, seed);
         }
+        node::cleanup_genesis_db_seed();
         log::logger().flush();
         std::process::exit(1);
     }
 
     // join all workers threads
     workers.join_all();
+    node::cleanup_genesis_db_seed();
 
     if max_time > 0 && total_elapsed.as_secs() > max_time {
         error!(
@@ -598,9 +607,7 @@ pub fn main_test() {
         );
     }
 
-    // Drop `logger_guard` once here to flush and stop the async logger thread cleanly
-    // before printing the final report so log lines never interleave with stdout tables.
-    drop(logger_guard);
+    log::logger().flush();
 
     if report {
         print_results(&mut test_results, total_elapsed, seed, repeat);
@@ -733,8 +740,7 @@ fn clap_app() -> Command {
                 .long("concurrent")
                 .action(clap::ArgAction::Set)
                 .value_parser(clap::value_parser!(usize))
-                .help("The number of specs can running concurrently")
-                .default_value("4"),
+                .help("The number of specs that can run concurrently (default: half of CPU cores, clamped to 4..=8)"),
         )
         .arg(
             Arg::new("verbose")
@@ -921,8 +927,7 @@ fn all_specs() -> Vec<Box<dyn Spec>> {
         Box::new(TransactionRelayBasic),
         Box::new(TransactionRelayLowFeeRate),
         Box::new(TooManyUnknownTransactions),
-        // TODO failed on poor CI server
-        // Box::new(TransactionRelayMultiple),
+        Box::new(TransactionRelayMultiple),
         Box::new(RelayInvalidTransaction),
         Box::new(RelayInvalidTransactionResumable),
         Box::new(TransactionRelayTimeout),
@@ -1002,7 +1007,7 @@ fn all_specs() -> Vec<Box<dyn Spec>> {
         // asynchronous issues.
         Box::new(IBDProcess),
         Box::new(WhitelistOnSessionLimit),
-        // Box::new(IBDProcessWithWhiteList),
+        Box::new(IBDProcessWithWhiteList),
         Box::new(MalformedMessageWithWhitelist),
         // Box::new(InsufficientReward),
         Box::new(UncleInheritFromForkBlock),
@@ -1262,6 +1267,7 @@ fn write_json_report(path: &Path, test_results: &[TestResult], total_elapsed: Du
                 "detail": r.detail,
                 "spec_dir": r.spec_dir.as_ref().map(|p| p.display().to_string()),
                 "report_path": r.report_path.as_ref().map(|p| p.display().to_string()),
+                "runner_log_path": r.runner_log_path.as_ref().map(|p| p.display().to_string()),
                 "node_log_paths": r
                     .node_log_paths
                     .iter()
@@ -1334,6 +1340,11 @@ fn print_failures(test_results: &[TestResult]) {
             && report_path.exists()
         {
             println!("      report: {}", report_path.display());
+        }
+        if let Some(runner_log_path) = &result.runner_log_path
+            && runner_log_path.exists()
+        {
+            println!("      runner: {}", runner_log_path.display());
         }
         if let Some(spec_dir) = &result.spec_dir
             && spec_dir.exists()

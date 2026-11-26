@@ -17,7 +17,7 @@ env:
   RUST_BACKTRACE: full
   # Add -g to enable debug info in backtrace
   RUSTFLAGS: -D warnings -g
-  NUM_TEST_CHUNKS: 8
+  NUM_TEST_CHUNKS: 4
 jobs:
   build:
     name: Build binaries
@@ -73,7 +73,7 @@ jobs:
     strategy:
       fail-fast: true
       matrix:
-        chunk_index: [0, 1, 2, 3, 4, 5, 6, 7]
+        chunk_index: [0, 1, 2, 3]
     steps:
       - uses: actions/checkout@v6
         with:
@@ -109,11 +109,19 @@ jobs:
             ${{ github.workspace }}/target/release/ckb-test --bin ${{ github.workspace }}/target/release/ckb \
             --obfs4proxy-bin ${{ github.workspace }}/test/obfs4/obfs4proxy/obfs4proxy \
             --shard "${{ matrix.chunk_index }}/${{ env.NUM_TEST_CHUNKS }}" \
-            -c 3 --spec-timeout 300 --max-time 7200 \
+            -c 4 --spec-timeout 300 --max-time 7200 \
             --json-report "$REPORT_JSON"
         shell: bash
         env:
           CKB_FEATURES: deadlock_detection,with_sentry,portable
+      - name: Upload shard JSON report
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: ${{ runner.os }}_integration_report_chunk_${{ matrix.chunk_index }}
+          path: ${{ runner.temp }}/ckb-integration-test/report-chunk-${{ matrix.chunk_index }}.json
+          if-no-files-found: ignore
+          retention-days: 1
       - name: Publish shard summary
         if: always()
         run: |
@@ -139,6 +147,37 @@ jobs:
     if: ${{ always() && !cancelled() }}
     runs-on: ubuntu-latest
     steps:
+      - name: Download shard JSON reports
+        uses: actions/download-artifact@v7
+        with:
+          pattern: macOS_integration_report_chunk_*
+          path: shard-reports
+          merge-multiple: true
+        continue-on-error: true
+      - name: Publish aggregated integration summary
+        run: |
+          if compgen -G "shard-reports/report-chunk-*.json" > /dev/null && command -v jq >/dev/null 2>&1; then
+            {
+              echo "## macOS Integration Test Summary"
+              jq -s -r '
+                def r1: .*10 | round / 10;
+                def r2: .*100 | round / 100;
+                {
+                  total: (map(.total) | add),
+                  passed: (map(.passed) | add),
+                  failed: (map(.failed) | add),
+                  panicked: (map(.panicked) | add),
+                  max_wall: (map(.wall_secs) | max),
+                  cum: (map(.cumulative_secs) | add),
+                  specs: (map(.specs[]) | sort_by(-.duration_secs))
+                } |
+                "- **Total**: \(.passed) passed, \(.failed) failed, \(.panicked) panicked (\(.total) specs)\n- **Slowest shard wall**: \(.max_wall | r1)s | **Total cumulative**: \(.cum | r1)s\n\n### Top 10 Slowest Specs\n| Spec | Status | Duration |\n| --- | --- | ---: |\n" +
+                ([.specs[:10][] | "| `\(.name)` | \(.status) | \(.duration_secs | r2)s |"] | join("\n")) +
+                (if (.failed + .panicked) > 0 then "\n\n### Failures\n" + ([.specs[] | select(.status != "Passed") | "- [\(.status)] `\(.name)` (\(.duration_secs | r2)s): \(.detail // "unknown")"] | join("\n")) else "" end)
+              ' shard-reports/report-chunk-*.json
+            } >> "$GITHUB_STEP_SUMMARY"
+          fi
+        shell: bash
       - name: Check test chunks result
         run: |
           if [ "${{ needs.test.result }}" != "success" ]; then

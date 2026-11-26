@@ -58,10 +58,11 @@ impl Spec for TransactionRelayMultiple {
     crate::setup!(num_nodes: 5);
 
     fn run(&self, nodes: &mut Vec<Node>) {
-        connect_all(nodes);
-
+        // Bring all 5 nodes out of IBD/bootstrap first so `connect_all` does not hit IBD eviction.
+        out_bootstrap_period(nodes);
         let node0 = &nodes[0];
         let cells = gen_spendable(node0, 10);
+        connect_all(nodes);
         waiting_for_sync(nodes);
         wait_relay_protocols_connected(nodes);
 

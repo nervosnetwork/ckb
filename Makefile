@@ -5,12 +5,12 @@ MOLC_VERSION := 0.9.2
 VERBOSE := $(if ${CI},--verbose,)
 CLIPPY_OPTS := -D warnings -D clippy::clone_on_ref_ptr -D clippy::redundant_clone -D clippy::enum_glob_use -D clippy::fallible_impl_from \
 	-A clippy::mutable_key_type -A clippy::upper_case_acronyms -A clippy::needless_return
-CKB_TEST_ARGS := -c 4 ${CKB_TEST_ARGS}
+CKB_TEST_ARGS ?=
 CKB_FEATURES ?= deadlock_detection,with_sentry
 ALL_FEATURES := deadlock_detection,with_sentry,with_dns_seeding,profiling,march-native
 CKB_BENCH_FEATURES ?= ci
 CKB_BUILD_TARGET ?=
-INTEGRATION_RUST_LOG := info,ckb_test=debug,ckb_sync=debug,ckb_relay=debug,ckb_network=debug
+INTEGRATION_RUST_LOG ?=
 CARGO_TARGET_DIR ?= $(shell pwd)/target
 BINARY_NAME ?= ckb
 COV_PROFRAW_DIR = ${CARGO_TARGET_DIR}/cov
@@ -83,13 +83,13 @@ integration: integration-release
 .PHONY: integration-release
 integration-release: submodule-init
 	cargo build --locked --bin ckb ${VERBOSE} --release --features "deadlock_detection"
-	RUST_BACKTRACE=1 RUST_LOG=${INTEGRATION_RUST_LOG} cargo run -p ckb-test --features "deadlock_detection" --release -- --bin '${CARGO_TARGET_DIR}/release/${BINARY_NAME}' ${CKB_TEST_ARGS}
+	RUST_BACKTRACE=1 ${INTEGRATION_RUST_LOG:+RUST_LOG=${INTEGRATION_RUST_LOG}} cargo run -p ckb-test --features "deadlock_detection" --release -- --bin '${CARGO_TARGET_DIR}/release/${BINARY_NAME}' ${CKB_TEST_ARGS}
 
 .PHONY: integration-cov
 integration-cov: cov-install-tools submodule-init ## Run integration tests and generate coverage report.
 	mkdir -p "${COV_PROFRAW_DIR}"; rm -f "${COV_PROFRAW_DIR}/*.profraw"
 	RUSTFLAGS="-Zinstrument-coverage" LLVM_PROFILE_FILE="${COV_PROFRAW_DIR}/ckb-cov-%p-%m.profraw" cargo +nightly-2022-03-22 build --bin ckb --features deadlock_detection
-	RUST_BACKTRACE=1 RUST_LOG=${INTEGRATION_RUST_LOG} cargo run -p ckb-test --features "deadlock_detection" -- --bin '${CARGO_TARGET_DIR}/debug/${BINARY_NAME}' ${CKB_TEST_ARGS}
+	RUST_BACKTRACE=1 ${INTEGRATION_RUST_LOG:+RUST_LOG=${INTEGRATION_RUST_LOG}} cargo run -p ckb-test --features "deadlock_detection" -- --bin '${CARGO_TARGET_DIR}/debug/${BINARY_NAME}' ${CKB_TEST_ARGS}
 	GRCOV_OUTPUT=lcov-integration-test.info make cov-collect-data
 
 ##@ Document

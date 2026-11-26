@@ -130,7 +130,7 @@ impl Spec for IBDProcessWithWhiteList {
             let header2 = rpc_client2.get_tip_header();
 
             header1.inner.number.value() == 0
-                && header1 == header2
+                && header1 != header2
                 && header2.inner.number.value() == 2
                 && header0 == header2
         });
