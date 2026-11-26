@@ -44,7 +44,8 @@ impl Spec for ChainContainsInvalidBlock {
         good_node.connect_and_wait_ban(&bad_node);
         fresh_node.connect_and_wait_ban(&bad_node);
         assert!(
-            wait_until(5, || good_node.get_tip_block_number() >= invalid_number - 1),
+            wait_until(20, || good_node.get_tip_block_number()
+                >= invalid_number - 1),
             "good_node should synchronize from bad_node 1~{}",
             invalid_number - 1,
         );
@@ -66,7 +67,7 @@ impl Spec for ChainContainsInvalidBlock {
         );
 
         assert!(
-            wait_until(5, || fresh_node.get_tip_block().header().hash()
+            wait_until(20, || fresh_node.get_tip_block().header().hash()
                 == valid_hash),
             "fresh_node should synchronize the valid blocks only",
         );

@@ -1,4 +1,4 @@
-use crate::global::PORT_COUNTER;
+use crate::global::{PORT_COUNTER, PORT_RANGE_END, PORT_RANGE_LEN, PORT_RANGE_START};
 use crate::util::check::is_transaction_committed;
 use crate::{Node, TXOSet};
 use ckb_network::bytes::Bytes;
@@ -463,8 +463,20 @@ pub fn now_ms() -> u64 {
 }
 
 pub fn find_available_port() -> u16 {
-    for _ in 0..2000 {
-        let port = PORT_COUNTER.fetch_add(1, SeqCst);
+    for _ in 0..PORT_RANGE_LEN {
+        let port = PORT_COUNTER
+            .fetch_update(SeqCst, SeqCst, |cur| {
+                let next = cur.wrapping_add(1);
+                Some(if !(PORT_RANGE_START..PORT_RANGE_END).contains(&next) {
+                    PORT_RANGE_START
+                } else {
+                    next
+                })
+            })
+            .expect("PORT_COUNTER update always succeeds");
+        if port < 1024 {
+            continue;
+        }
         let address = SocketAddrV4::new(Ipv4Addr::LOCALHOST, port);
         if TcpListener::bind(address).is_ok() {
             return port;
@@ -552,5 +564,18 @@ mod tests {
             adaptive_poll_interval(100, 10, 100),
             Duration::from_millis(100)
         );
+    }
+
+    #[test]
+    fn find_available_port_stays_in_non_ephemeral_band() {
+        let mut seen = std::collections::HashSet::new();
+        for _ in 0..32 {
+            let port = find_available_port();
+            assert!(
+                (PORT_RANGE_START..PORT_RANGE_START + PORT_RANGE_LEN).contains(&port),
+                "allocated port {port} outside safe non-ephemeral band"
+            );
+            assert!(seen.insert(port), "duplicate port allocated: {port}");
+        }
     }
 }

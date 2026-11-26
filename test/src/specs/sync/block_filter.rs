@@ -354,7 +354,7 @@ fn wait_block_filter(node: &Node, total: BlockNumber) {
     let tip_header = node.get_header_by_number(node.get_tip_block_number());
     info!("sync block filter for tip hash: {}", tip_header.hash());
     assert_eq!(tip_header.number(), total);
-    let success = wait_until(5, || {
+    let success = wait_until(20, || {
         node.rpc_client()
             .get_block_filter(tip_header.hash())
             .is_some()

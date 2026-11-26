@@ -147,7 +147,7 @@ pub fn main_test() {
         .get_one::<PathBuf>("obfs4proxy-bin")
         .cloned()
         .unwrap();
-    let start_port = matches.get_one::<u16>("port").cloned().unwrap();
+    let start_port = matches.get_one::<u16>("port").copied();
     let spec_names_to_run: Vec<_> = matches
         .get_many::<String>("specs")
         .unwrap_or_default()
@@ -221,7 +221,9 @@ pub fn main_test() {
     *BINARY_PATH.lock() = binary;
     *OBFS4PROXY_BINARY_PATH.lock() = obfs4proxy_binary;
     *VENDOR_PATH.lock() = vendor;
-    PORT_COUNTER.store(start_port, Ordering::SeqCst);
+    if let Some(start_port) = start_port {
+        PORT_COUNTER.store(start_port, Ordering::SeqCst);
+    }
 
     let mut rng = StdRng::seed_from_u64(seed);
     let selected_base = select_specs(all_specs(), &spec_names_to_run, spec_filter, shard);
@@ -250,13 +252,25 @@ pub fn main_test() {
     specs.sort_by_key(|task| spec_schedule_weight(&task.base_name));
 
     let running_specs: Arc<Mutex<Vec<RunningSpec>>> = Arc::new(Mutex::new(Vec::new()));
-    let rerun_cmd_prefix = format!(
-        "{} --bin {} --obfs4proxy-bin {} --port {}",
-        canonicalize_path(env::args().next().unwrap_or_else(|| "ckb-test".to_string())).display(),
-        canonicalize_path(global::binary()).display(),
-        canonicalize_path(global::obfs4proxy_binary()).display(),
-        start_port,
-    );
+    let effective_start_port = PORT_COUNTER.load(Ordering::SeqCst);
+    let rerun_cmd_prefix = if let Some(port) = start_port {
+        format!(
+            "{} --bin {} --obfs4proxy-bin {} --port {}",
+            canonicalize_path(env::args().next().unwrap_or_else(|| "ckb-test".to_string()))
+                .display(),
+            canonicalize_path(global::binary()).display(),
+            canonicalize_path(global::obfs4proxy_binary()).display(),
+            port,
+        )
+    } else {
+        format!(
+            "{} --bin {} --obfs4proxy-bin {}",
+            canonicalize_path(env::args().next().unwrap_or_else(|| "ckb-test".to_string()))
+                .display(),
+            canonicalize_path(global::binary()).display(),
+            canonicalize_path(global::obfs4proxy_binary()).display(),
+        )
+    };
 
     let total = specs.len();
     let worker_count = min(worker_count, total);
@@ -274,7 +288,7 @@ pub fn main_test() {
         total,
         worker_count,
         seed,
-        PORT_COUNTER.load(Ordering::SeqCst),
+        effective_start_port,
         repeat,
         max_time,
         shard_desc,
@@ -676,8 +690,7 @@ fn clap_app() -> Command {
                 .long("port")
                 .action(clap::ArgAction::Set)
                 .value_parser(clap::value_parser!(u16))
-                .help("Starting port number used to start ckb nodes")
-                .default_value("9000"),
+                .help("Starting port number used to start ckb nodes (default: PID-spread in 10000..30000)"),
         )
         .arg(
             Arg::new("max-time")
@@ -1003,8 +1016,6 @@ fn all_specs() -> Vec<Box<dyn Spec>> {
             ScriptHashType::Type,
         )),
         Box::<crate::specs::CheckTypical2In2OutTx>::default(),
-        // TODO These cases will fail occasionally because of some unknown
-        // asynchronous issues.
         Box::new(IBDProcess),
         Box::new(WhitelistOnSessionLimit),
         Box::new(IBDProcessWithWhiteList),

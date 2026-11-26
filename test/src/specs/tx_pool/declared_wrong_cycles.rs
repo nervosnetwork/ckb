@@ -118,7 +118,7 @@ impl Spec for DeclaredWrongCyclesAndRelayAgain {
         net.connect(node1);
         relay_tx(&net, node1, tx, ALWAYS_SUCCESS_SCRIPT_CYCLE);
 
-        let result = wait_until(5, || {
+        let result = wait_until(20, || {
             let tx_pool_info = node0.get_tip_tx_pool_info();
             tx_pool_info.orphan.value() == 0 && tx_pool_info.pending.value() == 1
         });

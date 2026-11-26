@@ -35,8 +35,12 @@ macro_rules! jsonrpc {
                     req_json.insert("method".to_owned(), serde_json::json!(method));
                     req_json.insert("params".to_owned(), params);
 
-                    let resp = $self.client.post($self.url.clone()).json(&req_json).send()?;
-                    let output = resp.json::<jsonrpc_core::response::Output>()?;
+                    let output = $crate::rpc::send_jsonrpc_request(
+                        $self.client,
+                        &$self.url,
+                        &method,
+                        &req_json,
+                    )?;
                     match output {
                         jsonrpc_core::response::Output::Success(success) => {
                             serde_json::from_value(success.result).map_err(Into::into)

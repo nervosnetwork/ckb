@@ -12,8 +12,16 @@ pub static VENDOR_PATH: std::sync::LazyLock<Mutex<PathBuf>> = std::sync::LazyLoc
         .join("vendor");
     Mutex::new(default)
 });
-pub static PORT_COUNTER: std::sync::LazyLock<AtomicU16> =
-    std::sync::LazyLock::new(|| AtomicU16::new(9000));
+pub const PORT_RANGE_START: u16 = 10_000;
+pub const PORT_RANGE_LEN: u16 = 20_000;
+pub const PORT_RANGE_END: u16 = PORT_RANGE_START + PORT_RANGE_LEN;
+
+pub static PORT_COUNTER: std::sync::LazyLock<AtomicU16> = std::sync::LazyLock::new(|| {
+    // Spread starting port across concurrent ckb-test invocations while staying
+    // strictly below OS ephemeral port ranges (32768+ on Linux, 49152+ on macOS/Windows).
+    let offset = ((std::process::id() as u32).wrapping_mul(137) % u32::from(PORT_RANGE_LEN)) as u16;
+    AtomicU16::new(PORT_RANGE_START + offset)
+});
 
 pub fn binary() -> PathBuf {
     (*BINARY_PATH.lock()).clone()

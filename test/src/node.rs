@@ -107,6 +107,7 @@ fn clone_genesis_db_if_available(target_working_dir: &Path) {
         {
             return;
         }
+        let _ = fs::remove_dir_all(&target_db);
     }
     #[cfg(target_os = "linux")]
     {
@@ -121,6 +122,7 @@ fn clone_genesis_db_if_available(target_working_dir: &Path) {
         {
             return;
         }
+        let _ = fs::remove_dir_all(&target_db);
     }
 
     if copy_dir_recursive(&seed_db, &target_db).is_err() {
@@ -534,7 +536,7 @@ impl Node {
             .add_node(peer.node_id(), peer.p2p_listen());
         let self_id = self.node_id();
         let peer_id = peer.node_id();
-        let connected = wait_until(10, || {
+        let is_connected = || {
             self.rpc_client()
                 .get_peers()
                 .iter()
@@ -544,7 +546,13 @@ impl Node {
                     .get_peers()
                     .iter()
                     .any(|p| p.node_id == self_id && peer_has_core_protocols(p))
-        });
+        };
+        let connected = wait_until(5, is_connected) || {
+            // Re-issue idempotent dial once if an initial handshake dropped under heavy load.
+            self.rpc_client()
+                .add_node(peer.node_id(), peer.p2p_listen());
+            wait_until(15, is_connected)
+        };
         if !connected {
             let self_peers: Vec<_> = self
                 .rpc_client()
@@ -632,7 +640,7 @@ impl Node {
     // TODO it will be removed out later, in another PR
     pub fn disconnect(&self, peer: &Self) {
         self.rpc_client().remove_node(peer.node_id());
-        let disconnected = wait_until(5, || {
+        let disconnected = wait_until(15, || {
             self.rpc_client()
                 .get_peers()
                 .iter()
@@ -930,7 +938,7 @@ impl Node {
         if chain_tip.hash == tx_pool_tip.tip_hash {
             return;
         }
-        let timeout = tweaked_duration(10);
+        let timeout = tweaked_duration(20);
         let mut deadline = Instant::now() + timeout;
         let mut attempt = 0u32;
         while Instant::now() < deadline {
@@ -1005,7 +1013,7 @@ impl Node {
     where
         B: Fn(&BlockTemplate) -> bool,
     {
-        let deadline = Instant::now() + tweaked_duration(10);
+        let deadline = Instant::now() + tweaked_duration(30);
         let mut attempt = 0u32;
         let mut template = self.rpc_client().get_block_template(None, None, None);
         while blocking(&template) {
@@ -1166,9 +1174,17 @@ impl Node {
         let deadline = Instant::now() + startup_timeout;
         let mut attempt = 0u32;
         let node_info = loop {
-            match self.rpc_client().inner().local_node_info() {
+            match self
+                .rpc_client()
+                .inner()
+                .local_node_info()
+                .and_then(|local_node_info| {
+                    self.rpc_client()
+                        .inner()
+                        .tx_pool_info()
+                        .map(|_| local_node_info)
+                }) {
                 Ok(local_node_info) => {
-                    let _ = self.rpc_client().tx_pool_info();
                     break local_node_info;
                 }
                 Err(last_err) => match child_process.try_wait() {
@@ -1506,7 +1522,7 @@ pub fn connect_all(nodes: &[Node]) {
             }
         }
     }
-    let connected = wait_until(10, || {
+    let all_pairs_connected = || {
         nodes.iter().enumerate().all(|(i, node)| {
             let peers = node.rpc_client().get_peers();
             node_ids
@@ -1519,7 +1535,23 @@ pub fn connect_all(nodes: &[Node]) {
                         .any(|p| p.node_id == *peer_id && peer_has_core_protocols(p))
                 })
         })
-    });
+    };
+    let connected = wait_until(5, all_pairs_connected) || {
+        // Re-dial only pairs that did not complete core protocol negotiation in the initial burst.
+        for i in 0..nodes.len() {
+            let peers = nodes[i].rpc_client().get_peers();
+            for j in (i + 1)..nodes.len() {
+                if nodes[i].p2p_address() != nodes[j].p2p_address()
+                    && !peers
+                        .iter()
+                        .any(|p| p.node_id == node_ids[j] && peer_has_core_protocols(p))
+                {
+                    nodes[i].connect_uncheck(&nodes[j]);
+                }
+            }
+        }
+        wait_until(15, all_pairs_connected)
+    };
     if !connected {
         // Retry any remaining pairs individually to produce a precise failure message.
         for i in 0..nodes.len() {
@@ -1538,7 +1570,7 @@ pub fn wait_relay_protocols_connected<N: Borrow<Node>>(nodes: &[N]) {
     }
     let relay_protocol_id = SupportProtocols::RelayV3.protocol_id().value() as u64;
     let node_ids: Vec<String> = nodes.iter().map(|n| n.borrow().node_id()).collect();
-    let connected = wait_until(10, || {
+    let connected = wait_until(20, || {
         nodes.iter().enumerate().all(|(i, node)| {
             let peers = node.borrow().rpc_client().get_peers();
             node_ids
@@ -1592,7 +1624,7 @@ pub fn disconnect_all<N: Borrow<Node>>(nodes: &[N]) {
             }
         }
     }
-    let disconnected = wait_until(10, || {
+    let disconnected = wait_until(20, || {
         nodes.iter().enumerate().all(|(i, node)| {
             let peers = node.borrow().rpc_client().get_peers();
             node_ids

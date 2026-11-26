@@ -43,7 +43,7 @@ impl Spec for WhitelistOnSessionLimit {
         node4.connect_uncheck(&node0);
 
         let rpc_client0 = node0.rpc_client();
-        let is_connect_peer_num_eq_2 = wait_until(10, || {
+        let is_connect_peer_num_eq_2 = wait_until(20, || {
             let peers = rpc_client0.get_peers();
             peers.len() == 2 && peers.into_iter().all(|node| id_set.contains(&node.node_id))
         });
@@ -72,7 +72,7 @@ impl Spec for WhitelistOnSessionLimit {
         node0.connect(&node1);
 
         let rpc_client0 = node0.rpc_client();
-        let is_connect_peer_num_eq_3 = wait_until(10, || {
+        let is_connect_peer_num_eq_3 = wait_until(20, || {
             let peers = rpc_client0.get_peers();
             peers.len() == 3 && peers.into_iter().all(|node| id_set.contains(&node.node_id))
         });

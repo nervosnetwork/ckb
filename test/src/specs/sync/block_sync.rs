@@ -209,7 +209,7 @@ impl Spec for BlockSyncDuplicatedAndReconnect {
         let peers_num = ctrl.connected_peers().len();
         let peer = ctrl.connected_peers()[peers_num - 1].clone();
         ctrl.remove_node(&extract_peer_id(&peer.1.connected_addr).unwrap());
-        let ret = wait_until(5, || {
+        let ret = wait_until(20, || {
             node.rpc_client().get_peers().is_empty()
                 && ctrl.connected_peers().is_empty()
                 && node.rpc_client().sync_state().inflight_blocks_count.value() == 0

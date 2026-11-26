@@ -24,10 +24,71 @@ pub static HTTP_CLIENT: std::sync::LazyLock<reqwest::blocking::Client> =
             // runner; disable system/environment proxy discovery so localhost
             // traffic is never routed through an external proxy.
             .no_proxy()
+            // Evict idle keep-alive sockets promptly so restarted/stopped nodes
+            // rarely leave stale connections in the shared client pool.
+            .pool_idle_timeout(::std::time::Duration::from_secs(5))
             .timeout(::std::time::Duration::from_secs(30))
             .build()
             .expect("reqwest Client build")
     });
+
+pub(crate) fn is_idempotent_rpc_method(method: &str) -> bool {
+    method.starts_with("get_")
+        || matches!(
+            method,
+            "local_node_info"
+                | "tx_pool_info"
+                | "tx_pool_ready"
+                | "sync_state"
+                | "ping_peers"
+                | "add_node"
+                | "remove_node"
+                | "estimate_cycles"
+                | "clear_banned_addresses"
+                | "set_ban"
+        )
+}
+
+fn is_transient_stale_connection_error(err: &reqwest::Error) -> bool {
+    // Do not retry timeouts or connection-refused errors: startup polling relies
+    // on immediate ConnectionRefused feedback to detect crashed child processes.
+    if err.is_timeout() || err.is_connect() {
+        return false;
+    }
+    err.is_request() || err.is_body()
+}
+
+pub(crate) fn send_jsonrpc_request(
+    client: &reqwest::blocking::Client,
+    url: &reqwest::Url,
+    method: &str,
+    req_json: &serde_json::Map<String, serde_json::Value>,
+) -> Result<jsonrpc_core::response::Output, AnyError> {
+    let max_attempts = if is_idempotent_rpc_method(method) {
+        3
+    } else {
+        1
+    };
+    let mut attempt = 0usize;
+    loop {
+        attempt += 1;
+        match client.post(url.clone()).json(req_json).send() {
+            Ok(resp) => match resp.json::<jsonrpc_core::response::Output>() {
+                Ok(output) => return Ok(output),
+                Err(err) if attempt < max_attempts && is_transient_stale_connection_error(&err) => {
+                    std::thread::sleep(std::time::Duration::from_millis(25 * attempt as u64));
+                    continue;
+                }
+                Err(err) => return Err(err.into()),
+            },
+            Err(err) if attempt < max_attempts && is_transient_stale_connection_error(&err) => {
+                std::thread::sleep(std::time::Duration::from_millis(25 * attempt as u64));
+                continue;
+            }
+            Err(err) => return Err(err.into()),
+        }
+    }
+}
 
 static DIAGNOSTIC_HTTP_CLIENT: std::sync::LazyLock<reqwest::blocking::Client> =
     std::sync::LazyLock::new(|| {
@@ -440,3 +501,42 @@ jsonrpc!(
     pub fn tx_pool_ready(&self) -> bool;
     pub fn get_pool_tx_detail_info(&self, _hash: H256) -> PoolTxDetailInfo;
 });
+
+#[cfg(test)]
+mod tests {
+    use super::is_idempotent_rpc_method;
+
+    #[test]
+    fn idempotent_rpc_method_classification() {
+        for method in [
+            "get_tip_header",
+            "get_peers",
+            "get_transaction",
+            "local_node_info",
+            "tx_pool_info",
+            "tx_pool_ready",
+            "sync_state",
+            "add_node",
+            "remove_node",
+        ] {
+            assert!(
+                is_idempotent_rpc_method(method),
+                "{method} should be classified as idempotent"
+            );
+        }
+        for method in [
+            "send_transaction",
+            "submit_block",
+            "process_block_without_verify",
+            "remove_transaction",
+            "truncate",
+            "generate_block",
+            "notify_transaction",
+        ] {
+            assert!(
+                !is_idempotent_rpc_method(method),
+                "{method} must not be classified as idempotent"
+            );
+        }
+    }
+}

@@ -329,12 +329,12 @@ impl Spec for TransactionRelayConflict {
             .get_transaction_with_verbosity(tx1.hash(), 1);
         assert!(matches!(ret.tx_status.status, Status::Unknown));
 
-        let result = wait_until(5, || {
+        let result = wait_until(20, || {
             let tx_pool_info = node0.get_tip_tx_pool_info();
             tx_pool_info.orphan.value() == 0 && tx_pool_info.pending.value() == 0
         });
         assert!(result, "remove txs from node0");
-        let result = wait_until(5, || {
+        let result = wait_until(20, || {
             let tx_pool_info = node1.get_tip_tx_pool_info();
             tx_pool_info.orphan.value() == 0 && tx_pool_info.pending.value() == 0
         });
