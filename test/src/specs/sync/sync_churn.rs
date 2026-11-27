@@ -59,6 +59,7 @@ where
                 *slot = Some(payload);
             }
         }
+        drop(mine_step);
     });
 
     let restart_done_flag = Arc::clone(&restart_done);
@@ -84,6 +85,7 @@ where
                 *slot = Some(payload);
             }
         }
+        drop(restart_step);
     });
 
     let _ = mining_thread.join();
@@ -172,9 +174,8 @@ impl Spec for SyncChurn {
 #[cfg(test)]
 mod tests {
     use super::run_churn_loops;
-    use std::sync::Arc;
     use std::sync::atomic::{AtomicUsize, Ordering};
-    use std::time::Duration;
+    use std::sync::{Arc, mpsc};
 
     #[test]
     fn normal_mining_cap_still_completes_all_restarts() {
@@ -182,14 +183,24 @@ mod tests {
         let restarted = Arc::new(AtomicUsize::new(0));
         let mined_c = Arc::clone(&mined);
         let restarted_c = Arc::clone(&restarted);
+        let (mining_capped_tx, mining_capped_rx) = mpsc::channel::<()>();
 
         run_churn_loops(
             20,
             move || {
                 let n = mined_c.fetch_add(1, Ordering::SeqCst) + 1;
-                n < 3
+                if n >= 3 {
+                    let _ = mining_capped_tx.send(());
+                    return false;
+                }
+                true
             },
-            move |_| {
+            move |iter| {
+                if iter == 0 {
+                    // Wait until mining hits its block cap and exits normally, then verify
+                    // all 20 restarts still run to completion.
+                    let _ = mining_capped_rx.recv();
+                }
                 restarted_c.fetch_add(1, Ordering::SeqCst);
             },
         );
@@ -202,16 +213,19 @@ mod tests {
     fn restart_panic_stops_mining_promptly_and_forwards_error() {
         let mined = Arc::new(AtomicUsize::new(0));
         let mined_c = Arc::clone(&mined);
+        let (restart_done_tx, restart_done_rx) = mpsc::channel::<()>();
 
         let res = std::panic::catch_unwind(std::panic::AssertUnwindSafe(move || {
             run_churn_loops(
                 20,
                 move || {
                     let n = mined_c.fetch_add(1, Ordering::SeqCst) + 1;
-                    std::thread::sleep(Duration::from_millis(5));
+                    // Wait until restart thread has unwound and dropped its closure after setting abort.
+                    let _ = restart_done_rx.recv();
                     n < 1000
                 },
                 move |_| {
+                    let _keep = &restart_done_tx;
                     panic!("restart node crashed");
                 },
             );
@@ -223,8 +237,8 @@ mod tests {
             "restart node crashed"
         );
         assert!(
-            mined.load(Ordering::SeqCst) < 50,
-            "mining loop should stop promptly after restart panic, ran {} times",
+            mined.load(Ordering::SeqCst) <= 1,
+            "mining loop should stop immediately after restart panic, ran {} times",
             mined.load(Ordering::SeqCst)
         );
     }
@@ -233,16 +247,19 @@ mod tests {
     fn mining_panic_stops_restarts_promptly_and_forwards_error() {
         let restarted = Arc::new(AtomicUsize::new(0));
         let restarted_c = Arc::clone(&restarted);
+        let (mining_done_tx, mining_done_rx) = mpsc::channel::<()>();
 
         let res = std::panic::catch_unwind(std::panic::AssertUnwindSafe(move || {
             run_churn_loops(
                 20,
                 move || {
+                    let _keep = &mining_done_tx;
                     panic!("mining node crashed");
                 },
                 move |_| {
                     restarted_c.fetch_add(1, Ordering::SeqCst);
-                    std::thread::sleep(Duration::from_millis(5));
+                    // Wait until mining thread has unwound and dropped its closure after setting abort.
+                    let _ = mining_done_rx.recv();
                 },
             );
         }));
@@ -253,8 +270,8 @@ mod tests {
             "mining node crashed"
         );
         assert!(
-            restarted.load(Ordering::SeqCst) < 10,
-            "restart loop should stop promptly after mining panic, ran {} times",
+            restarted.load(Ordering::SeqCst) <= 1,
+            "restart loop should stop immediately after mining panic, ran {} times",
             restarted.load(Ordering::SeqCst)
         );
     }
