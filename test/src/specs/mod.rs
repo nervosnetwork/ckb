@@ -57,11 +57,7 @@ pub trait Spec: Send {
                 node.start();
             }
         } else {
-            std::thread::scope(|scope| {
-                for node in nodes.iter_mut() {
-                    scope.spawn(|| node.start());
-                }
-            });
+            crate::utils::run_in_spec_scope(nodes.iter_mut(), |node| node.start());
         }
         nodes
     }

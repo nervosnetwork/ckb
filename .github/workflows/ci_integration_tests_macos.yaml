@@ -129,7 +129,7 @@ jobs:
           if [ -f "$REPORT_JSON" ] && command -v jq >/dev/null 2>&1; then
             {
               echo "### macOS Chunk ${{ matrix.chunk_index }}/${{ env.NUM_TEST_CHUNKS }}"
-              jq -r '"- **Result**: \(.passed) passed, \(.failed) failed, \(.panicked) panicked (\(.total) total, seed=\(.seed))\n- **Elapsed**: \(.wall_secs | .*10 | round / 10)s wall | \(.cumulative_secs | .*10 | round / 10)s cumulative (\(.effective_concurrency | .*100 | round / 100)x concurrency)"' "$REPORT_JSON"
+              jq -r '"- **Result**: \(.passed) passed, \(.failed) failed, \(.panicked) panicked" + (if (.not_run // 0) > 0 then ", \(.not_run) not run (\(.completed // (.specs | length))/\(.selected // .total) completed" else " (\(.selected // .total) total" end) + ", seed=\(.seed))\n- **Elapsed**: \(.wall_secs | .*10 | round / 10)s wall | \(.cumulative_secs | .*10 | round / 10)s cumulative (\(.effective_concurrency | .*100 | round / 100)x concurrency)"' "$REPORT_JSON"
               jq -r 'if (.failed + .panicked) > 0 then "\n#### Failures\n" + ([.specs[] | select(.status != "Passed") | "- [\(.status)] `\(.name)` (\(.duration_secs | .*100 | round / 100)s): \(.detail // "unknown")"] | join("\n")) else "" end' "$REPORT_JSON"
             } >> "$GITHUB_STEP_SUMMARY"
           fi
@@ -163,7 +163,9 @@ jobs:
                 def r1: .*10 | round / 10;
                 def r2: .*100 | round / 100;
                 {
-                  total: (map(.total) | add),
+                  selected: (map(.selected // .total) | add),
+                  completed: (map(.completed // (.specs | length)) | add),
+                  not_run: (map(.not_run // 0) | add),
                   passed: (map(.passed) | add),
                   failed: (map(.failed) | add),
                   panicked: (map(.panicked) | add),
@@ -171,7 +173,7 @@ jobs:
                   cum: (map(.cumulative_secs) | add),
                   specs: (map(.specs[]) | sort_by(-.duration_secs))
                 } |
-                "- **Total**: \(.passed) passed, \(.failed) failed, \(.panicked) panicked (\(.total) specs)\n- **Slowest shard wall**: \(.max_wall | r1)s | **Total cumulative**: \(.cum | r1)s\n\n### Top 10 Slowest Specs\n| Spec | Status | Duration |\n| --- | --- | ---: |\n" +
+                "- **Total**: \(.passed) passed, \(.failed) failed, \(.panicked) panicked" + (if .not_run > 0 then ", \(.not_run) not run (\(.completed)/\(.selected) completed)" else " (\(.selected) specs)" end) + "\n- **Slowest shard wall**: \(.max_wall | r1)s | **Total cumulative**: \(.cum | r1)s\n\n### Top 10 Slowest Specs\n| Spec | Status | Duration |\n| --- | --- | ---: |\n" +
                 ([.specs[:10][] | "| `\(.name)` | \(.status) | \(.duration_secs | r2)s |"] | join("\n")) +
                 (if (.failed + .panicked) > 0 then "\n\n### Failures\n" + ([.specs[] | select(.status != "Passed") | "- [\(.status)] `\(.name)` (\(.duration_secs | r2)s): \(.detail // "unknown")"] | join("\n")) else "" end)
               ' shard-reports/report-chunk-*.json

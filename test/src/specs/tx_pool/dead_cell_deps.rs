@@ -161,20 +161,16 @@ impl Spec for CellBeingCellDepAndSpentInSameBlockTestGetBlockTemplateMultiple {
     fn run(&self, nodes: &mut Vec<Node>) {
         // Run all 10 independent nodes in parallel and deterministically cover
         // both weight orderings (5 with B weightier than C, 5 with C weightier than B).
-        std::thread::scope(|scope| {
-            for (index, node) in nodes.iter().enumerate() {
-                let b_weightier_than_c = index.is_multiple_of(2);
-                scope.spawn(move || {
-                    info!(
-                        "Run CellBeingCellDepAndSpentInSameBlockTestGetBlockTemplate on Node.{} (b_weightier_than_c={})",
-                        index, b_weightier_than_c
-                    );
-                    run_cell_being_cell_dep_and_spent_in_same_block_get_block_template(
-                        node,
-                        b_weightier_than_c,
-                    );
-                });
-            }
+        crate::utils::run_in_spec_scope(nodes.iter().enumerate(), |(index, node)| {
+            let b_weightier_than_c = index.is_multiple_of(2);
+            info!(
+                "Run CellBeingCellDepAndSpentInSameBlockTestGetBlockTemplate on Node.{} (b_weightier_than_c={})",
+                index, b_weightier_than_c
+            );
+            run_cell_being_cell_dep_and_spent_in_same_block_get_block_template(
+                node,
+                b_weightier_than_c,
+            );
         });
     }
 }

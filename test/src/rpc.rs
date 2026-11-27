@@ -46,7 +46,25 @@ fn is_transient_stale_connection_error(err: &reqwest::Error) -> bool {
     if err.is_timeout() || err.is_connect() {
         return false;
     }
-    err.is_request() || err.is_body()
+    if err.is_request() || err.is_body() {
+        return true;
+    }
+    let mut source: Option<&(dyn std::error::Error + 'static)> = std::error::Error::source(err);
+    while let Some(cause) = source {
+        if let Some(io_err) = cause.downcast_ref::<std::io::Error>()
+            && matches!(
+                io_err.kind(),
+                std::io::ErrorKind::UnexpectedEof
+                    | std::io::ErrorKind::ConnectionReset
+                    | std::io::ErrorKind::ConnectionAborted
+                    | std::io::ErrorKind::BrokenPipe
+            )
+        {
+            return true;
+        }
+        source = cause.source();
+    }
+    false
 }
 
 pub(crate) fn send_jsonrpc_request(
@@ -64,8 +82,13 @@ pub(crate) fn send_jsonrpc_request(
     loop {
         attempt += 1;
         match client.post(url.clone()).json(req_json).send() {
-            Ok(resp) => match resp.json::<jsonrpc_core::response::Output>() {
-                Ok(output) => return Ok(output),
+            Ok(resp) => match resp.bytes() {
+                Ok(body) => {
+                    // Full HTTP body read succeeded; parse JSON without retrying
+                    // malformed payloads.
+                    return serde_json::from_slice::<jsonrpc_core::response::Output>(&body)
+                        .map_err(Into::into);
+                }
                 Err(err) if attempt < max_attempts && is_transient_stale_connection_error(&err) => {
                     std::thread::sleep(std::time::Duration::from_millis(25 * attempt as u64));
                     continue;
@@ -495,7 +518,41 @@ jsonrpc!(
 
 #[cfg(test)]
 mod tests {
-    use super::is_read_only_rpc_method;
+    use super::{HTTP_CLIENT, is_read_only_rpc_method, send_jsonrpc_request};
+    use std::io::{Read, Write};
+    use std::net::TcpListener;
+    use std::sync::Arc;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
+    fn make_req(method: &str) -> serde_json::Map<String, serde_json::Value> {
+        let mut req = serde_json::Map::new();
+        req.insert("id".to_owned(), serde_json::json!(1));
+        req.insert("jsonrpc".to_owned(), serde_json::json!("2.0"));
+        req.insert("method".to_owned(), serde_json::json!(method));
+        req.insert("params".to_owned(), serde_json::Value::Null);
+        req
+    }
+
+    fn spawn_stub_http_server(
+        responses: Vec<&'static [u8]>,
+    ) -> (reqwest::Url, Arc<AtomicUsize>, std::thread::JoinHandle<()>) {
+        let listener = TcpListener::bind("127.0.0.1:0").expect("bind loopback");
+        let addr = listener.local_addr().unwrap();
+        let hits = Arc::new(AtomicUsize::new(0));
+        let hits_clone = Arc::clone(&hits);
+        let handle = std::thread::spawn(move || {
+            for payload in responses {
+                let (mut stream, _) = listener.accept().expect("accept");
+                hits_clone.fetch_add(1, Ordering::SeqCst);
+                let mut buf = [0u8; 1024];
+                let _ = stream.read(&mut buf);
+                let _ = stream.write_all(payload);
+                let _ = stream.flush();
+            }
+        });
+        let url = reqwest::Url::parse(&format!("http://{addr}/")).unwrap();
+        (url, hits, handle)
+    }
 
     #[test]
     fn read_only_rpc_method_classification() {
@@ -533,5 +590,72 @@ mod tests {
                 "{method} must not be retried automatically"
             );
         }
+    }
+
+    #[test]
+    fn read_only_rpc_retries_truncated_body_eof_but_not_invalid_json_or_writes() {
+        let truncated: &'static [u8] =
+            b"HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: 100\r\nConnection: close\r\n\r\n{\"jsonrpc\":\"2.0\",";
+        let truncated_chunked: &'static [u8] =
+            b"HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nTransfer-Encoding: chunked\r\nConnection: close\r\n\r\n20\r\n{\"jsonrpc\":\"2.0\",";
+        let valid_ok: &'static [u8] =
+            b"HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: 42\r\nConnection: close\r\n\r\n{\"jsonrpc\":\"2.0\",\"result\":\"0x1\",\"id\":1}   ";
+        let invalid_json: &'static [u8] =
+            b"HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: 11\r\nConnection: close\r\n\r\nnot-a-json!";
+
+        // 1. Read-only RPC retries Content-Length truncated body EOF and succeeds on attempt 2.
+        let (url, hits, handle) = spawn_stub_http_server(vec![truncated, valid_ok]);
+        let res = send_jsonrpc_request(
+            &HTTP_CLIENT,
+            &url,
+            "get_tip_block_number",
+            &make_req("get_tip_block_number"),
+        );
+        handle.join().unwrap();
+        assert!(
+            res.is_ok(),
+            "read-only RPC should retry truncated EOF: {res:?}"
+        );
+        assert_eq!(hits.load(Ordering::SeqCst), 2);
+
+        // 2. Read-only RPC retries chunked truncated body EOF and succeeds on attempt 2.
+        let (url, hits, handle) = spawn_stub_http_server(vec![truncated_chunked, valid_ok]);
+        let res = send_jsonrpc_request(
+            &HTTP_CLIENT,
+            &url,
+            "get_tip_block_number",
+            &make_req("get_tip_block_number"),
+        );
+        handle.join().unwrap();
+        assert!(
+            res.is_ok(),
+            "read-only RPC should retry truncated chunked EOF: {res:?}"
+        );
+        assert_eq!(hits.load(Ordering::SeqCst), 2);
+
+        // 3. Write RPC must NOT retry truncated body EOF (sent once only).
+        let (url, hits, handle) = spawn_stub_http_server(vec![truncated]);
+        let res = send_jsonrpc_request(&HTTP_CLIENT, &url, "set_ban", &make_req("set_ban"));
+        handle.join().unwrap();
+        assert!(
+            res.is_err(),
+            "write RPC must fail immediately without retry"
+        );
+        assert_eq!(hits.load(Ordering::SeqCst), 1);
+
+        // 4. Complete but invalid JSON must NOT retry even for read-only RPC.
+        let (url, hits, handle) = spawn_stub_http_server(vec![invalid_json]);
+        let res = send_jsonrpc_request(
+            &HTTP_CLIENT,
+            &url,
+            "get_tip_block_number",
+            &make_req("get_tip_block_number"),
+        );
+        handle.join().unwrap();
+        assert!(
+            res.is_err(),
+            "malformed complete JSON must fail immediately"
+        );
+        assert_eq!(hits.load(Ordering::SeqCst), 1);
     }
 }

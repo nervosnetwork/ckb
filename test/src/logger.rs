@@ -5,16 +5,18 @@ use std::fs::{self, File, OpenOptions};
 use std::io::{self, BufWriter, Write};
 use std::panic;
 use std::path::{Path, PathBuf};
-use std::sync::OnceLock;
+use std::sync::{Arc, OnceLock};
 use std::time::{SystemTime, UNIX_EPOCH};
 
+pub(crate) type SpecLogSink = Arc<Mutex<BufWriter<File>>>;
+
 thread_local! {
-    static SPEC_LOG_SINK: RefCell<Option<BufWriter<File>>> = const { RefCell::new(None) };
+    static SPEC_LOG_SINK: RefCell<Option<SpecLogSink>> = const { RefCell::new(None) };
 }
 
-/// RAII guard routing the current worker thread's `ckb_test` logs into `<spec_dir>/runner.log`.
+/// RAII guard routing the current thread's `ckb_test` logs into `<spec_dir>/runner.log`.
 pub(crate) struct SpecLogGuard {
-    previous: Option<BufWriter<File>>,
+    previous: Option<SpecLogSink>,
 }
 
 impl SpecLogGuard {
@@ -24,8 +26,16 @@ impl SpecLogGuard {
             .append(true)
             .open(path)
             .ok()
-            .map(BufWriter::new);
-        let previous = SPEC_LOG_SINK.with(|slot| slot.replace(writer));
+            .map(|file| Arc::new(Mutex::new(BufWriter::new(file))));
+        Self::enter_shared(writer)
+    }
+
+    pub(crate) fn current_sink() -> Option<SpecLogSink> {
+        SPEC_LOG_SINK.with(|slot| slot.borrow().as_ref().map(Arc::clone))
+    }
+
+    pub(crate) fn enter_shared(sink: Option<SpecLogSink>) -> Self {
+        let previous = SPEC_LOG_SINK.with(|slot| slot.replace(sink));
         Self { previous }
     }
 }
@@ -34,8 +44,8 @@ impl Drop for SpecLogGuard {
     fn drop(&mut self) {
         let previous = self.previous.take();
         SPEC_LOG_SINK.with(|slot| {
-            if let Some(mut current) = slot.replace(previous) {
-                let _ = current.flush();
+            if let Some(current) = slot.replace(previous) {
+                let _ = current.lock().flush();
             }
         });
     }
@@ -162,7 +172,8 @@ impl Log for TestLogger {
 
         if to_spec {
             SPEC_LOG_SINK.with(|slot| {
-                if let Some(writer) = slot.borrow_mut().as_mut() {
+                if let Some(sink) = slot.borrow().as_ref() {
+                    let mut writer = sink.lock();
                     let _ = writeln!(writer, "{line}");
                     if record.level() <= Level::Warn {
                         let _ = writer.flush();
@@ -188,8 +199,8 @@ impl Log for TestLogger {
             let _ = file_mutex.lock().flush();
         }
         SPEC_LOG_SINK.with(|slot| {
-            if let Some(writer) = slot.borrow_mut().as_mut() {
-                let _ = writer.flush();
+            if let Some(sink) = slot.borrow().as_ref() {
+                let _ = sink.lock().flush();
             }
         });
     }
@@ -237,7 +248,8 @@ pub(crate) fn init_test_logger(filter: &str, log_file: Option<&Path>) {
             };
             let entry = format!("panicked at {location}: {msg}\n{backtrace}");
             let recorded_to_spec = SPEC_LOG_SINK.with(|slot| {
-                if let Some(writer) = slot.borrow_mut().as_mut() {
+                if let Some(sink) = slot.borrow().as_ref() {
+                    let mut writer = sink.lock();
                     let _ = writeln!(writer, "{} ERROR panic  {entry}", format_timestamp());
                     let _ = writer.flush();
                     true
@@ -287,12 +299,25 @@ mod tests {
         {
             let _guard = SpecLogGuard::enter(&runner_log);
             SPEC_LOG_SINK.with(|slot| {
-                let mut borrow = slot.borrow_mut();
-                let writer = borrow.as_mut().expect("sink active");
-                writeln!(writer, "hello isolated spec log").unwrap();
+                let borrow = slot.borrow();
+                let sink = borrow.as_ref().expect("sink active");
+                writeln!(sink.lock(), "hello isolated spec log").unwrap();
+            });
+            let shared = SpecLogGuard::current_sink();
+            std::thread::scope(|scope| {
+                let handle = scope.spawn(move || {
+                    let _child_guard = SpecLogGuard::enter_shared(shared);
+                    SPEC_LOG_SINK.with(|slot| {
+                        let borrow = slot.borrow();
+                        let sink = borrow.as_ref().expect("shared sink active on child thread");
+                        writeln!(sink.lock(), "hello scoped child log").unwrap();
+                    });
+                });
+                handle.join().unwrap();
             });
         }
         let content = fs::read_to_string(&runner_log).unwrap();
         assert!(content.contains("hello isolated spec log"));
+        assert!(content.contains("hello scoped child log"));
     }
 }

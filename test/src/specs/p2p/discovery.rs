@@ -22,15 +22,11 @@ impl Spec for Discovery {
             .collect::<Vec<_>>();
         // Stagger startup slightly so OutboundPeerService 1s timers on node0 and node2
         // do not phase-lock into simultaneous feeler/outbound dial collisions.
-        std::thread::scope(|scope| {
-            for (i, node) in nodes.iter_mut().enumerate() {
-                scope.spawn(move || {
-                    if i > 0 {
-                        sleep(Duration::from_millis(250 * i as u64));
-                    }
-                    node.start();
-                });
+        crate::utils::run_in_spec_scope(nodes.iter_mut().enumerate(), |(i, node)| {
+            if i > 0 {
+                sleep(Duration::from_millis(250 * i as u64));
             }
+            node.start();
         });
         nodes
     }

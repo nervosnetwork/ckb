@@ -295,7 +295,14 @@ pub fn main_test() {
         )
     };
 
-    let total = specs.len();
+    // Snapshot the full pre-dispatch execution manifest before Workers::new splits
+    // parallel and sequential queues so JSON counts and rerun commands stay exact
+    // on fail-fast, --spec-timeout, or --max-time exits.
+    let selected_manifest: Vec<(String, String)> = specs
+        .iter()
+        .map(|task| (task.display_name.clone(), task.base_name.clone()))
+        .collect();
+    let total = selected_manifest.len();
     let worker_count = min(worker_count, total);
     let shard_desc = shard
         .map(|(i, n)| format!(", shard={i}/{n}"))
@@ -364,7 +371,6 @@ pub fn main_test() {
     let mut workers = Workers::new(worker_count, Arc::clone(&specs), notify_tx, worker_config);
     workers.start();
 
-    let mut rerun_specs = Vec::new();
     let mut test_results = Vec::new();
     let mut worker_running = worker_count;
     let mut completed_specs = 0;
@@ -415,8 +421,7 @@ pub fn main_test() {
                     runner_log_path,
                     node_log_paths: logs,
                 });
-                error_spec_names.push(base_name.clone());
-                rerun_specs.push(base_name);
+                error_spec_names.push(base_name);
                 spec_errors.push(None);
             }
             workers.shutdown();
@@ -473,8 +478,7 @@ pub fn main_test() {
                         node_log_paths: logs,
                     });
                     timed_out_specs.push(name);
-                    error_spec_names.push(base_name.clone());
-                    rerun_specs.push(base_name);
+                    error_spec_names.push(base_name);
                     spec_errors.push(None);
                 }
                 workers.shutdown();
@@ -588,8 +592,7 @@ pub fn main_test() {
                     runner_log_path,
                     node_log_paths: node_log_paths.clone(),
                 });
-                error_spec_names.push(base_name.clone());
-                rerun_specs.push(base_name);
+                error_spec_names.push(base_name);
                 if fail_fast {
                     workers.shutdown();
                     shutting_down = true;
@@ -635,8 +638,7 @@ pub fn main_test() {
                     runner_log_path,
                     node_log_paths: node_log_paths.clone(),
                 });
-                error_spec_names.push(base_name.clone());
-                rerun_specs.push(base_name);
+                error_spec_names.push(base_name);
                 if fail_fast {
                     workers.shutdown();
                     shutting_down = true;
@@ -685,8 +687,7 @@ pub fn main_test() {
                         runner_log_path,
                         node_log_paths: logs,
                     });
-                    error_spec_names.push(base_name.clone());
-                    rerun_specs.push(base_name);
+                    error_spec_names.push(base_name);
                     spec_errors.push(None);
                     if fail_fast {
                         workers.shutdown();
@@ -769,53 +770,46 @@ pub fn main_test() {
     log::logger().flush();
 
     if report {
-        print_results(&mut test_results, total_elapsed, seed, repeat);
+        print_results(&mut test_results, total, total_elapsed, seed, repeat);
     } else if !spec_errors.is_empty() || aborted_by_timeout {
         print_failures(&test_results);
     }
 
     if let Some(json_path) = json_report_opt.as_deref() {
-        write_json_report(json_path, &test_results, total_elapsed, seed);
+        write_json_report(json_path, &test_results, total, total_elapsed, seed);
     }
 
-    rerun_specs.extend(specs.lock().iter().map(|t| t.base_name.clone()));
-    let mut seen_rerun = HashSet::new();
-    rerun_specs.retain(|name| seen_rerun.insert(name.clone()));
-
-    let has_failures = !spec_errors.is_empty() || aborted_by_timeout;
+    let rerun_specs = build_rerun_specs(&selected_manifest, &test_results);
+    let has_failures = !spec_errors.is_empty() || aborted_by_timeout || test_results.len() < total;
     if !has_failures && rerun_specs.is_empty() {
         return;
     }
 
-    if has_failures {
-        if !error_spec_names.is_empty() {
-            eprintln!("\nckb-test failed on spec {}", error_spec_names.join(", "));
-            if let Err(err) = log_failed_specs(&error_spec_names) {
-                eprintln!("Failed to write integration failure reason: {err}");
-            }
+    if !error_spec_names.is_empty() {
+        eprintln!("\nckb-test failed on spec {}", error_spec_names.join(", "));
+        if let Err(err) = log_failed_specs(&error_spec_names) {
+            eprintln!("Failed to write integration failure reason: {err}");
         }
-        if !rerun_specs.is_empty() {
-            println!(
-                "You can rerun remaining specs (add --verbose or --pause-on-fail for debugging) using:"
-            );
-            println!(
-                "{} --seed {} {}",
-                rerun_cmd_prefix,
-                seed,
-                rerun_specs.join(" "),
-            );
-        }
-        log::logger().flush();
-        std::process::exit(1);
+    } else if test_results.len() < total {
+        eprintln!(
+            "\nckb-test exited before completing all selected specs ({}/{})",
+            test_results.len(),
+            total
+        );
     }
-
-    println!("\nYou can run the skipped specs using following command:");
-    println!(
-        "{} --seed {} {}",
-        rerun_cmd_prefix,
-        seed,
-        rerun_specs.join(" "),
-    );
+    if !rerun_specs.is_empty() {
+        println!(
+            "You can rerun remaining specs (add --verbose or --pause-on-fail for debugging) using:"
+        );
+        println!(
+            "{} --seed {} {}",
+            rerun_cmd_prefix,
+            seed,
+            rerun_specs.join(" "),
+        );
+    }
+    log::logger().flush();
+    std::process::exit(1);
 }
 
 fn clap_app() -> Command {
@@ -1399,7 +1393,42 @@ fn log_failed_specs(error_spec_names: &[String]) -> Result<(), io::Error> {
     Ok(())
 }
 
-fn write_json_report(path: &Path, test_results: &[TestResult], total_elapsed: Duration, seed: u64) {
+/// Builds the deduplicated rerun spec list from the immutable pre-dispatch
+/// selection manifest and final `test_results`: failed/panicked/timed-out specs
+/// appear first, followed by any selected spec (parallel or sequential) that did
+/// not complete with `Passed`.
+fn build_rerun_specs(
+    selected_manifest: &[(String, String)],
+    test_results: &[TestResult],
+) -> Vec<String> {
+    let mut rerun = Vec::new();
+    let mut seen = HashSet::new();
+    let mut passed_display_names = HashSet::new();
+
+    for result in test_results {
+        if result.status == TestResultStatus::Passed {
+            passed_display_names.insert(result.spec_name.as_str());
+        } else if seen.insert(result.base_name.as_str()) {
+            rerun.push(result.base_name.clone());
+        }
+    }
+
+    for (display_name, base_name) in selected_manifest {
+        if !passed_display_names.contains(display_name.as_str()) && seen.insert(base_name.as_str())
+        {
+            rerun.push(base_name.clone());
+        }
+    }
+
+    rerun
+}
+
+fn build_json_report_payload(
+    test_results: &[TestResult],
+    selected_count: usize,
+    total_elapsed: Duration,
+    seed: u64,
+) -> serde_json::Value {
     let passed = test_results
         .iter()
         .filter(|r| r.status == TestResultStatus::Passed)
@@ -1412,6 +1441,8 @@ fn write_json_report(path: &Path, test_results: &[TestResult], total_elapsed: Du
         .iter()
         .filter(|r| r.status == TestResultStatus::Panicked)
         .count();
+    let completed = test_results.len();
+    let not_run = selected_count.saturating_sub(completed);
     let cumulative_secs: f64 = test_results.iter().map(|r| r.duration.as_secs_f64()).sum();
     let wall_secs = total_elapsed.as_secs_f64();
     let effective_concurrency = if wall_secs > 0.0 {
@@ -1441,9 +1472,12 @@ fn write_json_report(path: &Path, test_results: &[TestResult], total_elapsed: Du
         })
         .collect();
 
-    let payload = serde_json::json!({
+    serde_json::json!({
         "seed": seed,
-        "total": test_results.len(),
+        "selected": selected_count,
+        "completed": completed,
+        "not_run": not_run,
+        "total": selected_count,
         "passed": passed,
         "failed": failed,
         "panicked": panicked,
@@ -1451,7 +1485,17 @@ fn write_json_report(path: &Path, test_results: &[TestResult], total_elapsed: Du
         "cumulative_secs": cumulative_secs,
         "effective_concurrency": effective_concurrency,
         "specs": specs_json,
-    });
+    })
+}
+
+fn write_json_report(
+    path: &Path,
+    test_results: &[TestResult],
+    selected_count: usize,
+    total_elapsed: Duration,
+    seed: u64,
+) {
+    let payload = build_json_report_payload(test_results, selected_count, total_elapsed, seed);
 
     if let Some(parent) = path.parent()
         && !parent.as_os_str().is_empty()
@@ -1525,6 +1569,7 @@ fn print_failures(test_results: &[TestResult]) {
 
 fn print_results(
     test_results: &mut [TestResult],
+    selected_count: usize,
     total_elapsed: Duration,
     seed: u64,
     repeat: usize,
@@ -1555,7 +1600,8 @@ fn print_results(
         );
     }
 
-    let total = test_results.len();
+    let completed = test_results.len();
+    let not_run = selected_count.saturating_sub(completed);
     let effective_parallelism = if total_elapsed.as_secs_f64() > 0.0 {
         cumulative.as_secs_f64() / total_elapsed.as_secs_f64()
     } else {
@@ -1563,9 +1609,15 @@ fn print_results(
     };
 
     println!("{rule}");
-    println!(
-        "Summary: {passed} passed, {failed} failed, {panicked} panicked ({total} total, seed={seed})"
-    );
+    if not_run > 0 {
+        println!(
+            "Summary: {passed} passed, {failed} failed, {panicked} panicked, {not_run} not run ({completed}/{selected_count} completed, seed={seed})"
+        );
+    } else {
+        println!(
+            "Summary: {passed} passed, {failed} failed, {panicked} panicked ({selected_count} total, seed={seed})"
+        );
+    }
     println!(
         "Elapsed: {} wall | {} cumulative ({effective_parallelism:.2}x effective concurrency)",
         format_duration(total_elapsed),
@@ -1602,7 +1654,7 @@ fn print_results(
         }
     }
 
-    if total > 1 {
+    if completed > 1 {
         let mut by_duration: Vec<&TestResult> = test_results.iter().collect();
         by_duration.sort_by_key(|b| Reverse(b.duration));
         let top_n = min(10, by_duration.len());
@@ -1733,5 +1785,68 @@ mod tests {
             next_coordinator_poll_timeout(base, base, 2, 10, &running),
             Duration::from_secs(2)
         );
+    }
+
+    #[test]
+    fn early_exit_report_and_rerun_keep_unrun_and_sequential_specs() {
+        // 20 repeats of MiningBasic (parallel) + 20 repeats of RandomlyKill (sequential).
+        let mut manifest = Vec::new();
+        for i in 1..=20 {
+            manifest.push((format!("MiningBasic [{i}/20]"), "MiningBasic".to_string()));
+            manifest.push((format!("RandomlyKill [{i}/20]"), "RandomlyKill".to_string()));
+        }
+
+        // Fail-fast exits after 6 MiningBasic failures before RandomlyKill ever starts.
+        let results: Vec<TestResult> = (1..=6)
+            .map(|i| TestResult {
+                spec_name: format!("MiningBasic [{i}/20]"),
+                base_name: "MiningBasic".to_string(),
+                status: TestResultStatus::Failed,
+                duration: Duration::from_millis(10),
+                detail: Some("tempdir error".to_string()),
+                spec_dir: None,
+                report_path: None,
+                runner_log_path: None,
+                node_log_paths: Vec::new(),
+            })
+            .collect();
+
+        let payload =
+            build_json_report_payload(&results, manifest.len(), Duration::from_secs(1), 42);
+        assert_eq!(payload["selected"], 40);
+        assert_eq!(payload["completed"], 6);
+        assert_eq!(payload["not_run"], 34);
+        assert_eq!(payload["total"], 40);
+        assert_eq!(payload["passed"], 0);
+        assert_eq!(payload["failed"], 6);
+
+        let rerun = build_rerun_specs(&manifest, &results);
+        assert_eq!(
+            rerun,
+            vec!["MiningBasic".to_string(), "RandomlyKill".to_string()],
+            "rerun list must retain unrun sequential specs alongside failed specs"
+        );
+
+        // When all selected executions pass, rerun list must be empty and not_run == 0.
+        let all_passed: Vec<TestResult> = manifest
+            .iter()
+            .map(|(display, base)| TestResult {
+                spec_name: display.clone(),
+                base_name: base.clone(),
+                status: TestResultStatus::Passed,
+                duration: Duration::from_millis(5),
+                detail: None,
+                spec_dir: None,
+                report_path: None,
+                runner_log_path: None,
+                node_log_paths: Vec::new(),
+            })
+            .collect();
+        let full_payload =
+            build_json_report_payload(&all_passed, manifest.len(), Duration::from_secs(1), 42);
+        assert_eq!(full_payload["selected"], 40);
+        assert_eq!(full_payload["completed"], 40);
+        assert_eq!(full_payload["not_run"], 0);
+        assert!(build_rerun_specs(&manifest, &all_passed).is_empty());
     }
 }

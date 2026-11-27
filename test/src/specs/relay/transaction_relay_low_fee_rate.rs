@@ -43,7 +43,7 @@ impl Spec for TransactionRelayLowFeeRate {
     }
 
     fn before_run(&self) -> Vec<Node> {
-        let mut node0 = Node::new_with_modifiers(
+        let node0 = Node::new_with_modifiers(
             self.name(),
             "node0",
             |config| {
@@ -51,7 +51,7 @@ impl Spec for TransactionRelayLowFeeRate {
             },
             |_| {},
         );
-        let mut node1 = Node::new_with_modifiers(
+        let node1 = Node::new_with_modifiers(
             self.name(),
             "node1",
             |config| {
@@ -60,10 +60,8 @@ impl Spec for TransactionRelayLowFeeRate {
             |_| {},
         );
 
-        std::thread::scope(|scope| {
-            scope.spawn(|| node0.start());
-            scope.spawn(|| node1.start());
-        });
-        vec![node0, node1]
+        let mut nodes = vec![node0, node1];
+        crate::utils::run_in_spec_scope(nodes.iter_mut(), |node| node.start());
+        nodes
     }
 }

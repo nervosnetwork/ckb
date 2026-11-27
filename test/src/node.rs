@@ -37,56 +37,145 @@ use std::sync::{Arc, Mutex, OnceLock, RwLock, Weak};
 use std::thread::sleep;
 use std::time::{Duration, Instant};
 
-type ActiveChildSlot = Arc<Mutex<Option<Child>>>;
+pub(crate) type ActiveChildSlot = Arc<Mutex<Option<Child>>>;
 type ActiveChildEntry = (String, Weak<Mutex<Option<Child>>>);
 
-fn active_children() -> &'static Mutex<Vec<ActiveChildEntry>> {
-    static ACTIVE: OnceLock<Mutex<Vec<ActiveChildEntry>>> = OnceLock::new();
-    ACTIVE.get_or_init(|| Mutex::new(Vec::new()))
+struct ActiveChildRegistry {
+    shutting_down: bool,
+    children: Vec<ActiveChildEntry>,
 }
 
-pub(crate) fn register_active_child_handle(
-    name: impl Into<String>,
-    child: Child,
-) -> ActiveChildSlot {
-    let slot = Arc::new(Mutex::new(Some(child)));
-    if let Ok(mut guard) = active_children().lock() {
-        guard.retain(|(_, weak)| weak.strong_count() > 0);
-        guard.push((name.into(), Arc::downgrade(&slot)));
-    }
-    slot
-}
-
-/// Force-kill and reap all currently registered child processes (e.g. `ckb`, `tor`)
-/// before abrupt runner exit on `--spec-timeout`, `--max-time`, or Ctrl-C.
-pub(crate) fn kill_all_active_children() {
-    let slots: Vec<(String, ActiveChildSlot)> = active_children()
-        .lock()
-        .map(|mut guard| {
-            let mut live = Vec::new();
-            guard.retain(|(name, weak)| match weak.upgrade() {
-                Some(slot) => {
-                    live.push((name.clone(), slot));
-                    true
-                }
-                None => false,
-            });
-            live
-        })
-        .unwrap_or_default();
-
-    for (name, slot) in slots {
-        let child = slot.lock().ok().and_then(|mut guard| guard.take());
-        if let Some(mut child) = child {
-            match child.kill() {
-                Err(e) if e.kind() != ErrorKind::InvalidInput => {
-                    error!("Could not kill child process ({name}): {e}");
-                }
-                _ => debug!("Force-killed active child process ({name})"),
-            }
-            let _ = child.wait();
+impl ActiveChildRegistry {
+    const fn new() -> Self {
+        Self {
+            shutting_down: false,
+            children: Vec::new(),
         }
     }
+
+    fn spawn_child(
+        &mut self,
+        name: impl Into<String>,
+        cmd: &mut Command,
+    ) -> io::Result<ActiveChildSlot> {
+        if self.shutting_down {
+            return Err(io::Error::new(
+                ErrorKind::Interrupted,
+                "runner is shutting down; refusing to spawn child process",
+            ));
+        }
+        let child = cmd.spawn()?;
+        let slot = Arc::new(Mutex::new(Some(child)));
+        self.children.retain(|(_, weak)| weak.strong_count() > 0);
+        self.children.push((name.into(), Arc::downgrade(&slot)));
+        Ok(slot)
+    }
+
+    fn begin_shutdown(&mut self) -> Vec<(String, ActiveChildSlot)> {
+        self.shutting_down = true;
+        let mut live = Vec::new();
+        self.children.retain(|(name, weak)| match weak.upgrade() {
+            Some(slot) => {
+                live.push((name.clone(), slot));
+                true
+            }
+            None => false,
+        });
+        live
+    }
+}
+
+fn active_children() -> &'static Mutex<ActiveChildRegistry> {
+    static ACTIVE: OnceLock<Mutex<ActiveChildRegistry>> = OnceLock::new();
+    ACTIVE.get_or_init(|| Mutex::new(ActiveChildRegistry::new()))
+}
+
+/// Atomically checks shutdown state, spawns `cmd`, and registers the child handle
+/// under the same registry lock so watchdog shutdown can never miss a racing spawn.
+pub(crate) fn spawn_registered_child(
+    name: impl Into<String>,
+    cmd: &mut Command,
+) -> io::Result<ActiveChildSlot> {
+    let mut reg = active_children().lock().unwrap_or_else(|e| e.into_inner());
+    reg.spawn_child(name, cmd)
+}
+
+/// Force-kills and reaps the child in `slot` while holding the slot lock so
+/// concurrent watchdog cleanup waits until the process is actually terminated.
+pub(crate) fn kill_and_reap_slot(name: &str, slot: &ActiveChildSlot) {
+    let mut guard = slot.lock().unwrap_or_else(|e| e.into_inner());
+    if let Some(mut child) = guard.take() {
+        match child.kill() {
+            Err(e) if e.kind() != ErrorKind::InvalidInput => {
+                error!("Could not kill child process ({name}): {e}");
+            }
+            _ => debug!("Force-killed child process ({name})"),
+        }
+        let _ = child.wait();
+    }
+}
+
+fn wait_child_slot(slot: &ActiveChildSlot) -> io::Result<Option<std::process::ExitStatus>> {
+    let mut attempt = 0u32;
+    loop {
+        {
+            let mut guard = slot.lock().unwrap_or_else(|e| e.into_inner());
+            let Some(child) = guard.as_mut() else {
+                // Watchdog took ownership to force-kill and reap the child.
+                return Ok(None);
+            };
+            if let Some(status) = child.try_wait()? {
+                guard.take();
+                return Ok(Some(status));
+            }
+        }
+        sleep(adaptive_poll_interval(attempt, 5, 50));
+        attempt = attempt.saturating_add(1);
+    }
+}
+
+fn stop_gracefully_slot(name: &str, slot: &ActiveChildSlot) {
+    #[cfg(not(target_os = "windows"))]
+    {
+        {
+            let mut guard = slot.lock().unwrap_or_else(|e| e.into_inner());
+            let Some(child) = guard.as_mut() else {
+                return;
+            };
+            if matches!(child.try_wait(), Ok(Some(_))) {
+                guard.take();
+                return;
+            }
+            // Send SIGINT while holding the slot lock so the child cannot be reaped
+            // (and its PID cannot be reused) before the signal is delivered.
+            Node::kill_gracefully(child.id());
+        }
+        if let Err(err) = wait_child_slot(slot) {
+            error!("Could not wait for child process ({name}): {err}");
+            kill_and_reap_slot(name, slot);
+        }
+    }
+    #[cfg(target_os = "windows")]
+    {
+        kill_and_reap_slot(name, slot);
+    }
+}
+
+fn kill_all_in_registry(registry: &Mutex<ActiveChildRegistry>) {
+    let slots = {
+        let mut reg = registry.lock().unwrap_or_else(|e| e.into_inner());
+        reg.begin_shutdown()
+    };
+    for (name, slot) in slots {
+        kill_and_reap_slot(&name, &slot);
+    }
+}
+
+/// Enters shutdown mode (blocking any new child spawns), then force-kills and
+/// reaps all currently registered child processes (`ckb`, `tor`, etc.) before
+/// abrupt runner exit on `--spec-timeout`, `--max-time`, or Ctrl-C.
+pub(crate) fn kill_all_active_children() {
+    kill_all_in_registry(active_children());
 }
 
 struct TemplateAssets {
@@ -129,9 +218,9 @@ pub(crate) struct ProcessGuard {
 }
 
 impl ProcessGuard {
-    pub(crate) fn new(name: String, child: Child) -> Self {
-        let child = register_active_child_handle(name.clone(), child);
-        Self { name, child }
+    pub(crate) fn spawn(name: String, cmd: &mut Command) -> io::Result<Self> {
+        let child = spawn_registered_child(name.clone(), cmd)?;
+        Ok(Self { name, child })
     }
 
     pub(crate) fn is_alive(&mut self) -> bool {
@@ -158,16 +247,7 @@ impl ProcessGuard {
 
 impl Drop for ProcessGuard {
     fn drop(&mut self) {
-        let child = self.child.lock().ok().and_then(|mut guard| guard.take());
-        if let Some(mut child) = child {
-            match child.kill() {
-                Err(e) if e.kind() != ErrorKind::InvalidInput => {
-                    error!("Could not kill ckb process ({}): {}", self.name, e);
-                }
-                _ => debug!("Successfully killed ckb process ({})", self.name),
-            }
-            let _ = child.wait();
-        }
+        kill_and_reap_slot(&self.name, &self.child);
     }
 }
 
@@ -1090,17 +1170,16 @@ impl Node {
 
         let log_offset = fs::metadata(self.log_path()).map(|m| m.len()).unwrap_or(0);
 
-        let child_process = Command::new(binary)
-            .env("RUST_BACKTRACE", "full")
+        let mut cmd = Command::new(binary);
+        cmd.env("RUST_BACKTRACE", "full")
             .args(args)
             .stdin(Stdio::null())
             .stdout(Stdio::null())
-            .stderr(Stdio::inherit())
-            .spawn()
+            .stderr(Stdio::inherit());
+        // Spawn and register atomically under the child-process registry so
+        // startup panics or hard runner timeouts can never leave an orphan.
+        let mut guard = ProcessGuard::spawn(self.inner.spec_node_name.clone(), &mut cmd)
             .expect("failed to run binary");
-        // Register and guard immediately so startup panics or hard runner timeouts
-        // always kill and reap the spawned child process.
-        let mut guard = ProcessGuard::new(self.inner.spec_node_name.clone(), child_process);
 
         // Wait to ensure the node threads up
         let startup_timeout = tweaked_duration(180);
@@ -1371,60 +1450,53 @@ impl Node {
     }
 
     pub fn stop_gracefully(&mut self) {
-        let guard = self.take_guard();
-        if let Some(guard) = guard
-            && let Some(mut child) = guard.child.lock().ok().and_then(|mut g| g.take())
-        {
-            #[cfg(not(target_os = "windows"))]
-            {
-                Self::kill_gracefully(child.id());
-                let _ = child.wait();
-            }
-            #[cfg(target_os = "windows")]
-            {
-                let _ = child.kill();
-                let _ = child.wait();
-            }
+        if let Some(guard) = self.take_guard() {
+            stop_gracefully_slot(&guard.name, &guard.child);
         }
     }
 
     #[cfg(not(target_os = "windows"))]
     fn kill_gracefully(pid: u32) {
-        nix::sys::signal::kill(
+        match nix::sys::signal::kill(
             nix::unistd::Pid::from_raw(pid as i32),
             nix::sys::signal::Signal::SIGINT,
-        )
-        .expect("cannot send ctrl-c");
+        ) {
+            Ok(()) | Err(nix::errno::Errno::ESRCH) => {}
+            Err(err) => panic!("cannot send ctrl-c to pid {pid}: {err}"),
+        }
+    }
+
+    fn run_registered_command(name: &str, cmd: &mut Command) {
+        let guard = ProcessGuard::spawn(name.to_string(), cmd).expect("failed to execute process");
+        let _ = wait_child_slot(&guard.child).expect("failed to wait for process");
     }
 
     pub fn export(&self, target: String) {
-        Command::new(binary())
-            .args([
-                "export",
-                "-C",
-                &self.working_dir().to_string_lossy(),
-                &target,
-            ])
-            .stdin(Stdio::null())
-            .stdout(Stdio::inherit())
-            .stderr(Stdio::inherit())
-            .output()
-            .expect("failed to execute process");
+        let mut cmd = Command::new(binary());
+        cmd.args([
+            "export",
+            "-C",
+            &self.working_dir().to_string_lossy(),
+            &target,
+        ])
+        .stdin(Stdio::null())
+        .stdout(Stdio::inherit())
+        .stderr(Stdio::inherit());
+        Self::run_registered_command(&format!("{}-export", self.inner.spec_node_name), &mut cmd);
     }
 
     pub fn import(&self, target: String) {
-        Command::new(binary())
-            .args([
-                "import",
-                "-C",
-                &self.working_dir().to_string_lossy(),
-                &target,
-            ])
-            .stdin(Stdio::null())
-            .stdout(Stdio::null())
-            .stderr(Stdio::inherit())
-            .output()
-            .expect("failed to execute process");
+        let mut cmd = Command::new(binary());
+        cmd.args([
+            "import",
+            "-C",
+            &self.working_dir().to_string_lossy(),
+            &target,
+        ])
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::inherit());
+        Self::run_registered_command(&format!("{}-import", self.inner.spec_node_name), &mut cmd);
     }
 }
 
@@ -1644,13 +1716,9 @@ pub fn make_bootnodes_for_all<N: BorrowMut<Node>>(nodes: &mut [N]) {
     for node in node_refs.iter_mut() {
         node.stop();
     }
-    std::thread::scope(|scope| {
-        for node in node_refs.iter_mut() {
-            scope.spawn(|| {
-                node.start();
-                debug!("Restarted node {:?}", node.node_id());
-            });
-        }
+    crate::utils::run_in_spec_scope(node_refs.iter_mut(), |node| {
+        node.start();
+        debug!("Restarted node {:?}", node.node_id());
     });
 }
 
@@ -1659,23 +1727,89 @@ mod tests {
     use super::*;
 
     #[test]
-    fn kill_all_active_children_terminates_and_reaps_process() {
-        let child = Command::new("sleep")
-            .arg("60")
+    fn registry_shutdown_kills_reaps_and_blocks_subsequent_spawns() {
+        let registry = Mutex::new(ActiveChildRegistry::new());
+        let mut cmd = Command::new("sleep");
+        cmd.arg("60")
             .stdin(Stdio::null())
             .stdout(Stdio::null())
-            .stderr(Stdio::null())
-            .spawn()
+            .stderr(Stdio::null());
+        let slot = registry
+            .lock()
+            .unwrap()
+            .spawn_child("test_sleep_child", &mut cmd)
             .expect("spawn sleep child");
-        let pid = child.id();
-        let _guard = ProcessGuard::new("test_sleep_child".to_string(), child);
+        let pid = slot.lock().unwrap().as_ref().unwrap().id();
 
-        kill_all_active_children();
+        kill_all_in_registry(&registry);
 
-        // After kill_all_active_children() kills and reaps the child, signaling pid 0 must fail.
         assert!(
             nix::sys::signal::kill(nix::unistd::Pid::from_raw(pid as i32), None).is_err(),
             "killed child pid {pid} should already be terminated and reaped"
         );
+
+        // Once shutdown has begun, any racing worker attempt to spawn a child must fail
+        // immediately without creating an untracked process.
+        let mut late_cmd = Command::new("sleep");
+        late_cmd
+            .arg("60")
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null());
+        let err = registry
+            .lock()
+            .unwrap()
+            .spawn_child("late_child", &mut late_cmd)
+            .expect_err("registry must reject spawns during shutdown");
+        assert_eq!(err.kind(), ErrorKind::Interrupted);
+    }
+
+    #[test]
+    fn watchdog_takes_over_child_during_graceful_stop() {
+        let registry = Mutex::new(ActiveChildRegistry::new());
+        let mut cmd = Command::new("sh");
+        cmd.args(["-c", "trap '' INT; echo ready; exec sleep 60"])
+            .stdin(Stdio::null())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::null());
+        let slot = registry
+            .lock()
+            .unwrap()
+            .spawn_child("test_ignore_sigint", &mut cmd)
+            .expect("spawn trap child");
+
+        // Wait deterministically until the shell has installed `trap '' INT`.
+        let (pid, mut stdout) = {
+            let mut guard = slot.lock().unwrap();
+            let child = guard.as_mut().unwrap();
+            (child.id(), child.stdout.take().unwrap())
+        };
+        let mut line = String::new();
+        BufReader::new(&mut stdout).read_line(&mut line).unwrap();
+        assert_eq!(line.trim(), "ready");
+
+        // Start graceful stop on another thread; because SIGINT is trapped, it will
+        // stay in the short-lock `try_wait()` polling loop while keeping the handle shared.
+        let stop_slot = Arc::clone(&slot);
+        let stop_thread = std::thread::spawn(move || {
+            stop_gracefully_slot("test_ignore_sigint", &stop_slot);
+        });
+
+        sleep(Duration::from_millis(50));
+        assert!(
+            nix::sys::signal::kill(nix::unistd::Pid::from_raw(pid as i32), None).is_ok(),
+            "SIGINT-ignoring child should still be alive during graceful stop"
+        );
+
+        // Watchdog shutdown must be able to take ownership, SIGKILL, and reap it immediately.
+        kill_all_in_registry(&registry);
+        assert!(
+            nix::sys::signal::kill(nix::unistd::Pid::from_raw(pid as i32), None).is_err(),
+            "watchdog should have force-killed and reaped pid {pid} during graceful stop"
+        );
+
+        stop_thread
+            .join()
+            .expect("graceful stop thread should exit cleanly once watchdog reaps child");
     }
 }

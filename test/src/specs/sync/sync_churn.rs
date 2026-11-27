@@ -52,8 +52,11 @@ impl Spec for SyncChurn {
         let mut churn_nodes = mining_nodes.split_off(2);
 
         let (restart_stopped_tx, restart_stopped_rx) = mpsc::channel();
+        let thread_ctx = crate::utils::SpecThreadContext::capture();
 
+        let mining_ctx = thread_ctx.clone();
         let mining_thread = thread::spawn(move || {
+            let _ctx_guard = mining_ctx.enter();
             let mut rng = rand::thread_rng();
             loop {
                 let mining_node = select_random_node(&mut rng, &mut mining_nodes);
@@ -76,6 +79,7 @@ impl Spec for SyncChurn {
         });
 
         let restart_thread = thread::spawn(move || {
+            let _ctx_guard = thread_ctx.enter();
             let mut rng = rand::thread_rng();
             // It takes about 1 second to restart a node. So restarting nodes 100 times takes about 100 seconds.
             for _ in 0..NUM_RESTART {
@@ -89,8 +93,11 @@ impl Spec for SyncChurn {
             }
         });
 
-        mining_thread.join().unwrap();
-        restart_thread.join().unwrap();
+        let mining_res = mining_thread.join();
+        let restart_res = restart_thread.join();
+        if let Err(payload) = mining_res.and(restart_res) {
+            std::panic::resume_unwind(payload);
+        }
 
         info!("Waiting for all nodes sync");
         connect_all(nodes);

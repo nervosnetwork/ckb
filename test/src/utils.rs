@@ -233,6 +233,10 @@ impl SpecRunDirGuard {
         let previous = SPEC_RUN_DIR.with(|slot| slot.replace(Some(dir)));
         Self { previous }
     }
+
+    pub(crate) fn current_dir() -> Option<PathBuf> {
+        SPEC_RUN_DIR.with(|slot| slot.borrow().clone())
+    }
 }
 
 impl Drop for SpecRunDirGuard {
@@ -510,6 +514,96 @@ pub fn message_name(data: &Bytes) -> String {
     }
 }
 
+/// Captures thread-local per-spec routing state (`SpecRunDirGuard` and `SpecLogGuard`)
+/// so helper threads spawned during a spec keep writing into the same spec dir and `runner.log`.
+pub(crate) struct SpecThreadContext {
+    spec_dir: Option<PathBuf>,
+    log_sink: Option<crate::logger::SpecLogSink>,
+}
+
+impl Clone for SpecThreadContext {
+    fn clone(&self) -> Self {
+        Self {
+            spec_dir: self.spec_dir.clone(),
+            log_sink: self.log_sink.as_ref().map(std::sync::Arc::clone),
+        }
+    }
+}
+
+pub(crate) struct SpecThreadContextGuard {
+    _dir_guard: Option<SpecRunDirGuard>,
+    _log_guard: crate::logger::SpecLogGuard,
+}
+
+impl SpecThreadContext {
+    pub(crate) fn capture() -> Self {
+        Self {
+            spec_dir: SpecRunDirGuard::current_dir(),
+            log_sink: crate::logger::SpecLogGuard::current_sink(),
+        }
+    }
+
+    pub(crate) fn enter(&self) -> SpecThreadContextGuard {
+        let _dir_guard = self.spec_dir.clone().map(SpecRunDirGuard::enter);
+        let _log_guard = crate::logger::SpecLogGuard::enter_shared(
+            self.log_sink.as_ref().map(std::sync::Arc::clone),
+        );
+        SpecThreadContextGuard {
+            _dir_guard,
+            _log_guard,
+        }
+    }
+}
+
+/// Runs `f` across `items` in parallel scoped threads while inheriting the
+/// caller's per-spec run directory and `runner.log` sink, explicitly joining
+/// every thread and re-throwing the chronologically first child's original panic
+/// payload instead of `std::thread::scope`'s generic `"a scoped thread panicked"`.
+pub(crate) fn run_in_spec_scope<I, T, F>(items: I, f: F)
+where
+    I: IntoIterator<Item = T>,
+    T: Send,
+    F: Fn(T) + Sync,
+{
+    let ctx = SpecThreadContext::capture();
+    let f = &f;
+    let first_panic: std::sync::Mutex<Option<Box<dyn std::any::Any + Send>>> =
+        std::sync::Mutex::new(None);
+    let parent_name = std::thread::current().name().unwrap_or("spec").to_string();
+    std::thread::scope(|scope| {
+        let handles: Vec<_> = items
+            .into_iter()
+            .enumerate()
+            .map(|(idx, item)| {
+                let ctx = ctx.clone();
+                let first_panic = &first_panic;
+                let thread_name = format!("{parent_name}-{idx}");
+                std::thread::Builder::new()
+                    .name(thread_name)
+                    .spawn_scoped(scope, move || {
+                        let _guard = ctx.enter();
+                        if let Err(payload) =
+                            std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| f(item)))
+                        {
+                            let mut slot = first_panic.lock().unwrap_or_else(|e| e.into_inner());
+                            if slot.is_none() {
+                                *slot = Some(payload);
+                            }
+                        }
+                    })
+                    .expect("spawn scoped spec thread")
+            })
+            .collect();
+
+        for handle in handles {
+            let _ = handle.join();
+        }
+    });
+    if let Some(payload) = first_panic.into_inner().unwrap_or_else(|e| e.into_inner()) {
+        std::panic::resume_unwind(payload);
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -603,5 +697,45 @@ mod tests {
         assert_eq!(next_candidate_port(&auto, true), PORT_RANGE_END - 1);
         assert_eq!(next_candidate_port(&auto, true), PORT_RANGE_START);
         assert_eq!(next_candidate_port(&auto, true), PORT_RANGE_START + 1);
+    }
+
+    #[test]
+    fn run_in_spec_scope_inherits_context_and_forwards_child_panic() {
+        use std::io::Write;
+
+        let spec_dir = TempPathBuf::new_spec_dir("SpecScopeUnitTest").expect("create spec dir");
+        let spec_root = spec_dir.path().to_owned();
+        let runner_log = spec_root.join("runner.log");
+
+        let panic_res = {
+            let _dir_guard = SpecRunDirGuard::enter(spec_root.clone());
+            let _log_guard = crate::logger::SpecLogGuard::enter(&runner_log);
+
+            std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                run_in_spec_scope(["node0", "node1"], |node_name| {
+                    assert_eq!(
+                        SpecRunDirGuard::current_dir().as_deref(),
+                        Some(spec_root.as_path())
+                    );
+                    if let Some(sink) = crate::logger::SpecLogGuard::current_sink() {
+                        writeln!(sink.lock(), "starting {node_name}").unwrap();
+                    }
+                    if node_name == "node1" {
+                        panic!("node1 exited during startup");
+                    }
+                });
+            }))
+        };
+
+        let payload = panic_res.expect_err("scoped child panic should propagate");
+        let msg = crate::extract_panic_message(payload.as_ref());
+        assert_eq!(
+            msg, "node1 exited during startup",
+            "should preserve child panic payload instead of generic scoped thread panic"
+        );
+
+        let log_content = std::fs::read_to_string(&runner_log).unwrap();
+        assert!(log_content.contains("starting node0"));
+        assert!(log_content.contains("starting node1"));
     }
 }
