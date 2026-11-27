@@ -72,7 +72,16 @@ impl Spec for OrphanTxRejected {
         );
         net.connect(node0);
 
-        let parent_tx = node0.new_transaction_spend_tip_cellbase();
+        let parent_tx = {
+            let tx = node0.new_transaction_spend_tip_cellbase();
+            let output = tx
+                .output(0)
+                .unwrap()
+                .as_builder()
+                .lock(node0.always_failure_script())
+                .build();
+            tx.as_advanced_builder().set_outputs(vec![output]).build()
+        };
         let child_tx = node0.new_always_failure_transaction(parent_tx.hash());
         let child_hash = child_tx.hash();
 
@@ -91,13 +100,24 @@ impl Spec for OrphanTxRejected {
             1,
             "Send parent tx, the child tx will be moved from orphan tx pool because of always_failure",
         );
-        wait_until(20, || node0.rpc_client().get_banned_addresses().len() == 1);
+        assert!(
+            wait_until(20, || node0.rpc_client().get_banned_addresses().len() == 1),
+            "Net should be banned after orphan child tx fails always_failure script"
+        );
 
         let ret = node0
             .rpc_client()
             .get_transaction_with_verbosity(child_hash, 2);
         assert!(ret.transaction.is_none());
         assert!(matches!(ret.tx_status.status, Status::Rejected));
+        assert!(
+            ret.tx_status
+                .reason
+                .as_deref()
+                .is_some_and(|r| r.contains("ValidationFailure")),
+            "child tx should be rejected by always_failure ValidationFailure, got: {:?}",
+            ret.tx_status.reason
+        );
     }
 }
 

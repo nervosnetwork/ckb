@@ -4,14 +4,14 @@ mod tor_hash_password;
 mod tor_reconnect;
 use ckb_async_runtime::{Handle, Runtime};
 use ckb_logger::{error, info};
-use std::{path::Path, process::Child};
+use std::path::Path;
 use tempfile::{TempDir, tempdir};
 pub use tor_basic::*;
 pub use tor_connect::*;
 pub use tor_hash_password::*;
 pub use tor_reconnect::*;
 
-use crate::{global::obfs4proxy_binary, utils::find_available_port};
+use crate::{global::obfs4proxy_binary, node::ActiveChildSlot, utils::find_available_port};
 
 // Tor bridge:
 const TOR_BRIDGES: &[&str] = &[
@@ -23,7 +23,7 @@ struct TorServer {
     tor_command_path: String,
     socks_port: u16,
     control_port: u16,
-    tor_process: Option<Child>,
+    tor_process: Option<ActiveChildSlot>,
     tor_data_dir: Option<TempDir>,
     controller_password: Option<String>,
 }
@@ -36,17 +36,8 @@ impl Drop for TorServer {
 
 impl TorServer {
     pub fn shutdown(&mut self) {
-        if let Some(mut process) = self.tor_process.take() {
-            process.kill().unwrap();
-
-            match process.wait() {
-                Ok(exit_status) => {
-                    info!("wait tor process exit: {:?}", exit_status);
-                }
-                Err(err) => {
-                    error!("wait tor process exit error: {:?}", err);
-                }
-            }
+        if let Some(slot) = self.tor_process.take() {
+            crate::node::kill_and_reap_slot("tor", &slot);
         }
     }
     pub fn tor_wait_bootstrap_done(&self) {
@@ -79,8 +70,7 @@ impl TorServer {
             tor_data_dir: Some(tempdir().unwrap()),
             controller_password,
         };
-        let tor_process = tor_server.tor_start(false);
-        tor_server.tor_process = Some(tor_process);
+        tor_server.tor_process = Some(tor_server.tor_start(false));
         tor_server
     }
 
@@ -135,7 +125,7 @@ impl TorServer {
         args
     }
 
-    fn tor_start(&mut self, reuse_data_dir: bool) -> Child {
+    fn tor_start(&mut self, reuse_data_dir: bool) -> ActiveChildSlot {
         let mut cmd = std::process::Command::new(&self.tor_command_path);
 
         if !reuse_data_dir {
@@ -145,9 +135,9 @@ impl TorServer {
         let tor_data_dir = self.tor_data_dir.as_ref().unwrap();
 
         let args = self.build_tor_args(tor_data_dir.path());
-        let cmd = cmd.args(args);
+        cmd.args(args);
 
-        cmd.spawn().unwrap()
+        crate::node::spawn_registered_child("tor", &mut cmd).expect("spawn tor")
     }
 
     fn tor_hashed_password(&self) -> String {

@@ -50,7 +50,6 @@ impl Spec for CheckVmVersion1 {
         let node1 = &nodes[1];
 
         node.mine(1);
-        node1.connect(node);
 
         {
             let mut inputs = gen_spendable(node, INITIAL_INPUTS_COUNT)
@@ -65,6 +64,7 @@ impl Spec for CheckVmVersion1 {
 
         {
             info!("Test Sync:");
+            node1.connect(node);
             let (rpc_client0, rpc_client1) = (node.rpc_client(), node1.rpc_client());
 
             // The GetHeaders will be sent every 15s.

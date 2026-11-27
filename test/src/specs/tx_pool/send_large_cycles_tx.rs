@@ -1,4 +1,5 @@
 use super::{new_block_assembler_config, type_lock_script_code_hash};
+use crate::node::{wait_relay_protocols_connected, waiting_for_sync};
 use crate::util::transaction::relay_tx;
 use crate::utils::wait_until;
 use crate::{Net, Node, Spec};
@@ -94,15 +95,18 @@ impl SendLargeCyclesTxToRelay {
 }
 
 impl Spec for SendLargeCyclesTxToRelay {
-    crate::setup!(num_nodes: 2, retry_failed: 5);
+    crate::setup!(num_nodes: 2);
 
     fn run(&self, nodes: &mut Vec<Node>) {
         let node0 = &nodes[0];
         let node1 = &nodes[1];
 
-        node0.mine_until_out_bootstrap_period();
+        // Mine on node1 only and sync node0 to the exact same chain before relaying,
+        // avoiding equal-length competing forks and IBD relay drops.
         node1.mine_until_out_bootstrap_period();
         node0.connect(node1);
+        waiting_for_sync(nodes);
+        wait_relay_protocols_connected(nodes);
         info!("Generate large cycles tx");
 
         let tx = build_tx(node1, &self.random_key.privkey, self.random_key.lock_arg());
@@ -111,11 +115,6 @@ impl Spec for SendLargeCyclesTxToRelay {
         assert!(ret.is_ok());
 
         info!("Node1 submit large cycles tx");
-
-        let result = wait_until(60, || {
-            node1.get_tip_block_number() == node0.get_tip_block_number()
-        });
-        assert!(result, "node0 can't sync with node1");
 
         let result = wait_until(120, || {
             node0

@@ -20,9 +20,97 @@ use ckb_types::{H256, packed::Byte32};
 pub static HTTP_CLIENT: std::sync::LazyLock<reqwest::blocking::Client> =
     std::sync::LazyLock::new(|| {
         reqwest::blocking::Client::builder()
+            // Integration RPC endpoints are always loopback nodes started by this
+            // runner; disable system/environment proxy discovery so localhost
+            // traffic is never routed through an external proxy.
+            .no_proxy()
+            // Evict idle keep-alive sockets promptly so restarted/stopped nodes
+            // rarely leave stale connections in the shared client pool.
+            .pool_idle_timeout(::std::time::Duration::from_secs(5))
             .timeout(::std::time::Duration::from_secs(30))
             .build()
             .expect("reqwest Client build")
+    });
+
+pub(crate) fn is_read_only_rpc_method(method: &str) -> bool {
+    method.starts_with("get_")
+        || matches!(
+            method,
+            "local_node_info" | "tx_pool_info" | "tx_pool_ready" | "sync_state" | "estimate_cycles"
+        )
+}
+
+fn is_transient_stale_connection_error(err: &reqwest::Error) -> bool {
+    // Do not retry timeouts or connection-refused errors: startup polling relies
+    // on immediate ConnectionRefused feedback to detect crashed child processes.
+    if err.is_timeout() || err.is_connect() {
+        return false;
+    }
+    if err.is_request() || err.is_body() {
+        return true;
+    }
+    let mut source: Option<&(dyn std::error::Error + 'static)> = std::error::Error::source(err);
+    while let Some(cause) = source {
+        if let Some(io_err) = cause.downcast_ref::<std::io::Error>()
+            && matches!(
+                io_err.kind(),
+                std::io::ErrorKind::UnexpectedEof
+                    | std::io::ErrorKind::ConnectionReset
+                    | std::io::ErrorKind::ConnectionAborted
+                    | std::io::ErrorKind::BrokenPipe
+            )
+        {
+            return true;
+        }
+        source = cause.source();
+    }
+    false
+}
+
+pub(crate) fn send_jsonrpc_request(
+    client: &reqwest::blocking::Client,
+    url: &reqwest::Url,
+    method: &str,
+    req_json: &serde_json::Map<String, serde_json::Value>,
+) -> Result<jsonrpc_core::response::Output, AnyError> {
+    let max_attempts = if is_read_only_rpc_method(method) {
+        3
+    } else {
+        1
+    };
+    let mut attempt = 0usize;
+    loop {
+        attempt += 1;
+        match client.post(url.clone()).json(req_json).send() {
+            Ok(resp) => match resp.bytes() {
+                Ok(body) => {
+                    // Full HTTP body read succeeded; parse JSON without retrying
+                    // malformed payloads.
+                    return serde_json::from_slice::<jsonrpc_core::response::Output>(&body)
+                        .map_err(Into::into);
+                }
+                Err(err) if attempt < max_attempts && is_transient_stale_connection_error(&err) => {
+                    std::thread::sleep(std::time::Duration::from_millis(25 * attempt as u64));
+                    continue;
+                }
+                Err(err) => return Err(err.into()),
+            },
+            Err(err) if attempt < max_attempts && is_transient_stale_connection_error(&err) => {
+                std::thread::sleep(std::time::Duration::from_millis(25 * attempt as u64));
+                continue;
+            }
+            Err(err) => return Err(err.into()),
+        }
+    }
+}
+
+static DIAGNOSTIC_HTTP_CLIENT: std::sync::LazyLock<reqwest::blocking::Client> =
+    std::sync::LazyLock::new(|| {
+        reqwest::blocking::Client::builder()
+            .no_proxy()
+            .timeout(::std::time::Duration::from_secs(2))
+            .build()
+            .expect("reqwest diagnostic Client build")
     });
 
 pub struct RpcClient {
@@ -38,6 +126,35 @@ impl RpcClient {
 
     pub fn inner(&self) -> &Inner {
         &self.inner
+    }
+
+    /// Best-effort short-timeout (2s) JSON-RPC call used when capturing failure
+    /// diagnostics so a hung or unresponsive node never stalls failure reporting.
+    pub fn diagnostic_call(
+        &self,
+        method: &str,
+        params: serde_json::Value,
+    ) -> Result<serde_json::Value, String> {
+        let req = serde_json::json!({
+            "id": self.inner.id_generator.next(),
+            "jsonrpc": "2.0",
+            "method": method,
+            "params": params,
+        });
+        let resp = DIAGNOSTIC_HTTP_CLIENT
+            .post(self.inner.url.clone())
+            .json(&req)
+            .send()
+            .map_err(|err| format!("http error: {err}"))?;
+        let output = resp
+            .json::<jsonrpc_core::response::Output>()
+            .map_err(|err| format!("json decode error: {err}"))?;
+        match output {
+            jsonrpc_core::response::Output::Success(success) => Ok(success.result),
+            jsonrpc_core::response::Output::Failure(failure) => {
+                Err(format!("rpc error: {:?}", failure.error))
+            }
+        }
     }
 
     pub fn get_block(&self, hash: Byte32) -> Option<BlockView> {
@@ -183,13 +300,18 @@ impl RpcClient {
     where
         F: Fn(),
     {
-        let now = std::time::Instant::now();
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(60);
+        let mut attempt = 0u32;
         while self.inner.get_tip_block_number().is_err() {
-            std::thread::sleep(std::time::Duration::from_millis(100));
-            if now.elapsed() > std::time::Duration::from_secs(60) {
+            let now = std::time::Instant::now();
+            if now >= deadline {
                 fail();
                 return false;
             }
+            let sleep_dur =
+                crate::utils::adaptive_poll_interval(attempt, 10, 50).min(deadline - now);
+            std::thread::sleep(sleep_dur);
+            attempt = attempt.saturating_add(1);
         }
         true
     }
@@ -393,3 +515,204 @@ jsonrpc!(
     pub fn tx_pool_ready(&self) -> bool;
     pub fn get_pool_tx_detail_info(&self, _hash: H256) -> PoolTxDetailInfo;
 });
+
+#[cfg(test)]
+mod tests {
+    use super::{HTTP_CLIENT, is_read_only_rpc_method, send_jsonrpc_request};
+    use std::io::{ErrorKind, Read, Write};
+    use std::net::TcpListener;
+    use std::sync::Arc;
+    use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+    use std::time::{Duration, Instant};
+
+    fn make_req(method: &str) -> serde_json::Map<String, serde_json::Value> {
+        let mut req = serde_json::Map::new();
+        req.insert("id".to_owned(), serde_json::json!(1));
+        req.insert("jsonrpc".to_owned(), serde_json::json!("2.0"));
+        req.insert("method".to_owned(), serde_json::json!(method));
+        req.insert("params".to_owned(), serde_json::Value::Null);
+        req
+    }
+
+    /// Loopback HTTP test server that stays alive accepting and counting every
+    /// incoming request until the caller explicitly stops it (with a hard deadline),
+    /// so unexpected extra retries increment `hits` and missing retries never hang.
+    struct StubHttpServer {
+        url: reqwest::Url,
+        hits: Arc<AtomicUsize>,
+        stop: Arc<AtomicBool>,
+        handle: Option<std::thread::JoinHandle<()>>,
+    }
+
+    impl StubHttpServer {
+        fn start(responses: Vec<&'static [u8]>) -> Self {
+            assert!(!responses.is_empty());
+            let listener = TcpListener::bind("127.0.0.1:0").expect("bind loopback");
+            listener.set_nonblocking(true).expect("set nonblocking");
+            let addr = listener.local_addr().unwrap();
+            let hits = Arc::new(AtomicUsize::new(0));
+            let stop = Arc::new(AtomicBool::new(false));
+            let hits_clone = Arc::clone(&hits);
+            let stop_clone = Arc::clone(&stop);
+
+            let handle = std::thread::spawn(move || {
+                let fallback = *responses.last().expect("non-empty responses");
+                let deadline = Instant::now() + Duration::from_secs(10);
+                let mut idx = 0usize;
+                while !stop_clone.load(Ordering::SeqCst) && Instant::now() < deadline {
+                    match listener.accept() {
+                        Ok((mut stream, _)) => {
+                            let payload = responses.get(idx).copied().unwrap_or(fallback);
+                            idx += 1;
+                            hits_clone.fetch_add(1, Ordering::SeqCst);
+                            let _ = stream.set_nonblocking(false);
+                            let _ = stream.set_read_timeout(Some(Duration::from_secs(1)));
+                            let mut buf = [0u8; 1024];
+                            let _ = stream.read(&mut buf);
+                            let _ = stream.write_all(payload);
+                            let _ = stream.flush();
+                        }
+                        Err(err) if err.kind() == ErrorKind::WouldBlock => {
+                            std::thread::sleep(Duration::from_millis(5));
+                        }
+                        Err(_) => break,
+                    }
+                }
+            });
+
+            let url = reqwest::Url::parse(&format!("http://{addr}/")).unwrap();
+            Self {
+                url,
+                hits,
+                stop,
+                handle: Some(handle),
+            }
+        }
+
+        fn url(&self) -> &reqwest::Url {
+            &self.url
+        }
+
+        fn stop_and_count(mut self) -> usize {
+            self.stop.store(true, Ordering::SeqCst);
+            if let Some(handle) = self.handle.take() {
+                handle.join().unwrap();
+            }
+            self.hits.load(Ordering::SeqCst)
+        }
+    }
+
+    impl Drop for StubHttpServer {
+        fn drop(&mut self) {
+            self.stop.store(true, Ordering::SeqCst);
+            if let Some(handle) = self.handle.take() {
+                let _ = handle.join();
+            }
+        }
+    }
+
+    #[test]
+    fn read_only_rpc_method_classification() {
+        for method in [
+            "get_tip_header",
+            "get_peers",
+            "get_transaction",
+            "local_node_info",
+            "tx_pool_info",
+            "tx_pool_ready",
+            "sync_state",
+            "estimate_cycles",
+        ] {
+            assert!(
+                is_read_only_rpc_method(method),
+                "{method} should be classified as read-only"
+            );
+        }
+        for method in [
+            "set_ban",
+            "add_node",
+            "remove_node",
+            "clear_banned_addresses",
+            "ping_peers",
+            "send_transaction",
+            "submit_block",
+            "process_block_without_verify",
+            "remove_transaction",
+            "truncate",
+            "generate_block",
+            "notify_transaction",
+        ] {
+            assert!(
+                !is_read_only_rpc_method(method),
+                "{method} must not be retried automatically"
+            );
+        }
+    }
+
+    #[test]
+    fn read_only_rpc_retries_truncated_body_eof_but_not_invalid_json_or_writes() {
+        let truncated: &'static [u8] =
+            b"HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: 100\r\nConnection: close\r\n\r\n{\"jsonrpc\":\"2.0\",";
+        let truncated_chunked: &'static [u8] =
+            b"HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nTransfer-Encoding: chunked\r\nConnection: close\r\n\r\n20\r\n{\"jsonrpc\":\"2.0\",";
+        let valid_ok: &'static [u8] =
+            b"HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: 42\r\nConnection: close\r\n\r\n{\"jsonrpc\":\"2.0\",\"result\":\"0x1\",\"id\":1}   ";
+        let invalid_json: &'static [u8] =
+            b"HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: 11\r\nConnection: close\r\n\r\nnot-a-json!";
+
+        // 1. Read-only RPC retries Content-Length truncated body EOF and succeeds on attempt 2.
+        let server = StubHttpServer::start(vec![truncated, valid_ok]);
+        let res = send_jsonrpc_request(
+            &HTTP_CLIENT,
+            server.url(),
+            "get_tip_block_number",
+            &make_req("get_tip_block_number"),
+        );
+        let hits = server.stop_and_count();
+        assert!(
+            res.is_ok(),
+            "read-only RPC should retry truncated EOF: {res:?}"
+        );
+        assert_eq!(hits, 2);
+
+        // 2. Read-only RPC retries chunked truncated body EOF and succeeds on attempt 2.
+        let server = StubHttpServer::start(vec![truncated_chunked, valid_ok]);
+        let res = send_jsonrpc_request(
+            &HTTP_CLIENT,
+            server.url(),
+            "get_tip_block_number",
+            &make_req("get_tip_block_number"),
+        );
+        let hits = server.stop_and_count();
+        assert!(
+            res.is_ok(),
+            "read-only RPC should retry truncated chunked EOF: {res:?}"
+        );
+        assert_eq!(hits, 2);
+
+        // 3. Write RPC must NOT retry truncated body EOF (sent once only; server stays up to catch extra hits).
+        let server = StubHttpServer::start(vec![truncated, valid_ok]);
+        let res = send_jsonrpc_request(&HTTP_CLIENT, server.url(), "set_ban", &make_req("set_ban"));
+        let hits = server.stop_and_count();
+        assert!(
+            res.is_err(),
+            "write RPC must fail immediately without retry"
+        );
+        assert_eq!(hits, 1);
+
+        // 4. Complete but invalid JSON must NOT retry even for read-only RPC (server stays up to catch extra hits).
+        let server = StubHttpServer::start(vec![invalid_json, valid_ok]);
+        let res = send_jsonrpc_request(
+            &HTTP_CLIENT,
+            server.url(),
+            "get_tip_block_number",
+            &make_req("get_tip_block_number"),
+        );
+        let hits = server.stop_and_count();
+        assert!(
+            res.is_err(),
+            "malformed complete JSON must fail immediately"
+        );
+        assert_eq!(hits, 1);
+    }
+}

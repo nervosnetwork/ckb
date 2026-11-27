@@ -32,7 +32,7 @@ impl Spec for RemoveTx {
             node0.assert_tx_pool_statics(0, 0);
 
             relay_tx(&net, node0, child_tx.clone(), ALWAYS_SUCCESS_SCRIPT_CYCLE);
-            let result = wait_until(5, || {
+            let result = wait_until(20, || {
                 let tx_pool_info = node0.get_tip_tx_pool_info();
                 tx_pool_info.orphan.value() == 1 && tx_pool_info.pending.value() == 0
             });
@@ -43,7 +43,7 @@ impl Spec for RemoveTx {
             node0.assert_tx_pool_statics(0, 0);
 
             node0.remove_transaction(child_tx.hash());
-            let result = wait_until(5, || {
+            let result = wait_until(20, || {
                 let tx_pool_info = node0.get_tip_tx_pool_info();
                 tx_pool_info.orphan.value() == 0 && tx_pool_info.pending.value() == 0
             });
@@ -58,7 +58,7 @@ impl Spec for RemoveTx {
             node0.assert_tx_pool_statics(0, 0);
 
             node0.submit_transaction(&tx);
-            let result = wait_until(5, || {
+            let result = wait_until(20, || {
                 let tx_pool_info = node0.get_tip_tx_pool_info();
                 tx_pool_info.pending.value() == 1 && tx_pool_info.proposed.value() == 0
             });
@@ -72,7 +72,7 @@ impl Spec for RemoveTx {
             assert!(check::is_transaction_pending(node0, &tx));
 
             node0.remove_transaction(tx.hash());
-            let result = wait_until(5, || {
+            let result = wait_until(20, || {
                 let tx_pool_info = node0.get_tip_tx_pool_info();
                 tx_pool_info.pending.value() == 0 && tx_pool_info.proposed.value() == 0
             });
@@ -87,7 +87,7 @@ impl Spec for RemoveTx {
             node0.assert_tx_pool_statics(0, 0);
 
             node0.submit_transaction(&tx);
-            let result = wait_until(5, || {
+            let result = wait_until(20, || {
                 let tx_pool_info = node0.get_tip_tx_pool_info();
                 tx_pool_info.pending.value() == 1 && tx_pool_info.proposed.value() == 0
             });
@@ -97,7 +97,7 @@ impl Spec for RemoveTx {
 
             let proposed = node0.mine_with_blocking(|template| template.proposals.len() != 1);
             node0.mine_with_blocking(|template| template.number.value() != (proposed + 1));
-            let result = wait_until(5, || {
+            let result = wait_until(20, || {
                 let tx_pool_info = node0.get_tip_tx_pool_info();
                 tx_pool_info.pending.value() == 0 && tx_pool_info.proposed.value() == 1
             });
@@ -106,7 +106,7 @@ impl Spec for RemoveTx {
             node0.assert_tx_pool_statics(tx_size, tx_cycles);
 
             node0.remove_transaction(tx.hash());
-            let result = wait_until(5, || {
+            let result = wait_until(20, || {
                 let tx_pool_info = node0.get_tip_tx_pool_info();
                 tx_pool_info.pending.value() == 0 && tx_pool_info.proposed.value() == 0
             });

@@ -52,16 +52,22 @@ impl Spec for TorReconnect {
                 i, reuse_data_dir
             );
 
-            let tor_server = self.tor_server.lock().tor_start(reuse_data_dir);
-            self.tor_server.lock().tor_process = Some(tor_server);
+            let mut tor_server = self.tor_server.lock();
+            tor_server.shutdown();
+            let slot = tor_server.tor_start(reuse_data_dir);
+            tor_server.tor_process = Some(slot);
+            drop(tor_server);
 
-            wait_until(30, || {
-                std::net::TcpStream::connect(format!(
-                    "127.0.0.1:{}",
-                    self.tor_server.lock().control_port
-                ))
-                .is_ok()
-            });
+            assert!(
+                wait_until(30, || {
+                    std::net::TcpStream::connect(format!(
+                        "127.0.0.1:{}",
+                        self.tor_server.lock().control_port
+                    ))
+                    .is_ok()
+                }),
+                "tor control port should become reachable within 30s",
+            );
             self.tor_server.lock().tor_wait_bootstrap_done();
             self.run_test(nodes);
             self.tor_server.lock().shutdown();

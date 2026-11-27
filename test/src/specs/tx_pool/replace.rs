@@ -1,5 +1,6 @@
 use crate::{
     Node, Spec,
+    node::{wait_relay_protocols_connected, waiting_for_sync},
     rpc::RpcClient,
     util::{
         cell::gen_spendable,
@@ -833,7 +834,10 @@ impl Spec for RbfReplaceProposedSuccess {
             .build();
         node0.submit_block(&blank_block);
 
-        wait_until(10, move || node0.get_tip_block() == blank_block);
+        assert!(
+            wait_until(10, move || node0.get_tip_block() == blank_block),
+            "node0 should update tip to blank_block"
+        );
 
         let window_count = node0.consensus().tx_proposal_window().closest();
         node0.mine(window_count);
@@ -1070,7 +1074,7 @@ impl Spec for RbfCyclingAttack {
             prev = cur.clone();
         }
         let tx_b1 = txs_chain_b[1].clone();
-        eprintln!("tx_b1 {:?}", tx_b1.proposal_short_id());
+        ckb_logger::debug!("tx_b1 {:?}", tx_b1.proposal_short_id());
 
         // Create a child transaction consume B0 and A1
         // A0 ---> A1 ---> A2
@@ -1097,7 +1101,7 @@ impl Spec for RbfCyclingAttack {
             .set_outputs(vec![tx_b2_output])
             .build();
         let res = node0.rpc_client().send_transaction(tx_b2.data().into());
-        eprintln!("tx_b2 {:?}", res);
+        ckb_logger::debug!("tx_b2 {:?}", res);
 
         // after A2 and B1 is replaced by B2
         // A0 ---> A1
@@ -1139,7 +1143,7 @@ impl Spec for RbfCyclingAttack {
         assert_eq!(res.tx_status.status, Status::Pending);
         let res = node0.rpc_client().get_transaction(tx_b2.hash());
         assert_eq!(res.tx_status.status, Status::Rejected);
-        eprintln!("tx_b1 {:?}", tx_b1.proposal_short_id());
+        ckb_logger::debug!("tx_b1 {:?}", tx_b1.proposal_short_id());
 
         // B1 is expected by recovered back
         let res = node0.rpc_client().get_transaction(tx_b1.hash());
@@ -1157,10 +1161,20 @@ fn run_spec_send_conflict_relay(nodes: &mut [Node]) {
 
     node1.mine_until_out_bootstrap_period();
     node0.connect(node1);
-    info!("Generate large cycles tx");
+    waiting_for_sync(nodes);
+    wait_relay_protocols_connected(nodes);
 
-    node0.new_block_with_blocking(|template| template.number.value() != 13);
     let tx_hash_0 = node0.generate_transaction();
+    assert!(
+        wait_until(60, || {
+            node1
+                .rpc_client()
+                .get_transaction(tx_hash_0.clone())
+                .transaction
+                .is_some()
+        }),
+        "node1 should receive parent tx before conflicting children are sent",
+    );
     info!("Generate 2 txs with same input");
     let tx1 = node0.new_transaction(tx_hash_0.clone());
 
@@ -1172,18 +1186,13 @@ fn run_spec_send_conflict_relay(nodes: &mut [Node]) {
     node0.rpc_client().send_transaction(tx1.data().into());
 
     let result = wait_until(60, || {
-        node1.get_tip_block_number() == node0.get_tip_block_number()
-    });
-    assert!(result, "node0 can't sync with node1");
-
-    let result = wait_until(60, || {
         node1
             .rpc_client()
             .get_transaction(tx1.hash())
             .transaction
             .is_some()
     });
-    assert!(result, "Node0 should accept tx");
+    assert!(result, "node1 should accept tx1");
     // node0 remove tx1 from tx_pool
     node0.remove_transaction(tx1.hash());
 
@@ -1203,11 +1212,10 @@ fn run_spec_send_conflict_relay(nodes: &mut [Node]) {
         .send_transaction_result(tx2.data().into());
     assert!(res.is_ok(), "tx2 should be accepted by node0");
 
-    let _ = wait_until(60, || {
-        node1.get_tip_block_number() == node0.get_tip_block_number()
-    });
-
-    let _result = wait_until(60, || get_tx_pool_conflicts(node1).len() == 1);
+    assert!(
+        wait_until(60, || get_tx_pool_conflicts(node1).len() == 1),
+        "node1 should record tx2 in conflicts pool",
+    );
 
     let res = node1.get_transaction(tx2.hash());
     assert_eq!(res.status, Status::Rejected);
@@ -1218,7 +1226,7 @@ fn run_spec_send_conflict_relay(nodes: &mut [Node]) {
 
 pub struct SendConflictTxToRelay;
 impl Spec for SendConflictTxToRelay {
-    crate::setup!(num_nodes: 2, retry_failed: 5);
+    crate::setup!(num_nodes: 2);
 
     fn run(&self, nodes: &mut Vec<Node>) {
         run_spec_send_conflict_relay(nodes);
@@ -1232,7 +1240,7 @@ impl Spec for SendConflictTxToRelay {
 
 pub struct SendConflictTxToRelayRBF;
 impl Spec for SendConflictTxToRelayRBF {
-    crate::setup!(num_nodes: 2, retry_failed: 5);
+    crate::setup!(num_nodes: 2);
 
     fn run(&self, nodes: &mut Vec<Node>) {
         run_spec_send_conflict_relay(nodes);

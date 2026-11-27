@@ -50,9 +50,6 @@ impl Spec for CompactBlockEmptyParentUnknown {
             SupportProtocols::RelayV3,
             build_compact_block(&parent_unknown_block),
         );
-        let ret = wait_until(10, move || node.get_tip_block() != tip_block);
-        assert!(!ret, "Node0 should reconstruct empty block failed");
-
         let ret = net.should_receive(node, |data: &Bytes| {
             SyncMessage::from_slice(data)
                 .map(|message| message.to_enum().item_name() == GetHeaders::NAME)
@@ -62,6 +59,9 @@ impl Spec for CompactBlockEmptyParentUnknown {
             ret,
             "Node0 should send back GetHeaders message for unknown parent header"
         );
+
+        let ret = wait_until(1, move || node.get_tip_block() != tip_block);
+        assert!(!ret, "Node0 should reconstruct empty block failed");
     }
 }
 
@@ -168,9 +168,6 @@ impl Spec for CompactBlockMissingFreshTxs {
             SupportProtocols::RelayV3,
             build_compact_block(&new_block),
         );
-        let ret = wait_until(10, move || node.get_tip_block() == new_block);
-        assert!(!ret, "Node0 should be unable to reconstruct the block");
-
         let ret = net.should_receive(node, |data: &Bytes| {
             let get_block_txns = RelayMessage::from_slice(data)
                 .map(|message| message.to_enum().item_name() == packed::GetBlockTransactions::NAME)
@@ -184,6 +181,9 @@ impl Spec for CompactBlockMissingFreshTxs {
             ret,
             "Node0 should send GetBlockTransactions message for missing transactions"
         );
+
+        let ret = wait_until(1, move || node.get_tip_block() == new_block);
+        assert!(!ret, "Node0 should be unable to reconstruct the block");
     }
 }
 

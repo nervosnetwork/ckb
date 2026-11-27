@@ -1,7 +1,6 @@
 use crate::node::waiting_for_sync;
-use crate::node::{connect_all, disconnect_all};
 use crate::util::check::is_transaction_proposed;
-use crate::util::mining::out_ibd_mode;
+use crate::util::mining::out_bootstrap_period;
 use crate::{Node, Spec};
 use ckb_jsonrpc_types::ProposalShortId;
 use ckb_logger::info;
@@ -66,14 +65,10 @@ impl Spec for PoolResolveConflictAfterReorg {
     crate::setup!(num_nodes: 2);
 
     fn run(&self, nodes: &mut Vec<Node>) {
-        out_ibd_mode(nodes);
-        connect_all(nodes);
+        out_bootstrap_period(nodes);
 
         let node0 = &nodes[0];
         let node1 = &nodes[1];
-
-        node0.mine_until_out_bootstrap_period();
-        waiting_for_sync(nodes);
 
         info!("Use generated block's cellbase as tx input");
         let tx1 = node0.new_transaction_spend_tip_cellbase();
@@ -93,9 +88,6 @@ impl Spec for PoolResolveConflictAfterReorg {
             txs.push(child);
         }
         assert_eq!(txs.len(), 3);
-
-        info!("Disconnect nodes");
-        disconnect_all(nodes);
 
         info!("submit tx1 chain to node0");
         let ret = node0

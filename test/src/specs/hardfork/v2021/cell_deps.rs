@@ -133,6 +133,10 @@ struct CheckCellDepsTestRunner<'a> {
     start_at: core::BlockNumber,
     checkpoint: core::BlockNumber,
     state: RunnerState,
+    // Ensure blocks mined after `truncate(checkpoint)` always get distinct hashes
+    // even when consecutive sub-tests finish within the same millisecond while
+    // wall clock is still behind `checkpoint`'s `min_timestamp`.
+    next_nonce: std::sync::atomic::AtomicU64,
 }
 
 impl Spec for CheckCellDeps {
@@ -352,6 +356,7 @@ impl<'a> CheckCellDepsTestRunner<'a> {
             start_at,
             checkpoint,
             state,
+            next_nonce: std::sync::atomic::AtomicU64::new(1),
         }
     }
 
@@ -362,7 +367,16 @@ impl<'a> CheckCellDepsTestRunner<'a> {
 
     fn submit_transaction_until_committed(&self, tx: &TransactionView) {
         trace!(">> >>> submit: submit transaction {:#x}.", tx.hash());
-        Self::submit_transaction_until_committed_to(self.node, tx)
+        self.node.submit_transaction(tx);
+        self.node.mine_until_with(
+            || is_transaction_committed(self.node, tx).then_some(()),
+            |builder| {
+                let nonce = self
+                    .next_nonce
+                    .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                builder.nonce(u128::from(nonce).pack()).build()
+            },
+        );
     }
 
     fn restore_to_checkpoint(&self) {

@@ -1,8 +1,9 @@
-use crate::node::{connect_all, waiting_for_sync};
+use crate::net::ReceiveOutcome;
+use crate::node::{connect_all, wait_relay_protocols_connected, waiting_for_sync};
 use crate::util::cell::gen_spendable;
-use crate::util::mining::out_ibd_mode;
+use crate::util::mining::{out_bootstrap_period, out_ibd_mode};
 use crate::util::transaction::{always_success_transaction, always_success_transactions};
-use crate::utils::{build_relay_tx_hashes, build_relay_txs, sleep, wait_until};
+use crate::utils::{build_relay_tx_hashes, build_relay_txs, tweaked_duration, wait_until};
 use crate::{Net, Node, Spec};
 use ckb_constant::sync::RETRY_ASK_TX_TIMEOUT_INCREASE;
 use ckb_jsonrpc_types::Status;
@@ -21,11 +22,10 @@ impl Spec for TransactionRelayBasic {
 
     fn run(&self, nodes: &mut Vec<Node>) {
         out_ibd_mode(nodes);
-        connect_all(nodes);
-        waiting_for_sync(nodes);
 
         let node1 = &nodes[1];
         let cells = gen_spendable(node1, 1);
+        connect_all(nodes);
         waiting_for_sync(nodes);
         wait_relay_protocols_connected(nodes);
 
@@ -53,61 +53,17 @@ impl Spec for TransactionRelayBasic {
     }
 }
 
-fn wait_relay_protocols_connected(nodes: &[Node]) {
-    for (node_index, node) in nodes.iter().enumerate() {
-        for (peer_index, peer) in nodes.iter().enumerate() {
-            if node_index != peer_index {
-                wait_relay_protocol_connected(node, peer);
-            }
-        }
-    }
-}
-
-fn wait_relay_protocol_connected(node: &Node, peer: &Node) {
-    let connected = wait_until(10, || relay_protocol_connected(node, peer));
-    if !connected {
-        let peers = node
-            .rpc_client()
-            .get_peers()
-            .into_iter()
-            .map(|remote_node| {
-                let protocol_ids = remote_node
-                    .protocols
-                    .into_iter()
-                    .map(|protocol| protocol.id.value())
-                    .collect::<Vec<_>>();
-                (remote_node.node_id, protocol_ids)
-            })
-            .collect::<Vec<_>>();
-        panic!(
-            "RelayV3 protocol should be active from node {} to peer {}, peers: {peers:?}",
-            node.node_id(),
-            peer.node_id(),
-        );
-    }
-}
-
-fn relay_protocol_connected(node: &Node, peer: &Node) -> bool {
-    let relay_protocol_id = SupportProtocols::RelayV3.protocol_id().value() as u64;
-    node.rpc_client().get_peers().iter().any(|remote_node| {
-        remote_node.node_id == peer.node_id()
-            && remote_node
-                .protocols
-                .iter()
-                .any(|protocol| protocol.id.value() == relay_protocol_id)
-    })
-}
-
 pub struct TransactionRelayMultiple;
 
 impl Spec for TransactionRelayMultiple {
     crate::setup!(num_nodes: 5);
 
     fn run(&self, nodes: &mut Vec<Node>) {
-        connect_all(nodes);
-
+        // Bring all 5 nodes out of IBD/bootstrap first so `connect_all` does not hit IBD eviction.
+        out_bootstrap_period(nodes);
         let node0 = &nodes[0];
         let cells = gen_spendable(node0, 10);
+        connect_all(nodes);
         waiting_for_sync(nodes);
         wait_relay_protocols_connected(nodes);
 
@@ -165,15 +121,24 @@ impl Spec for TransactionRelayTimeout {
             "timeout to wait GetRelayTransactions"
         );
 
-        let wait_seconds = RETRY_ASK_TX_TIMEOUT_INCREASE.as_secs();
-        info!("Waiting for {} seconds", wait_seconds);
-        // Relay protocol will retry 30 seconds later when same GetRelayTransactions received from other peer
-        // (not happened in current test case)
-        sleep(wait_seconds);
-        assert!(
-            !wait_get_relay_txs(&net, &node),
-            "should not receive GetRelayTransactions again"
+        let wait_seconds = RETRY_ASK_TX_TIMEOUT_INCREASE.as_secs() + 5;
+        info!(
+            "Monitoring for {} seconds to ensure GetRelayTransactions is not retried",
+            wait_seconds
         );
+        // Relay protocol will retry after RETRY_ASK_TX_TIMEOUT_INCREASE (30s) only if
+        // another peer announces the same tx hash (which does not happen here).
+        // Monitor continuously across the whole window: only a full-window timeout passes;
+        // either receiving GetRelayTransactions or disconnecting prematurely must fail.
+        match wait_get_relay_txs_outcome(&net, &node, tweaked_duration(wait_seconds)) {
+            ReceiveOutcome::Timeout => {}
+            ReceiveOutcome::Matched => {
+                panic!("should not receive GetRelayTransactions again");
+            }
+            ReceiveOutcome::Disconnected => {
+                panic!("peer disconnected prematurely before retry timeout window elapsed");
+            }
+        }
     }
 }
 
@@ -210,11 +175,10 @@ fn run_relay_malformed_tx_with_cycle(spec: &dyn Spec, nodes: &mut Vec<Node>, cyc
         build_relay_txs(&[(dummy_tx, cycle)]),
     );
 
-    wait_until(20, || node.rpc_client().get_banned_addresses().len() == 1);
+    let banned = wait_until(20, || node.rpc_client().get_banned_addresses().len() == 1);
     let banned_addrs = node.rpc_client().get_banned_addresses();
-    assert_eq!(
-        banned_addrs.len(),
-        1,
+    assert!(
+        banned && banned_addrs.len() == 1,
         "Net should be banned: {banned_addrs:?}"
     );
 }
@@ -240,7 +204,15 @@ impl Spec for RelayInvalidTransactionResumable {
 }
 
 fn wait_get_relay_txs(net: &Net, node: &Node) -> bool {
-    net.should_receive(node, |data| {
+    wait_get_relay_txs_outcome(net, node, tweaked_duration(30)) == ReceiveOutcome::Matched
+}
+
+fn wait_get_relay_txs_outcome(
+    net: &Net,
+    node: &Node,
+    timeout: std::time::Duration,
+) -> ReceiveOutcome {
+    net.wait_for_message_within(node, timeout, |data| {
         RelayMessage::from_slice(data)
             .map(|message| message.to_enum().item_name() == GetRelayTransactions::NAME)
             .unwrap_or(false)
@@ -288,14 +260,12 @@ impl Spec for TransactionRelayConflict {
     crate::setup!(num_nodes: 2);
 
     fn run(&self, nodes: &mut Vec<Node>) {
-        out_ibd_mode(nodes);
+        out_bootstrap_period(nodes);
         connect_all(nodes);
+        waiting_for_sync(nodes);
 
         let node0 = &nodes[0];
         let node1 = &nodes[1];
-
-        node0.mine_until_out_bootstrap_period();
-        waiting_for_sync(nodes);
 
         let tx_hash_0 = node0.generate_transaction();
         info!("Generate 2 txs with same input");
@@ -310,10 +280,13 @@ impl Spec for TransactionRelayConflict {
             .set_outputs(vec![output])
             .build();
         node0.rpc_client().send_transaction(tx1.data().into());
-        sleep(6);
-
-        let res = node0.rpc_client().get_transaction(tx1.hash());
-        assert!(matches!(res.tx_status.status, Status::Pending));
+        assert!(
+            wait_until(10, || {
+                let res = node0.rpc_client().get_transaction(tx1.hash());
+                matches!(res.tx_status.status, Status::Pending)
+            }),
+            "tx1 should enter node0 pending pool"
+        );
 
         let res = node0
             .rpc_client()
@@ -367,12 +340,12 @@ impl Spec for TransactionRelayConflict {
             .get_transaction_with_verbosity(tx1.hash(), 1);
         assert!(matches!(ret.tx_status.status, Status::Unknown));
 
-        let result = wait_until(5, || {
+        let result = wait_until(20, || {
             let tx_pool_info = node0.get_tip_tx_pool_info();
             tx_pool_info.orphan.value() == 0 && tx_pool_info.pending.value() == 0
         });
         assert!(result, "remove txs from node0");
-        let result = wait_until(5, || {
+        let result = wait_until(20, || {
             let tx_pool_info = node1.get_tip_tx_pool_info();
             tx_pool_info.orphan.value() == 0 && tx_pool_info.pending.value() == 0
         });

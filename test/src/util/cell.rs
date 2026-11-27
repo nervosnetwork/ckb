@@ -9,19 +9,25 @@ use std::ops::Range;
 pub fn gen_spendable(node: &Node, count: usize) -> Vec<CellMeta> {
     let farthest = node.consensus().tx_proposal_window().farthest();
     let out_bootstrap_period = farthest + 2;
-    let predicate = || node.get_tip_block_number() >= out_bootstrap_period + count as u64 - 1;
-    node.mine_until_bool(predicate);
+    let target = out_bootstrap_period + count as u64 - 1;
+    let tip = node.get_tip_block_number();
+    if tip < target {
+        node.mine(target - tip);
+    }
     get_spendable(node)
 }
 
 pub fn get_spendable(node: &Node) -> Vec<CellMeta> {
     let numbers = 1..node.get_tip_block_number() + 1;
-    get_spendable_by_numbers(node, numbers)
+    let blocks = numbers.map(|number| node.get_block_by_number(number));
+    // Scanning every block from 1..=tip already accounts for every committed spend,
+    // so we don't need an extra `get_live_cell` RPC per output cell.
+    get_spendable_by_blocks_inner(node, blocks, false)
 }
 
 pub fn get_spendable_by_numbers(node: &Node, numbers: Range<u64>) -> Vec<CellMeta> {
-    let block_hashes = numbers.map(|number| node.rpc_client().get_block_hash(number).unwrap());
-    get_spendable_by_hashes(node, block_hashes)
+    let blocks = numbers.map(|number| node.get_block_by_number(number));
+    get_spendable_by_blocks(node, blocks)
 }
 
 pub fn get_spendable_by_hashes<BlockHashes>(node: &Node, block_hashes: BlockHashes) -> Vec<CellMeta>
@@ -35,6 +41,17 @@ where
 }
 
 pub fn get_spendable_by_blocks<I>(node: &Node, blocks: I) -> Vec<CellMeta>
+where
+    I: IntoIterator<Item = BlockView>,
+{
+    get_spendable_by_blocks_inner(node, blocks, true)
+}
+
+fn get_spendable_by_blocks_inner<I>(
+    node: &Node,
+    blocks: I,
+    verify_live_cells_via_rpc: bool,
+) -> Vec<CellMeta>
 where
     I: IntoIterator<Item = BlockView>,
 {
@@ -74,13 +91,15 @@ where
         }
     });
 
-    // Prune dead cells
-    spendable.retain(|out_point, _| {
-        node.rpc_client()
-            .get_live_cell(out_point.clone().into(), false)
-            .cell
-            .is_some()
-    });
+    // Prune dead cells when scanning a partial block range
+    if verify_live_cells_via_rpc {
+        spendable.retain(|out_point, _| {
+            node.rpc_client()
+                .get_live_cell(out_point.clone().into(), false)
+                .cell
+                .is_some()
+        });
+    }
 
     spendable.values().cloned().collect()
 }

@@ -47,6 +47,12 @@ impl Spec for SendTxChain {
             .rpc_client()
             .send_transaction_result(txs[MAX_ANCESTORS_COUNT].data().into());
         assert!(ret.is_err());
+        assert!(
+            ret.err()
+                .unwrap()
+                .to_string()
+                .contains("Transaction exceeded maximum ancestors count limit")
+        );
 
         node0.mine(3);
 
@@ -67,29 +73,15 @@ impl Spec for SendTxChain {
         }
         assert_eq!(txs.len(), MAX_ANCESTORS_COUNT + 1);
 
-        let template = node0.new_block(None, None, None);
-        let block_with_proposals = template
-            .as_advanced_builder()
-            .set_proposals(
-                txs.iter()
-                    .take(PROPOSAL_LIMIT)
-                    .map(|tx| tx.proposal_short_id())
-                    .collect(),
-            )
-            .set_transactions(vec![template.transaction(0).unwrap()])
-            .build();
-        node0.submit_block(&block_with_proposals);
-        let block_with_proposals = template
-            .as_advanced_builder()
-            .set_proposals(
-                txs.iter()
-                    .skip(PROPOSAL_LIMIT)
-                    .map(|tx| tx.proposal_short_id())
-                    .collect(),
-            )
-            .set_transactions(vec![template.transaction(0).unwrap()])
-            .build();
-        node0.submit_block(&block_with_proposals);
+        for chunk in txs.chunks(PROPOSAL_LIMIT) {
+            let template = node0.new_block(None, None, None);
+            let block_with_proposals = template
+                .as_advanced_builder()
+                .set_proposals(chunk.iter().map(|tx| tx.proposal_short_id()).collect())
+                .set_transactions(vec![template.transaction(0).unwrap()])
+                .build();
+            node0.submit_block(&block_with_proposals);
+        }
         node0.mine(node0.consensus().tx_proposal_window().closest());
 
         info!("submit proposed txs chain to node0");
@@ -146,9 +138,10 @@ impl Spec for SendTxChainRevOrder {
         });
 
         assert!(node_a.get_transaction(family.a().hash()) == TxStatus::pending());
-        // tx_b should remain in tx-pool
-        // assert!(node_a.get_transaction(family.b().hash()) == TxStatus::unknown());
+        // tx_b was proposed without its parent tx_a, so it moves to proposed and remains in tx-pool.
+        assert!(node_a.get_transaction(family.b().hash()) == TxStatus::proposed());
         let tx_pool_info = node_a.rpc_client().tx_pool_info();
         assert_eq!(tx_pool_info.pending.value(), 1);
+        assert_eq!(tx_pool_info.proposed.value(), 1);
     }
 }

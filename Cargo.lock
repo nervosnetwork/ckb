@@ -1835,8 +1835,6 @@ dependencies = [
  "ckb-hash",
  "ckb-jsonrpc-types",
  "ckb-logger",
- "ckb-logger-config",
- "ckb-logger-service",
  "ckb-network",
  "ckb-onion",
  "ckb-resource",
