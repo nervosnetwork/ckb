@@ -187,34 +187,86 @@ impl Net {
     where
         Predicate: Fn(&Bytes) -> bool,
     {
-        let deadline = Instant::now() + timeout;
-        let mut seen = Vec::new();
-        loop {
-            let Some(remaining) = deadline.checked_duration_since(Instant::now()) else {
+        self.wait_for_message_within(node, timeout, predicate) == ReceiveOutcome::Matched
+    }
+
+    pub fn wait_for_message_within<Predicate>(
+        &self,
+        node: &Node,
+        timeout: Duration,
+        predicate: Predicate,
+    ) -> ReceiveOutcome
+    where
+        Predicate: Fn(&Bytes) -> bool,
+    {
+        let node_id = node.node_id();
+        let (_, receiver) = self
+            .receivers
+            .get(&node_id)
+            .unwrap_or_else(|| panic!("not connected peer {}", node.p2p_address()));
+        wait_for_message_on_receiver(receiver, &node.p2p_address(), timeout, predicate)
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ReceiveOutcome {
+    Matched,
+    Timeout,
+    Disconnected,
+}
+
+fn wait_for_message_on_receiver<Predicate>(
+    receiver: &Receiver<NetMessage>,
+    peer_desc: &str,
+    timeout: Duration,
+    predicate: Predicate,
+) -> ReceiveOutcome
+where
+    Predicate: Fn(&Bytes) -> bool,
+{
+    let deadline = Instant::now() + timeout;
+    let mut seen = Vec::new();
+    loop {
+        let Some(remaining) = deadline.checked_duration_since(Instant::now()) else {
+            debug!(
+                "Net::wait_for_message_within timed out after {:?} waiting for peer {}; received {} non-matching message(s): {:?}",
+                timeout,
+                peer_desc,
+                seen.len(),
+                seen
+            );
+            return ReceiveOutcome::Timeout;
+        };
+        match receiver.recv_timeout(remaining) {
+            Ok((peer_index, _, data)) => {
                 debug!(
-                    "Net::should_receive_within timed out after {:?} waiting for peer {}; received {} non-matching message(s): {:?}",
+                    "Net received from peer-{}, message_name: {}",
+                    peer_index,
+                    message_name(&data)
+                );
+                if predicate(&data) {
+                    return ReceiveOutcome::Matched;
+                }
+                seen.push(message_name(&data));
+            }
+            Err(RecvTimeoutError::Timeout) => {
+                debug!(
+                    "Net::wait_for_message_within timed out after {:?} waiting for peer {}; received {} non-matching message(s): {:?}",
                     timeout,
-                    node.p2p_address(),
+                    peer_desc,
                     seen.len(),
                     seen
                 );
-                return false;
-            };
-            match self.receive_timeout(node, remaining) {
-                Ok((_, _, data)) if predicate(&data) => return true,
-                Ok((_, _, data)) => {
-                    seen.push(message_name(&data));
-                }
-                Err(err) => {
-                    debug!(
-                        "Net::should_receive_within ended ({:?}) waiting for peer {}; received {} non-matching message(s): {:?}",
-                        err,
-                        node.p2p_address(),
-                        seen.len(),
-                        seen
-                    );
-                    return false;
-                }
+                return ReceiveOutcome::Timeout;
+            }
+            Err(RecvTimeoutError::Disconnected) => {
+                debug!(
+                    "Net::wait_for_message_within disconnected while waiting for peer {}; received {} non-matching message(s): {:?}",
+                    peer_desc,
+                    seen.len(),
+                    seen
+                );
+                return ReceiveOutcome::Disconnected;
             }
         }
     }
@@ -284,5 +336,40 @@ impl CKBProtocolHandler for DummyProtocolHandler {
         if let Some(sender) = self.senders.lock().get(&peer_index) {
             let _ = sender.send((peer_index, nc.protocol_id(), data)).unwrap();
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::utils::build_relay_tx_hashes;
+    use ckb_types::packed::Byte32;
+
+    #[test]
+    fn wait_for_message_distinguishes_timeout_disconnect_and_match() {
+        // 1. Disconnected sender must return Disconnected immediately, not Timeout.
+        let (tx, rx) = unbounded::<NetMessage>();
+        drop(tx);
+        let started = Instant::now();
+        let outcome = wait_for_message_on_receiver(&rx, "peer", Duration::from_secs(5), |_| true);
+        assert_eq!(outcome, ReceiveOutcome::Disconnected);
+        assert!(started.elapsed() < Duration::from_secs(1));
+
+        // 2. Open channel with no matching messages returns Timeout after window elapses.
+        let (_tx, rx) = unbounded::<NetMessage>();
+        let started = Instant::now();
+        let outcome =
+            wait_for_message_on_receiver(&rx, "peer", Duration::from_millis(60), |_| true);
+        assert_eq!(outcome, ReceiveOutcome::Timeout);
+        assert!(started.elapsed() >= Duration::from_millis(50));
+
+        // 3. Matching message returns Matched.
+        let (tx, rx) = unbounded::<NetMessage>();
+        let payload = build_relay_tx_hashes(&[Byte32::default()]);
+        tx.send((PeerIndex::new(1), ProtocolId::new(1), payload.clone()))
+            .unwrap();
+        let outcome =
+            wait_for_message_on_receiver(&rx, "peer", Duration::from_secs(1), |d| d == &payload);
+        assert_eq!(outcome, ReceiveOutcome::Matched);
     }
 }

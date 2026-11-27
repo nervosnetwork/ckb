@@ -1,4 +1,6 @@
-use crate::global::{PORT_COUNTER, PORT_RANGE_END, PORT_RANGE_LEN, PORT_RANGE_START};
+use crate::global::{
+    PORT_AUTO_WRAP, PORT_COUNTER, PORT_RANGE_END, PORT_RANGE_LEN, PORT_RANGE_START,
+};
 use crate::util::check::is_transaction_committed;
 use crate::{Node, TXOSet};
 use ckb_network::bytes::Bytes;
@@ -271,7 +273,7 @@ pub struct TempPathBuf {
 
 impl TempPathBuf {
     /// Create a root temporary directory for a single spec execution.
-    pub fn new_spec_dir(spec_label: &str) -> Self {
+    pub fn new_spec_dir(spec_label: &str) -> std::io::Result<Self> {
         let mut builder = tempfile::Builder::new();
         let label = sanitize_path_component(spec_label);
         let prefix = ["ckb-it", label.as_str(), ""].join("-");
@@ -280,13 +282,12 @@ impl TempPathBuf {
             builder.tempdir_in(val)
         } else {
             builder.tempdir()
-        }
-        .expect("create spec tempdir failed");
+        }?;
         let path = tempdir.path().to_owned();
-        Self {
+        Ok(Self {
             path,
             _tempdir: Some(Arc::new(tempdir)),
-        }
+        })
     }
 
     /// Return a path located under the active spec run directory (if any),
@@ -462,18 +463,30 @@ pub fn now_ms() -> u64 {
     since_the_epoch.as_millis() as u64
 }
 
-pub fn find_available_port() -> u16 {
-    for _ in 0..PORT_RANGE_LEN {
-        let port = PORT_COUNTER
-            .fetch_update(SeqCst, SeqCst, |cur| {
-                let next = cur.wrapping_add(1);
-                Some(if !(PORT_RANGE_START..PORT_RANGE_END).contains(&next) {
+fn next_candidate_port(counter: &std::sync::atomic::AtomicU16, auto_wrap: bool) -> u16 {
+    counter
+        .fetch_update(SeqCst, SeqCst, |cur| {
+            let next = cur.wrapping_add(1);
+            let wrapped = if auto_wrap {
+                if !(PORT_RANGE_START..PORT_RANGE_END).contains(&next) {
                     PORT_RANGE_START
                 } else {
                     next
-                })
-            })
-            .expect("PORT_COUNTER update always succeeds");
+                }
+            } else if next < 1024 {
+                1024
+            } else {
+                next
+            };
+            Some(wrapped)
+        })
+        .expect("PORT_COUNTER update always succeeds")
+}
+
+pub fn find_available_port() -> u16 {
+    let auto_wrap = PORT_AUTO_WRAP.load(SeqCst);
+    for _ in 0..PORT_RANGE_LEN {
+        let port = next_candidate_port(&PORT_COUNTER, auto_wrap);
         if port < 1024 {
             continue;
         }
@@ -518,7 +531,7 @@ mod tests {
 
     #[test]
     fn spec_run_dir_groups_child_nodes_and_disambiguates_duplicates() {
-        let spec_dir = TempPathBuf::new_spec_dir("DemoSpec [1/2]");
+        let spec_dir = TempPathBuf::new_spec_dir("DemoSpec [1/2]").expect("create spec dir");
         let spec_root = spec_dir.path().to_owned();
         assert!(spec_dir.is_owned_root());
 
@@ -577,5 +590,18 @@ mod tests {
             );
             assert!(seen.insert(port), "duplicate port allocated: {port}");
         }
+    }
+
+    #[test]
+    fn next_candidate_port_preserves_explicit_start_and_wraps_auto_band() {
+        let explicit = std::sync::atomic::AtomicU16::new(40_000);
+        assert_eq!(next_candidate_port(&explicit, false), 40_000);
+        assert_eq!(next_candidate_port(&explicit, false), 40_001);
+        assert_eq!(next_candidate_port(&explicit, false), 40_002);
+
+        let auto = std::sync::atomic::AtomicU16::new(PORT_RANGE_END - 1);
+        assert_eq!(next_candidate_port(&auto, true), PORT_RANGE_END - 1);
+        assert_eq!(next_candidate_port(&auto, true), PORT_RANGE_START);
+        assert_eq!(next_candidate_port(&auto, true), PORT_RANGE_START + 1);
     }
 }

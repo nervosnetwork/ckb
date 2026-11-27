@@ -32,20 +32,11 @@ pub static HTTP_CLIENT: std::sync::LazyLock<reqwest::blocking::Client> =
             .expect("reqwest Client build")
     });
 
-pub(crate) fn is_idempotent_rpc_method(method: &str) -> bool {
+pub(crate) fn is_read_only_rpc_method(method: &str) -> bool {
     method.starts_with("get_")
         || matches!(
             method,
-            "local_node_info"
-                | "tx_pool_info"
-                | "tx_pool_ready"
-                | "sync_state"
-                | "ping_peers"
-                | "add_node"
-                | "remove_node"
-                | "estimate_cycles"
-                | "clear_banned_addresses"
-                | "set_ban"
+            "local_node_info" | "tx_pool_info" | "tx_pool_ready" | "sync_state" | "estimate_cycles"
         )
 }
 
@@ -64,7 +55,7 @@ pub(crate) fn send_jsonrpc_request(
     method: &str,
     req_json: &serde_json::Map<String, serde_json::Value>,
 ) -> Result<jsonrpc_core::response::Output, AnyError> {
-    let max_attempts = if is_idempotent_rpc_method(method) {
+    let max_attempts = if is_read_only_rpc_method(method) {
         3
     } else {
         1
@@ -504,10 +495,10 @@ jsonrpc!(
 
 #[cfg(test)]
 mod tests {
-    use super::is_idempotent_rpc_method;
+    use super::is_read_only_rpc_method;
 
     #[test]
-    fn idempotent_rpc_method_classification() {
+    fn read_only_rpc_method_classification() {
         for method in [
             "get_tip_header",
             "get_peers",
@@ -516,15 +507,19 @@ mod tests {
             "tx_pool_info",
             "tx_pool_ready",
             "sync_state",
-            "add_node",
-            "remove_node",
+            "estimate_cycles",
         ] {
             assert!(
-                is_idempotent_rpc_method(method),
-                "{method} should be classified as idempotent"
+                is_read_only_rpc_method(method),
+                "{method} should be classified as read-only"
             );
         }
         for method in [
+            "set_ban",
+            "add_node",
+            "remove_node",
+            "clear_banned_addresses",
+            "ping_peers",
             "send_transaction",
             "submit_block",
             "process_block_without_verify",
@@ -534,8 +529,8 @@ mod tests {
             "notify_transaction",
         ] {
             assert!(
-                !is_idempotent_rpc_method(method),
-                "{method} must not be classified as idempotent"
+                !is_read_only_rpc_method(method),
+                "{method} must not be retried automatically"
             );
         }
     }

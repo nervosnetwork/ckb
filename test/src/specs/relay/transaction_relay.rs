@@ -1,3 +1,4 @@
+use crate::net::ReceiveOutcome;
 use crate::node::{connect_all, wait_relay_protocols_connected, waiting_for_sync};
 use crate::util::cell::gen_spendable;
 use crate::util::mining::{out_bootstrap_period, out_ibd_mode};
@@ -127,11 +128,17 @@ impl Spec for TransactionRelayTimeout {
         );
         // Relay protocol will retry after RETRY_ASK_TX_TIMEOUT_INCREASE (30s) only if
         // another peer announces the same tx hash (which does not happen here).
-        // Monitor continuously across the whole window to catch both premature and post-timeout retries.
-        assert!(
-            !wait_get_relay_txs_within(&net, &node, tweaked_duration(wait_seconds)),
-            "should not receive GetRelayTransactions again"
-        );
+        // Monitor continuously across the whole window: only a full-window timeout passes;
+        // either receiving GetRelayTransactions or disconnecting prematurely must fail.
+        match wait_get_relay_txs_outcome(&net, &node, tweaked_duration(wait_seconds)) {
+            ReceiveOutcome::Timeout => {}
+            ReceiveOutcome::Matched => {
+                panic!("should not receive GetRelayTransactions again");
+            }
+            ReceiveOutcome::Disconnected => {
+                panic!("peer disconnected prematurely before retry timeout window elapsed");
+            }
+        }
     }
 }
 
@@ -197,11 +204,15 @@ impl Spec for RelayInvalidTransactionResumable {
 }
 
 fn wait_get_relay_txs(net: &Net, node: &Node) -> bool {
-    wait_get_relay_txs_within(net, node, tweaked_duration(30))
+    wait_get_relay_txs_outcome(net, node, tweaked_duration(30)) == ReceiveOutcome::Matched
 }
 
-fn wait_get_relay_txs_within(net: &Net, node: &Node, timeout: std::time::Duration) -> bool {
-    net.should_receive_within(node, timeout, |data| {
+fn wait_get_relay_txs_outcome(
+    net: &Net,
+    node: &Node,
+    timeout: std::time::Duration,
+) -> ReceiveOutcome {
+    net.wait_for_message_within(node, timeout, |data| {
         RelayMessage::from_slice(data)
             .map(|message| message.to_enum().item_name() == GetRelayTransactions::NAME)
             .unwrap_or(false)

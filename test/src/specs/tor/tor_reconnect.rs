@@ -53,7 +53,8 @@ impl Spec for TorReconnect {
             );
 
             let tor_server = self.tor_server.lock().tor_start(reuse_data_dir);
-            self.tor_server.lock().tor_process = Some(tor_server);
+            self.tor_server.lock().tor_process =
+                Some(crate::node::register_active_child_handle("tor", tor_server));
 
             assert!(
                 wait_until(30, || {

@@ -80,8 +80,31 @@ fn default_concurrency() -> usize {
 
 struct RunningSpec {
     spec_name: String,
+    base_name: String,
     started_at: Instant,
     spec_dir: PathBuf,
+}
+
+fn next_coordinator_poll_timeout(
+    now: Instant,
+    start_time: Instant,
+    max_time: u64,
+    spec_timeout: u64,
+    running: &[RunningSpec],
+) -> Duration {
+    let mut wait = Duration::from_secs(5);
+    if max_time > 0 {
+        let max_deadline = start_time + Duration::from_secs(max_time);
+        wait = wait.min(max_deadline.saturating_duration_since(now));
+    }
+    if spec_timeout > 0 {
+        let limit = Duration::from_secs(spec_timeout);
+        for item in running {
+            let spec_deadline = item.started_at + limit;
+            wait = wait.min(spec_deadline.saturating_duration_since(now));
+        }
+    }
+    wait
 }
 
 pub(crate) fn format_duration(duration: Duration) -> String {
@@ -222,7 +245,7 @@ pub fn main_test() {
     *OBFS4PROXY_BINARY_PATH.lock() = obfs4proxy_binary;
     *VENDOR_PATH.lock() = vendor;
     if let Some(start_port) = start_port {
-        PORT_COUNTER.store(start_port, Ordering::SeqCst);
+        global::set_explicit_start_port(start_port);
     }
 
     let mut rng = StdRng::seed_from_u64(seed);
@@ -327,6 +350,7 @@ pub fn main_test() {
             );
         }
         drop(running);
+        node::kill_all_active_children();
         log::logger().flush();
         std::process::exit(130);
     })
@@ -337,9 +361,6 @@ pub fn main_test() {
         pause_on_fail,
         rerun_cmd_prefix: rerun_cmd_prefix.clone(),
     };
-    if total >= 6 {
-        node::prepare_genesis_db_seed();
-    }
     let mut workers = Workers::new(worker_count, Arc::clone(&specs), notify_tx, worker_config);
     workers.start();
 
@@ -349,52 +370,137 @@ pub fn main_test() {
     let mut completed_specs = 0;
     let total_width = total.to_string().len();
     let mut started_sequential = false;
+    let mut shutting_down = false;
+    let mut hit_max_time = false;
     let mut last_progress = Instant::now();
     let mut last_heartbeat = Instant::now();
     while worker_running > 0 {
-        if max_time > 0 && start_time.elapsed().as_secs() > max_time {
-            // shutdown, specs running too long
+        if max_time > 0 && start_time.elapsed() >= Duration::from_secs(max_time) {
+            hit_max_time = true;
+            let active: Vec<(String, String, Duration, PathBuf)> = running_specs
+                .lock()
+                .drain(..)
+                .map(|item| {
+                    (
+                        item.spec_name,
+                        item.base_name,
+                        item.started_at.elapsed(),
+                        item.spec_dir,
+                    )
+                })
+                .collect();
+            for (spec_name, base_name, elapsed, dir) in active {
+                let reason = format!(
+                    "exceeded --max-time {}s (elapsed {})",
+                    max_time,
+                    format_duration(elapsed)
+                );
+                let logs = discover_spec_log_paths(&dir, &[]);
+                let runner_log_path = logger::read_runner_log_path(&dir);
+                error!(
+                    target: "ckb_test::progress",
+                    "TIMEOUT {} {} (dir={})",
+                    spec_name,
+                    reason,
+                    dir.display()
+                );
+                test_results.push(TestResult {
+                    spec_name,
+                    base_name: base_name.clone(),
+                    status: TestResultStatus::Failed,
+                    duration: elapsed,
+                    detail: Some(reason),
+                    spec_dir: Some(dir),
+                    report_path: None,
+                    runner_log_path,
+                    node_log_paths: logs,
+                });
+                error_spec_names.push(base_name.clone());
+                rerun_specs.push(base_name);
+                spec_errors.push(None);
+            }
             workers.shutdown();
+            node::kill_all_active_children();
             break;
         }
 
         if spec_timeout > 0 {
-            let overdue: Vec<(String, Duration, PathBuf)> = running_specs
-                .lock()
-                .iter()
-                .filter_map(|item| {
+            let overdue: Vec<(String, String, Duration, PathBuf)> = {
+                let mut running = running_specs.lock();
+                let mut found = Vec::new();
+                running.retain(|item| {
                     let elapsed = item.started_at.elapsed();
-                    (elapsed.as_secs() >= spec_timeout)
-                        .then(|| (item.spec_name.clone(), elapsed, item.spec_dir.clone()))
-                })
-                .collect();
+                    if elapsed >= Duration::from_secs(spec_timeout) {
+                        found.push((
+                            item.spec_name.clone(),
+                            item.base_name.clone(),
+                            elapsed,
+                            item.spec_dir.clone(),
+                        ));
+                        false
+                    } else {
+                        true
+                    }
+                });
+                found
+            };
             if !overdue.is_empty() {
-                for (name, elapsed, dir) in &overdue {
+                for (name, base_name, elapsed, dir) in overdue {
+                    let reason = format!(
+                        "exceeded --spec-timeout {}s (elapsed {})",
+                        spec_timeout,
+                        format_duration(elapsed)
+                    );
                     error!(
                         target: "ckb_test::progress",
-                        "TIMEOUT {} exceeded --spec-timeout {}s (elapsed {}, dir={})",
+                        "TIMEOUT {} {} (dir={})",
                         name,
-                        spec_timeout,
-                        format_duration(*elapsed),
+                        reason,
                         dir.display()
                     );
-                    let logs = discover_spec_log_paths(dir, &[]);
+                    let logs = discover_spec_log_paths(&dir, &[]);
+                    let runner_log_path = logger::read_runner_log_path(&dir);
                     tail_node_logs(&logs);
-                    timed_out_specs.push(name.clone());
+                    test_results.push(TestResult {
+                        spec_name: name.clone(),
+                        base_name: base_name.clone(),
+                        status: TestResultStatus::Failed,
+                        duration: elapsed,
+                        detail: Some(reason),
+                        spec_dir: Some(dir),
+                        report_path: None,
+                        runner_log_path,
+                        node_log_paths: logs,
+                    });
+                    timed_out_specs.push(name);
+                    error_spec_names.push(base_name.clone());
+                    rerun_specs.push(base_name);
+                    spec_errors.push(None);
                 }
                 workers.shutdown();
+                node::kill_all_active_children();
                 break;
             }
         }
 
-        if worker_running == 1 && !started_sequential {
+        if worker_running == 1 && !started_sequential && !shutting_down {
             started_sequential = true;
             if workers.has_sequential_tasks() {
                 workers.start_sequencial()
             }
         }
 
-        let msg = match notify_rx.recv_timeout(Duration::from_secs(5)) {
+        let poll_timeout = {
+            let running = running_specs.lock();
+            next_coordinator_poll_timeout(
+                Instant::now(),
+                start_time,
+                max_time,
+                spec_timeout,
+                &running,
+            )
+        };
+        let msg = match notify_rx.recv_timeout(poll_timeout) {
             Ok(msg) => msg,
             Err(err) => {
                 if err.is_timeout() {
@@ -430,6 +536,7 @@ pub fn main_test() {
         match msg {
             Notify::Start {
                 spec_name,
+                base_name,
                 spec_dir,
             } => {
                 debug!(
@@ -439,6 +546,7 @@ pub fn main_test() {
                 );
                 running_specs.lock().push(RunningSpec {
                     spec_name,
+                    base_name,
                     started_at: Instant::now(),
                     spec_dir,
                 });
@@ -465,7 +573,7 @@ pub fn main_test() {
                     reason
                 );
                 // Always preserve temporary directories & logs for failed specs for post-mortem debugging.
-                let preserved_dir = spec_dir.leak();
+                let preserved_dir = spec_dir.map(utils::TempPathBuf::leak);
                 for path in node_paths {
                     path.leak();
                 }
@@ -475,7 +583,7 @@ pub fn main_test() {
                     status: TestResultStatus::Failed,
                     duration,
                     detail: Some(reason),
-                    spec_dir: Some(preserved_dir),
+                    spec_dir: preserved_dir,
                     report_path,
                     runner_log_path,
                     node_log_paths: node_log_paths.clone(),
@@ -484,7 +592,7 @@ pub fn main_test() {
                 rerun_specs.push(base_name);
                 if fail_fast {
                     workers.shutdown();
-                    worker_running -= 1;
+                    shutting_down = true;
                 }
                 remove_running_spec(&running_specs, &spec_name);
                 spec_errors.push(Some(spec_error));
@@ -531,7 +639,7 @@ pub fn main_test() {
                 rerun_specs.push(base_name);
                 if fail_fast {
                     workers.shutdown();
-                    worker_running -= 1;
+                    shutting_down = true;
                 }
                 spec_errors.push(None);
                 remove_running_spec(&running_specs, &spec_name);
@@ -545,44 +653,83 @@ pub fn main_test() {
                 node_paths,
             } => {
                 last_progress = Instant::now();
-                test_results.push(TestResult {
-                    spec_name: spec_name.clone(),
-                    base_name,
-                    status: TestResultStatus::Passed,
-                    duration,
-                    detail: None,
-                    spec_dir: None,
-                    report_path: None,
-                    runner_log_path: None,
-                    node_log_paths: Vec::new(),
-                });
                 remove_running_spec(&running_specs, &spec_name);
                 completed_specs += 1;
-                info!(
-                    target: "ckb_test::progress",
-                    "PASS  [{completed_specs:>total_width$}/{total}] {:>7}  {}",
-                    format_duration(duration),
-                    spec_name
-                );
-                if clean_tmp {
-                    for path in node_paths {
-                        if path.is_owned_root()
-                            && let Err(err) = fs::remove_dir_all(&path)
-                        {
-                            warn!("failed to remove directory [{:?}] since {}", path, err);
-                        }
-                    }
-                    if let Err(err) = fs::remove_dir_all(&spec_dir) {
-                        warn!(
-                            "failed to remove spec directory [{:?}] since {}",
-                            spec_dir, err
-                        );
-                    }
-                } else {
-                    // `--keep-tmp-data` is set: preserve passed spec directories too.
-                    spec_dir.leak();
+                if spec_timeout > 0 && duration >= Duration::from_secs(spec_timeout) {
+                    let reason = format!(
+                        "exceeded --spec-timeout {}s (completed in {})",
+                        spec_timeout,
+                        format_duration(duration)
+                    );
+                    let preserved_dir = spec_dir.leak();
                     for path in node_paths {
                         path.leak();
+                    }
+                    let logs = discover_spec_log_paths(&preserved_dir, &[]);
+                    let runner_log_path = logger::read_runner_log_path(&preserved_dir);
+                    error!(
+                        target: "ckb_test::progress",
+                        "TIMEOUT [{completed_specs:>total_width$}/{total}] {:>7}  {} — {}",
+                        format_duration(duration),
+                        spec_name,
+                        reason
+                    );
+                    test_results.push(TestResult {
+                        spec_name: spec_name.clone(),
+                        base_name: base_name.clone(),
+                        status: TestResultStatus::Failed,
+                        duration,
+                        detail: Some(reason),
+                        spec_dir: Some(preserved_dir),
+                        report_path: None,
+                        runner_log_path,
+                        node_log_paths: logs,
+                    });
+                    error_spec_names.push(base_name.clone());
+                    rerun_specs.push(base_name);
+                    spec_errors.push(None);
+                    if fail_fast {
+                        workers.shutdown();
+                        shutting_down = true;
+                    }
+                } else {
+                    test_results.push(TestResult {
+                        spec_name: spec_name.clone(),
+                        base_name,
+                        status: TestResultStatus::Passed,
+                        duration,
+                        detail: None,
+                        spec_dir: None,
+                        report_path: None,
+                        runner_log_path: None,
+                        node_log_paths: Vec::new(),
+                    });
+                    info!(
+                        target: "ckb_test::progress",
+                        "PASS  [{completed_specs:>total_width$}/{total}] {:>7}  {}",
+                        format_duration(duration),
+                        spec_name
+                    );
+                    if clean_tmp {
+                        for path in node_paths {
+                            if path.is_owned_root()
+                                && let Err(err) = fs::remove_dir_all(&path)
+                            {
+                                warn!("failed to remove directory [{:?}] since {}", path, err);
+                            }
+                        }
+                        if let Err(err) = fs::remove_dir_all(&spec_dir) {
+                            warn!(
+                                "failed to remove spec directory [{:?}] since {}",
+                                spec_dir, err
+                            );
+                        }
+                    } else {
+                        // `--keep-tmp-data` is set: preserve passed spec directories too.
+                        spec_dir.leak();
+                        for path in node_paths {
+                            path.leak();
+                        }
                     }
                 }
             }
@@ -593,6 +740,7 @@ pub fn main_test() {
     }
 
     let total_elapsed = start_time.elapsed();
+    let aborted_by_timeout = !timed_out_specs.is_empty() || hit_max_time;
     if !timed_out_specs.is_empty() {
         error!(
             target: "ckb_test::progress",
@@ -600,32 +748,29 @@ pub fn main_test() {
             spec_timeout,
             timed_out_specs.join(", ")
         );
-        if let Some(json_path) = json_report_opt.as_deref() {
-            write_json_report(json_path, &test_results, total_elapsed, seed);
-        }
-        node::cleanup_genesis_db_seed();
-        log::logger().flush();
-        std::process::exit(1);
     }
-
-    // join all workers threads
-    workers.join_all();
-    node::cleanup_genesis_db_seed();
-
-    if max_time > 0 && total_elapsed.as_secs() > max_time {
+    if hit_max_time {
         error!(
             target: "ckb_test::progress",
-            "Exit ckb-test, because total running time({} seconds) exceeds limit({} seconds)",
-            total_elapsed.as_secs(),
+            "Exit ckb-test, because total running time({}) exceeds --max-time({}s)",
+            format_duration(total_elapsed),
             max_time
         );
+    }
+
+    if !aborted_by_timeout {
+        // join all workers threads
+        workers.join_all();
+    } else {
+        // Ensure every active child process has been terminated & reaped before exiting.
+        node::kill_all_active_children();
     }
 
     log::logger().flush();
 
     if report {
         print_results(&mut test_results, total_elapsed, seed, repeat);
-    } else if !spec_errors.is_empty() {
+    } else if !spec_errors.is_empty() || aborted_by_timeout {
         print_failures(&test_results);
     }
 
@@ -637,32 +782,40 @@ pub fn main_test() {
     let mut seen_rerun = HashSet::new();
     rerun_specs.retain(|name| seen_rerun.insert(name.clone()));
 
-    if rerun_specs.is_empty() {
+    let has_failures = !spec_errors.is_empty() || aborted_by_timeout;
+    if !has_failures && rerun_specs.is_empty() {
         return;
     }
 
-    if !spec_errors.is_empty() {
-        eprintln!("\nckb-test failed on spec {}", error_spec_names.join(", "));
-        if let Err(err) = log_failed_specs(&error_spec_names) {
-            eprintln!("Failed to write integration failure reason: {err}");
+    if has_failures {
+        if !error_spec_names.is_empty() {
+            eprintln!("\nckb-test failed on spec {}", error_spec_names.join(", "));
+            if let Err(err) = log_failed_specs(&error_spec_names) {
+                eprintln!("Failed to write integration failure reason: {err}");
+            }
         }
-        println!(
-            "You can rerun remaining specs (add --verbose or --pause-on-fail for debugging) using:"
-        );
-    } else {
-        println!("\nYou can run the skipped specs using following command:");
+        if !rerun_specs.is_empty() {
+            println!(
+                "You can rerun remaining specs (add --verbose or --pause-on-fail for debugging) using:"
+            );
+            println!(
+                "{} --seed {} {}",
+                rerun_cmd_prefix,
+                seed,
+                rerun_specs.join(" "),
+            );
+        }
+        log::logger().flush();
+        std::process::exit(1);
     }
 
+    println!("\nYou can run the skipped specs using following command:");
     println!(
         "{} --seed {} {}",
         rerun_cmd_prefix,
         seed,
         rerun_specs.join(" "),
     );
-
-    if !spec_errors.is_empty() {
-        std::process::exit(1);
-    }
 }
 
 fn clap_app() -> Command {
@@ -1547,6 +1700,38 @@ mod tests {
         assert!(
             max_w - min_w <= 10,
             "shards should be tightly weight-balanced, got weights: {shard_weights:?}"
+        );
+    }
+
+    #[test]
+    fn next_coordinator_poll_timeout_tracks_nearest_deadline() {
+        let base = Instant::now();
+        let running = vec![RunningSpec {
+            spec_name: "SlowSpec".to_string(),
+            base_name: "SlowSpec".to_string(),
+            started_at: base,
+            spec_dir: PathBuf::from("/tmp/slow"),
+        }];
+
+        // No limits -> capped at 5s default.
+        assert_eq!(
+            next_coordinator_poll_timeout(base, base, 0, 0, &running),
+            Duration::from_secs(5)
+        );
+        // Nearest spec_timeout of 1s overrides 5s cap.
+        assert_eq!(
+            next_coordinator_poll_timeout(base, base, 0, 1, &running),
+            Duration::from_secs(1)
+        );
+        // Already past deadline -> 0ms so watchdog fires immediately.
+        assert_eq!(
+            next_coordinator_poll_timeout(base + Duration::from_secs(2), base, 0, 1, &running),
+            Duration::ZERO
+        );
+        // max_time closer than spec_timeout wins.
+        assert_eq!(
+            next_coordinator_poll_timeout(base, base, 2, 10, &running),
+            Duration::from_secs(2)
         );
     }
 }

@@ -33,129 +33,67 @@ use std::fs::{self, File};
 use std::io::{self, BufRead, BufReader, ErrorKind, Seek, SeekFrom};
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
-use std::sync::{Arc, Mutex, OnceLock, RwLock};
+use std::sync::{Arc, Mutex, OnceLock, RwLock, Weak};
 use std::thread::sleep;
 use std::time::{Duration, Instant};
 
-static GENESIS_DB_SEED: Mutex<Option<TempPathBuf>> = Mutex::new(None);
+type ActiveChildSlot = Arc<Mutex<Option<Child>>>;
+type ActiveChildEntry = (String, Weak<Mutex<Option<Child>>>);
 
-/// Pre-initialize a clean default-consensus RocksDB (`data/db`) once per runner
-/// invocation so subsequent default-spec nodes can CoW-clone it instead of
-/// repeating genesis DB initialization hundreds of times.
-pub(crate) fn prepare_genesis_db_seed() {
-    let mut guard = GENESIS_DB_SEED.lock().expect("lock genesis db seed");
-    if guard.is_some() {
-        return;
-    }
-    let mut seed_node = Node::new("genesis_seed", "template");
-    seed_node.start();
-    seed_node.stop_gracefully();
-    let working_dir = seed_node.working_dir();
-    let db_dir = working_dir.join("data/db");
-    if db_dir.is_dir() {
-        // Remove any residual LOCK file and non-DB directories so only clean genesis DB remains.
-        let _ = fs::remove_file(db_dir.join("LOCK"));
-        let _ = fs::remove_dir_all(working_dir.join("data/network"));
-        let _ = fs::remove_dir_all(working_dir.join("data/logs"));
-        let _ = fs::remove_dir_all(working_dir.join("data/tx_pool"));
-        let _ = fs::remove_dir_all(working_dir.join("data/indexer"));
-        let _ = fs::remove_dir_all(working_dir.join("data/freezer"));
-        *guard = Some(seed_node.owned_working_dir());
-    }
+fn active_children() -> &'static Mutex<Vec<ActiveChildEntry>> {
+    static ACTIVE: OnceLock<Mutex<Vec<ActiveChildEntry>>> = OnceLock::new();
+    ACTIVE.get_or_init(|| Mutex::new(Vec::new()))
 }
 
-/// Remove the shared genesis DB seed directory cleanly at runner shutdown.
-pub(crate) fn cleanup_genesis_db_seed() {
-    if let Ok(mut guard) = GENESIS_DB_SEED.lock() {
-        guard.take();
+pub(crate) fn register_active_child_handle(
+    name: impl Into<String>,
+    child: Child,
+) -> ActiveChildSlot {
+    let slot = Arc::new(Mutex::new(Some(child)));
+    if let Ok(mut guard) = active_children().lock() {
+        guard.retain(|(_, weak)| weak.strong_count() > 0);
+        guard.push((name.into(), Arc::downgrade(&slot)));
     }
+    slot
 }
 
-fn clone_genesis_db_if_available(target_working_dir: &Path) {
-    let target_db = target_working_dir.join("data/db");
-    if target_db.exists() {
-        return;
-    }
-    let seed_db = {
-        let Ok(guard) = GENESIS_DB_SEED.lock() else {
-            return;
-        };
-        let Some(root) = guard.as_ref() else {
-            return;
-        };
-        root.path().join("data/db")
-    };
-    if !seed_db.is_dir() {
-        return;
-    }
-    let target_data = target_working_dir.join("data");
-    if fs::create_dir_all(&target_data).is_err() {
-        return;
-    }
+/// Force-kill and reap all currently registered child processes (e.g. `ckb`, `tor`)
+/// before abrupt runner exit on `--spec-timeout`, `--max-time`, or Ctrl-C.
+pub(crate) fn kill_all_active_children() {
+    let slots: Vec<(String, ActiveChildSlot)> = active_children()
+        .lock()
+        .map(|mut guard| {
+            let mut live = Vec::new();
+            guard.retain(|(name, weak)| match weak.upgrade() {
+                Some(slot) => {
+                    live.push((name.clone(), slot));
+                    true
+                }
+                None => false,
+            });
+            live
+        })
+        .unwrap_or_default();
 
-    // Prefer OS-native copy-on-write clones when supported, falling back to plain file copy.
-    #[cfg(target_os = "macos")]
-    {
-        if Command::new("cp")
-            .args(["-cR"])
-            .arg(&seed_db)
-            .arg(&target_db)
-            .stdout(Stdio::null())
-            .stderr(Stdio::null())
-            .status()
-            .is_ok_and(|s| s.success())
-        {
-            return;
-        }
-        let _ = fs::remove_dir_all(&target_db);
-    }
-    #[cfg(target_os = "linux")]
-    {
-        if Command::new("cp")
-            .args(["-a", "--reflink=auto"])
-            .arg(&seed_db)
-            .arg(&target_db)
-            .stdout(Stdio::null())
-            .stderr(Stdio::null())
-            .status()
-            .is_ok_and(|s| s.success())
-        {
-            return;
-        }
-        let _ = fs::remove_dir_all(&target_db);
-    }
-
-    if copy_dir_recursive(&seed_db, &target_db).is_err() {
-        let _ = fs::remove_dir_all(&target_db);
-    }
-}
-
-fn copy_dir_recursive(src: &Path, dst: &Path) -> io::Result<()> {
-    fs::create_dir_all(dst)?;
-    for entry in fs::read_dir(src)? {
-        let entry = entry?;
-        let file_name = entry.file_name();
-        if file_name == "LOCK" {
-            continue;
-        }
-        let src_path = entry.path();
-        let dst_path = dst.join(file_name);
-        if entry.file_type()?.is_dir() {
-            copy_dir_recursive(&src_path, &dst_path)?;
-        } else {
-            fs::copy(&src_path, &dst_path)?;
+    for (name, slot) in slots {
+        let child = slot.lock().ok().and_then(|mut guard| guard.take());
+        if let Some(mut child) = child {
+            match child.kill() {
+                Err(e) if e.kind() != ErrorKind::InvalidInput => {
+                    error!("Could not kill child process ({name}): {e}");
+                }
+                _ => debug!("Force-killed active child process ({name})"),
+            }
+            let _ = child.wait();
         }
     }
-    Ok(())
 }
 
 struct TemplateAssets {
     ckb_toml_raw: Vec<u8>,
     integration_toml_raw: Vec<u8>,
-    normalized_chain_spec_toml: String,
     always_success_cell: Vec<u8>,
     always_failure_cell: Vec<u8>,
-    default_consensus: Arc<Consensus>,
 }
 
 impl TemplateAssets {
@@ -175,32 +113,11 @@ impl TemplateAssets {
             let always_failure_cell = fs::read(template_dir.join("specs/cells/always_failure"))
                 .expect("read template/specs/cells/always_failure");
 
-            let mut chain_spec =
-                ChainSpec::load_from(&Resource::file_system(integration_toml_path))
-                    .expect("load default template chain spec");
-            let normalized_chain_spec_toml =
-                toml::to_string(&chain_spec).expect("serialize default chain spec");
-            let specs_dir = template_dir.join("specs");
-            chain_spec
-                .genesis
-                .system_cells
-                .iter_mut()
-                .for_each(|system_cell| {
-                    system_cell.file.absolutize(&specs_dir);
-                });
-            let default_consensus = Arc::new(
-                chain_spec
-                    .build_consensus()
-                    .expect("build default consensus"),
-            );
-
             TemplateAssets {
                 ckb_toml_raw,
                 integration_toml_raw,
-                normalized_chain_spec_toml,
                 always_success_cell,
                 always_failure_cell,
-                default_consensus,
             }
         })
     }
@@ -208,28 +125,48 @@ impl TemplateAssets {
 
 pub(crate) struct ProcessGuard {
     pub name: String,
-    pub child: Child,
-    pub killed: bool,
+    pub child: ActiveChildSlot,
 }
 
 impl ProcessGuard {
+    pub(crate) fn new(name: String, child: Child) -> Self {
+        let child = register_active_child_handle(name.clone(), child);
+        Self { name, child }
+    }
+
     pub(crate) fn is_alive(&mut self) -> bool {
-        let try_wait = self.child.try_wait();
-        match try_wait {
-            Ok(status_op) => status_op.is_none(),
-            Err(_err) => false,
+        let Ok(mut guard) = self.child.lock() else {
+            return false;
+        };
+        match guard.as_mut().map(Child::try_wait) {
+            Some(Ok(status_op)) => status_op.is_none(),
+            _ => false,
+        }
+    }
+
+    pub(crate) fn try_wait(&mut self) -> io::Result<Option<std::process::ExitStatus>> {
+        let mut guard = self.child.lock().expect("lock child process");
+        match guard.as_mut() {
+            Some(child) => child.try_wait(),
+            None => Err(io::Error::new(
+                ErrorKind::BrokenPipe,
+                "child process already terminated",
+            )),
         }
     }
 }
 
 impl Drop for ProcessGuard {
     fn drop(&mut self) {
-        if !self.killed {
-            match self.child.kill() {
-                Err(e) => error!("Could not kill ckb process ({}): {}", self.name, e),
-                Ok(_) => debug!("Successfully killed ckb process ({})", self.name),
+        let child = self.child.lock().ok().and_then(|mut guard| guard.take());
+        if let Some(mut child) = child {
+            match child.kill() {
+                Err(e) if e.kind() != ErrorKind::InvalidInput => {
+                    error!("Could not kill ckb process ({}): {}", self.name, e);
+                }
+                _ => debug!("Successfully killed ckb process ({})", self.name),
             }
-            let _ = self.child.wait();
+            let _ = child.wait();
         }
     }
 }
@@ -304,14 +241,13 @@ impl Node {
 
         let mut chain_spec =
             ChainSpec::load_from(&Resource::file_system(chain_spec_path.clone())).unwrap();
+        let before_chain_spec = toml::to_string(&chain_spec).unwrap();
         chain_modifier(&mut chain_spec);
         let modified_chain_spec_toml = toml::to_string(&chain_spec).unwrap();
-        let consensus = if modified_chain_spec_toml == template.normalized_chain_spec_toml {
-            Arc::clone(&template.default_consensus)
-        } else {
+        if modified_chain_spec_toml != before_chain_spec {
             fs::write(&chain_spec_path, modified_chain_spec_toml).unwrap();
-            Self::build_consensus(&working_dir, chain_spec)
-        };
+        }
+        let consensus = Self::build_consensus(&working_dir, chain_spec);
 
         let spec_node_name = format!("{}_{}", spec_name, node_name);
         Self::from_parts(working_dir, spec_node_name, &app_config, consensus)
@@ -1143,12 +1079,6 @@ impl Node {
 
     pub fn start(&mut self) {
         let working_dir = self.working_dir();
-        if Arc::ptr_eq(
-            &self.inner.consensus,
-            &TemplateAssets::get().default_consensus,
-        ) {
-            clone_genesis_db_if_available(&working_dir);
-        }
         let args = ["-C", &working_dir.to_string_lossy(), "run", "--ba-advanced"];
         let binary = binary();
 
@@ -1160,7 +1090,7 @@ impl Node {
 
         let log_offset = fs::metadata(self.log_path()).map(|m| m.len()).unwrap_or(0);
 
-        let mut child_process = Command::new(binary)
+        let child_process = Command::new(binary)
             .env("RUST_BACKTRACE", "full")
             .args(args)
             .stdin(Stdio::null())
@@ -1168,6 +1098,9 @@ impl Node {
             .stderr(Stdio::inherit())
             .spawn()
             .expect("failed to run binary");
+        // Register and guard immediately so startup panics or hard runner timeouts
+        // always kill and reap the spawned child process.
+        let mut guard = ProcessGuard::new(self.inner.spec_node_name.clone(), child_process);
 
         // Wait to ensure the node threads up
         let startup_timeout = tweaked_duration(180);
@@ -1187,12 +1120,11 @@ impl Node {
                 Ok(local_node_info) => {
                     break local_node_info;
                 }
-                Err(last_err) => match child_process.try_wait() {
+                Err(last_err) => match guard.try_wait() {
                     Ok(None) => {
                         let now = Instant::now();
                         if now >= deadline {
-                            let _ = child_process.kill();
-                            let _ = child_process.wait();
+                            drop(guard);
                             error!(
                                 "Error: node {} timed out during startup after {}s (last rpc error: {}), log_path: {}",
                                 self.inner.spec_node_name,
@@ -1214,6 +1146,7 @@ impl Node {
                         attempt = attempt.saturating_add(1);
                     }
                     Ok(Some(status)) => {
+                        drop(guard);
                         error!(
                             "Error: node crashed: {}, log_path: {}",
                             status,
@@ -1228,6 +1161,7 @@ impl Node {
                         );
                     }
                     Err(error) => {
+                        drop(guard);
                         error!(
                             "Error: node crashed with reason: {}, log_path: {}",
                             error,
@@ -1245,15 +1179,10 @@ impl Node {
             }
         };
 
+        self.set_process_guard(guard);
+        self.set_node_id(node_info.node_id.as_str());
         self.wait_find_unverified_blocks_finished_from(log_offset);
         self.wait_tx_pool_ready();
-
-        self.set_process_guard(ProcessGuard {
-            name: self.inner.spec_node_name.clone(),
-            child: child_process,
-            killed: false,
-        });
-        self.set_node_id(node_info.node_id.as_str());
     }
 
     pub(crate) fn print_last_500_lines_log(&self, log_file: &Path) {
@@ -1443,20 +1372,18 @@ impl Node {
 
     pub fn stop_gracefully(&mut self) {
         let guard = self.take_guard();
-        if let Some(mut guard) = guard
-            && !guard.killed
+        if let Some(guard) = guard
+            && let Some(mut child) = guard.child.lock().ok().and_then(|mut g| g.take())
         {
             #[cfg(not(target_os = "windows"))]
             {
-                Self::kill_gracefully(guard.child.id());
-                let _ = guard.child.wait();
-                guard.killed = true;
+                Self::kill_gracefully(child.id());
+                let _ = child.wait();
             }
             #[cfg(target_os = "windows")]
             {
-                let _ = guard.child.kill();
-                let _ = guard.child.wait();
-                guard.killed = true;
+                let _ = child.kill();
+                let _ = child.wait();
             }
         }
     }
@@ -1725,4 +1652,30 @@ pub fn make_bootnodes_for_all<N: BorrowMut<Node>>(nodes: &mut [N]) {
             });
         }
     });
+}
+
+#[cfg(all(test, not(target_os = "windows")))]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn kill_all_active_children_terminates_and_reaps_process() {
+        let child = Command::new("sleep")
+            .arg("60")
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .spawn()
+            .expect("spawn sleep child");
+        let pid = child.id();
+        let _guard = ProcessGuard::new("test_sleep_child".to_string(), child);
+
+        kill_all_active_children();
+
+        // After kill_all_active_children() kills and reaps the child, signaling pid 0 must fail.
+        assert!(
+            nix::sys::signal::kill(nix::unistd::Pid::from_raw(pid as i32), None).is_err(),
+            "killed child pid {pid} should already be terminated and reaped"
+        );
+    }
 }

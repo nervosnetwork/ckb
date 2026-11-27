@@ -282,7 +282,7 @@ mod tests {
 
     #[test]
     fn spec_log_guard_routes_to_isolated_file() {
-        let spec_dir = TempPathBuf::new_spec_dir("LoggerUnitTest");
+        let spec_dir = TempPathBuf::new_spec_dir("LoggerUnitTest").expect("create spec dir");
         let runner_log = spec_dir.path().join("runner.log");
         {
             let _guard = SpecLogGuard::enter(&runner_log);

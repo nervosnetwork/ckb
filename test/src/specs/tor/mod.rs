@@ -4,7 +4,11 @@ mod tor_hash_password;
 mod tor_reconnect;
 use ckb_async_runtime::{Handle, Runtime};
 use ckb_logger::{error, info};
-use std::{path::Path, process::Child};
+use std::{
+    path::Path,
+    process::Child,
+    sync::{Arc, Mutex},
+};
 use tempfile::{TempDir, tempdir};
 pub use tor_basic::*;
 pub use tor_connect::*;
@@ -23,7 +27,7 @@ struct TorServer {
     tor_command_path: String,
     socks_port: u16,
     control_port: u16,
-    tor_process: Option<Child>,
+    tor_process: Option<Arc<Mutex<Option<Child>>>>,
     tor_data_dir: Option<TempDir>,
     controller_password: Option<String>,
 }
@@ -36,8 +40,10 @@ impl Drop for TorServer {
 
 impl TorServer {
     pub fn shutdown(&mut self) {
-        if let Some(mut process) = self.tor_process.take() {
-            process.kill().unwrap();
+        if let Some(slot) = self.tor_process.take()
+            && let Some(mut process) = slot.lock().ok().and_then(|mut g| g.take())
+        {
+            let _ = process.kill();
 
             match process.wait() {
                 Ok(exit_status) => {
@@ -80,7 +86,10 @@ impl TorServer {
             controller_password,
         };
         let tor_process = tor_server.tor_start(false);
-        tor_server.tor_process = Some(tor_process);
+        tor_server.tor_process = Some(crate::node::register_active_child_handle(
+            "tor",
+            tor_process,
+        ));
         tor_server
     }
 

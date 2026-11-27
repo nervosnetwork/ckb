@@ -69,6 +69,7 @@ pub enum Command {
 pub enum Notify {
     Start {
         spec_name: String,
+        base_name: String,
         spec_dir: PathBuf,
     },
     Done {
@@ -83,7 +84,7 @@ pub enum Notify {
         spec_name: String,
         base_name: String,
         duration: Duration,
-        spec_dir: TempPathBuf,
+        spec_dir: Option<TempPathBuf>,
         report_path: Option<PathBuf>,
         runner_log_path: Option<PathBuf>,
         node_log_paths: Vec<PathBuf>,
@@ -100,6 +101,16 @@ pub enum Notify {
         node_paths: Vec<TempPathBuf>,
     },
     Stop,
+}
+
+struct WorkerStopGuard {
+    outbox: Sender<Notify>,
+}
+
+impl Drop for WorkerStopGuard {
+    fn drop(&mut self) {
+        let _ = self.outbox.send(Notify::Stop);
+    }
 }
 
 /// Worker
@@ -161,6 +172,11 @@ impl Worker {
         thread::Builder::new()
             .name(name)
             .spawn(move || {
+                // Always emit exactly one `Notify::Stop` when this worker exits (including on panic)
+                // so the coordinator can never hang waiting for a dead worker.
+                let _stop_guard = WorkerStopGuard {
+                    outbox: self.outbox.clone(),
+                };
                 let mut start_sequencial_task = false;
 
                 loop {
@@ -170,14 +186,10 @@ impl Worker {
                                 start_sequencial_task = true;
                             }
                             Ok(Command::Shutdown) => {
-                                self.outbox.send(Notify::Stop).unwrap();
                                 return;
                             }
                             Err(err) if err.is_empty() => break,
-                            Err(err) => {
-                                self.outbox.send(Notify::Stop).unwrap();
-                                std::panic::panic_any(err)
-                            }
+                            Err(err) => std::panic::panic_any(err),
                         }
                     }
 
@@ -191,7 +203,6 @@ impl Worker {
                             if self.sequencial_worker {
                                 if !start_sequencial_task && self.sequencial_tasks.lock().is_empty()
                                 {
-                                    self.outbox.send(Notify::Stop).unwrap();
                                     return;
                                 }
                                 while !start_sequencial_task {
@@ -200,11 +211,9 @@ impl Worker {
                                             start_sequencial_task = true;
                                         }
                                         Ok(Command::Shutdown) => {
-                                            self.outbox.send(Notify::Stop).unwrap();
                                             return;
                                         }
                                         Err(err) => {
-                                            self.outbox.send(Notify::Stop).unwrap();
                                             std::panic::panic_any(err);
                                         }
                                     }
@@ -215,12 +224,10 @@ impl Worker {
                                     }
                                     None => {
                                         debug!("sequential worker has no task to run");
-                                        self.outbox.send(Notify::Stop).unwrap();
                                         return;
                                     }
                                 }
                             } else {
-                                self.outbox.send(Notify::Stop).unwrap();
                                 return;
                             }
                         }
@@ -234,15 +241,35 @@ impl Worker {
         let spec = task.spec.as_ref();
         let outbox = self.outbox.clone();
         let now = Instant::now();
-        let spec_dir = TempPathBuf::new_spec_dir(&task.dir_label());
+        let spec_dir = match TempPathBuf::new_spec_dir(&task.dir_label()) {
+            Ok(dir) => dir,
+            Err(err) => {
+                let duration = now.elapsed();
+                let msg = format!(
+                    "failed to create spec tempdir for {}: {err}",
+                    task.display_name
+                );
+                let _ = outbox.send(Notify::Error {
+                    spec_error: Box::new(msg),
+                    spec_name: task.display_name.clone(),
+                    base_name: task.base_name.clone(),
+                    duration,
+                    spec_dir: None,
+                    report_path: None,
+                    runner_log_path: None,
+                    node_log_paths: Vec::new(),
+                    node_paths: Vec::new(),
+                });
+                return;
+            }
+        };
         let spec_dir_path = spec_dir.path().to_path_buf();
         if retried == 0 {
-            outbox
-                .send(Notify::Start {
-                    spec_name: task.display_name.clone(),
-                    spec_dir: spec_dir_path.clone(),
-                })
-                .unwrap();
+            let _ = outbox.send(Notify::Start {
+                spec_name: task.display_name.clone(),
+                base_name: task.base_name.clone(),
+                spec_dir: spec_dir_path.clone(),
+            });
         }
 
         let _dir_guard = SpecRunDirGuard::enter(spec_dir_path.clone());
@@ -279,19 +306,17 @@ impl Worker {
                         &self.config,
                     );
                     drop(_dir_guard);
-                    outbox
-                        .send(Notify::Error {
-                            spec_error,
-                            spec_name: task.display_name.clone(),
-                            base_name: task.base_name.clone(),
-                            duration,
-                            spec_dir,
-                            report_path,
-                            runner_log_path,
-                            node_log_paths,
-                            node_paths: Vec::new(),
-                        })
-                        .unwrap();
+                    let _ = outbox.send(Notify::Error {
+                        spec_error,
+                        spec_name: task.display_name.clone(),
+                        base_name: task.base_name.clone(),
+                        duration,
+                        spec_dir: Some(spec_dir),
+                        report_path,
+                        runner_log_path,
+                        node_log_paths,
+                        node_paths: Vec::new(),
+                    });
                 }
                 return;
             }
@@ -360,32 +385,28 @@ impl Worker {
             drop(_dir_guard);
 
             if panicked_error {
-                outbox
-                    .send(Notify::Panick {
-                        spec_name: task.display_name.clone(),
-                        base_name: task.base_name.clone(),
-                        duration,
-                        spec_dir,
-                        report_path,
-                        runner_log_path,
-                        node_log_paths,
-                        node_paths,
-                    })
-                    .unwrap();
+                let _ = outbox.send(Notify::Panick {
+                    spec_name: task.display_name.clone(),
+                    base_name: task.base_name.clone(),
+                    duration,
+                    spec_dir,
+                    report_path,
+                    runner_log_path,
+                    node_log_paths,
+                    node_paths,
+                });
             } else {
-                outbox
-                    .send(Notify::Error {
-                        spec_error: spec_error.unwrap(),
-                        spec_name: task.display_name.clone(),
-                        base_name: task.base_name.clone(),
-                        duration,
-                        spec_dir,
-                        report_path,
-                        runner_log_path,
-                        node_log_paths,
-                        node_paths,
-                    })
-                    .unwrap();
+                let _ = outbox.send(Notify::Error {
+                    spec_error: spec_error.unwrap(),
+                    spec_name: task.display_name.clone(),
+                    base_name: task.base_name.clone(),
+                    duration,
+                    spec_dir: Some(spec_dir),
+                    report_path,
+                    runner_log_path,
+                    node_log_paths,
+                    node_paths,
+                });
             }
         } else {
             let duration = now.elapsed();
@@ -393,15 +414,13 @@ impl Worker {
             drop(nodes);
             drop(_log_guard);
             drop(_dir_guard);
-            outbox
-                .send(Notify::Done {
-                    spec_name: task.display_name.clone(),
-                    base_name: task.base_name.clone(),
-                    duration,
-                    spec_dir,
-                    node_paths,
-                })
-                .unwrap();
+            let _ = outbox.send(Notify::Done {
+                spec_name: task.display_name.clone(),
+                base_name: task.base_name.clone(),
+                duration,
+                spec_dir,
+                node_paths,
+            });
         }
     }
 }
