@@ -56,6 +56,7 @@ use std::time::{Duration, Instant};
 #[derive(PartialEq, Eq, PartialOrd, Ord, Debug, Clone, Copy)]
 enum TestResultStatus {
     Passed,
+    Interrupted,
     Failed,
     Panicked,
 }
@@ -395,6 +396,8 @@ pub fn main_test() {
                     )
                 })
                 .collect();
+            workers.shutdown();
+            node::kill_all_active_children();
             for (spec_name, base_name, elapsed, dir) in active {
                 let reason = format!(
                     "exceeded --max-time {}s (elapsed {})",
@@ -424,13 +427,11 @@ pub fn main_test() {
                 error_spec_names.push(base_name);
                 spec_errors.push(None);
             }
-            workers.shutdown();
-            node::kill_all_active_children();
             break;
         }
 
         if spec_timeout > 0 {
-            let overdue: Vec<(String, String, Duration, PathBuf)> = {
+            let (overdue, interrupted) = {
                 let mut running = running_specs.lock();
                 let mut found = Vec::new();
                 running.retain(|item| {
@@ -447,9 +448,26 @@ pub fn main_test() {
                         true
                     }
                 });
-                found
+                let remaining: Vec<_> = if found.is_empty() {
+                    Vec::new()
+                } else {
+                    running
+                        .drain(..)
+                        .map(|item| {
+                            (
+                                item.spec_name,
+                                item.base_name,
+                                item.started_at.elapsed(),
+                                item.spec_dir,
+                            )
+                        })
+                        .collect()
+                };
+                (found, remaining)
             };
             if !overdue.is_empty() {
+                workers.shutdown();
+                node::kill_all_active_children();
                 for (name, base_name, elapsed, dir) in overdue {
                     let reason = format!(
                         "exceeded --spec-timeout {}s (elapsed {})",
@@ -481,8 +499,34 @@ pub fn main_test() {
                     error_spec_names.push(base_name);
                     spec_errors.push(None);
                 }
-                workers.shutdown();
-                node::kill_all_active_children();
+                let interrupted_reason = format!(
+                    "interrupted because {} exceeded --spec-timeout {}s",
+                    timed_out_specs.join(", "),
+                    spec_timeout
+                );
+                for (name, base_name, elapsed, dir) in interrupted {
+                    let logs = discover_spec_log_paths(&dir, &[]);
+                    let runner_log_path = logger::read_runner_log_path(&dir);
+                    warn!(
+                        target: "ckb_test::progress",
+                        "ABORT {} {} (elapsed {}, dir={})",
+                        name,
+                        interrupted_reason,
+                        format_duration(elapsed),
+                        dir.display()
+                    );
+                    test_results.push(TestResult {
+                        spec_name: name,
+                        base_name,
+                        status: TestResultStatus::Interrupted,
+                        duration: elapsed,
+                        detail: Some(interrupted_reason.clone()),
+                        spec_dir: Some(dir),
+                        report_path: None,
+                        runner_log_path,
+                        node_log_paths: logs,
+                    });
+                }
                 break;
             }
         }
@@ -780,7 +824,16 @@ pub fn main_test() {
     }
 
     let rerun_specs = build_rerun_specs(&selected_manifest, &test_results);
-    let has_failures = !spec_errors.is_empty() || aborted_by_timeout || test_results.len() < total;
+    let completed_count = test_results
+        .iter()
+        .filter(|r| r.status != TestResultStatus::Interrupted)
+        .count();
+    let has_failures = !spec_errors.is_empty()
+        || aborted_by_timeout
+        || completed_count < total
+        || test_results
+            .iter()
+            .any(|r| r.status != TestResultStatus::Passed);
     if !has_failures && rerun_specs.is_empty() {
         return;
     }
@@ -790,11 +843,10 @@ pub fn main_test() {
         if let Err(err) = log_failed_specs(&error_spec_names) {
             eprintln!("Failed to write integration failure reason: {err}");
         }
-    } else if test_results.len() < total {
+    } else if completed_count < total {
         eprintln!(
             "\nckb-test exited before completing all selected specs ({}/{})",
-            test_results.len(),
-            total
+            completed_count, total
         );
     }
     if !rerun_specs.is_empty() {
@@ -1395,8 +1447,8 @@ fn log_failed_specs(error_spec_names: &[String]) -> Result<(), io::Error> {
 
 /// Builds the deduplicated rerun spec list from the immutable pre-dispatch
 /// selection manifest and final `test_results`: failed/panicked/timed-out specs
-/// appear first, followed by any selected spec (parallel or sequential) that did
-/// not complete with `Passed`.
+/// appear first, followed by any interrupted or unrun selected spec (parallel or
+/// sequential) that did not complete with `Passed`.
 fn build_rerun_specs(
     selected_manifest: &[(String, String)],
     test_results: &[TestResult],
@@ -1406,10 +1458,16 @@ fn build_rerun_specs(
     let mut passed_display_names = HashSet::new();
 
     for result in test_results {
-        if result.status == TestResultStatus::Passed {
-            passed_display_names.insert(result.spec_name.as_str());
-        } else if seen.insert(result.base_name.as_str()) {
-            rerun.push(result.base_name.clone());
+        match result.status {
+            TestResultStatus::Passed => {
+                passed_display_names.insert(result.spec_name.as_str());
+            }
+            TestResultStatus::Failed | TestResultStatus::Panicked => {
+                if seen.insert(result.base_name.as_str()) {
+                    rerun.push(result.base_name.clone());
+                }
+            }
+            TestResultStatus::Interrupted => {}
         }
     }
 
@@ -1441,8 +1499,14 @@ fn build_json_report_payload(
         .iter()
         .filter(|r| r.status == TestResultStatus::Panicked)
         .count();
-    let completed = test_results.len();
-    let not_run = selected_count.saturating_sub(completed);
+    let interrupted = test_results
+        .iter()
+        .filter(|r| r.status == TestResultStatus::Interrupted)
+        .count();
+    let completed = passed + failed + panicked;
+    // `not_run` counts only selected executions that never started; already-started
+    // specs aborted by a sibling timeout are recorded in `specs` as `Interrupted`.
+    let not_run = selected_count.saturating_sub(test_results.len());
     let cumulative_secs: f64 = test_results.iter().map(|r| r.duration.as_secs_f64()).sum();
     let wall_secs = total_elapsed.as_secs_f64();
     let effective_concurrency = if wall_secs > 0.0 {
@@ -1476,6 +1540,7 @@ fn build_json_report_payload(
         "seed": seed,
         "selected": selected_count,
         "completed": completed,
+        "interrupted": interrupted,
         "not_run": not_run,
         "total": selected_count,
         "passed": passed,
@@ -1534,6 +1599,7 @@ fn print_failures(test_results: &[TestResult]) {
     for result in failures {
         let status = match result.status {
             TestResultStatus::Passed => "PASS",
+            TestResultStatus::Interrupted => "ABORT",
             TestResultStatus::Failed => "FAIL",
             TestResultStatus::Panicked => "PANIC",
         };
@@ -1574,34 +1640,36 @@ fn print_results(
     seed: u64,
     repeat: usize,
 ) {
-    let rule = "-".repeat(89);
+    let rule = "-".repeat(92);
     println!("\n{rule}");
-    println!("{:65} | {:8} | {:>10}", "TEST", "STATUS", "DURATION");
+    println!("{:65} | {:11} | {:>10}", "TEST", "STATUS", "DURATION");
     println!("{rule}");
 
     test_results.sort_by(|a, b| (&a.status, a.duration).cmp(&(&b.status, b.duration)));
 
     let mut passed = 0usize;
+    let mut interrupted = 0usize;
     let mut failed = 0usize;
     let mut panicked = 0usize;
     let mut cumulative = Duration::ZERO;
     for result in test_results.iter() {
         match result.status {
             TestResultStatus::Passed => passed += 1,
+            TestResultStatus::Interrupted => interrupted += 1,
             TestResultStatus::Failed => failed += 1,
             TestResultStatus::Panicked => panicked += 1,
         }
         cumulative += result.duration;
         println!(
-            "{:65} | {:8} | {:>10}",
+            "{:65} | {:11} | {:>10}",
             result.spec_name,
             format!("{:?}", result.status),
             format_duration(result.duration),
         );
     }
 
-    let completed = test_results.len();
-    let not_run = selected_count.saturating_sub(completed);
+    let completed = passed + failed + panicked;
+    let not_run = selected_count.saturating_sub(test_results.len());
     let effective_parallelism = if total_elapsed.as_secs_f64() > 0.0 {
         cumulative.as_secs_f64() / total_elapsed.as_secs_f64()
     } else {
@@ -1609,9 +1677,16 @@ fn print_results(
     };
 
     println!("{rule}");
+    let mut extra = String::new();
+    if interrupted > 0 {
+        extra.push_str(&format!(", {interrupted} interrupted"));
+    }
     if not_run > 0 {
+        extra.push_str(&format!(", {not_run} not run"));
+    }
+    if interrupted > 0 || not_run > 0 {
         println!(
-            "Summary: {passed} passed, {failed} failed, {panicked} panicked, {not_run} not run ({completed}/{selected_count} completed, seed={seed})"
+            "Summary: {passed} passed, {failed} failed, {panicked} panicked{extra} ({completed}/{selected_count} completed, seed={seed})"
         );
     } else {
         println!(
@@ -1654,7 +1729,7 @@ fn print_results(
         }
     }
 
-    if completed > 1 {
+    if test_results.len() > 1 {
         let mut by_duration: Vec<&TestResult> = test_results.iter().collect();
         by_duration.sort_by_key(|b| Reverse(b.duration));
         let top_n = min(10, by_duration.len());
@@ -1815,6 +1890,7 @@ mod tests {
             build_json_report_payload(&results, manifest.len(), Duration::from_secs(1), 42);
         assert_eq!(payload["selected"], 40);
         assert_eq!(payload["completed"], 6);
+        assert_eq!(payload["interrupted"], 0);
         assert_eq!(payload["not_run"], 34);
         assert_eq!(payload["total"], 40);
         assert_eq!(payload["passed"], 0);
@@ -1825,6 +1901,67 @@ mod tests {
             rerun,
             vec!["MiningBasic".to_string(), "RandomlyKill".to_string()],
             "rerun list must retain unrun sequential specs alongside failed specs"
+        );
+
+        // Sibling spec timeout interrupting an already-started run: 3 selected, all 3 started
+        // (1 Passed, 1 Failed by timeout, 1 Interrupted) -> interrupted=1, not_run=0, 3 spec entries.
+        let timeout_manifest = vec![
+            ("SpecA [1/3]".to_string(), "SpecA".to_string()),
+            ("SpecA [2/3]".to_string(), "SpecA".to_string()),
+            ("SpecB".to_string(), "SpecB".to_string()),
+        ];
+        let timeout_results = vec![
+            TestResult {
+                spec_name: "SpecA [1/3]".to_string(),
+                base_name: "SpecA".to_string(),
+                status: TestResultStatus::Passed,
+                duration: Duration::from_millis(200),
+                detail: None,
+                spec_dir: None,
+                report_path: None,
+                runner_log_path: None,
+                node_log_paths: Vec::new(),
+            },
+            TestResult {
+                spec_name: "SpecB".to_string(),
+                base_name: "SpecB".to_string(),
+                status: TestResultStatus::Interrupted,
+                duration: Duration::from_millis(300),
+                detail: Some(
+                    "interrupted because SpecA [2/3] exceeded --spec-timeout 1s".to_string(),
+                ),
+                spec_dir: Some(PathBuf::from("/tmp/spec-b")),
+                report_path: None,
+                runner_log_path: Some(PathBuf::from("/tmp/spec-b/runner.log")),
+                node_log_paths: Vec::new(),
+            },
+            TestResult {
+                spec_name: "SpecA [2/3]".to_string(),
+                base_name: "SpecA".to_string(),
+                status: TestResultStatus::Failed,
+                duration: Duration::from_secs(1),
+                detail: Some("exceeded --spec-timeout 1s".to_string()),
+                spec_dir: Some(PathBuf::from("/tmp/spec-a-2")),
+                report_path: None,
+                runner_log_path: None,
+                node_log_paths: Vec::new(),
+            },
+        ];
+        let timeout_payload = build_json_report_payload(
+            &timeout_results,
+            timeout_manifest.len(),
+            Duration::from_secs(1),
+            7,
+        );
+        assert_eq!(timeout_payload["selected"], 3);
+        assert_eq!(timeout_payload["completed"], 2);
+        assert_eq!(timeout_payload["interrupted"], 1);
+        assert_eq!(timeout_payload["not_run"], 0);
+        assert_eq!(timeout_payload["specs"].as_array().unwrap().len(), 3);
+        assert_eq!(
+            build_rerun_specs(&timeout_manifest, &timeout_results),
+            vec!["SpecA".to_string(), "SpecB".to_string()],
+            "failed spec should appear first, followed by interrupted spec"
         );
 
         // When all selected executions pass, rerun list must be empty and not_run == 0.
@@ -1846,6 +1983,7 @@ mod tests {
             build_json_report_payload(&all_passed, manifest.len(), Duration::from_secs(1), 42);
         assert_eq!(full_payload["selected"], 40);
         assert_eq!(full_payload["completed"], 40);
+        assert_eq!(full_payload["interrupted"], 0);
         assert_eq!(full_payload["not_run"], 0);
         assert!(build_rerun_specs(&manifest, &all_passed).is_empty());
     }

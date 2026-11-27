@@ -519,10 +519,11 @@ jsonrpc!(
 #[cfg(test)]
 mod tests {
     use super::{HTTP_CLIENT, is_read_only_rpc_method, send_jsonrpc_request};
-    use std::io::{Read, Write};
+    use std::io::{ErrorKind, Read, Write};
     use std::net::TcpListener;
     use std::sync::Arc;
-    use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+    use std::time::{Duration, Instant};
 
     fn make_req(method: &str) -> serde_json::Map<String, serde_json::Value> {
         let mut req = serde_json::Map::new();
@@ -533,25 +534,81 @@ mod tests {
         req
     }
 
-    fn spawn_stub_http_server(
-        responses: Vec<&'static [u8]>,
-    ) -> (reqwest::Url, Arc<AtomicUsize>, std::thread::JoinHandle<()>) {
-        let listener = TcpListener::bind("127.0.0.1:0").expect("bind loopback");
-        let addr = listener.local_addr().unwrap();
-        let hits = Arc::new(AtomicUsize::new(0));
-        let hits_clone = Arc::clone(&hits);
-        let handle = std::thread::spawn(move || {
-            for payload in responses {
-                let (mut stream, _) = listener.accept().expect("accept");
-                hits_clone.fetch_add(1, Ordering::SeqCst);
-                let mut buf = [0u8; 1024];
-                let _ = stream.read(&mut buf);
-                let _ = stream.write_all(payload);
-                let _ = stream.flush();
+    /// Loopback HTTP test server that stays alive accepting and counting every
+    /// incoming request until the caller explicitly stops it (with a hard deadline),
+    /// so unexpected extra retries increment `hits` and missing retries never hang.
+    struct StubHttpServer {
+        url: reqwest::Url,
+        hits: Arc<AtomicUsize>,
+        stop: Arc<AtomicBool>,
+        handle: Option<std::thread::JoinHandle<()>>,
+    }
+
+    impl StubHttpServer {
+        fn start(responses: Vec<&'static [u8]>) -> Self {
+            assert!(!responses.is_empty());
+            let listener = TcpListener::bind("127.0.0.1:0").expect("bind loopback");
+            listener.set_nonblocking(true).expect("set nonblocking");
+            let addr = listener.local_addr().unwrap();
+            let hits = Arc::new(AtomicUsize::new(0));
+            let stop = Arc::new(AtomicBool::new(false));
+            let hits_clone = Arc::clone(&hits);
+            let stop_clone = Arc::clone(&stop);
+
+            let handle = std::thread::spawn(move || {
+                let fallback = *responses.last().expect("non-empty responses");
+                let deadline = Instant::now() + Duration::from_secs(10);
+                let mut idx = 0usize;
+                while !stop_clone.load(Ordering::SeqCst) && Instant::now() < deadline {
+                    match listener.accept() {
+                        Ok((mut stream, _)) => {
+                            let payload = responses.get(idx).copied().unwrap_or(fallback);
+                            idx += 1;
+                            hits_clone.fetch_add(1, Ordering::SeqCst);
+                            let _ = stream.set_nonblocking(false);
+                            let _ = stream.set_read_timeout(Some(Duration::from_secs(1)));
+                            let mut buf = [0u8; 1024];
+                            let _ = stream.read(&mut buf);
+                            let _ = stream.write_all(payload);
+                            let _ = stream.flush();
+                        }
+                        Err(err) if err.kind() == ErrorKind::WouldBlock => {
+                            std::thread::sleep(Duration::from_millis(5));
+                        }
+                        Err(_) => break,
+                    }
+                }
+            });
+
+            let url = reqwest::Url::parse(&format!("http://{addr}/")).unwrap();
+            Self {
+                url,
+                hits,
+                stop,
+                handle: Some(handle),
             }
-        });
-        let url = reqwest::Url::parse(&format!("http://{addr}/")).unwrap();
-        (url, hits, handle)
+        }
+
+        fn url(&self) -> &reqwest::Url {
+            &self.url
+        }
+
+        fn stop_and_count(mut self) -> usize {
+            self.stop.store(true, Ordering::SeqCst);
+            if let Some(handle) = self.handle.take() {
+                handle.join().unwrap();
+            }
+            self.hits.load(Ordering::SeqCst)
+        }
+    }
+
+    impl Drop for StubHttpServer {
+        fn drop(&mut self) {
+            self.stop.store(true, Ordering::SeqCst);
+            if let Some(handle) = self.handle.take() {
+                let _ = handle.join();
+            }
+        }
     }
 
     #[test]
@@ -604,58 +661,58 @@ mod tests {
             b"HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: 11\r\nConnection: close\r\n\r\nnot-a-json!";
 
         // 1. Read-only RPC retries Content-Length truncated body EOF and succeeds on attempt 2.
-        let (url, hits, handle) = spawn_stub_http_server(vec![truncated, valid_ok]);
+        let server = StubHttpServer::start(vec![truncated, valid_ok]);
         let res = send_jsonrpc_request(
             &HTTP_CLIENT,
-            &url,
+            server.url(),
             "get_tip_block_number",
             &make_req("get_tip_block_number"),
         );
-        handle.join().unwrap();
+        let hits = server.stop_and_count();
         assert!(
             res.is_ok(),
             "read-only RPC should retry truncated EOF: {res:?}"
         );
-        assert_eq!(hits.load(Ordering::SeqCst), 2);
+        assert_eq!(hits, 2);
 
         // 2. Read-only RPC retries chunked truncated body EOF and succeeds on attempt 2.
-        let (url, hits, handle) = spawn_stub_http_server(vec![truncated_chunked, valid_ok]);
+        let server = StubHttpServer::start(vec![truncated_chunked, valid_ok]);
         let res = send_jsonrpc_request(
             &HTTP_CLIENT,
-            &url,
+            server.url(),
             "get_tip_block_number",
             &make_req("get_tip_block_number"),
         );
-        handle.join().unwrap();
+        let hits = server.stop_and_count();
         assert!(
             res.is_ok(),
             "read-only RPC should retry truncated chunked EOF: {res:?}"
         );
-        assert_eq!(hits.load(Ordering::SeqCst), 2);
+        assert_eq!(hits, 2);
 
-        // 3. Write RPC must NOT retry truncated body EOF (sent once only).
-        let (url, hits, handle) = spawn_stub_http_server(vec![truncated]);
-        let res = send_jsonrpc_request(&HTTP_CLIENT, &url, "set_ban", &make_req("set_ban"));
-        handle.join().unwrap();
+        // 3. Write RPC must NOT retry truncated body EOF (sent once only; server stays up to catch extra hits).
+        let server = StubHttpServer::start(vec![truncated, valid_ok]);
+        let res = send_jsonrpc_request(&HTTP_CLIENT, server.url(), "set_ban", &make_req("set_ban"));
+        let hits = server.stop_and_count();
         assert!(
             res.is_err(),
             "write RPC must fail immediately without retry"
         );
-        assert_eq!(hits.load(Ordering::SeqCst), 1);
+        assert_eq!(hits, 1);
 
-        // 4. Complete but invalid JSON must NOT retry even for read-only RPC.
-        let (url, hits, handle) = spawn_stub_http_server(vec![invalid_json]);
+        // 4. Complete but invalid JSON must NOT retry even for read-only RPC (server stays up to catch extra hits).
+        let server = StubHttpServer::start(vec![invalid_json, valid_ok]);
         let res = send_jsonrpc_request(
             &HTTP_CLIENT,
-            &url,
+            server.url(),
             "get_tip_block_number",
             &make_req("get_tip_block_number"),
         );
-        handle.join().unwrap();
+        let hits = server.stop_and_count();
         assert!(
             res.is_err(),
             "malformed complete JSON must fail immediately"
         );
-        assert_eq!(hits.load(Ordering::SeqCst), 1);
+        assert_eq!(hits, 1);
     }
 }
