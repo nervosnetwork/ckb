@@ -120,13 +120,46 @@ fn next_coordinator_poll_timeout(
     wait
 }
 
-fn notify_timestamp(msg: &Notify) -> Option<Instant> {
+fn notify_timestamp(msg: &Notify) -> Instant {
     match msg {
-        Notify::Start { started_at, .. } => Some(*started_at),
+        Notify::Start { started_at, .. } => *started_at,
         Notify::Done { finished_at, .. }
         | Notify::Error { finished_at, .. }
-        | Notify::Panick { finished_at, .. } => Some(*finished_at),
-        Notify::Stop => None,
+        | Notify::Panick { finished_at, .. } => *finished_at,
+        Notify::Stop { stopped_at } => *stopped_at,
+    }
+}
+
+fn leak_notify_temp_dirs(msg: Notify) {
+    match msg {
+        Notify::Done {
+            spec_dir,
+            node_paths,
+            ..
+        }
+        | Notify::Panick {
+            spec_dir,
+            node_paths,
+            ..
+        } => {
+            spec_dir.leak();
+            for path in node_paths {
+                path.leak();
+            }
+        }
+        Notify::Error {
+            spec_dir,
+            node_paths,
+            ..
+        } => {
+            if let Some(dir) = spec_dir {
+                dir.leak();
+            }
+            for path in node_paths {
+                path.leak();
+            }
+        }
+        Notify::Start { .. } | Notify::Stop { .. } => {}
     }
 }
 
@@ -406,56 +439,29 @@ fn run_coordinator_loop<W: WorkerControl>(
                     }
                 }
             }
-            Notify::Stop => {
+            Notify::Stop { stopped_at: _ } => {
                 *worker_running -= 1;
             }
         }
     };
 
+    let mut pending: Vec<Notify> = Vec::new();
     while worker_running > 0 {
-        // Settle all already-queued worker notifications BEFORE evaluating timeout
-        // deadlines so slow coordinator stdout/log I/O never falsely times out specs
-        // that already completed. Snapshot in memory first (zero I/O) and stop looping
-        // if a follow-up batch only carries post-deadline events while an overdue spec
-        // remains unresolved, preventing fast siblings from starving timeout cleanup.
+        // Settle queued notifications strictly in event-time order BEFORE the nearest
+        // active deadline (`--max-time` or any running spec's `--spec-timeout`).
+        // Recomputing the deadline after each settled event guarantees:
+        // 1. Specs that actually finished before the deadline still pass even if slow
+        //    coordinator log I/O delayed reading `notify_rx`.
+        // 2. Post-deadline completions/stops are NOT settled ahead of timeout handling,
+        //    so genuinely overdue `--max-time` or `--spec-timeout` runs always fail.
         loop {
-            let ready: Vec<Notify> = std::iter::from_fn(|| notify_rx.try_recv().ok()).collect();
-            if ready.is_empty() {
-                break;
-            }
-            let mut pre_deadline_progress = false;
-            for msg in ready {
-                let msg_at = notify_timestamp(&msg);
-                let earliest_deadline = {
-                    let running = running_specs.lock();
-                    earliest_active_deadline(
-                        options.start_time,
-                        options.max_time,
-                        options.spec_timeout,
-                        &running,
-                    )
-                };
-                if msg_at.is_none()
-                    || earliest_deadline.is_none_or(|deadline| msg_at.unwrap() <= deadline)
-                {
-                    pre_deadline_progress = true;
-                }
-                handle_notify(
-                    msg,
-                    workers,
-                    &mut worker_running,
-                    &mut completed_specs,
-                    &mut shutting_down,
-                    &mut last_progress,
-                );
-                if worker_running == 0 {
-                    break;
+            for _ in 0..notify_rx.len() {
+                match notify_rx.try_recv() {
+                    Ok(msg) => pending.push(msg),
+                    Err(_) => break,
                 }
             }
-            if worker_running == 0 || notify_rx.is_empty() {
-                break;
-            }
-            let has_overdue = {
+            let earliest_deadline = {
                 let running = running_specs.lock();
                 earliest_active_deadline(
                     options.start_time,
@@ -463,9 +469,31 @@ fn run_coordinator_loop<W: WorkerControl>(
                     options.spec_timeout,
                     &running,
                 )
-                .is_some_and(|deadline| Instant::now() >= deadline)
             };
-            if has_overdue && !pre_deadline_progress {
+            let next_idx = pending
+                .iter()
+                .enumerate()
+                .filter(|(_, msg)| {
+                    earliest_deadline.is_none_or(|deadline| {
+                        notify_timestamp(msg) < deadline
+                            || (matches!(msg, Notify::Stop { .. }) && completed_specs >= total)
+                    })
+                })
+                .min_by_key(|(idx, msg)| (notify_timestamp(msg), *idx))
+                .map(|(idx, _)| idx);
+            let Some(idx) = next_idx else {
+                break;
+            };
+            let msg = pending.remove(idx);
+            handle_notify(
+                msg,
+                workers,
+                &mut worker_running,
+                &mut completed_specs,
+                &mut shutting_down,
+                &mut last_progress,
+            );
+            if worker_running == 0 {
                 break;
             }
         }
@@ -477,6 +505,10 @@ fn run_coordinator_loop<W: WorkerControl>(
             && options.start_time.elapsed() >= Duration::from_secs(options.max_time)
         {
             hit_max_time = true;
+            let cutoff = options.start_time + Duration::from_secs(options.max_time);
+            for msg in pending.drain(..) {
+                leak_notify_temp_dirs(msg);
+            }
             let active: Vec<(String, String, Duration, PathBuf)> = running_specs
                 .lock()
                 .drain(..)
@@ -484,7 +516,7 @@ fn run_coordinator_loop<W: WorkerControl>(
                     (
                         item.spec_name,
                         item.base_name,
-                        item.started_at.elapsed(),
+                        cutoff.saturating_duration_since(item.started_at),
                         item.spec_dir,
                     )
                 })
@@ -524,41 +556,49 @@ fn run_coordinator_loop<W: WorkerControl>(
         }
 
         if options.spec_timeout > 0 {
+            let limit = Duration::from_secs(options.spec_timeout);
+            let now = Instant::now();
             let (overdue, interrupted) = {
                 let mut running = running_specs.lock();
-                let mut found = Vec::new();
-                running.retain(|item| {
-                    let elapsed = item.started_at.elapsed();
-                    if elapsed >= Duration::from_secs(options.spec_timeout) {
-                        found.push((
-                            item.spec_name.clone(),
-                            item.base_name.clone(),
-                            elapsed,
-                            item.spec_dir.clone(),
-                        ));
-                        false
-                    } else {
-                        true
-                    }
-                });
-                let remaining: Vec<_> = if found.is_empty() {
-                    Vec::new()
-                } else {
-                    running
+                let earliest_spec_deadline =
+                    running.iter().map(|item| item.started_at + limit).min();
+                if let Some(cutoff) = earliest_spec_deadline
+                    && now >= cutoff
+                {
+                    let mut found = Vec::new();
+                    running.retain(|item| {
+                        if item.started_at + limit <= cutoff {
+                            found.push((
+                                item.spec_name.clone(),
+                                item.base_name.clone(),
+                                cutoff.saturating_duration_since(item.started_at),
+                                item.spec_dir.clone(),
+                            ));
+                            false
+                        } else {
+                            true
+                        }
+                    });
+                    let remaining: Vec<_> = running
                         .drain(..)
                         .map(|item| {
                             (
                                 item.spec_name,
                                 item.base_name,
-                                item.started_at.elapsed(),
+                                cutoff.saturating_duration_since(item.started_at),
                                 item.spec_dir,
                             )
                         })
-                        .collect()
-                };
-                (found, remaining)
+                        .collect();
+                    (found, remaining)
+                } else {
+                    (Vec::new(), Vec::new())
+                }
             };
             if !overdue.is_empty() {
+                for msg in pending.drain(..) {
+                    leak_notify_temp_dirs(msg);
+                }
                 workers.shutdown();
                 workers.kill_active_children();
                 for (name, base_name, elapsed, dir) in overdue {
@@ -641,8 +681,8 @@ fn run_coordinator_loop<W: WorkerControl>(
                 &running,
             )
         };
-        let msg = match notify_rx.recv_timeout(poll_timeout) {
-            Ok(msg) => msg,
+        match notify_rx.recv_timeout(poll_timeout) {
+            Ok(msg) => pending.push(msg),
             Err(err) => {
                 if err.is_timeout() {
                     if last_progress.elapsed() >= Duration::from_secs(30)
@@ -673,15 +713,7 @@ fn run_coordinator_loop<W: WorkerControl>(
                 }
                 std::panic::panic_any(err);
             }
-        };
-        handle_notify(
-            msg,
-            workers,
-            &mut worker_running,
-            &mut completed_specs,
-            &mut shutting_down,
-            &mut last_progress,
-        );
+        }
     }
 
     CoordinatorOutcome {
@@ -2351,8 +2383,14 @@ mod tests {
             node_paths: Vec::new(),
         })
         .unwrap();
-        tx.send(Notify::Stop).unwrap();
-        tx.send(Notify::Stop).unwrap();
+        tx.send(Notify::Stop {
+            stopped_at: t0 + Duration::from_millis(485),
+        })
+        .unwrap();
+        tx.send(Notify::Stop {
+            stopped_at: t0 + Duration::from_millis(485),
+        })
+        .unwrap();
 
         let outcome = run_coordinator_loop(
             &rx,
@@ -2433,7 +2471,7 @@ mod tests {
             spec_name: "RunningSibling".to_string(),
             base_name: "RunningSibling".to_string(),
             spec_dir: sibling_dir.path().to_path_buf(),
-            started_at: now.checked_sub(Duration::from_millis(200)).unwrap_or(now),
+            started_at: t0 + Duration::from_millis(200),
         })
         .unwrap();
 
@@ -2469,5 +2507,269 @@ mod tests {
         assert_eq!(outcome.timed_out_specs, vec!["HungSpec".to_string()]);
         assert_eq!(control.shutdowns, 1);
         assert_eq!(control.kills, 1);
+    }
+
+    #[test]
+    fn slow_coordinator_still_fails_when_max_time_actually_exceeded() {
+        let (tx, rx) = unbounded();
+        let running_specs = Arc::new(Mutex::new(Vec::new()));
+        let mut control = StubWorkerControl::default();
+
+        // Reproduce exact regression: 4 specs on 2 workers with --max-time 1 and a 1.55s
+        // slow log reader; specs 1 & 2 finished before 1s, while specs 3 & 4 finished at
+        // 1.066s and 1.069s (> 1s) and both workers already sent Stop.
+        let now = Instant::now();
+        let t0 = now
+            .checked_sub(Duration::from_millis(1550))
+            .unwrap_or_else(|| {
+                std::thread::sleep(Duration::from_millis(1550));
+                Instant::now() - Duration::from_millis(1550)
+            });
+
+        let dirs: Vec<_> = (1..=4)
+            .map(|i| utils::TempPathBuf::new_spec_dir(&format!("MaxTimeOver-{i}")).unwrap())
+            .collect();
+        let paths: Vec<PathBuf> = dirs.iter().map(|d| d.path().to_path_buf()).collect();
+        let mut dirs_iter = dirs.into_iter();
+
+        tx.send(Notify::Start {
+            spec_name: "Spec [1/4]".to_string(),
+            base_name: "Spec".to_string(),
+            spec_dir: paths[0].clone(),
+            started_at: t0,
+        })
+        .unwrap();
+        tx.send(Notify::Start {
+            spec_name: "Spec [2/4]".to_string(),
+            base_name: "Spec".to_string(),
+            spec_dir: paths[1].clone(),
+            started_at: t0,
+        })
+        .unwrap();
+        tx.send(Notify::Done {
+            spec_name: "Spec [1/4]".to_string(),
+            base_name: "Spec".to_string(),
+            duration: Duration::from_millis(450),
+            finished_at: t0 + Duration::from_millis(450),
+            spec_dir: dirs_iter.next().unwrap(),
+            node_paths: Vec::new(),
+        })
+        .unwrap();
+        tx.send(Notify::Start {
+            spec_name: "Spec [3/4]".to_string(),
+            base_name: "Spec".to_string(),
+            spec_dir: paths[2].clone(),
+            started_at: t0 + Duration::from_millis(450),
+        })
+        .unwrap();
+        tx.send(Notify::Done {
+            spec_name: "Spec [2/4]".to_string(),
+            base_name: "Spec".to_string(),
+            duration: Duration::from_millis(460),
+            finished_at: t0 + Duration::from_millis(460),
+            spec_dir: dirs_iter.next().unwrap(),
+            node_paths: Vec::new(),
+        })
+        .unwrap();
+        tx.send(Notify::Start {
+            spec_name: "Spec [4/4]".to_string(),
+            base_name: "Spec".to_string(),
+            spec_dir: paths[3].clone(),
+            started_at: t0 + Duration::from_millis(460),
+        })
+        .unwrap();
+        tx.send(Notify::Done {
+            spec_name: "Spec [3/4]".to_string(),
+            base_name: "Spec".to_string(),
+            duration: Duration::from_millis(616),
+            finished_at: t0 + Duration::from_millis(1066),
+            spec_dir: dirs_iter.next().unwrap(),
+            node_paths: Vec::new(),
+        })
+        .unwrap();
+        tx.send(Notify::Stop {
+            stopped_at: t0 + Duration::from_millis(1066),
+        })
+        .unwrap();
+        tx.send(Notify::Done {
+            spec_name: "Spec [4/4]".to_string(),
+            base_name: "Spec".to_string(),
+            duration: Duration::from_millis(609),
+            finished_at: t0 + Duration::from_millis(1069),
+            spec_dir: dirs_iter.next().unwrap(),
+            node_paths: Vec::new(),
+        })
+        .unwrap();
+        tx.send(Notify::Stop {
+            stopped_at: t0 + Duration::from_millis(1069),
+        })
+        .unwrap();
+
+        let outcome = run_coordinator_loop(
+            &rx,
+            &running_specs,
+            &mut control,
+            &CoordinatorOptions {
+                total: 4,
+                worker_count: 2,
+                start_time: t0,
+                max_time: 1,
+                spec_timeout: 0,
+                fail_fast: true,
+                verbose: false,
+                clean_tmp: true,
+            },
+        );
+
+        assert!(
+            outcome.hit_max_time,
+            "exceeding --max-time must fail even when log reading was stalled"
+        );
+        let passed = outcome
+            .test_results
+            .iter()
+            .filter(|r| r.status == TestResultStatus::Passed)
+            .count();
+        let failed = outcome
+            .test_results
+            .iter()
+            .filter(|r| r.status == TestResultStatus::Failed)
+            .count();
+        assert_eq!(passed, 2);
+        assert_eq!(failed, 2);
+        assert_eq!(control.shutdowns, 1);
+        assert_eq!(control.kills, 1);
+        // Clean up the leaked dirs from post-deadline unconsumed Done messages.
+        let _ = fs::remove_dir_all(&paths[2]);
+        let _ = fs::remove_dir_all(&paths[3]);
+    }
+
+    #[test]
+    fn slow_coordinator_stops_at_spec_timeout_deadline_for_post_deadline_events() {
+        let (tx, rx) = unbounded();
+        let running_specs = Arc::new(Mutex::new(Vec::new()));
+        let mut control = StubWorkerControl::default();
+
+        // Reproduce second table row: --spec-timeout 1 with 4 specs on 2 workers and a 1.55s
+        // log pause. Spec 1 passes at 400ms; Spec 2 started at 0ms and exceeds 1s (finishes
+        // at 1.20s); Spec 3 started at 400ms and finishes at 1.10s; Spec 4 starts at 1.10s
+        // and finishes at 1.30s. At Spec 2's 1.00s deadline: 1 Passed, 1 Failed, 1 Interrupted,
+        // 1 not_run (same as normal log reading).
+        let now = Instant::now();
+        let t0 = now
+            .checked_sub(Duration::from_millis(1550))
+            .unwrap_or_else(|| {
+                std::thread::sleep(Duration::from_millis(1550));
+                Instant::now() - Duration::from_millis(1550)
+            });
+
+        let dirs: Vec<_> = (1..=4)
+            .map(|i| utils::TempPathBuf::new_spec_dir(&format!("SpecTimeoutOver-{i}")).unwrap())
+            .collect();
+        let paths: Vec<PathBuf> = dirs.iter().map(|d| d.path().to_path_buf()).collect();
+        let mut dirs_iter = dirs.into_iter();
+
+        tx.send(Notify::Start {
+            spec_name: "Spec [1/4]".to_string(),
+            base_name: "Spec".to_string(),
+            spec_dir: paths[0].clone(),
+            started_at: t0,
+        })
+        .unwrap();
+        tx.send(Notify::Start {
+            spec_name: "Spec [2/4]".to_string(),
+            base_name: "Spec".to_string(),
+            spec_dir: paths[1].clone(),
+            started_at: t0,
+        })
+        .unwrap();
+        tx.send(Notify::Done {
+            spec_name: "Spec [1/4]".to_string(),
+            base_name: "Spec".to_string(),
+            duration: Duration::from_millis(400),
+            finished_at: t0 + Duration::from_millis(400),
+            spec_dir: dirs_iter.next().unwrap(),
+            node_paths: Vec::new(),
+        })
+        .unwrap();
+        tx.send(Notify::Start {
+            spec_name: "Spec [3/4]".to_string(),
+            base_name: "Spec".to_string(),
+            spec_dir: paths[2].clone(),
+            started_at: t0 + Duration::from_millis(400),
+        })
+        .unwrap();
+        tx.send(Notify::Done {
+            spec_name: "Spec [3/4]".to_string(),
+            base_name: "Spec".to_string(),
+            duration: Duration::from_millis(700),
+            finished_at: t0 + Duration::from_millis(1100),
+            spec_dir: dirs_iter.next().unwrap(),
+            node_paths: Vec::new(),
+        })
+        .unwrap();
+        tx.send(Notify::Start {
+            spec_name: "Spec [4/4]".to_string(),
+            base_name: "Spec".to_string(),
+            spec_dir: paths[3].clone(),
+            started_at: t0 + Duration::from_millis(1100),
+        })
+        .unwrap();
+        tx.send(Notify::Done {
+            spec_name: "Spec [2/4]".to_string(),
+            base_name: "Spec".to_string(),
+            duration: Duration::from_millis(1200),
+            finished_at: t0 + Duration::from_millis(1200),
+            spec_dir: dirs_iter.next().unwrap(),
+            node_paths: Vec::new(),
+        })
+        .unwrap();
+        tx.send(Notify::Done {
+            spec_name: "Spec [4/4]".to_string(),
+            base_name: "Spec".to_string(),
+            duration: Duration::from_millis(200),
+            finished_at: t0 + Duration::from_millis(1300),
+            spec_dir: dirs_iter.next().unwrap(),
+            node_paths: Vec::new(),
+        })
+        .unwrap();
+        tx.send(Notify::Stop {
+            stopped_at: t0 + Duration::from_millis(1200),
+        })
+        .unwrap();
+        tx.send(Notify::Stop {
+            stopped_at: t0 + Duration::from_millis(1300),
+        })
+        .unwrap();
+
+        let outcome = run_coordinator_loop(
+            &rx,
+            &running_specs,
+            &mut control,
+            &CoordinatorOptions {
+                total: 4,
+                worker_count: 2,
+                start_time: t0,
+                max_time: 0,
+                spec_timeout: 1,
+                fail_fast: true,
+                verbose: false,
+                clean_tmp: true,
+            },
+        );
+
+        let payload =
+            build_json_report_payload(&outcome.test_results, 4, Duration::from_secs(1), 1);
+        assert_eq!(payload["selected"], 4);
+        assert_eq!(payload["passed"], 1);
+        assert_eq!(payload["failed"], 1);
+        assert_eq!(payload["interrupted"], 1);
+        assert_eq!(payload["not_run"], 1);
+        assert_eq!(outcome.timed_out_specs, vec!["Spec [2/4]".to_string()]);
+        assert_eq!(control.shutdowns, 1);
+        assert_eq!(control.kills, 1);
+        for p in &paths[1..] {
+            let _ = fs::remove_dir_all(p);
+        }
     }
 }

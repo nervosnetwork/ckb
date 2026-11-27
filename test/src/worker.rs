@@ -104,7 +104,9 @@ pub enum Notify {
         node_log_paths: Vec<PathBuf>,
         node_paths: Vec<TempPathBuf>,
     },
-    Stop,
+    Stop {
+        stopped_at: Instant,
+    },
 }
 
 struct WorkerStopGuard {
@@ -113,7 +115,9 @@ struct WorkerStopGuard {
 
 impl Drop for WorkerStopGuard {
     fn drop(&mut self) {
-        let _ = self.outbox.send(Notify::Stop);
+        let _ = self.outbox.send(Notify::Stop {
+            stopped_at: Instant::now(),
+        });
     }
 }
 
