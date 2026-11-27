@@ -71,11 +71,13 @@ pub enum Notify {
         spec_name: String,
         base_name: String,
         spec_dir: PathBuf,
+        started_at: Instant,
     },
     Done {
         spec_name: String,
         base_name: String,
         duration: Duration,
+        finished_at: Instant,
         spec_dir: TempPathBuf,
         node_paths: Vec<TempPathBuf>,
     },
@@ -84,6 +86,7 @@ pub enum Notify {
         spec_name: String,
         base_name: String,
         duration: Duration,
+        finished_at: Instant,
         spec_dir: Option<TempPathBuf>,
         report_path: Option<PathBuf>,
         runner_log_path: Option<PathBuf>,
@@ -94,6 +97,7 @@ pub enum Notify {
         spec_name: String,
         base_name: String,
         duration: Duration,
+        finished_at: Instant,
         spec_dir: TempPathBuf,
         report_path: Option<PathBuf>,
         runner_log_path: Option<PathBuf>,
@@ -197,7 +201,7 @@ impl Worker {
                     let task = self.tasks.lock().pop();
                     match task {
                         Some(task) => {
-                            self.run_spec(&task, 0);
+                            self.run_spec(&task, 0, Instant::now());
                         }
                         None => {
                             if self.sequencial_worker {
@@ -220,7 +224,7 @@ impl Worker {
                                 }
                                 match self.sequencial_tasks.lock().pop() {
                                     Some(task) => {
-                                        self.run_spec(&task, 0);
+                                        self.run_spec(&task, 0, Instant::now());
                                     }
                                     None => {
                                         debug!("sequential worker has no task to run");
@@ -237,14 +241,14 @@ impl Worker {
             .expect("spawn integration test worker thread")
     }
 
-    fn run_spec(&self, task: &ScheduledSpec, retried: usize) {
+    fn run_spec(&self, task: &ScheduledSpec, retried: usize, started_at: Instant) {
         let spec = task.spec.as_ref();
         let outbox = self.outbox.clone();
-        let now = Instant::now();
         let spec_dir = match TempPathBuf::new_spec_dir(&task.dir_label()) {
             Ok(dir) => dir,
             Err(err) => {
-                let duration = now.elapsed();
+                let finished_at = Instant::now();
+                let duration = finished_at.saturating_duration_since(started_at);
                 let msg = format!(
                     "failed to create spec tempdir for {}: {err}",
                     task.display_name
@@ -254,6 +258,7 @@ impl Worker {
                     spec_name: task.display_name.clone(),
                     base_name: task.base_name.clone(),
                     duration,
+                    finished_at,
                     spec_dir: None,
                     report_path: None,
                     runner_log_path: None,
@@ -269,6 +274,7 @@ impl Worker {
                 spec_name: task.display_name.clone(),
                 base_name: task.base_name.clone(),
                 spec_dir: spec_dir_path.clone(),
+                started_at,
             });
         }
 
@@ -287,9 +293,10 @@ impl Worker {
                     drop(_log_guard);
                     drop(_dir_guard);
                     drop(spec_dir);
-                    self.run_spec(task, retried + 1);
+                    self.run_spec(task, retried + 1, started_at);
                 } else {
-                    let duration = now.elapsed();
+                    let finished_at = Instant::now();
+                    let duration = finished_at.saturating_duration_since(started_at);
                     drop(_log_guard);
                     let runner_log_path = read_runner_log_path(&spec_dir_path);
                     let node_log_paths = discover_spec_log_paths(&spec_dir_path, &[]);
@@ -311,6 +318,7 @@ impl Worker {
                         spec_name: task.display_name.clone(),
                         base_name: task.base_name.clone(),
                         duration,
+                        finished_at,
                         spec_dir: Some(spec_dir),
                         report_path,
                         runner_log_path,
@@ -346,9 +354,10 @@ impl Worker {
             drop(_log_guard);
             drop(_dir_guard);
             drop(spec_dir);
-            self.run_spec(task, retried + 1);
+            self.run_spec(task, retried + 1, started_at);
         } else if panicked_error || spec_error.is_some() {
-            let duration = now.elapsed();
+            let finished_at = Instant::now();
+            let duration = finished_at.saturating_duration_since(started_at);
             drop(_log_guard);
             let runner_log_path = read_runner_log_path(&spec_dir_path);
             let status_label = if panicked_error { "PANICKED" } else { "FAILED" };
@@ -389,6 +398,7 @@ impl Worker {
                     spec_name: task.display_name.clone(),
                     base_name: task.base_name.clone(),
                     duration,
+                    finished_at,
                     spec_dir,
                     report_path,
                     runner_log_path,
@@ -401,6 +411,7 @@ impl Worker {
                     spec_name: task.display_name.clone(),
                     base_name: task.base_name.clone(),
                     duration,
+                    finished_at,
                     spec_dir: Some(spec_dir),
                     report_path,
                     runner_log_path,
@@ -409,7 +420,8 @@ impl Worker {
                 });
             }
         } else {
-            let duration = now.elapsed();
+            let finished_at = Instant::now();
+            let duration = finished_at.saturating_duration_since(started_at);
             // Stop child processes cleanly BEFORE coordinator deletes `spec_dir`.
             drop(nodes);
             drop(_log_guard);
@@ -418,6 +430,7 @@ impl Worker {
                 spec_name: task.display_name.clone(),
                 base_name: task.base_name.clone(),
                 duration,
+                finished_at,
                 spec_dir,
                 node_paths,
             });
