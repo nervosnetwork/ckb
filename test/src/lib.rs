@@ -86,24 +86,46 @@ struct RunningSpec {
     spec_dir: PathBuf,
 }
 
-fn earliest_active_deadline(
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum DeadlineKind {
+    MaxTime,
+    SpecTimeout,
+}
+
+fn next_active_deadline(
     start_time: Instant,
     max_time: u64,
     spec_timeout: u64,
     running: &[RunningSpec],
-) -> Option<Instant> {
-    let mut earliest = (max_time > 0).then(|| start_time + Duration::from_secs(max_time));
-    if spec_timeout > 0 {
-        let limit = Duration::from_secs(spec_timeout);
-        for item in running {
-            let deadline = item.started_at + limit;
-            earliest = Some(match earliest {
-                Some(cur) => cur.min(deadline),
-                None => deadline,
-            });
+) -> Option<(Instant, DeadlineKind)> {
+    let max_d = (max_time > 0).then(|| {
+        (
+            start_time + Duration::from_secs(max_time),
+            DeadlineKind::MaxTime,
+        )
+    });
+    let spec_d = (spec_timeout > 0)
+        .then(|| {
+            let limit = Duration::from_secs(spec_timeout);
+            running
+                .iter()
+                .map(|item| item.started_at + limit)
+                .min()
+                .map(|deadline| (deadline, DeadlineKind::SpecTimeout))
+        })
+        .flatten();
+    match (max_d, spec_d) {
+        (Some((md, mk)), Some((sd, sk))) => {
+            if sd < md {
+                Some((sd, sk))
+            } else {
+                Some((md, mk))
+            }
         }
+        (Some(m), None) => Some(m),
+        (None, Some(s)) => Some(s),
+        (None, None) => None,
     }
-    earliest
 }
 
 fn next_coordinator_poll_timeout(
@@ -114,7 +136,7 @@ fn next_coordinator_poll_timeout(
     running: &[RunningSpec],
 ) -> Duration {
     let mut wait = Duration::from_secs(5);
-    if let Some(deadline) = earliest_active_deadline(start_time, max_time, spec_timeout, running) {
+    if let Some((deadline, _)) = next_active_deadline(start_time, max_time, spec_timeout, running) {
         wait = wait.min(deadline.saturating_duration_since(now));
     }
     wait
@@ -160,6 +182,75 @@ fn leak_notify_temp_dirs(msg: Notify) {
             }
         }
         Notify::Start { .. } | Notify::Stop { .. } => {}
+    }
+}
+
+/// Reconciles temporary directories from unconsumed post-cutoff notifications
+/// on timeout exit:
+/// - With `--keep-tmp-data` (`clean_tmp = false`), every directory is preserved.
+/// - With default cleanup (`clean_tmp = true`), only directories in `preserved_dirs`
+///   (those referenced by timed-out or interrupted report entries) are kept; late
+///   post-cutoff `not_run` directories (whether they emitted `Start` only or
+///   `Start` + `Done`/`Error`/`Panick`) are removed.
+fn reconcile_pending_temp_dirs(
+    pending: &mut Vec<Notify>,
+    notify_rx: &ckb_channel::Receiver<Notify>,
+    preserved_dirs: &HashSet<PathBuf>,
+    clean_tmp: bool,
+) {
+    for _ in 0..notify_rx.len() {
+        match notify_rx.try_recv() {
+            Ok(msg) => pending.push(msg),
+            Err(_) => break,
+        }
+    }
+    for msg in pending.drain(..) {
+        if !clean_tmp {
+            leak_notify_temp_dirs(msg);
+            continue;
+        }
+        match msg {
+            Notify::Start { spec_dir, .. } => {
+                if !preserved_dirs.contains(&spec_dir) {
+                    let _ = fs::remove_dir_all(&spec_dir);
+                }
+            }
+            Notify::Done {
+                spec_dir,
+                node_paths,
+                ..
+            }
+            | Notify::Panick {
+                spec_dir,
+                node_paths,
+                ..
+            } => {
+                if preserved_dirs.contains(spec_dir.path()) {
+                    spec_dir.leak();
+                    for path in node_paths {
+                        path.leak();
+                    }
+                }
+            }
+            Notify::Error {
+                spec_dir,
+                node_paths,
+                ..
+            } => {
+                if spec_dir
+                    .as_ref()
+                    .is_some_and(|dir| preserved_dirs.contains(dir.path()))
+                {
+                    if let Some(dir) = spec_dir {
+                        dir.leak();
+                    }
+                    for path in node_paths {
+                        path.leak();
+                    }
+                }
+            }
+            Notify::Stop { .. } => {}
+        }
     }
 }
 
@@ -463,12 +554,13 @@ fn run_coordinator_loop<W: WorkerControl>(
             }
             let earliest_deadline = {
                 let running = running_specs.lock();
-                earliest_active_deadline(
+                next_active_deadline(
                     options.start_time,
                     options.max_time,
                     options.spec_timeout,
                     &running,
                 )
+                .map(|(deadline, _)| deadline)
             };
             let next_idx = pending
                 .iter()
@@ -501,85 +593,26 @@ fn run_coordinator_loop<W: WorkerControl>(
             break;
         }
 
-        if options.max_time > 0
-            && options.start_time.elapsed() >= Duration::from_secs(options.max_time)
-        {
-            hit_max_time = true;
-            let cutoff = options.start_time + Duration::from_secs(options.max_time);
-            for msg in pending.drain(..) {
-                leak_notify_temp_dirs(msg);
-            }
-            let active: Vec<(String, String, Duration, PathBuf)> = running_specs
-                .lock()
-                .drain(..)
-                .map(|item| {
-                    (
-                        item.spec_name,
-                        item.base_name,
-                        cutoff.saturating_duration_since(item.started_at),
-                        item.spec_dir,
-                    )
-                })
-                .collect();
-            workers.shutdown();
-            workers.kill_active_children();
-            for (spec_name, base_name, elapsed, dir) in active {
-                let reason = format!(
-                    "exceeded --max-time {}s (elapsed {})",
-                    options.max_time,
-                    format_duration(elapsed)
-                );
-                let logs = discover_spec_log_paths(&dir, &[]);
-                let runner_log_path = logger::read_runner_log_path(&dir);
-                error!(
-                    target: "ckb_test::progress",
-                    "TIMEOUT {} {} (dir={})",
-                    spec_name,
-                    reason,
-                    dir.display()
-                );
-                test_results.push(TestResult {
-                    spec_name,
-                    base_name: base_name.clone(),
-                    status: TestResultStatus::Failed,
-                    duration: elapsed,
-                    detail: Some(reason),
-                    spec_dir: Some(dir),
-                    report_path: None,
-                    runner_log_path,
-                    node_log_paths: logs,
-                });
-                error_spec_names.push(base_name);
-                spec_errors.push(None);
-            }
-            break;
-        }
-
-        if options.spec_timeout > 0 {
-            let limit = Duration::from_secs(options.spec_timeout);
-            let now = Instant::now();
-            let (overdue, interrupted) = {
-                let mut running = running_specs.lock();
-                let earliest_spec_deadline =
-                    running.iter().map(|item| item.started_at + limit).min();
-                if let Some(cutoff) = earliest_spec_deadline
-                    && now >= cutoff
-                {
-                    let mut found = Vec::new();
-                    running.retain(|item| {
-                        if item.started_at + limit <= cutoff {
-                            found.push((
-                                item.spec_name.clone(),
-                                item.base_name.clone(),
-                                cutoff.saturating_duration_since(item.started_at),
-                                item.spec_dir.clone(),
-                            ));
-                            false
-                        } else {
-                            true
-                        }
-                    });
-                    let remaining: Vec<_> = running
+        // Dispatch timeout handling using the exact same `next_active_deadline`
+        // that gated event settlement above so `--spec-timeout` and `--max-time`
+        // always fire in true chronological order even under delayed log I/O.
+        let now = Instant::now();
+        let triggered_deadline = {
+            let running = running_specs.lock();
+            next_active_deadline(
+                options.start_time,
+                options.max_time,
+                options.spec_timeout,
+                &running,
+            )
+            .filter(|(cutoff, _)| now >= *cutoff)
+        };
+        if let Some((cutoff, kind)) = triggered_deadline {
+            match kind {
+                DeadlineKind::MaxTime => {
+                    hit_max_time = true;
+                    let active: Vec<(String, String, Duration, PathBuf)> = running_specs
+                        .lock()
                         .drain(..)
                         .map(|item| {
                             (
@@ -590,77 +623,152 @@ fn run_coordinator_loop<W: WorkerControl>(
                             )
                         })
                         .collect();
-                    (found, remaining)
-                } else {
-                    (Vec::new(), Vec::new())
-                }
-            };
-            if !overdue.is_empty() {
-                for msg in pending.drain(..) {
-                    leak_notify_temp_dirs(msg);
-                }
-                workers.shutdown();
-                workers.kill_active_children();
-                for (name, base_name, elapsed, dir) in overdue {
-                    let reason = format!(
-                        "exceeded --spec-timeout {}s (elapsed {})",
-                        options.spec_timeout,
-                        format_duration(elapsed)
+                    let preserved_dirs: HashSet<PathBuf> =
+                        active.iter().map(|(_, _, _, dir)| dir.clone()).collect();
+                    workers.shutdown();
+                    workers.kill_active_children();
+                    reconcile_pending_temp_dirs(
+                        &mut pending,
+                        notify_rx,
+                        &preserved_dirs,
+                        options.clean_tmp,
                     );
-                    error!(
-                        target: "ckb_test::progress",
-                        "TIMEOUT {} {} (dir={})",
-                        name,
-                        reason,
-                        dir.display()
-                    );
-                    let logs = discover_spec_log_paths(&dir, &[]);
-                    let runner_log_path = logger::read_runner_log_path(&dir);
-                    tail_node_logs(&logs);
-                    test_results.push(TestResult {
-                        spec_name: name.clone(),
-                        base_name: base_name.clone(),
-                        status: TestResultStatus::Failed,
-                        duration: elapsed,
-                        detail: Some(reason),
-                        spec_dir: Some(dir),
-                        report_path: None,
-                        runner_log_path,
-                        node_log_paths: logs,
-                    });
-                    timed_out_specs.push(name);
-                    error_spec_names.push(base_name);
-                    spec_errors.push(None);
+                    for (spec_name, base_name, elapsed, dir) in active {
+                        let reason = format!(
+                            "exceeded --max-time {}s (elapsed {})",
+                            options.max_time,
+                            format_duration(elapsed)
+                        );
+                        let logs = discover_spec_log_paths(&dir, &[]);
+                        let runner_log_path = logger::read_runner_log_path(&dir);
+                        error!(
+                            target: "ckb_test::progress",
+                            "TIMEOUT {} {} (dir={})",
+                            spec_name,
+                            reason,
+                            dir.display()
+                        );
+                        test_results.push(TestResult {
+                            spec_name,
+                            base_name: base_name.clone(),
+                            status: TestResultStatus::Failed,
+                            duration: elapsed,
+                            detail: Some(reason),
+                            spec_dir: Some(dir),
+                            report_path: None,
+                            runner_log_path,
+                            node_log_paths: logs,
+                        });
+                        error_spec_names.push(base_name);
+                        spec_errors.push(None);
+                    }
+                    break;
                 }
-                let interrupted_reason = format!(
-                    "interrupted because {} exceeded --spec-timeout {}s",
-                    timed_out_specs.join(", "),
-                    options.spec_timeout
-                );
-                for (name, base_name, elapsed, dir) in interrupted {
-                    let logs = discover_spec_log_paths(&dir, &[]);
-                    let runner_log_path = logger::read_runner_log_path(&dir);
-                    warn!(
-                        target: "ckb_test::progress",
-                        "ABORT {} {} (elapsed {}, dir={})",
-                        name,
-                        interrupted_reason,
-                        format_duration(elapsed),
-                        dir.display()
+                DeadlineKind::SpecTimeout => {
+                    let limit = Duration::from_secs(options.spec_timeout);
+                    let (overdue, interrupted) = {
+                        let mut running = running_specs.lock();
+                        let mut found = Vec::new();
+                        running.retain(|item| {
+                            if item.started_at + limit <= cutoff {
+                                found.push((
+                                    item.spec_name.clone(),
+                                    item.base_name.clone(),
+                                    cutoff.saturating_duration_since(item.started_at),
+                                    item.spec_dir.clone(),
+                                ));
+                                false
+                            } else {
+                                true
+                            }
+                        });
+                        let remaining: Vec<_> = running
+                            .drain(..)
+                            .map(|item| {
+                                (
+                                    item.spec_name,
+                                    item.base_name,
+                                    cutoff.saturating_duration_since(item.started_at),
+                                    item.spec_dir,
+                                )
+                            })
+                            .collect();
+                        (found, remaining)
+                    };
+                    let preserved_dirs: HashSet<PathBuf> = overdue
+                        .iter()
+                        .chain(interrupted.iter())
+                        .map(|(_, _, _, dir)| dir.clone())
+                        .collect();
+                    workers.shutdown();
+                    workers.kill_active_children();
+                    reconcile_pending_temp_dirs(
+                        &mut pending,
+                        notify_rx,
+                        &preserved_dirs,
+                        options.clean_tmp,
                     );
-                    test_results.push(TestResult {
-                        spec_name: name,
-                        base_name,
-                        status: TestResultStatus::Interrupted,
-                        duration: elapsed,
-                        detail: Some(interrupted_reason.clone()),
-                        spec_dir: Some(dir),
-                        report_path: None,
-                        runner_log_path,
-                        node_log_paths: logs,
-                    });
+                    for (name, base_name, elapsed, dir) in overdue {
+                        let reason = format!(
+                            "exceeded --spec-timeout {}s (elapsed {})",
+                            options.spec_timeout,
+                            format_duration(elapsed)
+                        );
+                        error!(
+                            target: "ckb_test::progress",
+                            "TIMEOUT {} {} (dir={})",
+                            name,
+                            reason,
+                            dir.display()
+                        );
+                        let logs = discover_spec_log_paths(&dir, &[]);
+                        let runner_log_path = logger::read_runner_log_path(&dir);
+                        tail_node_logs(&logs);
+                        test_results.push(TestResult {
+                            spec_name: name.clone(),
+                            base_name: base_name.clone(),
+                            status: TestResultStatus::Failed,
+                            duration: elapsed,
+                            detail: Some(reason),
+                            spec_dir: Some(dir),
+                            report_path: None,
+                            runner_log_path,
+                            node_log_paths: logs,
+                        });
+                        timed_out_specs.push(name);
+                        error_spec_names.push(base_name);
+                        spec_errors.push(None);
+                    }
+                    let interrupted_reason = format!(
+                        "interrupted because {} exceeded --spec-timeout {}s",
+                        timed_out_specs.join(", "),
+                        options.spec_timeout
+                    );
+                    for (name, base_name, elapsed, dir) in interrupted {
+                        let logs = discover_spec_log_paths(&dir, &[]);
+                        let runner_log_path = logger::read_runner_log_path(&dir);
+                        warn!(
+                            target: "ckb_test::progress",
+                            "ABORT {} {} (elapsed {}, dir={})",
+                            name,
+                            interrupted_reason,
+                            format_duration(elapsed),
+                            dir.display()
+                        );
+                        test_results.push(TestResult {
+                            spec_name: name,
+                            base_name,
+                            status: TestResultStatus::Interrupted,
+                            duration: elapsed,
+                            detail: Some(interrupted_reason.clone()),
+                            spec_dir: Some(dir),
+                            report_path: None,
+                            runner_log_path,
+                            node_log_paths: logs,
+                        });
+                    }
+                    break;
                 }
-                break;
             }
         }
 
@@ -2768,8 +2876,167 @@ mod tests {
         assert_eq!(outcome.timed_out_specs, vec!["Spec [2/4]".to_string()]);
         assert_eq!(control.shutdowns, 1);
         assert_eq!(control.kills, 1);
-        for p in &paths[1..] {
-            let _ = fs::remove_dir_all(p);
+        // Only the 2 report-referenced dirs (Spec [2/4] timed out, Spec [3/4] interrupted)
+        // must remain on disk; passed Spec [1/4] and post-cutoff not_run Spec [4/4] are cleaned.
+        assert!(!paths[0].exists());
+        assert!(paths[1].exists());
+        assert!(paths[2].exists());
+        assert!(!paths[3].exists());
+        let _ = fs::remove_dir_all(&paths[1]);
+        let _ = fs::remove_dir_all(&paths[2]);
+    }
+
+    #[test]
+    fn both_timeouts_enabled_picks_earlier_spec_timeout_and_cleans_not_run_dirs() {
+        // Test BOTH late Start+Done and late Start-only for not_run Spec [4/4], plus --keep-tmp-data.
+        for (late_has_done, clean_tmp) in [(true, true), (false, true), (true, false)] {
+            let (tx, rx) = unbounded();
+            let running_specs = Arc::new(Mutex::new(Vec::new()));
+            let mut control = StubWorkerControl::default();
+
+            // CI flags: --spec-timeout 1 --max-time 2, with a 2.4s log pause past BOTH deadlines.
+            // Spec [2/4] hit --spec-timeout 1 at t0+1.0s (earlier than --max-time 2 at t0+2.0s),
+            // so Spec [3/4] must be recorded as Interrupted (NOT Failed under max_time).
+            let now = Instant::now();
+            let t0 = now
+                .checked_sub(Duration::from_millis(2400))
+                .unwrap_or_else(|| {
+                    std::thread::sleep(Duration::from_millis(2400));
+                    Instant::now() - Duration::from_millis(2400)
+                });
+
+            let dirs: Vec<_> = (1..=4)
+                .map(|i| {
+                    utils::TempPathBuf::new_spec_dir(&format!(
+                        "DualTimeout-{late_has_done}-{clean_tmp}-{i}"
+                    ))
+                    .unwrap()
+                })
+                .collect();
+            let paths: Vec<PathBuf> = dirs.iter().map(|d| d.path().to_path_buf()).collect();
+            let mut dirs_iter = dirs.into_iter();
+
+            tx.send(Notify::Start {
+                spec_name: "Spec [1/4]".to_string(),
+                base_name: "Spec".to_string(),
+                spec_dir: paths[0].clone(),
+                started_at: t0,
+            })
+            .unwrap();
+            tx.send(Notify::Start {
+                spec_name: "Spec [2/4]".to_string(),
+                base_name: "Spec".to_string(),
+                spec_dir: paths[1].clone(),
+                started_at: t0,
+            })
+            .unwrap();
+            tx.send(Notify::Done {
+                spec_name: "Spec [1/4]".to_string(),
+                base_name: "Spec".to_string(),
+                duration: Duration::from_millis(400),
+                finished_at: t0 + Duration::from_millis(400),
+                spec_dir: dirs_iter.next().unwrap(),
+                node_paths: Vec::new(),
+            })
+            .unwrap();
+            tx.send(Notify::Start {
+                spec_name: "Spec [3/4]".to_string(),
+                base_name: "Spec".to_string(),
+                spec_dir: paths[2].clone(),
+                started_at: t0 + Duration::from_millis(400),
+            })
+            .unwrap();
+            tx.send(Notify::Done {
+                spec_name: "Spec [3/4]".to_string(),
+                base_name: "Spec".to_string(),
+                duration: Duration::from_millis(700),
+                finished_at: t0 + Duration::from_millis(1100),
+                spec_dir: dirs_iter.next().unwrap(),
+                node_paths: Vec::new(),
+            })
+            .unwrap();
+            tx.send(Notify::Start {
+                spec_name: "Spec [4/4]".to_string(),
+                base_name: "Spec".to_string(),
+                spec_dir: paths[3].clone(),
+                started_at: t0 + Duration::from_millis(1100),
+            })
+            .unwrap();
+            tx.send(Notify::Done {
+                spec_name: "Spec [2/4]".to_string(),
+                base_name: "Spec".to_string(),
+                duration: Duration::from_millis(1200),
+                finished_at: t0 + Duration::from_millis(1200),
+                spec_dir: dirs_iter.next().unwrap(),
+                node_paths: Vec::new(),
+            })
+            .unwrap();
+            // Keep Spec [4/4]'s TempPathBuf alive in a worker-like owner when `late_has_done == false`
+            // (simulating timeout exit before worker unwinds).
+            let late_dir = dirs_iter.next().unwrap();
+            let _leaked_worker_owner = if late_has_done {
+                tx.send(Notify::Done {
+                    spec_name: "Spec [4/4]".to_string(),
+                    base_name: "Spec".to_string(),
+                    duration: Duration::from_millis(200),
+                    finished_at: t0 + Duration::from_millis(1300),
+                    spec_dir: late_dir,
+                    node_paths: Vec::new(),
+                })
+                .unwrap();
+                None
+            } else {
+                Some(late_dir.leak())
+            };
+
+            let outcome = run_coordinator_loop(
+                &rx,
+                &running_specs,
+                &mut control,
+                &CoordinatorOptions {
+                    total: 4,
+                    worker_count: 2,
+                    start_time: t0,
+                    max_time: 2,
+                    spec_timeout: 1,
+                    fail_fast: true,
+                    verbose: false,
+                    clean_tmp,
+                },
+            );
+
+            let payload =
+                build_json_report_payload(&outcome.test_results, 4, Duration::from_secs(1), 1);
+            assert!(
+                !outcome.hit_max_time,
+                "earlier --spec-timeout 1 must win over --max-time 2"
+            );
+            assert_eq!(outcome.timed_out_specs, vec!["Spec [2/4]".to_string()]);
+            assert_eq!(payload["passed"], 1);
+            assert_eq!(payload["failed"], 1);
+            assert_eq!(payload["interrupted"], 1);
+            assert_eq!(payload["not_run"], 1);
+
+            if clean_tmp {
+                assert!(!paths[0].exists(), "passed spec dir should be cleaned");
+                assert!(paths[1].exists(), "timed-out spec dir must be preserved");
+                assert!(paths[2].exists(), "interrupted spec dir must be preserved");
+                assert!(
+                    !paths[3].exists(),
+                    "post-cutoff not_run spec dir must be cleaned (late_has_done={late_has_done})"
+                );
+            } else {
+                for (idx, p) in paths.iter().enumerate() {
+                    assert!(
+                        p.exists(),
+                        "--keep-tmp-data must preserve all 4 dirs (missing idx={idx})"
+                    );
+                }
+            }
+
+            for p in &paths {
+                let _ = fs::remove_dir_all(p);
+            }
         }
     }
 }
