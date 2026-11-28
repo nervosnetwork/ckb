@@ -3,7 +3,7 @@ use crate::{Result, internal_error};
 use ckb_db_schema::Col;
 use ckb_logger::info;
 use rocksdb::ops::{GetColumnFamilys, GetPinned, GetPinnedCF, OpenCF};
-use rocksdb::{DBPinnableSlice, Options, ReadOnlyDB as RawReadOnlyDB};
+use rocksdb::{DBPinnableSlice, FullOptions, Options, ReadOnlyDB as RawReadOnlyDB};
 use std::path::Path;
 use std::sync::Arc;
 
@@ -25,7 +25,28 @@ impl ReadOnlyDB {
         I: IntoIterator<Item = N>,
         N: AsRef<str>,
     {
-        let opts = Options::default();
+        Self::open_cf_with_options_file(path, cf_names, None)
+    }
+
+    /// Open a database in read-only mode, optionally loading DB-level options (such as `wal_dir`)
+    /// from `options_file`.
+    pub fn open_cf_with_options_file<P, I, N>(
+        path: P,
+        cf_names: I,
+        options_file: Option<&Path>,
+    ) -> Result<Option<Self>>
+    where
+        P: AsRef<Path>,
+        I: IntoIterator<Item = N>,
+        N: AsRef<str>,
+    {
+        let opts = if let Some(file) = options_file {
+            FullOptions::load_from_file_with_cache(file, None, false)
+                .map_err(|err| internal_error(format!("failed to load the options file: {err}")))?
+                .db_opts
+        } else {
+            Options::default()
+        };
         RawReadOnlyDB::open_cf(&opts, path, cf_names).map_or_else(
             |err| {
                 let err_str = err.as_ref();

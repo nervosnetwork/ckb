@@ -26,6 +26,8 @@ pub static SHUTDOWN_BACKGROUND_MIGRATION: OnceLock<bool> = OnceLock::new();
 #[cfg(test)]
 mod tests;
 
+const PATCH_220464F_VERSION: &str = "20210609195048"; // AddExtraDataHash - 1
+
 fn internal_error(reason: String) -> Error {
     InternalErrorKind::Database.other(reason).into()
 }
@@ -161,9 +163,13 @@ impl Migrations {
                 String::from_utf8(version_bytes.to_vec()).expect("version bytes to utf8")
             }
             None => {
-                // if version is none, but db is not empty
-                // patch 220464f
-                return self.is_non_empty_rdb(db);
+                // if version is none, but db is not empty, patch 220464f runs all
+                // migrations after PATCH_220464F_VERSION.
+                if self.is_non_empty_rdb(db) {
+                    PATCH_220464F_VERSION.to_string()
+                } else {
+                    return false;
+                }
             }
         };
 
@@ -187,9 +193,13 @@ impl Migrations {
                 String::from_utf8(version_bytes.to_vec()).expect("version bytes to utf8")
             }
             None => {
-                // if version is none, but db is not empty
-                // patch 220464f
-                return self.is_non_empty_rdb(db);
+                // if version is none, but db is not empty, patch 220464f runs all
+                // migrations after PATCH_220464F_VERSION.
+                if self.is_non_empty_rdb(db) {
+                    PATCH_220464F_VERSION.to_string()
+                } else {
+                    return false;
+                }
             }
         };
 
@@ -322,8 +332,7 @@ impl Migrations {
     }
 
     fn patch_220464f(&self, db: RocksDB) -> Result<RocksDB, Error> {
-        const V: &str = "20210609195048"; // AddExtraDataHash - 1
-        self.run_migrate(db, V)
+        self.run_migrate(db, PATCH_220464F_VERSION)
     }
 
     fn check_migration_downgrade(&self, cur_version: &str) -> Result<(), Error> {

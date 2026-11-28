@@ -62,7 +62,45 @@ pub fn open_or_create_db(
     config: &DBConfig,
     hardforks: HardForks,
 ) -> Result<RocksDB, ExitCode> {
-    let migrate = Migrate::new(&config.path, hardforks);
+    let _sst_rebuild_lock = Migrate::acquire_shared_lock(&config.path).map_err(|e| {
+        eprintln!("Migration error {e}");
+        ExitCode::Failure
+    })?;
+    let migrate = Migrate::new(&config.path, hardforks)
+        .with_options_file(config.options_file.as_ref().filter(|p| p.exists()).cloned());
+
+    if Migrate::has_pending_sst_rebuild(&config.path) {
+        eprintln!(
+            "An interrupted SST rebuild cutover was detected for database {}.\n\
+             Refusing to initialize or open the database until recovery completes.\n\
+             Run `\"{}\" migrate -C \"{}\" --sst-rebuild` to finish cutover recovery.",
+            config.path.display(),
+            bin_name,
+            root_dir.display()
+        );
+        return Err(ExitCode::Failure);
+    }
+
+    let detected_schema = RocksDB::detect_schema(&config.path).map_err(|e| {
+        eprintln!("Migration error {e}");
+        ExitCode::Failure
+    })?;
+    let open_v1_db = || -> Result<RocksDB, ExitCode> {
+        RocksDB::open_with_check(config, Schema::V1).map_err(|e| {
+            eprintln!("{e}");
+            ExitCode::Failure
+        })
+    };
+    let reject_legacy_schema = || -> ExitCode {
+        eprintln!(
+            "Database {} uses the legacy column-family schema and cannot be opened directly.\n\
+             Run `\"{}\" migrate -C \"{}\" --sst-rebuild` to migrate, or remove an empty legacy database directory.",
+            config.path.display(),
+            bin_name,
+            root_dir.display()
+        );
+        ExitCode::Failure
+    };
 
     let read_only_db = migrate.open_read_only_db().map_err(|e| {
         eprintln!("Migration error {e}");
@@ -79,7 +117,12 @@ pub fn open_or_create_db(
                 );
                 Err(ExitCode::Failure)
             }
-            Ordering::Equal => Ok(RocksDB::open(config, Schema::V1)),
+            Ordering::Equal => {
+                if detected_schema == Some(Schema::Legacy) {
+                    return Err(reject_legacy_schema());
+                }
+                open_v1_db()
+            }
             Ordering::Less => {
                 let can_run_in_background = migrate.can_run_in_background(&db);
                 if migrate.require_expensive(&db, false) && !can_run_in_background {
@@ -94,8 +137,11 @@ pub fn open_or_create_db(
                     );
                     Err(ExitCode::Failure)
                 } else if can_run_in_background {
+                    if detected_schema == Some(Schema::Legacy) {
+                        return Err(reject_legacy_schema());
+                    }
                     info!("process migrations in background ...");
-                    let db = RocksDB::open(config, Schema::V1);
+                    let db = open_v1_db()?;
                     migrate.migrate(db.clone(), true).map_err(|err| {
                         eprintln!("Run error: {err:?}");
                         ExitCode::Failure
@@ -116,12 +162,15 @@ pub fn open_or_create_db(
                         })?;
                     }
 
-                    Ok(RocksDB::open(config, Schema::V1))
+                    if detected_schema == Some(Schema::Legacy) {
+                        return Err(reject_legacy_schema());
+                    }
+                    open_v1_db()
                 }
             }
         }
     } else {
-        let db = RocksDB::open(config, Schema::V1);
+        let db = open_v1_db()?;
         migrate.init_db_version(&db).map_err(|e| {
             eprintln!("Migrate init_db_version error {e}");
             ExitCode::Failure
@@ -376,6 +425,13 @@ impl SharedBuilder {
 
         let ibd_finished = Arc::new(AtomicBool::new(false));
 
+        if let Some(ref tmp_dir) = header_map_tmp_dir {
+            std::fs::create_dir_all(tmp_dir).map_err(|err| {
+                eprintln!("create header_map tmp_dir error {err}");
+                ExitCode::Failure
+            })?;
+        }
+
         let header_map = Arc::new(HeaderMap::new(
             header_map_tmp_dir,
             header_map_memory_limit,
@@ -530,6 +586,8 @@ fn build_store(
     ancient_path: Option<PathBuf>,
 ) -> Result<ChainDB, Error> {
     let store = if let (true, Some(ancient_path)) = (store_config.freezer_enable, ancient_path) {
+        std::fs::create_dir_all(&ancient_path)
+            .map_err(|err| InternalErrorKind::Database.other(err))?;
         let freezer = Freezer::open(ancient_path)?;
         ChainDB::new_with_freezer(db, freezer, store_config)
     } else {

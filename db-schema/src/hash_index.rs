@@ -33,12 +33,45 @@ impl BlockHashIndexValue {
 
     /// Decodes `Uint64(block_number, big-endian) + u8(BlockIndexFlag)`.
     pub fn decode(value: &[u8]) -> Option<Self> {
-        let number = u64::from_be_bytes(value.get(0..8)?.try_into().ok()?);
-        let flag = match *value.get(8)? {
+        if value.len() != Self::SIZE {
+            return None;
+        }
+        let number = u64::from_be_bytes(value[0..8].try_into().ok()?);
+        let flag = match value[8] {
             0x00 => BlockIndexFlag::Fork,
             0x01 => BlockIndexFlag::MainChain,
             _ => return None,
         };
         Some(Self { number, flag })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn decode_requires_exact_length_and_valid_flag() {
+        let encoded = BlockHashIndexValue {
+            number: 42,
+            flag: BlockIndexFlag::MainChain,
+        }
+        .encode();
+        assert_eq!(
+            BlockHashIndexValue::decode(&encoded),
+            Some(BlockHashIndexValue {
+                number: 42,
+                flag: BlockIndexFlag::MainChain,
+            })
+        );
+        assert_eq!(BlockHashIndexValue::decode(&encoded[..8]), None);
+
+        let mut trailing = encoded.to_vec();
+        trailing.push(0);
+        assert_eq!(BlockHashIndexValue::decode(&trailing), None);
+
+        let mut bad_flag = encoded;
+        bad_flag[8] = 2;
+        assert_eq!(BlockHashIndexValue::decode(&bad_flag), None);
     }
 }

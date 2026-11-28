@@ -274,3 +274,106 @@ fn test_export_dev_config_files_assembly() {
         assert_eq!(miner_config.miner.client.rpc_url, "http://127.0.0.1:7000/");
     }
 }
+
+#[test]
+fn test_run_config_does_not_create_db_path_eagerly() {
+    let dir = mkdir();
+    let context = TemplateContext::new(
+        "dev",
+        vec![
+            ("rpc_port", "7000"),
+            ("p2p_port", "8000"),
+            ("log_to_file", "false"),
+            ("log_to_stdout", "true"),
+            ("block_assembler", ""),
+            ("spec_source", "bundled"),
+        ],
+    );
+    Resource::bundled_ckb_config()
+        .export(&context, dir.path())
+        .expect("export config files");
+
+    let app_config = AppConfig::load_for_subcommand(dir.path(), cli::CMD_RUN)
+        .unwrap_or_else(|err| std::panic::panic_any(err));
+    let ckb_config = app_config
+        .into_ckb()
+        .unwrap_or_else(|err| std::panic::panic_any(err));
+    assert!(ckb_config.data_dir.exists());
+    assert!(
+        !ckb_config.db.path.exists(),
+        "run subcommand must not eagerly mkdir db.path before acquiring the rebuild lock"
+    );
+}
+
+#[test]
+fn test_migrate_config_does_not_create_db_path_eagerly() {
+    let dir = mkdir();
+    let context = TemplateContext::new(
+        "dev",
+        vec![
+            ("rpc_port", "7000"),
+            ("p2p_port", "8000"),
+            ("log_to_file", "false"),
+            ("log_to_stdout", "true"),
+            ("block_assembler", ""),
+            ("spec_source", "bundled"),
+        ],
+    );
+    Resource::bundled_ckb_config()
+        .export(&context, dir.path())
+        .expect("export config files");
+
+    let app_config = AppConfig::load_for_subcommand(dir.path(), "migrate")
+        .unwrap_or_else(|err| std::panic::panic_any(err));
+    let ckb_config = app_config
+        .into_ckb()
+        .unwrap_or_else(|err| std::panic::panic_any(err));
+    assert!(ckb_config.data_dir.exists());
+    assert!(
+        !ckb_config.db.path.exists(),
+        "migrate subcommand must not eagerly mkdir db.path before acquiring the rebuild lock"
+    );
+}
+
+#[test]
+fn test_config_defers_tmp_dir_and_ancient_under_db_path() {
+    let dir = mkdir();
+    let context = TemplateContext::new(
+        "dev",
+        vec![
+            ("rpc_port", "7000"),
+            ("p2p_port", "8000"),
+            ("log_to_file", "false"),
+            ("log_to_stdout", "true"),
+            ("block_assembler", ""),
+            ("spec_source", "bundled"),
+        ],
+    );
+    Resource::bundled_ckb_config()
+        .export(&context, dir.path())
+        .expect("export config files");
+
+    let ckb_toml_path = dir.path().join("ckb.toml");
+    // Use uppercase `DB` to cover case-insensitive filesystems (macOS APFS / Windows NTFS)
+    // where `data/DB/tmp` aliases `data/db/tmp` while `data/db` is absent mid-cutover.
+    let nested_tmp = dir.path().join("data").join("DB").join("tmp");
+    let nested_ancient = dir.path().join("data").join("DB").join("ancient");
+    let nested_tmp_toml = toml::Value::String(nested_tmp.to_string_lossy().into_owned());
+    let nested_ancient_toml = toml::Value::String(nested_ancient.to_string_lossy().into_owned());
+    let original = std::fs::read_to_string(&ckb_toml_path).unwrap();
+    let updated =
+        format!("tmp_dir = {nested_tmp_toml}\nancient = {nested_ancient_toml}\n{original}");
+    std::fs::write(&ckb_toml_path, updated).unwrap();
+
+    let app_config = AppConfig::load_for_subcommand(dir.path(), cli::CMD_RUN)
+        .unwrap_or_else(|err| std::panic::panic_any(err));
+    let ckb_config = app_config
+        .into_ckb()
+        .unwrap_or_else(|err| std::panic::panic_any(err));
+    assert!(
+        !ckb_config.db.path.exists(),
+        "loading config must not create db.path via nested tmp_dir or ancient"
+    );
+    assert!(!nested_tmp.exists());
+    assert!(!nested_ancient.exists());
+}

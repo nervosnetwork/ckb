@@ -26,6 +26,12 @@ ckb-merkle-mountain-range.workspace = true
 tempfile.workspace = true
 num_cpus.workspace = true
 rayon.workspace = true
+snap.workspace = true
+
+[target.'cfg(unix)'.dependencies]
+libc.workspace = true
+
+[target.'cfg(not(unix))'.dependencies]
 sysinfo.workspace = true
 
 [dev-dependencies]

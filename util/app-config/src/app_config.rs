@@ -287,9 +287,10 @@ impl CKBAppConfig {
             .expect("DATA_DIR is empty");
 
         self.db.adjust(root_dir, &self.data_dir, "db");
-        self.ancient = mkdir(path_specified_or_else(&self.ancient, || {
-            self.data_dir.join("ancient")
-        }))?;
+        // Do not eagerly create `self.db.path`, `self.ancient`, or `self.tmp_dir` before acquiring
+        // the SST rebuild shared lock; `SharedBuilder::build` and RocksDB create them on demand
+        // after startup checks pass (avoiding case-insensitive spelling mismatches like `DB/tmp`).
+        self.ancient = path_specified_or_else(&self.ancient, || self.data_dir.join("ancient"));
 
         self.network.path = self.data_dir.join("network");
         if self.tmp_dir.is_none() {
@@ -298,23 +299,19 @@ impl CKBAppConfig {
         self.logger.log_dir = self.data_dir.join("logs");
         self.logger.file = Path::new(&(subcommand_name.to_string() + ".log")).to_path_buf();
 
-        let tx_pool_path = mkdir(self.data_dir.join("tx_pool"))?;
+        let tx_pool_path = mkdir_if_outside_db(self.data_dir.join("tx_pool"), &self.db.path)?;
         self.tx_pool.adjust(root_dir, tx_pool_path);
 
-        let indexer_path = mkdir(self.data_dir.join("indexer"))?;
+        let indexer_path = mkdir_if_outside_db(self.data_dir.join("indexer"), &self.db.path)?;
         self.indexer.adjust(root_dir, indexer_path);
 
         if subcommand_name == cli::CMD_RESET_DATA {
             return Ok(self);
         }
 
-        self.data_dir = mkdir(self.data_dir)?;
-        self.db.path = mkdir(self.db.path)?;
-        self.network.path = mkdir(self.network.path)?;
-        if let Some(tmp_dir) = self.tmp_dir {
-            self.tmp_dir = Some(mkdir(tmp_dir)?);
-        }
-        if self.logger.log_to_file {
+        self.data_dir = mkdir_if_outside_db(self.data_dir, &self.db.path)?;
+        self.network.path = mkdir_if_outside_db(self.network.path, &self.db.path)?;
+        if self.logger.log_to_file && !is_within_dir(&self.logger.log_dir, &self.db.path) {
             mkdir(self.logger.log_dir.clone())?;
             touch(self.logger.log_dir.join(&self.logger.file))?;
         }
@@ -359,6 +356,66 @@ fn canonicalize_data_dir(data_dir: PathBuf, root_dir: &Path) -> PathBuf {
     } else {
         root_dir.join(data_dir)
     }
+}
+
+fn normalize_for_containment(path: &Path) -> PathBuf {
+    let abs = if path.is_absolute() {
+        path.to_path_buf()
+    } else if let Ok(cwd) = std::env::current_dir() {
+        cwd.join(path)
+    } else {
+        path.to_path_buf()
+    }
+    .clean();
+
+    let mut existing = abs.as_path();
+    let mut suffix = Vec::new();
+    while !existing.exists() {
+        let Some(name) = existing.file_name() else {
+            return abs;
+        };
+        suffix.push(name.to_os_string());
+        let Some(parent) = existing.parent() else {
+            return abs;
+        };
+        existing = parent;
+    }
+    let mut resolved = fs::canonicalize(existing).unwrap_or_else(|_| existing.to_path_buf());
+    for name in suffix.into_iter().rev() {
+        resolved.push(name);
+    }
+    resolved
+}
+
+fn is_within_dir(candidate: &Path, base: &Path) -> bool {
+    let candidate = normalize_for_containment(candidate);
+    let base = normalize_for_containment(base);
+    #[cfg(any(target_os = "macos", target_os = "windows"))]
+    {
+        let mut candidate_parts = candidate
+            .components()
+            .map(|c| c.as_os_str().to_string_lossy().to_lowercase());
+        for base_part in base
+            .components()
+            .map(|c| c.as_os_str().to_string_lossy().to_lowercase())
+        {
+            if candidate_parts.next().as_deref() != Some(base_part.as_str()) {
+                return false;
+            }
+        }
+        true
+    }
+    #[cfg(not(any(target_os = "macos", target_os = "windows")))]
+    {
+        candidate.starts_with(base)
+    }
+}
+
+fn mkdir_if_outside_db(dir: PathBuf, db_path: &Path) -> Result<PathBuf, ExitCode> {
+    if !is_within_dir(&dir, db_path) {
+        fs::create_dir_all(dir.clean())?;
+    }
+    Ok(dir)
 }
 
 fn mkdir(dir: PathBuf) -> Result<PathBuf, ExitCode> {

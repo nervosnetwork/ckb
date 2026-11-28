@@ -129,6 +129,180 @@ fn get_block_number_returns_only_main_chain_blocks() {
 }
 
 #[test]
+fn stored_block_number_preserves_snapshot_and_rollback_isolation() {
+    let tmp_dir = TempDir::new().unwrap();
+    let db = RocksDB::open_in(&tmp_dir, Schema::V1);
+    let store = ChainDB::new(db, Default::default());
+    let consensus = ConsensusBuilder::default().build();
+    let genesis_hash = consensus.genesis_block().hash();
+
+    store.init(&consensus).unwrap();
+
+    let raw = packed::RawHeader::new_builder()
+        .parent_hash(genesis_hash)
+        .number(1u64)
+        .build();
+    let fork = packed::Block::new_builder()
+        .header(packed::Header::new_builder().raw(raw).build())
+        .transactions(vec![packed::Transaction::new_builder().build()])
+        .build()
+        .into_view();
+    let fork_hash = fork.hash();
+
+    let before_snapshot = store.get_snapshot();
+
+    // Uncommitted insert must not leak to existing snapshots or survive rollback.
+    let txn = store.begin_transaction();
+    txn.insert_block(&fork).unwrap();
+    assert_eq!(txn.get_stored_block_number(&fork_hash), Some(1));
+    assert_eq!(before_snapshot.get_stored_block_number(&fork_hash), None);
+    assert_eq!(store.get_stored_block_number(&fork_hash), None);
+    drop(txn);
+
+    assert_eq!(store.get_stored_block_number(&fork_hash), None);
+    assert!(!store.block_exists(&fork_hash));
+
+    // Committed insert must still be invisible to earlier snapshots, but visible to new ones.
+    let txn = store.begin_transaction();
+    txn.insert_block(&fork).unwrap();
+    txn.commit().unwrap();
+
+    assert_eq!(before_snapshot.get_stored_block_number(&fork_hash), None);
+    let after_snapshot = store.get_snapshot();
+    assert_eq!(after_snapshot.get_stored_block_number(&fork_hash), Some(1));
+    assert_eq!(
+        after_snapshot.get_block_header(&fork_hash),
+        Some(fork.header())
+    );
+}
+
+#[test]
+fn delete_block_invalidates_cache_after_commit_against_concurrent_repopulation() {
+    let tmp_dir = TempDir::new().unwrap();
+    let db = RocksDB::open_in(&tmp_dir, Schema::V1);
+    let store = ChainDB::new(db, Default::default());
+    let consensus = ConsensusBuilder::default().build();
+    let genesis_hash = consensus.genesis_block().hash();
+
+    store.init(&consensus).unwrap();
+
+    let raw = packed::RawHeader::new_builder()
+        .parent_hash(genesis_hash)
+        .number(1u64)
+        .build();
+    let block = packed::Block::new_builder()
+        .header(packed::Header::new_builder().raw(raw).build())
+        .build()
+        .into_view();
+    let block_hash = block.hash();
+
+    let txn = store.begin_transaction();
+    txn.insert_block(&block).unwrap();
+    txn.commit().unwrap();
+
+    // Warm the shared header cache.
+    assert_eq!(store.get_block_header(&block_hash), Some(block.header()));
+
+    // Start a delete transaction, then simulate a concurrent reader repopulating the shared cache
+    // before the transaction commits.
+    let delete_txn = store.begin_transaction();
+    delete_txn.delete_block(&block).unwrap();
+    assert_eq!(store.get_block_header(&block_hash), Some(block.header()));
+
+    // Once commit succeeds, the post-commit invalidation must clear the repopulated cache entry.
+    delete_txn.commit().unwrap();
+    assert!(!store.block_exists(&block_hash));
+    assert_eq!(store.get_block_header(&block_hash), None);
+}
+
+#[test]
+fn delete_block_prevents_surviving_snapshot_from_repopulating_live_cache() {
+    let tmp_dir = TempDir::new().unwrap();
+    let db = RocksDB::open_in(&tmp_dir, Schema::V1);
+    let store = ChainDB::new(db, Default::default());
+    let consensus = ConsensusBuilder::default().build();
+    let genesis_hash = consensus.genesis_block().hash();
+
+    store.init(&consensus).unwrap();
+
+    let pre_insert_snapshot = store.get_snapshot();
+
+    let raw = packed::RawHeader::new_builder()
+        .parent_hash(genesis_hash)
+        .number(1u64)
+        .build();
+    let tx = packed::Transaction::default();
+    let proposal = packed::ProposalShortId::new([7u8; 10]);
+    let extension = packed::Bytes::from(vec![1u8, 2, 3, 4]);
+    let block = packed::BlockV1::new_builder()
+        .header(packed::Header::new_builder().raw(raw).build())
+        .transactions(packed::TransactionVec::new_builder().push(tx).build())
+        .proposals(
+            packed::ProposalShortIdVec::new_builder()
+                .push(proposal)
+                .build(),
+        )
+        .extension(extension.clone())
+        .build()
+        .as_v0()
+        .into_view();
+    let block_hash = block.hash();
+
+    let txn = store.begin_transaction();
+    txn.insert_block(&block).unwrap();
+    txn.commit().unwrap();
+
+    // Warm the shared caches via the live store; an earlier snapshot must still not see the block.
+    assert_eq!(store.get_block_header(&block_hash), Some(block.header()));
+    assert!(!pre_insert_snapshot.block_exists(&block_hash));
+    assert_eq!(pre_insert_snapshot.get_block_header(&block_hash), None);
+
+    // Take a snapshot while the block is live, then delete the block and commit.
+    let surviving_snapshot = store.get_snapshot();
+    let delete_txn = store.begin_transaction();
+    delete_txn.delete_block(&block).unwrap();
+    delete_txn.commit().unwrap();
+
+    // The surviving snapshot legitimately reads the deleted block and repopulates the shared cache.
+    assert!(surviving_snapshot.block_exists(&block_hash));
+    assert_eq!(
+        surviving_snapshot.get_block_header(&block_hash),
+        Some(block.header())
+    );
+    assert_eq!(
+        surviving_snapshot
+            .get_block_uncles(&block_hash)
+            .map(|u| u.data().as_slice().to_vec()),
+        Some(block.uncles().data().as_slice().to_vec())
+    );
+    assert_eq!(
+        surviving_snapshot
+            .get_block_proposal_txs_ids(&block_hash)
+            .map(|p| p.as_slice().to_vec()),
+        Some(block.data().proposals().as_slice().to_vec())
+    );
+    assert_eq!(
+        surviving_snapshot
+            .get_block_extension(&block_hash)
+            .map(|e| e.as_slice().to_vec()),
+        Some(extension.as_slice().to_vec())
+    );
+    assert_eq!(
+        surviving_snapshot.get_block_txs_hashes(&block_hash),
+        block.tx_hashes().to_vec()
+    );
+
+    // Live store views must still report the deleted block as absent despite the repopulated cache.
+    assert!(!store.block_exists(&block_hash));
+    assert_eq!(store.get_block_header(&block_hash), None);
+    assert!(store.get_block_uncles(&block_hash).is_none());
+    assert!(store.get_block_proposal_txs_ids(&block_hash).is_none());
+    assert!(store.get_block_extension(&block_hash).is_none());
+    assert!(store.get_block_txs_hashes(&block_hash).is_empty());
+    assert_eq!(store.get_block(&block_hash), None);
+}
+
+#[test]
 fn delete_block_removes_hash_index_and_block_keyed_metadata() {
     let tmp_dir = TempDir::new().unwrap();
     let db = RocksDB::open_in(&tmp_dir, Schema::V1);

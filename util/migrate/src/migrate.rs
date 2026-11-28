@@ -1,14 +1,16 @@
 //! migrate helper
 
 use crate::migrations;
-use crate::sst_rebuild::{DiskSpaceReport, SstRebuild, disk_space_report};
+use crate::sst_rebuild::{
+    DiskSpaceReport, SstRebuild, SstRebuildLock, disk_space_report, promoting_marker_path,
+};
 use ckb_db::{ReadOnlyDB, RocksDB, Schema};
 use ckb_db_migration::{DefaultMigration, Migrations};
 use ckb_db_schema::{COLUMN_META, legacy};
 use ckb_error::Error;
 use ckb_types::core::hardfork::HardForks;
 use std::cmp::Ordering;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 const INIT_DB_VERSION: &str = "20191127135521";
@@ -17,6 +19,7 @@ const INIT_DB_VERSION: &str = "20191127135521";
 pub struct Migrate {
     migrations: Migrations,
     path: PathBuf,
+    options_file: Option<PathBuf>,
 }
 
 impl Migrate {
@@ -38,14 +41,48 @@ impl Migrate {
         Migrate {
             migrations,
             path: path.into(),
+            options_file: None,
         }
+    }
+
+    /// Attach the node's RocksDB options file for SST rebuild validation and opening.
+    pub fn with_options_file(mut self, options_file: Option<PathBuf>) -> Self {
+        self.options_file = options_file;
+        self
+    }
+
+    /// Acquire a shared sibling lock coordinating startup probing/opening with `--sst-rebuild`.
+    pub fn acquire_shared_lock(path: &Path) -> Result<SstRebuildLock, Error> {
+        SstRebuildLock::acquire_shared(path)
+    }
+
+    /// Return whether an interrupted SST rebuild cutover marker exists for `path`.
+    pub fn has_pending_sst_rebuild(path: &Path) -> bool {
+        promoting_marker_path(path).exists()
     }
 
     /// Open read only db
     pub fn open_read_only_db(&self) -> Result<Option<ReadOnlyDB>, Error> {
-        // open cf meta column for empty check
-        ReadOnlyDB::open_cf(&self.path, vec![COLUMN_META])
-            .or_else(|_| ReadOnlyDB::open_cf(&self.path, vec![legacy::COLUMN_META]))
+        let Some(schema) = RocksDB::detect_schema(&self.path)? else {
+            return Ok(None);
+        };
+        let meta_col = match schema {
+            Schema::V1 => COLUMN_META,
+            Schema::Legacy => legacy::COLUMN_META,
+        };
+        ReadOnlyDB::open_cf_with_options_file(
+            &self.path,
+            vec![meta_col],
+            self.options_file.as_deref(),
+        )
+    }
+
+    /// Validate that any configured `options_file` does not place `wal_dir` outside `self.path`.
+    pub fn check_wal_dir(&self) -> Result<(), Error> {
+        if let Some(ref file) = self.options_file {
+            RocksDB::check_options_file_wal_dir(&self.path, file)?;
+        }
+        Ok(())
     }
 
     /// Check if database's version is matched with the executable binary version.
@@ -72,11 +109,14 @@ impl Migrate {
 
     /// Open bulk load db.
     pub fn open_bulk_load_db(&self) -> Result<Option<RocksDB>, Error> {
-        let schema = match ReadOnlyDB::open_cf(&self.path, vec![COLUMN_META]) {
-            Ok(_) => Schema::V1,
-            Err(_) => Schema::Legacy,
+        let Some(schema) = RocksDB::detect_schema(&self.path)? else {
+            return Ok(None);
         };
-        RocksDB::prepare_for_bulk_load_open(&self.path, schema)
+        RocksDB::prepare_for_bulk_load_open_with_options(
+            &self.path,
+            schema,
+            self.options_file.as_deref(),
+        )
     }
 
     /// Perform migrate.
@@ -94,13 +134,38 @@ impl Migrate {
         disk_space_report(&self.path)
     }
 
+    /// Perform fast read-only preflight checks (paths, options, schema, legacy version) before
+    /// interactive prompts or measuring database size.
+    pub fn preflight_sst_rebuild(&self) -> Result<(), Error> {
+        let mut rebuild = SstRebuild::new(self.path.clone())?;
+        if let Some(ref options_file) = self.options_file {
+            rebuild = rebuild.with_options_file(options_file.clone());
+        }
+        rebuild.preflight()
+    }
+
     /// Rebuild the database into the new RocksDB key schema using external SST ingestion.
     pub fn sst_rebuild(self, allow_insufficient_space: bool) -> Result<(), Error> {
-        let rebuild = SstRebuild::new(self.path)?;
-        if allow_insufficient_space {
-            rebuild.allow_insufficient_space().run()
-        } else {
-            rebuild.run()
+        self.sst_rebuild_with_post_swap(allow_insufficient_space, || Ok(()))
+    }
+
+    /// Rebuild the database using external SST ingestion, running `post_swap` before clearing
+    /// the crash-recovery cutover marker.
+    pub fn sst_rebuild_with_post_swap<F>(
+        self,
+        allow_insufficient_space: bool,
+        post_swap: F,
+    ) -> Result<(), Error>
+    where
+        F: FnOnce() -> Result<(), Error>,
+    {
+        let mut rebuild = SstRebuild::new(self.path)?;
+        if let Some(options_file) = self.options_file {
+            rebuild = rebuild.with_options_file(options_file);
         }
+        if allow_insufficient_space {
+            rebuild = rebuild.allow_insufficient_space();
+        }
+        rebuild.run_with_post_swap(post_swap)
     }
 }

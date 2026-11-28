@@ -300,3 +300,47 @@ fn test_background_migration() {
         assert_eq!(v, vec![2]);
     }
 }
+
+#[test]
+fn test_unversioned_non_empty_legacy_db_cannot_run_foreground_migration_in_background() {
+    use ckb_db::Schema;
+    use ckb_db_schema::{META_TIP_HEADER_KEY, legacy};
+
+    struct ForegroundMigration;
+    impl Migration for ForegroundMigration {
+        fn migrate(
+            &self,
+            db: RocksDB,
+            _pb: Arc<dyn Fn(u64) -> ProgressBar + Send + Sync>,
+        ) -> Result<RocksDB, Error> {
+            Ok(db)
+        }
+        fn version(&self) -> &str {
+            "20260421000000"
+        }
+    }
+
+    let tmp_dir = tempfile::Builder::new()
+        .prefix("test_unversioned_non_empty_legacy_db")
+        .tempdir()
+        .unwrap();
+    let db_path = tmp_dir.as_ref().join("db");
+    {
+        let db = RocksDB::open_in(&db_path, Schema::Legacy);
+        let txn = db.transaction();
+        txn.put(legacy::COLUMN_META, META_TIP_HEADER_KEY, &[0x42u8; 32])
+            .unwrap();
+        txn.commit().unwrap();
+        drop(txn);
+    }
+
+    let mut migrations = Migrations::default();
+    migrations.add_migration(Arc::new(DefaultMigration::new("20191127135521")));
+    migrations.add_migration(Arc::new(ForegroundMigration));
+
+    let ro_db = ReadOnlyDB::open_cf(&db_path, vec![legacy::COLUMN_META])
+        .unwrap()
+        .unwrap();
+    assert!(!migrations.can_run_in_background(&ro_db));
+    assert!(migrations.expensive(&ro_db, false));
+}
